@@ -1,6 +1,6 @@
 import pickle
 from scipy.spatial import Delaunay
-from plotting import plot_mesh
+from utils.plotting import plot_mesh
 
 def load_points(pkl_file, plot=False):
     global points, triangulation, faces, boundary

@@ -21,15 +21,16 @@ Given a function f(x, y), we can find its best approximation in the finite eleme
 ### Poisson Equation
 Poisson's equation is a partial differential equation that can be used to model heat transfer, electrostatics, fluid flow, and other phenomena. It is defined as $\Delta u = f$, where f is a given function and u is the unknown function we are trying to solve for. 
 
-Using the finite element method, we can solve for u by finding the weak form of the equation and discretizing it into a linear system. The solver can take various boundary conditions (Dirichlet, Neumann, Robin) and an arbitrary source function f(x, y).
+Using the finite element method, we can solve for u by finding the weak form of the equation and discretizing it into a linear system. 
 
 ![poissons_demo](images/poissons_demo.png)
 
 This example shows the velocity potential u (where gradient of velocity potential = flow velocity) of fluid flow around an obstacle. The Robin boundary conditions are: u = 0 on the obstacle, and du/dn = 3 on left inlet and du/dn = -1 on the right outlet. 
 
+<!-- ### Wave Equation -->
 
 ### Linear Elastic Mechanics
-The linear elastic mechanics solver can solve for the displacement and stress field of a solid object given applied forces and boundary conditions. The solver takes a mesh of the object, material properties, a body force function, boundary forces, and fixed boundary locations.
+The linear elastic mechanics solver can solve for the displacement and stress field of a solid object given applied forces and boundary conditions. 
 
 ![linear_elastic_demo1](images/elastics1_demo.png)
 
