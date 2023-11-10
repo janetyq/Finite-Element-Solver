@@ -1,5 +1,6 @@
 import numpy as np
 from utils.quadrature import *
+from utils.helper import *
 
 # Choose quadrature method
 calc_quadrature = simpsons_quadrature
@@ -13,21 +14,21 @@ calc_quadrature = simpsons_quadrature
 
 def calculate_element_mass_matrix(element, func):
     P = np.hstack([np.ones((3, 1)), element])
-    K = np.abs(np.linalg.det(P) / 2) # area of triangle element
+    area = calculate_triangle_area(element)
     f = calc_quadrature(func, element) # evaluate func on element
-    return 1/12 * np.array([[2, 1, 1], [1, 2, 1], [1, 1, 2]]) * K * f
+    return 1/12 * np.array([[2, 1, 1], [1, 2, 1], [1, 1, 2]]) * area * f
 
 def calculate_element_stiffness_matrix(element, func):
     P = np.hstack([np.ones((3, 1)), element])
-    K = np.abs(np.linalg.det(P) / 2)
+    area = calculate_triangle_area(element)
     phis = np.linalg.solve(P, np.eye(3))[1:].T
     f = calc_quadrature(func, element)
-    return phis @ phis.T * K * f
+    return phis @ phis.T * area * f
 
 def calculate_element_load_vector(element, func):
-    K = np.abs(np.linalg.det(np.hstack([np.ones((3, 1)), element])) / 2)
+    area = calculate_triangle_area(element)
     f = calc_quadrature(func, element)
-    return f * K
+    return f * area
 
 def calculate_element_boundary_mass_matrix(element, func):
     E = np.linalg.norm(element[0] - element[1])
@@ -66,7 +67,7 @@ def assemble_vector(points, elements, calculate_element_vector, func=None):
 
 # TODO: NEW STUFF
 def calculate_hat_gradients(element):
-    area = np.abs(np.linalg.det(np.hstack([np.ones((3, 1)), element])) / 2)
+    area = calculate_triangle_area(element)
     a, b, c = [], [], []
     for i in range(3):
         x_j, x_k = element[(i+1)%3], element[(i+2)%3]
@@ -74,12 +75,6 @@ def calculate_hat_gradients(element):
         b.append(x_j[1] - x_k[1])
         c.append(x_k[0] - x_j[0])
     a, b, c = np.array([a, b, c]) / (2 * area)
-
-    # test for correctness
-    for i in range(3):
-        x1, x2 = element[i]
-        result = a + b*x1 + c*x2
-        assert(np.allclose(result[i], 1))
         
     return area, a, b, c
 
@@ -95,7 +90,7 @@ def calculate_element_elastic_stiffness_matrix(element, mu, lamb):
     return B.T @ D @ B * area
 
 def calculate_element_elastic_mass_matrix(element):
-    area = np.abs(np.linalg.det(np.hstack([np.ones((3, 1)), element])) / 2)
+    area = calculate_triangle_area(element)
     M = np.array([[2, 0, 1, 0, 1, 0],
                   [0, 2, 0, 1, 0, 1],
                   [1, 0, 2, 0, 1, 0],

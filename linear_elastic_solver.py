@@ -1,5 +1,7 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from utils.matrices import *
+from utils.plotting import *
 
 # TODO:
 # make a base solver for this
@@ -17,9 +19,9 @@ def Lame_to_Enu(mu, lamb):
     return E, nu
 
 class LinearElasticSolverResult:
-    def __init__(self, displacement_vector, displacement, eps_faces, sigma_faces):
-        self.displacement_vector = displacement_vector
+    def __init__(self, displacement, displaced_points, eps_faces, sigma_faces):
         self.displacement = displacement
+        self.displaced_points = displaced_points
         self.eps_faces = eps_faces
         self.sigma_faces = sigma_faces
 
@@ -57,8 +59,9 @@ class LinearElasticSolver:
             self.K[np.ix_(f_idxs, f_idxs)] += element_stiffness_matrix
 
     def solve(self, body_force=None, dirichlet_bc=None, neumann_bc=None):
+        body_force = body_force if body_force is not None else lambda x: np.array([[0, 0]])
         F = np.zeros(2*self.N) # load vector
-        for f in self.faces:
+        for f in self.faces:    
             element = self.points[f]
             forces = np.apply_along_axis(body_force, axis=1, arr=element).flatten()
             f_idxs = np.array([2*f, 2*f+1]).T.flatten()
@@ -103,5 +106,19 @@ class LinearElasticSolver:
             sigma_faces[face_idx] = sigma
             pass
 
-        self.result = LinearElasticSolverResult(d, d.reshape((-1, 2)), eps_faces, sigma_faces)
+        # print('Stress (avg):', np.mean(vonmises))
+        # print('Stress (max):', np.max(vonmises))
+        # print('Strain (avg):', np.mean(eps_faces))
+
+        displaced_points = self.points + d.reshape((-1, 2))
+        self.result = LinearElasticSolverResult(d, displaced_points, eps_faces, sigma_faces)
         return self.result
+    
+    def plot_result(self):
+        fig, ax = plt.subplots(1, 2)
+        plot_mesh(self.points, self.faces, ax=ax[0], title='Undeformed Mesh', show=False)
+        sigma_faces = self.result.sigma_faces
+        vonmises = np.sqrt(sigma_faces[:, 0]**2 + sigma_faces[:, 1]**2 - sigma_faces[:, 0] * sigma_faces[:, 1] + 3 * sigma_faces[:, 2]**2)
+        plot_colored_mesh(self.result.displaced_points, self.faces, vonmises, title='Deformed Mesh', ax=ax[1], show=False, cbar_label='von Mises Stress')
+        plt.show()
+        
