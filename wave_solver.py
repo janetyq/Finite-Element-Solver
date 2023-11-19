@@ -1,8 +1,7 @@
 import numpy as np
 from utils.base_solver import *
 from utils.matrices import *
-from utils.measures import *
-from utils.plotting import *
+from utils.mesh import *
 
 # TODO
 # add choice of boundary condition
@@ -14,8 +13,8 @@ class WaveSolverResult(BaseSolverResult):
         self.dudt_values = dudt_values
 
 class WaveSolver(BaseSolver):
-    def __init__(self, points, faces, boundary, dt=0.1, num_iterations=10, c=1, matrices=None):
-        super().__init__(points, faces, boundary, matrices=matrices)
+    def __init__(self, mesh, dt=0.1, num_iterations=10, c=1):
+        super().__init__(mesh)
         self.dt = dt
         self.num_iterations = num_iterations
         # wave speed, TODO: function?
@@ -37,25 +36,24 @@ class WaveSolver(BaseSolver):
         t_values = [0]
         u_values = [u_initial]
         dudt_values = [dudt_initial]
-        print(f't = {t_values[0]:.3f}, total energy = {calculate_energy(self.points, self.faces, u_initial, dudt_initial):.3f}')
+        total_energy = self.mesh.calculate_energy(u_initial, dudt_initial)
+        print(f't = {t_values[0]:.3f}, total energy = {total_energy:.3f}')
 
         for i in range(self.num_iterations):
             x = np.linalg.solve(A_left, A_right @ x + b_right)
             t_values.append(self.dt * (i+1))
             u_values.append(x[:self.N])
             dudt_values.append(x[self.N:])
-            print(f't = {t_values[-1]:.3f}, total energy = {calculate_energy(self.points, self.faces, u_values[-1], dudt_values[-1]):.3f}')
+            total_energy = self.mesh.calculate_energy(u_values[-1], dudt_values[-1])
+            print(f't = {t_values[-1]:.3f}, total energy = {total_energy:.3f}')
 
         self.result = WaveSolverResult(t_values, u_values, dudt_values)
         return self.result
 
     def plot_result(self):
-        plot_surface_mesh_animation(self.points, self.faces, 
-                                    self.result.t_values, self.result.u_values, 
-                                    title='Wave Equation Simulation')
-    
-
-    @classmethod
-    def from_base_solver(cls, base_solver, dt=0.1, num_iterations=10, c=1):
-        return cls(base_solver.points, base_solver.faces, base_solver.boundary, dt=dt, num_iterations=num_iterations, c=c, matrices=(base_solver.M, base_solver.K))
+        self.mesh.plot_surface_animation(
+            self.result.t_values, 
+            self.result.u_values, 
+            title='Wave Equation Simulation'
+        )
     

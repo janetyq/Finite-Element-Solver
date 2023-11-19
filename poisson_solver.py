@@ -1,7 +1,8 @@
 import numpy as np
 from utils.base_solver import *
 from utils.matrices import *
-from utils.plotting import *
+from utils.mesh import *
+from utils.helper import *
 
 class PoissonSolverResult(BaseSolverResult):
     def __init__(self, u_values, force=None):
@@ -9,10 +10,12 @@ class PoissonSolverResult(BaseSolverResult):
         self.force = force
 
 class PoissonSolver(BaseSolver):
-    def __init__(self, points, faces, boundary, matrices=None):
-        super().__init__(points, faces, boundary, matrices=matrices)
+    def __init__(self, mesh):
+        super().__init__(mesh)
+        self.load_function = None # TODO: better place to set this?
 
     def solve(self, dirichlet_bc=None, neumann_bc=None, robin_bc=None, load_function=None):
+        self.load_function = load_function
         print('Solving Poisson equation...')
         load_function = load_function if load_function is not None else lambda x: 1
         b = assemble_vector(self.points, self.faces, calculate_element_load_vector, load_function) # load vector
@@ -50,14 +53,21 @@ class PoissonSolver(BaseSolver):
             u[self.boundary_idxs] = boundary_value
             self.result = PoissonSolverResult(u)
         return self.result
+
+    def calculate_face_residuals(self):
+        residuals = np.zeros(len(self.faces))
+        for face_idx, face in enumerate(self.faces):
+            face_points = self.points[face]
+            face_area = calculate_triangle_area(face_points)
+            load = np.linalg.norm([self.load_function(point) for point in face_points])
+            residuals[face_idx] += load * face_area / 3
+        return residuals
     
-    def plot_result(self, title='Poisson Solution', ax=None, show=True, gradient=False): # TODO: kind of weird
+    def plot_result(self, title='Poisson Solution', ax=None, show=True, contour=20, gradient=False): # TODO: kind of weird
         if not gradient:
-            return plot_colored_mesh(self.points, self.faces, self.result.u_values, title=title, contour=True, ax=ax, show=show)
+            return self.mesh.plot_colored(self.result.u_values, title=title, ax=ax, show=show, contour=contour)
         else:
-            ax = plot_colored_mesh(self.points, self.faces, self.result.u_values, title=title, contour=True, ax=ax, show=False)
-            return plot_gradient_arrows(self.points, self.faces, self.result.u_values, title=title, ax=ax, show=show)
+            ax = self.mesh.plot_colored(self.result.u_values, title=title, contour=contour, ax=ax, show=False)
+            gradient = self.mesh.calculate_gradient(self.result.u_values)
+            return self.mesh.plot_arrows(gradient, title=title, ax=ax, show=show)
     
-    @classmethod
-    def from_base_solver(cls, base_solver):
-        return cls(base_solver.points, base_solver.faces, base_solver.boundary, matrices=(base_solver.M, base_solver.K))

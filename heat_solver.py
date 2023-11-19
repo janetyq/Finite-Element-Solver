@@ -1,8 +1,7 @@
 import numpy as np
 from utils.base_solver import *
 from utils.matrices import *
-from utils.measures import *
-from utils.plotting import *
+from utils.mesh import *
 
 # TODO
 # what is no BC?
@@ -14,8 +13,8 @@ class HeatSolverResult(BaseSolverResult):
         self.t_values = t_values
 
 class HeatSolver(BaseSolver):
-    def __init__(self, points, faces, boundary, dt=0.1, num_iterations=10, matrices=None):
-        super().__init__(points, faces, boundary, matrices=matrices)
+    def __init__(self, mesh, dt=0.1, num_iterations=10):
+        super().__init__(mesh)
         self.dt = dt
         self.num_iterations = num_iterations
 
@@ -36,24 +35,24 @@ class HeatSolver(BaseSolver):
 
         t_values = [0]
         u_values = [u_initial]
-        print(f't = {t_values[0]:.3f}, mean temp = {calculate_mean_value(self.points, self.faces, u_initial):.3f}')
+        print(f't = {t_values[0]:.3f}, mean temp = {self.mesh.calculate_mean_value(u_initial):.3f}')
 
         for i in range(self.num_iterations):
             # backwards Euler
             u = np.linalg.solve(self.M + K_temp * self.dt, self.M @ u + b * self.dt)
             t_values.append(self.dt * (i+1))
             u_values.append(u)
-            print(f't = {t_values[-1]:.3f}, mean temp = {calculate_mean_value(self.points, self.faces, u_values[-1]):.3f}')
+            print(f't = {t_values[-1]:.3f}, mean temp = {self.mesh.calculate_mean_value(u_values[-1]):.3f}')
 
         self.result = HeatSolverResult(t_values, u_values)
         return self.result
 
     def plot_result(self, fixed_cbar=False):
-        plot_colored_mesh_animation(self.points, self.faces, 
-                                    self.result.t_values, self.result.u_values, 
-                                    title='Heat Equation Simulation',
-                                    cbar_label='Temperature', fixed_cbar=fixed_cbar)
-
-    @classmethod
-    def from_base_solver(cls, base_solver, dt=0.1, num_iterations=10):
-        return cls(base_solver.points, base_solver.faces, base_solver.boundary, dt=dt, num_iterations=num_iterations, matrices=(base_solver.M, base_solver.K))
+        self.mesh.plot_colored_animation(
+            self.result.t_values, 
+            self.result.u_values, 
+            title='Heat Equation Simulation', 
+            cbar_label='Temperature', 
+            fixed_cbar=fixed_cbar, 
+            contour=5
+        )

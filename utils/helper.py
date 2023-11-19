@@ -22,17 +22,3 @@ def calculate_triangle_area(points):
     p1, p2, p3 = points
     return 0.5 * abs((p1[0] * (p2[1] - p3[1]) + p2[0] * (p3[1] - p1[1]) + p3[0] * (p1[1] - p2[1])))
 
-
-class ConvenientIndices:
-    def __init__(self, points, boundary):
-        w, h = np.max(points[:, 0]), np.max(points[:, 1])
-        self.boundary_idxs = list(set(boundary.ravel()))
-        self.inner_idxs = list(set(range(len(points))) - set(self.boundary_idxs))
-        self.top_idxs = np.array([idx for idx in self.boundary_idxs if points[idx][1] > h-1e-6])
-        self.bottom_idxs = np.array([idx for idx in self.boundary_idxs if points[idx][1] < 1e-6])
-        self.left_idxs = np.array([idx for idx in self.boundary_idxs if points[idx][0] < 1e-6])
-        self.right_idxs = np.array([idx for idx in self.boundary_idxs if points[idx][0] > w-1e-6])
-        self.top_boundary = np.array([boundary for boundary in boundary if np.all(np.isin(boundary, self.top_idxs))])
-        self.bottom_boundary = np.array([boundary for boundary in boundary if np.all(np.isin(boundary, self.bottom_idxs))])
-        self.left_boundary = np.array([boundary for boundary in boundary if np.all(np.isin(boundary, self.left_idxs))])
-        self.right_boundary = np.array([boundary for boundary in boundary if np.all(np.isin(boundary, self.right_idxs))])

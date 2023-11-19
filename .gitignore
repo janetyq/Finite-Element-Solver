@@ -3,3 +3,4 @@ old/
 old_meshes/
 testing.py
 profile/
+half_edge.py

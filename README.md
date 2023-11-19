@@ -11,7 +11,7 @@ Finite element method solver for partial differential equations (PDEs) on arbitr
 - With customizable boundary conditions (Dirichlet, Neumann, Robin) and arbitrary source functions
 - Visualization with colormap and contour plots
 - Various quadrature rules
-- Meshes are custom generated from my "Meshing" project
+- All meshes used are custom generated from my "Meshing" project
 
 ## Examples
 ### L2 Projection
