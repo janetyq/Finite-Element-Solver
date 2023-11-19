@@ -36,8 +36,8 @@ The wave equation is a partial differential equation that describes waves as the
 We can simulate the wave propogation over time with Crank-Nicolson integration, solving for $u$ at each timestep.
 
 <div style="display: flex; justify-content: space-between;">
-    <img src="images/wave_demo1.png" alt="wave_demo1" width="50%" />
-    <img src="images/wave_demo2.png" alt="wave_demo2" width="50%" />
+    <img src="images/wave_demo1.png" alt="wave_demo1" width="45%" />
+    <img src="images/wave_demo2.png" alt="wave_demo2" width="45%" />
 </div>
 
 The wave starts as a single pulse and propogates outwards at a constant speed. When it collides with the boundary, it reflects back and interferes with itself, creating a standing wave pattern.
@@ -49,8 +49,8 @@ The heat equation is a partial differential equation that describes the distribu
 We can simulate the heat distribution over time with Backwards Euler integration, solving for $u$ at each timestep.
 
 <div style="display: flex; justify-content: space-between;">
-    <img src="images/heat_demo1.png" alt="heat_demo1" width="50%" />
-    <img src="images/heat_demo2.png" alt="heat_demo2" width="50%" />
+    <img src="images/heat_demo1.png" alt="heat_demo1" width="45%" />
+    <img src="images/heat_demo2.png" alt="heat_demo2" width="45%" />
 </div>
 
 In this example, there is an initial high temperature bump in the corner of the domain. The heat diffuses outwards and eventually will reach a steady state where the temperature is constant. Heat is conserved in this simulation, where the mean temperature of the domain is constant over time.
@@ -81,12 +81,11 @@ We can see that the residual error is concentrated near the center of the domain
 
 ![adaptive_refinement2](images/poissons_adaptive_refinement2.png)
 
-The final solution is both smooth and accurate.
-
 
 ## Todo
     - Add thermal expansion to linear elastics model
     - Solve transport equations, fluid mechanics, etc.
+    - Topology optimization
     - Expand to a 3d solver
 
 

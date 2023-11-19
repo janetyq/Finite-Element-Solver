@@ -17,10 +17,12 @@ np.set_printoptions(suppress=True)
 # TODO:
 # appears to have little bug near boundary - poisson refinement
 # add BC specfication to all solvers - WAVE
+# neumann NEEDS to be actually normal to boundary
+# improve README
+
+# adaptive refinement for other equations
 # transport equation
 # understand units / physical interpretations
-# neumann NEEDS to be actually normal to boundary
-
 # wave energy not conserved
 # variable time stepping?
 # check plane strain vs plane stress
