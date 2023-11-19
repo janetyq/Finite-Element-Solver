@@ -2,8 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from utils.mesh import *
 
-#TODO:
-# boundary
+# TODO: very inefficient
 
 class Triangle:
     def __init__(self, vertex_idxs, parent=None, status='red child'):
@@ -20,13 +19,13 @@ class RefinementMesh:
         # use this to get mesh
         self.mesh = mesh
 
-        # okay to use i think
-        self.faces = mesh.faces
-        self.boundary = mesh.boundary
-
-        # internal representation
+        # internal representation - do not use outside of this class
         self.points = mesh.points
+        self.faces = mesh.faces
+        self.boundary = [list(edge) for edge in mesh.boundary]
         self.triangles = [Triangle(face) for face in self.faces]
+
+        self.triangle_index_map = {idx: idx for idx in range(len(self.triangles))}
 
     def get_shared_triangle(self, edge, not_idxs=None):
         for idx, triangle in enumerate(self.triangles):
@@ -52,8 +51,9 @@ class RefinementMesh:
         Refines triangles in refine_list
         and updates self.mesh
         '''
-        for triangle_idx in refine_list:
-            self.refine(triangle_idx)
+        for idx in refine_list:
+            # print(self.triangles[triangle_idx].status)
+            self.refine(self.triangle_index_map[idx])
         # self.plot(title=f'refined {triangle_idx}', triangle_idxs=refine_list)
         
         for triangle_idx in list(range(len(self.triangles)))[::-1]:
@@ -83,18 +83,29 @@ class RefinementMesh:
         else:
             assert False, f'unknown triangle status {triangle.status}'
 
+    def update_boundary(self, edge, idx):
+        if edge in self.boundary:
+            self.boundary.remove(edge)
+            self.boundary.extend([[edge[0], idx], [idx, edge[1]]])
+        elif edge[::-1] in self.boundary:
+            self.boundary.remove(edge[::-1])
+            self.boundary.extend([[edge[1], idx], [idx, edge[0]]])
+
     def refine_red(self, triangle_idx):
         # print('refine red', triangle_idx)
         triangle = self.triangles[triangle_idx]
         new_point_idxs = []
         for i in range(3):
-            midpoint = (self.points[triangle.vertex_idxs[i]] + self.points[triangle.vertex_idxs[(i+1)%3]]) / 2
+            edge = [triangle.vertex_idxs[i], triangle.vertex_idxs[(i+1)%3]]
+            midpoint = (self.points[edge[0]] + self.points[edge[1]]) / 2
             # if midpoint already exists, use that
             idx = self.get_point_idx(midpoint)
             if idx is None:
                 self.points = np.vstack((self.points, midpoint))
                 idx = len(self.points) - 1
             new_point_idxs.append(idx)
+
+            self.update_boundary(edge, idx)
 
         new_triangles = [Triangle([triangle.vertex_idxs[0], new_point_idxs[0], new_point_idxs[2]], parent=triangle, status='red child'),
                         Triangle([triangle.vertex_idxs[1], new_point_idxs[1], new_point_idxs[0]], parent=triangle, status='red child'),
@@ -151,32 +162,39 @@ class RefinementMesh:
 
         return parent_idx
 
-    def refine_green(self, triangle_idx, split_edge, new_idx):
+    def refine_green(self, triangle_idx, edge, new_idx):
         # print('refine green', triangle_idx)
         triangle = self.triangles[triangle_idx]
         triangle.status = 'green parent'
         
-        opposite_vertex = [v for v in triangle.vertex_idxs if v not in split_edge][0]
-        green_triangle1 = Triangle([split_edge[0], opposite_vertex, new_idx], parent=triangle, status='green child')
-        green_triangle2 = Triangle([split_edge[1], opposite_vertex, new_idx], parent=triangle, status='green child')
+        opposite_vertex = [v for v in triangle.vertex_idxs if v not in edge][0]
+        green_triangle1 = Triangle([edge[0], opposite_vertex, new_idx], parent=triangle, status='green child')
+        green_triangle2 = Triangle([edge[1], opposite_vertex, new_idx], parent=triangle, status='green child')
         triangle.children = [green_triangle1, green_triangle2]
         self.triangles.extend([green_triangle1, green_triangle2])
 
+        self.update_boundary(edge, new_idx)
+
     def update_mesh(self):
         # set mesh as points, faces
-        faces = np.array([triangle.vertex_idxs for triangle in self.triangles])
+        self.triangle_index_map = {}
+        faces = []
+        for triangle_idx, triangle in enumerate(self.triangles):
+            if triangle.status != 'red child' and triangle.status != 'green child':
+                continue
+            faces.append(triangle.vertex_idxs)
+            self.triangle_index_map[len(faces) - 1] = triangle_idx
+        faces = np.array(faces)
 
         used_idxs = list(set(faces.flatten()))
         index_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(used_idxs)}
         
-        points = self.points[used_idxs]
-        faces = np.vectorize(index_mapping.get)(faces)
+        self.points = self.points[used_idxs]
+        self.faces = np.vectorize(index_mapping.get)(faces)
+        self.boundary = np.vectorize(index_mapping.get)(self.boundary)
+        self.boundary = [list(edge) for edge in self.boundary]
 
-        # TODO: recalculate boundary
-        # go through all the edges and check if they are on the boundary
-        boundary = []
-
-        self.mesh = Mesh(points, faces, boundary)
+        self.mesh = Mesh(self.points, self.faces, self.boundary)
 
     def plot(self, title=None, edge=None, main_idx=None, green_idx=None, red_idx=None, triangle_idxs=None):
         ax = self.mesh.plot(title=title, show=False, linewidth=3)
@@ -208,13 +226,8 @@ class RefinementMesh:
         plotting_mesh = Mesh(self.points, [triangle.vertex_idxs for triangle in plot_triangles], self.boundary)
         plotting_mesh.plot(ax=ax, linewidth=1, color='cyan')
 
-
     def get_mesh(self):
-        faces = [triangle.vertex_idxs for triangle in self.triangles]
-        points = self.points # check if in faces
-        # recalculate boundary
-        # TODO: should be done at the end of refine triangles
-        return Mesh(points, faces, self.boundary)
+        return self.mesh
 
 if __name__ == '__main__':
     # MESH
@@ -222,15 +235,14 @@ if __name__ == '__main__':
     mesh = Mesh.load(MESH_FILE)
     mesh.plot()
 
-
-    mesh = RefinementMesh(mesh)
+    refinement_mesh = RefinementMesh(mesh)
 
     import random
-    # refine
     # refine_lists = [{4}, {16}]
     for i in range(10):
-        refine_list = set(random.randint(0, len(mesh.triangles)-1) for _ in range(3))
+        refine_list = set(random.randint(0, len(refinement_mesh.triangles)-1) for _ in range(5))
         # refine_list = refine_lists[i]
         print(refine_list)
-        mesh.refine_triangles(refine_list)
-        mesh.plot(title=f'final {refine_list}')
+        refinement_mesh.refine_triangles(refine_list)
+        mesh = refinement_mesh.get_mesh()
+        mesh.plot()

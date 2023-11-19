@@ -1,5 +1,5 @@
 import numpy as np
-from utils.base_solver import *
+from base_solver import *
 from utils.matrices import *
 from utils.mesh import *
 from utils.helper import *
@@ -10,48 +10,22 @@ class PoissonSolverResult(BaseSolverResult):
         self.force = force
 
 class PoissonSolver(BaseSolver):
+    '''
+    Solves Poisson equation
+        -laplace(u) = f
+    '''
     def __init__(self, mesh):
         super().__init__(mesh)
-        self.load_function = None # TODO: better place to set this?
 
-    def solve(self, dirichlet_bc=None, neumann_bc=None, robin_bc=None, load_function=None):
-        self.load_function = load_function
-        print('Solving Poisson equation...')
-        load_function = load_function if load_function is not None else lambda x: 1
-        b = assemble_vector(self.points, self.faces, calculate_element_load_vector, load_function) # load vector
-        if robin_bc is not None:
-            W, g_D, g_N = robin_bc
-            R = assemble_matrix(self.points, self.boundary, calculate_element_boundary_mass_matrix, W)
-            r = assemble_vector(self.points, self.boundary, calculate_element_boundary_load_vector, 
-                                lambda x: W(x) * g_D(x) + g_N(x))
-            u = np.linalg.solve(self.K + R, b + r)
-            self.result = PoissonSolverResult(u)
-        elif neumann_bc is not None:
-            g_N = neumann_bc
-            C = assemble_vector(self.points, self.faces, calculate_element_load_vector, lambda x: 1) # TODO: why is this lambda 1?
-            A_temp = np.zeros((self.N+1, self.N+1))
-            A_temp[:self.N, :self.N] = self.K
-            A_temp[:self.N, self.N] = C
-            A_temp[self.N, :self.N] = C
-            A_temp[self.N, self.N] = 0
+    def initialize(self, boundary_conditions, load_function=lambda x: 1):
+        super().initialize(boundary_conditions, load_function) # explicitly writing out, so I can see it
 
-            boundary_value = assemble_vector(self.points, self.boundary, calculate_element_boundary_load_vector, g_N)
-            b_temp = np.append(b + boundary_value, 0)
-            u = np.zeros(self.N)
-            soln = np.linalg.solve(A_temp, b_temp)
-            u[:self.N] = soln[:self.N]
-            force = soln[self.N]
-            self.result = PoissonSolverResult(u, force)
-        elif dirichlet_bc is not None:
-            g_D = dirichlet_bc
-            u = np.zeros(self.N)
-            # imposed boundary values
-            boundary_value = np.apply_along_axis(g_D, axis=1, arr=self.points[self.boundary_idxs])
-            b_temp = b[self.inner_idxs] - self.K[np.ix_(self.inner_idxs, self.boundary_idxs)] @ boundary_value
-            K_temp = self.K[np.ix_(self.inner_idxs, self.inner_idxs)]
-            u[self.inner_idxs] = np.linalg.solve(K_temp, b_temp)
-            u[self.boundary_idxs] = boundary_value
-            self.result = PoissonSolverResult(u)
+    def solve(self):
+        print('Solving Poisson equation...') # K @ u = b
+        K_mod = self.K[np.ix_(self.free, self.free)]
+        b_mod = self.b[self.free] - self.K[np.ix_(self.free, self.fixed)] @ self.u[self.fixed] + self.r[self.free]
+        self.u[self.free] = np.linalg.solve(K_mod, b_mod)
+        self.result = PoissonSolverResult(self.u)
         return self.result
 
     def calculate_face_residuals(self):
