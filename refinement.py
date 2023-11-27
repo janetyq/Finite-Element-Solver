@@ -43,7 +43,7 @@ class RefinementMesh:
 
     def get_point_idx(self, point):
         for idx, p in enumerate(self.points):
-            if np.isclose(p, point).all():
+            if (p == point).all():
                 return idx
 
     def refine_triangles(self, refine_list):
@@ -195,6 +195,9 @@ class RefinementMesh:
         self.boundary = [list(edge) for edge in self.boundary]
 
         self.mesh = Mesh(self.points, self.faces, self.boundary)
+    
+    def get_mesh(self):
+        return self.mesh
 
     def plot(self, title=None, edge=None, main_idx=None, green_idx=None, red_idx=None, triangle_idxs=None):
         ax = self.mesh.plot(title=title, show=False, linewidth=3)
@@ -231,7 +234,7 @@ class RefinementMesh:
 
 if __name__ == '__main__':
     # MESH
-    MESH_FILE = '../shared_meshes/square16_mesh.pkl'
+    MESH_FILE = '../shared_meshes/square20_mesh.pkl'
     mesh = Mesh.load(MESH_FILE)
     mesh.plot()
 
@@ -240,7 +243,7 @@ if __name__ == '__main__':
     import random
     # refine_lists = [{4}, {16}]
     for i in range(10):
-        refine_list = set(random.randint(0, len(refinement_mesh.triangles)-1) for _ in range(5))
+        refine_list = set(random.randint(0, len(mesh.faces)-1) for _ in range(5))
         # refine_list = refine_lists[i]
         print(refine_list)
         refinement_mesh.refine_triangles(refine_list)

@@ -10,9 +10,9 @@ Finite element method solver for partial differential equations (PDEs) on arbitr
     - Heat equation
     - Wave equation
     - **Linear elastic mechanics**
-- Customizable boundary conditions (Dirichlet, Neumann, Mixed)
-- Arbitrary load functions
-- Adaptive mesh refinement
+- Customizable boundary conditions (Dirichlet, Neumann, Mixed) and arbitrary load functions
+- **Adaptive mesh refinement**
+- **Topology optimization** for structural design
 - Custom generated meshes from my "Meshing" project
 
 ## Equations
@@ -81,13 +81,43 @@ We can see that the residual error is concentrated near the center of the domain
 
 ![adaptive_refinement2](images/poissons_adaptive_refinement2.png)
 
+## Topology Optimization
+
+Topology optimization is a method of structural design where the material distribution of a structure is optimized to minimize some objective function. In this case, we are minimizing the compliance of the structure, which is the amount of deformation under a given load.
+
+The boundary conditions are that the left edge is fixed and a downward force is applied to the right edge. The material distribution is represented by a density field, where 0 is no material and 1 is full material. The solver uses the SIMP (Solid Isotropic Material with Penalization) method to penalize intermediate densities.
+
+![topopt_demo](images/topopt_demo.png)
+
+The solver starts with a uniform density field and iteratively updates the density field to minimize the compliance. This image shows the final density field. This structure reduces maximum displacement by over 70% compared to the uniform density structure.
+
+(More details with images of deformation, post-processed mesh, etc. coming soon)
+
+
+## Methods
+
+ - Galerkin Finite Element Method
+ - Boundary conditions: Dirichlet, Neumann, Robin, Mixed
+ - Physical models (PDEs): L2 projection, Poisson's equation, Heat equation, Wave equation, Navier-Cauchy equation for linear elastic mechanics
+ - Quadrature: Midpoint, Trapezoidal, Simpson's
+ - Integration: Forward/Backward Euler, Crank-Nicolson
+ - Smoothing: Laplacian smoothing
+ - Refinement: Red-Green regular refinement
+ - Energy measures: Dirichlet energy, Kinetic energy
+ - Error estimates: A posteriori error residuals
+ - Optimization: Gradient descent
+ - Mesh data structures: Half-edge triangle mesh
+
 
 ## Todo
     - Add thermal expansion to linear elastics model
     - Solve transport equations, fluid mechanics, etc.
-    - Topology optimization
+    - Adaptive refinement for all equations
     - Expand to a 3d solver
+    - Sparse solver
 
 
 ### References
 *The Finite Element Method: Theory, Implementation, and Applications* by Mats G. Larson and Fredrik Bengzon.
+
+[*SIMP Method for Topology Optimization*](https://help.solidworks.com/2019/english/solidworks/cworks/c_simp_method_topology.htm) by Dassault Systèmes.

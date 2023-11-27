@@ -34,6 +34,15 @@ class Mesh:
     def copy(self):
         return Mesh(self.points.copy(), self.faces.copy(), self.boundary.copy())
 
+    def get_neighbors(self, triangle_idx):
+        neighbors = []
+        for face_idx, face in enumerate(self.faces):
+            if face_idx == triangle_idx:
+                continue
+            if len(set(face).intersection(set(self.faces[triangle_idx]))) == 2:
+                neighbors.append(face_idx)
+        return neighbors
+
 
     # PLOTTING
     def plot(self, title=None, ax=None, show=True, color='black', linewidth=1):
@@ -73,6 +82,12 @@ class Mesh:
 
         ax.set_title(title)
         ax.set_aspect('equal')
+        min_x, max_x = min(self.points[:, 0]), max(self.points[:, 0])
+        min_y, max_y = min(self.points[:, 1]), max(self.points[:, 1])
+        range_x = max_x - min_x
+        range_y = max_y - min_y
+        ax.set_xlim([min_x - 0.2 * range_x, max_x + 0.2 * range_x])
+        ax.set_ylim([min_y - 0.2 * range_y, max_y + 0.2 * range_y])
         ax.ticklabel_format(useOffset=False)
 
         if show:

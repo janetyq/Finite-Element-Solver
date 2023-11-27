@@ -18,10 +18,10 @@ class BaseSolver:
         self.refinement_mesh = RefinementMesh(mesh)
 
     def update_mesh(self, mesh):
-        self.mesh = mesh
-        self.points = mesh.points
-        self.faces = mesh.faces
-        self.boundary = mesh.boundary
+        self.mesh = mesh.copy()
+        self.points = self.mesh.points
+        self.faces = self.mesh.faces
+        self.boundary = self.mesh.boundary
 
         self.N = len(self.points)
         self.boundary_idxs = list(set(self.boundary.ravel()))
@@ -36,7 +36,10 @@ class BaseSolver:
         self.load_function = load_function
 
         # load vector
-        self.b = assemble_vector(self.points, self.faces, calculate_element_load_vector, load_function, dim=self.dim)
+        if load_function is not None:
+            self.b = assemble_vector(self.points, self.faces, calculate_element_load_vector, load_function, dim=self.dim)
+        else:
+            self.b = np.zeros(self.dim*self.N)
 
         # neumann boundary conditions
         self.r = np.zeros(self.dim*self.N)
@@ -81,7 +84,7 @@ class BaseSolver:
 
             print('refining', len(refine_idxs), 'faces')
             self.refinement_mesh.refine_triangles(refine_idxs)
-            self.update_mesh(self.refinement_mesh.mesh.copy())
+            self.update_mesh(self.refinement_mesh.get_mesh())
             max_iters -= 1
         
         self.initialize(self.boundary_conditions, self.load_function)

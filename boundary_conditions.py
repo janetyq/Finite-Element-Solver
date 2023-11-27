@@ -1,6 +1,7 @@
 import numpy as np
 
 # supports dirichlet, neumann, and mixed boundary conditions
+# add boundary conditions with list of indices and values at indices
 
 class BoundaryConditions:
     def __init__(self, mesh):

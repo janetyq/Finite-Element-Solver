@@ -5,6 +5,18 @@ from utils.helper import *
 # Choose quadrature method
 calc_quadrature = simpsons_quadrature
 
+def Enu_to_Lame(E, nu):
+    # mu - shear modulus, lambda - Lame constant
+    mu = E / (2 * (1 + nu))
+    lamb = E * nu / ((1 + nu) * (1 - 2 * nu))
+    return mu, lamb
+
+def Lame_to_Enu(mu, lamb):
+    # E - Young's modulus, nu - Poisson's ratio
+    E = mu * (3 * lamb + 2 * mu) / (lamb + mu)
+    nu = lamb / (2 * (lamb + mu))
+    return E, nu
+
 # TODO:
 # confict between continous func -> quadrature and discrete func -> np apply
 
@@ -33,7 +45,7 @@ def calculate_element_stiffness_matrix(element, func, dim=1):
         return phis @ phis.T * area * f
     else: # dim == 2
         # outputs 6x6 element stiffness matrix = a(u, v) = int (sigma(u) : epsilon(v)) over element
-        mu, lamb = func # TODO: make space varying?
+        mu, lamb = Enu_to_Lame(func[0], func[1]) # TODO: make space varying?
         D = mu * np.array([[2, 0, 0], [0, 2, 0], [0, 0, 1]]) + \
             lamb * np.array([[1, 1, 0], [1, 1, 0], [0, 0, 0]])
         area, a, b, c = calculate_hat_gradients(element)
@@ -70,6 +82,20 @@ def assemble_matrix(points, elements, calculate_element_matrix, func=None, dim=1
         element = points[e]
         e_idxs = np.array([dim*e + i for i in range(dim)]).T.flatten()
         element_matrix = calculate_element_matrix(element, func, dim=dim)
+        A[np.ix_(e_idxs, e_idxs)] += element_matrix
+    return A
+
+def assemble_matrix2(points, elements, calculate_element_matrix, func=None, dim=1): #TODO: remove
+    if func is None:
+        func = lambda x: 1
+    N = len(points)
+    A = np.zeros((dim * N, dim * N))
+    for e_idx, e in enumerate(elements):
+        element = points[e]
+        e_idxs = np.array([dim*e + i for i in range(dim)]).T.flatten()
+        E, nu = func
+        E_elt = E[e_idx]
+        element_matrix = calculate_element_matrix(element, [E_elt, nu], dim=dim)
         A[np.ix_(e_idxs, e_idxs)] += element_matrix
     return A
 
