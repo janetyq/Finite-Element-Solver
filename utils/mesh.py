@@ -6,6 +6,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.tri import Triangulation
 from utils.linalg import *
 from utils.helper import *
+from matplotlib.colorbar import Colorbar
 
 
 class Mesh:
@@ -52,7 +53,7 @@ class Mesh:
         # triangulation and boundary
         ax.triplot(self.points[:, 0], self.points[:, 1], self.faces, color=color, linewidth=linewidth)
         for seg in self.boundary:
-            ax.plot(self.points[seg, 0], self.points[seg, 1], color=color, linewidth=1.5*linewidth)
+            ax.plot(self.points[seg, 0], self.points[seg, 1], color=color, linewidth=1.8*linewidth)
             # for testing normals
             # vec = self.points[seg[1]] - self.points[seg[0]]
             # point = np.mean(self.points[seg], axis=0) + 0.5 * np.array([-vec[1], vec[0]])            
@@ -66,7 +67,7 @@ class Mesh:
             plt.show()
         return ax
 
-    def plot_colored(self, u, title=None, contour=0, colorscale=None, ax=None, show=True, cbar_label=''):
+    def plot_colored(self, u, title=None, contour=0, colorscale=None, ax=None, show=True, cbar_label='', cbar_present=False, cbar_lim=None):
         '''Plots 2d triangulated mesh with colored faces/vertices according to u'''
         if ax is None:
             fig, ax = plt.subplots()
@@ -74,8 +75,11 @@ class Mesh:
         # triangulation and color plot
         plot_triangulation = Triangulation(self.points[:, 0], self.points[:, 1], triangles=self.faces)
         tripcolor = ax.tripcolor(plot_triangulation, u, cmap='viridis')
-        cbar = plt.colorbar(tripcolor, ax=ax, shrink=0.6)
-        cbar.set_label('', rotation=270)
+        if not cbar_present:
+            cbar = plt.colorbar(tripcolor, ax=ax, shrink=0.6)
+            cbar.set_label(cbar_label, rotation=90)
+            if cbar_lim is not None:
+                cbar.mappable.set_clim(vmin=cbar_lim[0], vmax=cbar_lim[1])
         if contour > 0:
             contour_levels = np.linspace(min(u), max(u), contour)  # Adjust the number of levels as needed
             ax.tricontour(plot_triangulation, u, levels=contour_levels, colors='k', linestyles='solid')
@@ -189,21 +193,15 @@ class Mesh:
         ani = FuncAnimation(fig, update, frames=range(len(t_values)), blit=False, repeat=True, interval=400)
         plt.show()
 
-
     # METRICS
     def calculate_total_value(self, u):
-        total_value = 0
-        for face in self.faces:
-            area = calculate_triangle_area(self.points[face])
-            u_value = np.mean(u[face])
-            total_value += area * u_value
-        return total_value
+        if len(u) == len(self.faces):       # u defined on faces
+            return sum([calculate_triangle_area(self.points[face]) * u[face_idx] for face_idx, face in enumerate(self.faces)])
+        elif len(u) == len(self.points):    # u defined on vertices
+            return sum([calculate_triangle_area(self.points[face]) * np.mean(u[face]) for face_idx, face in enumerate(self.faces)])
 
     def calculate_total_area(self):
-        total_area = 0
-        for face in self.faces:
-            area = calculate_triangle_area(self.points[face])
-            total_area += area
+        total_area = sum([calculate_triangle_area(self.points[face]) for face in self.faces])
         return total_area
 
     def calculate_mean_value(self, u):

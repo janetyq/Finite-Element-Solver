@@ -1,5 +1,6 @@
 import numpy as np
 from math import sin, cos, pi, e
+import matplotlib.pyplot as plt
 
 from base_solver import *
 from boundary_conditions import *
@@ -8,18 +9,28 @@ from poisson_solver import *
 from heat_solver import *
 from wave_solver import *
 from linear_elastic_solver import *
+from topology_optimization import *
 
 from utils.helper import *
 from utils.mesh import *
-from utils.half_edge import *
 
 np.set_printoptions(suppress=True)
 
 # TODO:
+# detect convergence - research
 # add BC specfication to all solvers - WAVE
-# improve README
+# improve README, more references
 # incorporate mesh data structures better
-# sparse solvers
+# test buckling
+# efficiency of mesh stuff
+
+# save results with animation together, gif?, save function separate from plot
+
+
+# intuition for alpha
+# improve results saving
+# regular mesh generator - make official
+# half edge - make part of mesh and w/ insertion
 
 # automatic boundary detection, topo opt remove material
 
@@ -52,14 +63,14 @@ if __name__ == '__main__':
     np.set_printoptions(linewidth=200)
 
     # MESH
-    MESH_FILE = '../shared_meshes/dense_rectangle_mesh.pkl'
+    MESH_FILE = '../shared_meshes/regular_mesh3.pkl'
     mesh = Mesh.load(MESH_FILE)
     points, faces, boundary = mesh.get_info()
     boundary_idxs = list(set(boundary.ravel()))
 
     # mesh.plot()
 
-    w, h = np.max(points[:, 0]), np.max(points[:, 1])
+    w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
 
     # EXAMPLE LOAD FUNCTIONS
     f = lambda x: 1/((x[0] - 0.5)**2 + (x[1] - 0.5)**2 + 0.01)
@@ -67,33 +78,33 @@ if __name__ == '__main__':
         x, y = point - np.array([0.5, 0.5])
         return np.sin(40*(x**2+y**2)) / 10
 
-    # EXAMPLE BOUNDARY CONDITIONS
-    # no bc, equivalent to neumann = 0 on all boundaries (for poisson and heat)
-    no_bc = BoundaryConditions(mesh)
+    # # EXAMPLE BOUNDARY CONDITIONS
+    # # no bc, equivalent to neumann = 0 on all boundaries (for poisson and heat)
+    # no_bc = BoundaryConditions(mesh)
     
-    # dirichlet u=0 on boundary
-    zero_bc = BoundaryConditions(mesh)
-    zero_bc.add('dirichlet', boundary_idxs, [0 for idx in boundary_idxs])
+    # # dirichlet u=0 on boundary
+    # zero_bc = BoundaryConditions(mesh)
+    # zero_bc.add('dirichlet', boundary_idxs, [0 for idx in boundary_idxs])
 
-    # neumann du = 1 on right boundary
-    right_pull_bc = BoundaryConditions(mesh)
-    right_idxs = [idx for idx in boundary_idxs if points[idx][0] > w-1e-6]
-    right_pull_bc.add('neumann', right_idxs, [100 for idx in right_idxs])
+    # # neumann du = 1 on right boundary
+    # right_pull_bc = BoundaryConditions(mesh)
+    # right_idxs = [idx for idx in boundary_idxs if points[idx][0] > w-1e-6]
+    # right_pull_bc.add('neumann', right_idxs, [100 for idx in right_idxs])
 
-    # mixed dirichlet and neumann
-    mixed_bc = BoundaryConditions(mesh)
-    mixed_bc.add('dirichlet', boundary_idxs, [0 for idx in boundary_idxs])
-    mixed_bc.add('neumann', right_idxs, [1000 for idx in right_idxs])
+    # # mixed dirichlet and neumann
+    # mixed_bc = BoundaryConditions(mesh)
+    # mixed_bc.add('dirichlet', boundary_idxs, [0 for idx in boundary_idxs])
+    # mixed_bc.add('neumann', right_idxs, [1000 for idx in right_idxs])
 
-    # fluid flow
-    fluid_bc = BoundaryConditions(mesh)
-    inner_idxs = [idx for idx in boundary_idxs if 1e-6 < points[idx][0] < w-1e-6 and 1e-6 < points[idx][1] < h-1e-6]
-    left_idxs = [idx for idx in boundary_idxs if points[idx][0] < 1e-6]
-    right_idxs = [idx for idx in boundary_idxs if points[idx][0] > w-1e-6]
-    bottom_idxs = [idx for idx in boundary_idxs if points[idx][1] < 1e-6 and points[idx][0] > 1e-6]
-    fluid_bc.add('dirichlet', inner_idxs, [0 for idx in inner_idxs])
-    fluid_bc.add('neumann', left_idxs, [10 for idx in left_idxs])
-    fluid_bc.add('neumann', bottom_idxs, [10 for idx in bottom_idxs])
+    # # fluid flow
+    # fluid_bc = BoundaryConditions(mesh)
+    # inner_idxs = [idx for idx in boundary_idxs if 1e-6 < points[idx][0] < w-1e-6 and 1e-6 < points[idx][1] < h-1e-6]
+    # left_idxs = [idx for idx in boundary_idxs if points[idx][0] < 1e-6]
+    # right_idxs = [idx for idx in boundary_idxs if points[idx][0] > w-1e-6]
+    # bottom_idxs = [idx for idx in boundary_idxs if points[idx][1] < 1e-6 and points[idx][0] > 1e-6]
+    # fluid_bc.add('dirichlet', inner_idxs, [0 for idx in inner_idxs])
+    # fluid_bc.add('neumann', left_idxs, [10 for idx in left_idxs])
+    # fluid_bc.add('neumann', bottom_idxs, [10 for idx in bottom_idxs])
 
 
     # # L2 PROJECTION
@@ -102,12 +113,12 @@ if __name__ == '__main__':
     # projection_solver.solve()
     # projection_solver.plot_result(title='L2 Projection of sin(40*r^2)/10')
 
-    # POISSON'S EQUATION
-    def test_function(point):
-        a = 50
-        x, y = point - np.array([0.5, 0.5])
-        r2 = x**2 + y**2
-        return 4*a*a*(1-a*r2)*e**(-a*r2)
+    # # POISSON'S EQUATION
+    # def test_function(point):
+    #     a = 50
+    #     x, y = point - np.array([0.5, 0.5])
+    #     r2 = x**2 + y**2
+    #     return 4*a*a*(1-a*r2)*e**(-a*r2)
 
     # poisson_solver = PoissonSolver(mesh)
     # poisson_solver.initialize(boundary_conditions=fluid_bc, load_function=None)
@@ -163,34 +174,42 @@ if __name__ == '__main__':
     for idx in boundary_idxs:
         if points[idx][0] < 1e-6:
             d_idxs.append(idx)
-
     boundary_conditions.add('dirichlet', d_idxs, [[0, 0] for idx in d_idxs]) # fixed displacements
 
     n_idxs = []
     for idx in boundary_idxs:
-        # if points[idx][1] > h-1e-6 and points[idx][0] > 1e-6:
-        if points[idx][0] > w-1e-6 and 15 < points[idx][1] > 20:
+        if points[idx][0] > w-1e-6 and h/2-1e-3 < points[idx][1] < h/2+1e-3:
             n_idxs.append(idx)
-    boundary_conditions.add('neumann', n_idxs, [[0, -2] for idx in n_idxs]) # boundary force
+            print(idx, points[idx])
+    boundary_conditions.add('neumann', n_idxs, [[0, -50] for idx in n_idxs]) # boundary force
 
-    linear_elastic_solver = LinearElasticSolver(mesh, E=125, nu=0.4)
-    linear_elastic_solver.initialize(boundary_conditions=boundary_conditions, load_function=body_force)
-    before_result = linear_elastic_solver.solve().copy()
-    # linear_elastic_solver.plot_result()
+    linear_elastic_solver = LinearElasticSolver(mesh)
+    linear_elastic_solver.initialize_material(E=125, nu=0.4)
+    linear_elastic_solver.initialize_bc(boundary_conditions=boundary_conditions, load_function=body_force)
+    original_result = linear_elastic_solver.solve()
+    original_result.plot(title='Original Solution', variable='stress')
 
-    rho = linear_elastic_solver.topology_optimization(rho=np.full(len(mesh.faces), 0.5), E_0=1000, penalization=3, num_iterations=10, alpha=0.005, beta=0.8)
+    # TOPOLOGY OPTIMIZATION
+    rho_initial = np.full(len(mesh.faces), 0.5)
+    topopt_results = topology_optimization(
+        linear_elastic_solver,  
+        E_0=125, nu=0.4, penalization=3,               # material
+        boundary_conditions=boundary_conditions, load_function=body_force,  # bc
+        rho=rho_initial, target_fraction=0.5,           # density
+        num_iterations=10, alpha=0.0002, beta=0.6,      # optimization parameters
+        plotting_freq=0                                 # debugging
+    )
 
-    new_mesh = linear_elastic_solver.mesh.copy()
-    new_mesh.faces = new_mesh.faces[(rho > 0.5)]
-    new_mesh.plot()
+    # save_topopt_results(topopt_results, name='topopt_1', fps=30)
+
+    fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+    original_result.deformed_mesh.plot_colored(np.full(len(mesh.faces), 1), title='Original', ax=ax[0], show=False, cbar_lim=[0, 1], cbar_label='Density')
+    final_result.deformed_mesh.plot_colored(final_result.values['rho'], title=f'Optimized ({volume_fraction*100:.0f}% of material)', ax=ax[1], show=False, cbar_lim=[0, 1], cbar_label='Density')
+    plt.show()
+
+    # new_mesh = linear_elastic_solver2.mesh.copy()
+    # new_mesh.faces = new_mesh.faces[(results[-1].values['rho'] > 0.5)]
+    # new_mesh.plot()
+    # new_mesh.save('topopt_mesh.pkl')
     
-
-    linear_elastic_solver.mesh.plot_colored(rho, title='Density', show=True)
-    linear_elastic_solver.solve()
-
-    linear_elastic_solver.plot_result(before_result)
-    linear_elastic_solver.plot_result()
-
-    
-
     print('finite_element_2d.py done')

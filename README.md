@@ -87,9 +87,14 @@ Topology optimization is a method of structural design where the material distri
 
 The boundary conditions are that the left edge is fixed and a downward force is applied to the right edge. The material distribution is represented by a density field, where 0 is no material and 1 is full material. The solver uses the SIMP (Solid Isotropic Material with Penalization) method to penalize intermediate densities.
 
-![topopt_demo](images/topopt_demo.png)
+<p align="center">
+<video width="640" height="360" controls>
+  <source src="/images/topopt.mp4" type="video/mp4">
+  Video of topology optimization on a cantilevered beam
+</video>
+</p>
 
-The solver starts with a uniform density field and iteratively updates the density field to minimize the compliance. This image shows the final density field. This structure reduces maximum displacement by over 70% compared to the uniform density structure.
+The solver starts with a uniform density field and iteratively updates the density field to minimize the compliance. This image shows the final density field. This structure uses approx 55% of the original material and only deforms slightly more.
 
 (More details with images of deformation, post-processed mesh, etc. coming soon)
 

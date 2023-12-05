@@ -2,6 +2,7 @@ import numpy as np
 from utils.matrices import *
 from utils.mesh import *
 from refinement import *
+from utils.half_edge import *
 
 class BaseSolverResult:
     def __init__(self, u_values):
@@ -19,6 +20,8 @@ class BaseSolver:
 
     def update_mesh(self, mesh):
         self.mesh = mesh.copy()
+        self.he_mesh = HalfEdgeMesh(self.mesh) # for efficient neighbor queries - for topopt smoothing
+
         self.points = self.mesh.points
         self.faces = self.mesh.faces
         self.boundary = self.mesh.boundary
