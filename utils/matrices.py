@@ -75,7 +75,10 @@ def calculate_element_boundary_mass_matrix(element, param, dim=1):
 def calculate_element_boundary_load_vector(element, param, dim=1):
     func, idx = param
     E = np.linalg.norm(element[0] - element[1])
-    res = np.array([func(point) for point in element]).flatten()
+    if True or dim == 1:
+        res = np.array([func(point) for point in element]).flatten()
+    # else:
+    #     res = np.sum([func(point) for point in element], axis=0)
     return 1/2 * res * E
 
 
@@ -92,7 +95,8 @@ def assemble_matrix(points, elements, calculate_element_matrix, func=None, dim=1
         e_idxs = np.array([dim*e + i for i in range(dim)]).T.flatten()
         element_matrix = calculate_element_matrix(element, (func, e_idx), dim=dim)
         A[np.ix_(e_idxs, e_idxs)] += element_matrix
-    return csr_matrix(A)
+    return A
+    # return csr_matrix(A)
 
 def assemble_vector(points, elements, calculate_element_vector, func, dim=1):
     N = len(points)

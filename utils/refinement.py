@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from utils.mesh import *
+from Mesh import *
 
 # TODO: very inefficient
 
