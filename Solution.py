@@ -1,5 +1,6 @@
 import numpy as np
 from Mesh import *
+import matplotlib.animation as animation
 
 class Solution:
     def __init__(self, mesh, values=None):
@@ -24,14 +25,22 @@ class Solution:
     def set_values(self, name, value):
         self.values[name] = value
 
+    def get_values(self, name):
+        if name not in self.values:
+            print('solution contains:', self.values.keys())
+            raise ValueError(f'{name} not found in solution')
+        return self.values[name]
+
     def plot(self, name, title='Solution', ax=None, show=True, contour=20):
         if name not in self.values:
             raise ValueError(f'{name} not found in solution')
         self.plot_colored(name, title=title, ax=ax, show=show, contour=contour)
     
-    def plot_colored(self, name, idx=None, title=None, contour=0, ax=None, show=True, cbar=None, cbar_lim=None):
+    def plot_colored(self, name, idx=None, title=None, contour=0, ax=None, show=True, cbar=None, cbar_lim=None, save=None, mesh=None):
         if name not in self.values:
             raise ValueError(f'{name} not found in solution')
+        if mesh is None:
+            mesh = self.mesh
 
         fig, ax = plt.subplots() if ax is None else (ax.figure, ax)
         ax.clear()
@@ -40,7 +49,7 @@ class Solution:
         if idx is not None:
             u_values = u_values[idx]
 
-        plot_triangulation = Triangulation(self.mesh.points[:, 0], self.mesh.points[:, 1], triangles=self.mesh.faces)
+        plot_triangulation = Triangulation(mesh.points[:, 0], mesh.points[:, 1], triangles=mesh.faces)
         tripcolor = ax.tripcolor(plot_triangulation, u_values, cmap='viridis')
         if cbar is None:
             cbar = plt.colorbar(tripcolor, ax=ax, shrink=0.6)
@@ -58,12 +67,15 @@ class Solution:
         ax.set_aspect('equal')
         ax.ticklabel_format(useOffset=False)
         
-        if show:
+        if save:
+            plt.savefig(save)
+            plt.close()
+        elif show:
             plt.show()
         
         return ax, plot_triangulation, cbar
 
-    def plot_surface(self, name, idx=None, title=None, ax=None, show=True):
+    def plot_surface(self, name, idx=None, title=None, ax=None, show=True, save=None):
         if name not in self.values:
             raise ValueError(f'{name} not found in solution')
 
@@ -87,11 +99,14 @@ class Solution:
         ax.set_xlim([min(self.mesh.points[:, 0]), max(self.mesh.points[:, 0])])
         ax.set_ylim([min(self.mesh.points[:, 1]), max(self.mesh.points[:, 1])])
         
-        if show:
+        if save:
+            plt.savefig(save)
+            plt.close()
+        elif show:
             plt.show()
         return ax, surf
 
-    def plot_animation(self, name, title='Animation', cbar_label='Value', fixed_cbar=False, surface=False):
+    def plot_animation(self, name, title='Animation', cbar_label='Value', cbar_lim=None, surface=False, save=None, show=True):
         if name not in self.values:
             raise ValueError(f'{name} not found in solution')
 
@@ -113,20 +128,23 @@ class Solution:
         else:
             ax, plot_triangulation, cbar = self.plot_colored(name, idx=0, title=f'{title} t = 0', show=False)
             fig = ax.figure
-            cbar_lim = (min(u_values[0]), max(u_values[0])) if fixed_cbar else None
+            cbar_lim = (min(u_values[0]), max(u_values[0])) if cbar_lim is None else cbar_lim
 
             def update(frame, ax, cbar):
                 ax, plot_triangulation, cbar = self.plot_colored(name, idx=frame, title=f'{title} t = {frame}', cbar=cbar, cbar_lim=cbar_lim, ax=ax, show=False)
                 return ax
 
         ani = FuncAnimation(fig, update, frames=range(len(u_values)), fargs=(ax, cbar), blit=False, repeat=True)
-        plt.show()
+        
+        if save:
+            writervideo = animation.FFMpegWriter(fps=5) 
+            ani.save(save, writer=writervideo) 
+            plt.close()
+        elif show:
+            plt.show()
 
-    def plot_deformed(self, name, title='Deformed', ax=None, show=True):
-        if name not in self.values:
-            raise ValueError(f'{name} not found in solution')
+    def plot_deformed(self, name, title='Deformed', ax=None, show=True, save=None):
         if 'deformed_mesh' not in self.values:
             raise ValueError('Deformed mesh not found in solution')
-        deformed_mesh = self.values['deformed_mesh']
-        deformed_mesh.plot_colored(self.values[name], title=title, ax=ax, show=show)
+        self.plot_colored(name, title=title, ax=ax, show=show, mesh=self.values['deformed_mesh'], save=save)
         

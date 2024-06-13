@@ -16,12 +16,12 @@ class Solver:
         self.mesh = mesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions(mesh)
-        self.boundary_conditions.do(mesh.points.shape[0], dim=self.equation.dim)
         self.load_function = load_function if load_function is not None else lambda x: 0
         self.solution = Solution(mesh)
 
     def preprocess(self):
-        # do boundary conditions, in the future, do more matrix building
+        # todo: do more matrix building
+        self.boundary_conditions.do(self.mesh.points.shape[0], dim=self.equation.dim)
         self.M = assemble_matrix(self.mesh.points, self.mesh.faces, calculate_element_mass_matrix, dim=self.equation.dim)
         if self.equation.dim == 1:
             self.K = assemble_matrix(self.mesh.points, self.mesh.faces, calculate_element_stiffness_matrix, dim=self.equation.dim)
@@ -121,9 +121,10 @@ class Solver:
             b_mod = self.b[free_idxs] - K[np.ix_(free_idxs, fixed_idxs)] @ u[fixed_idxs] + self.r[free_idxs]
             u[free_idxs] = np.linalg.solve(K_mod, b_mod)
 
-            deformed_mesh = Mesh(self.mesh.points + u.reshape((-1, 2)), self.mesh.faces, self.mesh.boundary)
+            deformed_mesh = self.mesh.get_deformed_mesh(u)
             self.solution.set_values("u", u)
             self.solution.set_values("deformed_mesh", deformed_mesh)
+            self.solution.set_values("none", np.zeros(len(self.mesh.faces)))
 
             self.B = np.array([calculate_B(element, (material_func, e_idx)) for e_idx, element in enumerate(self.mesh.points[self.mesh.faces])]) # gradient matrix
             self.D = np.array([calculate_D(element, (material_func, e_idx)) for e_idx, element in enumerate(self.mesh.points[self.mesh.faces])]) # elasticity matrix
