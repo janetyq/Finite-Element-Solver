@@ -92,6 +92,30 @@ class Mesh:
         elif show:
             plt.show()
         return ax
+    
+    def plot_colored(self, values, title=None, fig=None, ax=None, show=True, save=None, cbar_label='Value', cbar_lim=None):
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        triang = Triangulation(self.points[:, 0], self.points[:, 1], self.faces)
+        surf = ax.tripcolor(triang, values, shading='flat')
+        cbar = fig.colorbar(surf, ax=ax)
+        cbar.set_label(cbar_label)
+        if cbar_lim:
+            cbar.set_clim(cbar_lim)
+
+        ax.set_title(title)
+        ax.set_aspect('equal')
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.ticklabel_format(useOffset=False)
+
+        if save:
+            plt.savefig(save)
+            plt.close()
+        elif show:
+            plt.show()
+        return ax, surf, cbar
 
     # METRICS
     def calculate_total_value(self, u):
@@ -258,6 +282,12 @@ if __name__ == '__main__':
     mesh.save_to_obj("meshes/rect.obj")
     mesh.save('meshes/easy_rectangle.pkl')
 
+    corners = [[0, 0], [4, 1]]
+    mesher = RectMesher(corners, resolution=(161, 41))
+    mesh2 = mesher.mesh()
+    mesh2.save('meshes/spring_long.pkl')
+    mesh2.plot(save='results/rect_mesh.png')
+
     # # plot neighbors
     # face_neighbors = mesh.calculate_face_neighbors()
     # fig, ax = plt.subplots()
@@ -271,9 +301,3 @@ if __name__ == '__main__':
     #         ax.plot([center[0], neighbor_center[0]], [center[1], neighbor_center[1]], color=random_color)
     # mesh.plot(ax=ax, show=False)
     # plt.show()
-
-    corners = [[0, 0], [2, 1]]
-    mesher = RectMesher(corners, resolution=(80, 40))
-    mesh2 = mesher.mesh()
-    mesh2.save('meshes/spring_80x40.pkl')
-    mesh2.plot(save='results/rect_mesh.png')

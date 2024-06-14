@@ -50,7 +50,8 @@ if __name__ == '__main__':
 
     # MESH
     # MESH_FILE = 'meshes/hole1000_mesh.pkl'
-    MESH_FILE = 'meshes/square1000_mesh.pkl'
+    # MESH_FILE = 'meshes/square1000_mesh.pkl'
+    MESH_FILE = 'meshes/spring_long.pkl'
     # MESH_FILE = 'meshes/regular_mesh3.pkl'
     # MESH_FILE = 'meshes/easy_rectangle.pkl'
     mesh = Mesh.load(MESH_FILE)
@@ -128,8 +129,6 @@ if __name__ == '__main__':
     # axs = [fig.add_subplot(121, projection='3d'), fig.add_subplot(122)]
     # new_solver.solution.plot_surface('u', title='Poisson Solution', ax=axs[0], show=False)
     # new_solver.solution.plot_colored('face_residuals', title='Poisson Residuals', ax=axs[1])
-
-
     
     # # ADAPTIVE REFINEMENT TEST
     # initial_mesh = new_solver.mesh
@@ -186,29 +185,31 @@ if __name__ == '__main__':
     # # solver.solution.plot_animation('u_values')
 
     # LINEAR ELASTICS
-    def force(point):
-        if point[1] < 1e-6:
-            return np.array([[0, -1]])
-        return np.array([[0, 0]])
+    def down_force(point):
+        if point[0] > w - 1e-6 and np.abs(point[1] - h/2) < 0.1:
+            return np.array([0, -50])
+        return np.array([0, 0])
 
     beam_bc = BoundaryConditions(mesh)
     left_idxs = [idx for idx in boundary_idxs if points[idx][0] < 1e-6]
     right_idxs = [idx for idx in boundary_idxs if points[idx][0] > w-1e-6]
     beam_bc.add('dirichlet', left_idxs, [[0, 0] for idx in left_idxs])
-    beam_bc.add('dirichlet', right_idxs, [[0, 0] for idx in right_idxs])
+    # beam_bc.add('neumann', right_idxs, [[10, 0] for idx in right_idxs])
 
     equation = Equation('linear_elastic', {'E': 125, 'nu': 0.4})
-    solver = Solver(mesh, equation, beam_bc, load_function=force)
+    solver = Solver(mesh, equation, beam_bc, load_function=down_force)
     solver.solve()
     # solver.solution.plot_deformed('stress')
     solver.solution.plot_colored('stress', save="results/stress.png")
 
     # TOPOLOGY OPTIMIZATION
-    topoptimizer = TopologyOptimizer(solver, {'iters': 25, 'volume_frac': 0.5, 'alpha': 0.002, 'beta': 0.6})
+    topoptimizer = TopologyOptimizer(solver, {'iters': 25, 'volume_frac': 0.5})
     topoptimizer.solve()
     # topoptimizer.solution.plot_animation('rhos', save='results/topopt.png')
     topoptimizer.solution.plot_colored('rhos', idx=10, save="results/rho10.png")
     topoptimizer.solution.plot_colored('rhos', idx=20, save="results/rho20.png")
+    topoptimizer.solution.plot_animation('rhos', save='results/topopt.gif', cbar_lim=[0, 1])
+
 
     # save_topopt_results(topopt_results, name='topopt_1', fps=30)
 

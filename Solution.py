@@ -18,6 +18,10 @@ class Solution:
     def load(cls, filename):
         with open(filename, 'rb') as f:
             return cls(pickle.load(f))
+    
+    def __copy__(self):
+        values_copy = {k: v.copy() for k, v in self.values.items()}
+        return self.__class__(self.mesh.copy(), values_copy)
 
     def __reduce__(self):
         return (self.__class__, (self.mesh, self.values))
@@ -71,7 +75,7 @@ class Solution:
     
     def plot_colored(self, name, idx=None, title=None, contour=0, ax=None, show=True, cbar=None, cbar_lim=None, cbar_label=None, save=None, mesh=None):
         if name not in self.values:
-            raise ValueError(f'{name} not found in solution')
+            raise ValueError(f'{name} not found in solution {self.values.keys()}')
         if mesh is None:
             mesh = self.mesh
 
@@ -205,8 +209,16 @@ class Solution:
         elif show:
             plt.show()
 
-    def plot_deformed(self, name, title='Deformed', ax=None, show=True, save=None):
-        if 'deformed_mesh' not in self.values:
-            raise ValueError('Deformed mesh not found in solution')
-        self.plot_colored(name, title=title, ax=ax, show=show, mesh=self.values['deformed_mesh'], save=save)
+    def plot_deformed(self, name, idx=None, title='Deformed', ax=None, show=True, save=None):
+        if 'deformed_mesh' in self.values:
+            mesh = self.values['deformed_mesh']
+        elif 'deformed_meshes' in self.values and idx is not None:
+            mesh = self.values['deformed_meshes'][idx]
+        else:
+            raise ValueError(f'Deformed mesh not found in solution {self.values.keys()}')
+        
+        if name is None:
+            mesh.plot(ax=ax, show=show, save=save)
+        else:
+            self.plot_colored(name, idx=idx, title=title, ax=ax, show=show, mesh=mesh, save=save)
         

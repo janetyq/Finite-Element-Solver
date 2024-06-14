@@ -168,12 +168,19 @@ class Solver:
     def _solve_linear_elastic(self):
         u = np.zeros(2 * len(self.mesh.points))
         u[self.fixed] = self.boundary_conditions.fixed_values
+
+        if 'rho' in self.equation.parameters:
+            rho = self.equation.parameters['rho']
+        else:
+            rho = np.full(len(self.mesh.faces), 1)
+
+        E_min, p = 1e-9, 3
         
         E = self.equation.parameters['E']
-        E = np.full(len(self.mesh.faces), E)
+        E = E_min + np.full(len(self.mesh.faces), E) * rho**p
         nu = self.equation.parameters['nu']
         nu = np.full(len(self.mesh.faces), nu)
-        
+
         material_func = np.vstack([E, nu]).T
         K = assemble_matrix(self.mesh.points, self.mesh.faces, calculate_element_stiffness_matrix, func=material_func, dim=2)
         K_mod = K[np.ix_(self.free, self.free)]
@@ -183,7 +190,7 @@ class Solver:
         deformed_mesh = self.mesh.get_deformed_mesh(u)
         self.solution.set_values("u", u)
         self.solution.set_values("deformed_mesh", deformed_mesh)
-        self.solution.set_values("none", np.zeros(len(self.mesh.faces)))
+        self.solution.set_values("rho", self.equation.parameters.get('rho', np.full(len(self.mesh.faces), 1)))
 
         self.B = np.array([calculate_B(element, (material_func, e_idx)) for e_idx, element in enumerate(self.mesh.points[self.mesh.faces])]) # gradient matrix
         self.D = np.array([calculate_D(element, (material_func, e_idx)) for e_idx, element in enumerate(self.mesh.points[self.mesh.faces])]) # elasticity matrix
@@ -202,15 +209,19 @@ class Solver:
         self.solution.set_values("strain", np.linalg.norm(eps_faces, axis=-1))
         self.solution.set_values("stress", np.linalg.norm(sigma_faces, axis=-1))
         
-        C_total = 1/2 * u.T @ K @ u
         C_faces = np.zeros(len(self.mesh.faces))
+        force_faces = np.zeros(len(self.mesh.faces))
         for face_idx, face in enumerate(self.mesh.faces):
             e_idxs = np.array([2*face, 2*face+1]).T.flatten()
             u_face = u[e_idxs]
             K_face = calculate_element_stiffness_matrix(self.mesh.points[face], (material_func, face_idx), dim=2)
-            C_faces[face_idx] = 1/2 * u_face.T @ K_face @ u_face
+            C_faces[face_idx] = u_face.T @ K_face @ u_face
+            force_faces[face_idx] = np.linalg.norm(K_face @ u_face)
         self.solution.set_values("compliance", C_faces)
-        self.solution.set_values("total_compliance", C_total)
+        self.solution.set_values("total_compliance", np.sum(C_faces))
+        self.solution.set_values("force_faces", force_faces)
+        force_vertices = self.solution._convert_face_values_to_vertex_values(force_faces)
+        self.solution.set_values("force_vertices", force_vertices)
 
     def adaptive_refinement(self, max_triangles=1000, max_iters=20):
         # TODO: there's a bug somewhere
