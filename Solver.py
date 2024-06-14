@@ -183,7 +183,7 @@ class Solver:
         deformed_mesh = self.mesh.get_deformed_mesh(u)
         self.solution.set_values("u", u)
         self.solution.set_values("deformed_mesh", deformed_mesh)
-            self.solution.set_values("none", np.zeros(len(self.mesh.faces)))
+        self.solution.set_values("none", np.zeros(len(self.mesh.faces)))
 
         self.B = np.array([calculate_B(element, (material_func, e_idx)) for e_idx, element in enumerate(self.mesh.points[self.mesh.faces])]) # gradient matrix
         self.D = np.array([calculate_D(element, (material_func, e_idx)) for e_idx, element in enumerate(self.mesh.points[self.mesh.faces])]) # elasticity matrix

@@ -11,11 +11,11 @@ from utils.helper import *
 from Mesh import *
 
 # Generate rectangular mesh
-# corners = [[0, 0], [2, 1]]
-# mesher = RectMesher(corners, resolution=(40, 20))
-# mesh = mesher.mesh()
-# mesh.save('meshes/spring_40x20.pkl')
-# mesh.plot(save='temp.png')
+corners = [[0, 0], [2, 1]]
+mesher = RectMesher(corners, resolution=(40, 20))
+mesh = mesher.mesh()
+mesh.save('meshes/spring_40x20.pkl')
+mesh.plot(save='temp.png')
 
 
 # Load Mesh
