@@ -75,6 +75,10 @@ if __name__ == '__main__':
     zero_bc = BoundaryConditions(mesh)
     zero_bc.add('dirichlet', boundary_idxs, [0 for idx in boundary_idxs])
 
+    # # dirichlet u=1 on boundary
+    one_bc = BoundaryConditions(mesh)
+    one_bc.add('dirichlet', boundary_idxs, [1 for idx in boundary_idxs])
+
     # # both dirichlet and neumann
     # flow out of right
     mixed_bc = BoundaryConditions(mesh)
@@ -152,26 +156,34 @@ if __name__ == '__main__':
     # final_mesh.plot_surface(final_result.u_values, title='Final Solution', ax=ax2, show=False)
     # plt.show()
 
-    # HEAT EQUATION
-    heat_center = np.mean(points, axis=0)
-    u_initial = bump_function(points, heat_center, mag=50, size=0.3*min(w, h)) + 300
-    
-    # equation = Equation('heat', {'u_initial': u_initial.copy(), 'iters': 50, 'dt': 0.01})
-    # solver = Solver(mesh, equation, mixed_bc)
-    # solver.solve()
-    # # solver.solution.plot_colored('u_values', idx=5, contour=20, show=True)
-    # solver.solution.plot_animation('u_values')
-   
+    # beam_bc = BoundaryConditions(mesh)
+    # left_idxs = [idx for idx in boundary_idxs if points[idx][0] < 1e-6]
+    # right_idxs = [idx for idx in boundary_idxs if points[idx][0] > w-1e-6]
+    # beam_bc.add('dirichlet', left_idxs, [0 for idx in left_idxs])
+    # beam_bc.add('dirichlet', right_idxs, [1 for idx in right_idxs])
 
-    # # WAVE EQUATION
-    wave_center = np.mean(points, axis=0)
-    u_initial = bump_function(points, wave_center, size=0.2*min(w, h))
-    dudt_initial = np.zeros(len(points))
+    # # HEAT EQUATION
+    # heat_center = np.mean(points, axis=0)
+    # u_initial = bump_function(points, heat_center, mag=50, size=0.3*min(w, h)) + 300
+    # u_initial = np.zeros(len(points))
     
-    # equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.02, 'iters': 10})
-    # solver = Solver(mesh, equation, None)
-    # solver.solve()
-    # solver.solution.plot_animation('u_values')
+    # # equation = Equation('heat', {'u_initial': u_initial.copy(), 'iters': 50, 'dt': 0.01})
+    # # solver = Solver(mesh, equation, beam_bc)
+    # # solver.solve()
+    # # # solver.solution.plot_colored('u_values', idx=5, contour=20, show=True)
+    # # solver.solution.plot_animation('u_values', save='results/heat.gif')
+   
+#    input("Press Enter to continue...")
+
+    # # # WAVE EQUATION
+    # wave_center = np.mean(points, axis=0)
+    # u_initial = bump_function(points, wave_center, size=0.2*min(w, h))
+    # dudt_initial = np.zeros(len(points))
+    
+    # # equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.02, 'iters': 10})
+    # # solver = Solver(mesh, equation, None)
+    # # solver.solve()
+    # # solver.solution.plot_animation('u_values')
 
     # LINEAR ELASTICS
     def force(point):
@@ -189,11 +201,16 @@ if __name__ == '__main__':
     solver = Solver(mesh, equation, beam_bc, load_function=force)
     solver.solve()
     # solver.solution.plot_deformed('stress')
+    solver.solution.plot_colored('stress', save="results/stress.png")
 
     # TOPOLOGY OPTIMIZATION
-    topoptimizer = TopologyOptimizer(solver, {'iters': 10, 'volume_frac': 0.5, 'alpha': 0.002, 'beta': 1.0})
+    topoptimizer = TopologyOptimizer(solver, {'iters': 25, 'volume_frac': 0.5, 'alpha': 0.002, 'beta': 0.6})
     topoptimizer.solve()
-    topoptimizer.solution.plot_animation('rhos', savefile='topopt_1.mp4')
+    # topoptimizer.solution.plot_animation('rhos', save='results/topopt.png')
+    topoptimizer.solution.plot_colored('rhos', idx=10, save="results/rho10.png")
+    topoptimizer.solution.plot_colored('rhos', idx=20, save="results/rho20.png")
+
+    # save_topopt_results(topopt_results, name='topopt_1', fps=30)
 
     # fig, ax = plt.subplots(1, 2, figsize=(10, 4))
     # original_result.deformed_mesh.plot_colored(np.full(len(mesh.faces), 1), title='Original', ax=ax[0], show=False, cbar_lim=[0, 1], cbar_label='Density')

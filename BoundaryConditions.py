@@ -13,13 +13,19 @@ class BoundaryConditions:
         # self.convective = {}
 
     def add(self, bc_type, indices, values):
-        assert len(indices) == len(values)
         if bc_type == 'dirichlet':
-            for i, idx in enumerate(indices):
-                self.dirichlet[idx] = values[i]
+            assert len(indices) == len(values)
+            for idx, value in zip(indices, values):
+                self.dirichlet[idx] = value
         elif bc_type == 'neumann':
-            for i, idx in enumerate(indices):
-                self.neumann[idx] = values[i]
+            assert len(indices) == len(values)
+            for idx, value in zip(indices, values):
+                self.neumann[idx] = value
+        elif bc_type == 'force':
+            print('note: force bc only supported for linear elastic')
+            avg_force = np.array(values) / len(indices)
+            for idx in indices:
+                self.neumann[idx] = avg_force
         # elif bc_type == 'convective':
         #     for i, idx in enumerate(indices):
         #         self.convective[idx] = values[i]
@@ -38,8 +44,8 @@ class BoundaryConditions:
         self.free_idxs = list(set(range(N)) - set(self.fixed_idxs))
 
         if dim == 2:
-            self.fixed_idxs = np.array([2*idx for idx in self.fixed_idxs] + [2*idx+1 for idx in self.fixed_idxs])
-            self.free_idxs = np.array([2*idx for idx in self.free_idxs] + [2*idx+1 for idx in self.free_idxs])
+            self.fixed_idxs = np.array([[2*idx, 2*idx+1] for idx in self.fixed_idxs]).flatten()
+            self.free_idxs = np.array([[2*idx, 2*idx+1] for idx in self.free_idxs]).flatten()
             self.fixed_values = np.array(self.fixed_values).flatten()
         
         # neumann boundary conditions

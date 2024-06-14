@@ -1,4 +1,8 @@
 __pycache__/
 test*
+results/*
+meshes/*
+!meshes/square*
+temp*
 _*
 output*
