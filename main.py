@@ -3,7 +3,6 @@ from math import sin, cos, pi, e
 import matplotlib.pyplot as plt
 
 from BoundaryConditions import *
-
 from Solver import *
 from TopologyOptimizer import *
 
@@ -20,16 +19,11 @@ np.set_printoptions(suppress=True)
 # test buckling
 # efficiency of mesh stuff
 
-# save results with animation together, gif?, save function separate from plot
-
-# intuition for alpha
-# improve results saving
+# debug topopt - intuition for alpha
 # regular mesh generator - make official
-# half edge - make part of mesh and w/ insertion
+# improve half edge, refinement
 
 # automatic boundary detection, topo opt remove material
-
-# clean up topo opt code
 
 # adaptive refinement for other equations
 # transport equation
@@ -37,8 +31,6 @@ np.set_printoptions(suppress=True)
 # wave energy not conserved
 # variable time stepping?
 # check plane strain vs plane stress
-# efficiency, np stuff
-# contour weird after refinement
 # residual for different function
 # linear elastics - corners seem too pulled
 # buckling effect
@@ -46,7 +38,6 @@ np.set_printoptions(suppress=True)
 
 # plot hovering
 # slider animation
-# reorder class methods
 
 # FUTURE IDEAS
 # higher order elements
@@ -103,10 +94,10 @@ if __name__ == '__main__':
     # fluid_bc.add('neumann', bottom_idxs, [10 for idx in bottom_idxs])
 
     # # L2 PROJECTION
-    equation = Equation('projection')
-    new_solver = Solver(mesh, equation, no_bc, cool_f)
-    new_solver.solve()
-    new_solver.solution.plot_surface('u', title='L2 Projection')
+    # equation = Equation('projection')
+    # new_solver = Solver(mesh, equation, no_bc, cool_f)
+    # new_solver.solve()
+    # new_solver.solution.plot_surface('u', title='L2 Projection')
 
     # # POISSON'S EQUATION
     def test_function(point):
@@ -115,10 +106,26 @@ if __name__ == '__main__':
         r2 = x**2 + y**2
         return 4*a*a*(1-a*r2)*e**(-a*r2)
 
-    # equation = Equation('poisson')
-    # new_solver = Solver(mesh, equation, zero_bc, test_function)
-    # new_solver.solve()
-    # new_solver.solution.plot_colored('u', title='Poisson Solution', contour=5)
+    equation = Equation('poisson')
+    new_solver = Solver(mesh, equation, zero_bc, test_function)
+    new_solver.solve()
+
+    # new_solver.solution.calc_gradient('u')
+    # new_solver.solution.plot_arrows('grad_u', title='Poisson Gradient')
+
+    fig = plt.figure(figsize=(10, 5))
+    axs = [fig.add_subplot(121, projection='3d'), fig.add_subplot(122)]
+    new_solver.solution.plot_surface('u', title='Poisson Solution', ax=axs[0], show=False)
+    new_solver.solution.plot_colored('face_residuals', title='Poisson Residuals', ax=axs[1])
+
+    new_solver.adaptive_refinement(max_iters=1, max_triangles=2000)
+    new_solver.solve()
+    fig = plt.figure(figsize=(10, 5))
+    axs = [fig.add_subplot(121, projection='3d'), fig.add_subplot(122)]
+    new_solver.solution.plot_surface('u', title='Poisson Solution', ax=axs[0], show=False)
+    new_solver.solution.plot_colored('face_residuals', title='Poisson Residuals', ax=axs[1])
+
+
     
     # # ADAPTIVE REFINEMENT TEST
     # initial_mesh = new_solver.mesh
@@ -149,11 +156,11 @@ if __name__ == '__main__':
     heat_center = np.mean(points, axis=0)
     u_initial = bump_function(points, heat_center, mag=50, size=0.3*min(w, h)) + 300
     
-    equation = Equation('heat', {'u_initial': u_initial.copy(), 'iters': 50, 'dt': 0.01})
-    solver = Solver(mesh, equation, mixed_bc)
-    solver.solve()
-    # solver.solution.plot_colored('u_values', idx=5, contour=20, show=True)
-    solver.solution.plot_animation('u_values')
+    # equation = Equation('heat', {'u_initial': u_initial.copy(), 'iters': 50, 'dt': 0.01})
+    # solver = Solver(mesh, equation, mixed_bc)
+    # solver.solve()
+    # # solver.solution.plot_colored('u_values', idx=5, contour=20, show=True)
+    # solver.solution.plot_animation('u_values')
    
 
     # # WAVE EQUATION
@@ -161,33 +168,32 @@ if __name__ == '__main__':
     u_initial = bump_function(points, wave_center, size=0.2*min(w, h))
     dudt_initial = np.zeros(len(points))
     
-    equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.02, 'iters': 10})
-    solver = Solver(mesh, equation, None)
-    solver.solve()
-    solver.solution.plot_animation('u_values')
-
+    # equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.02, 'iters': 10})
+    # solver = Solver(mesh, equation, None)
+    # solver.solve()
+    # solver.solution.plot_animation('u_values')
 
     # LINEAR ELASTICS
-    def right_force(point):
-        if point[0] > w-1e-6:
-            return np.array([[0, -100]])
+    def force(point):
+        if point[1] < 1e-6:
+            return np.array([[0, -1]])
         return np.array([[0, 0]])
 
     beam_bc = BoundaryConditions(mesh)
     left_idxs = [idx for idx in boundary_idxs if points[idx][0] < 1e-6]
+    right_idxs = [idx for idx in boundary_idxs if points[idx][0] > w-1e-6]
     beam_bc.add('dirichlet', left_idxs, [[0, 0] for idx in left_idxs])
+    beam_bc.add('dirichlet', right_idxs, [[0, 0] for idx in right_idxs])
 
     equation = Equation('linear_elastic', {'E': 125, 'nu': 0.4})
-    solver = Solver(mesh, equation, beam_bc, load_function=right_force)
+    solver = Solver(mesh, equation, beam_bc, load_function=force)
     solver.solve()
     # solver.solution.plot_deformed('stress')
 
     # TOPOLOGY OPTIMIZATION
-    topoptimizer = TopologyOptimizer(solver, {'iters': 50, 'volume_frac': 0.5, 'alpha': 0.002, 'beta': 0.6})
+    topoptimizer = TopologyOptimizer(solver, {'iters': 10, 'volume_frac': 0.5, 'alpha': 0.002, 'beta': 1.0})
     topoptimizer.solve()
-    topoptimizer.solution.plot_animation('rhos')
-
-    # save_topopt_results(topopt_results, name='topopt_1', fps=30)
+    topoptimizer.solution.plot_animation('rhos', savefile='topopt_1.mp4')
 
     # fig, ax = plt.subplots(1, 2, figsize=(10, 4))
     # original_result.deformed_mesh.plot_colored(np.full(len(mesh.faces), 1), title='Original', ax=ax[0], show=False, cbar_lim=[0, 1], cbar_label='Density')

@@ -10,6 +10,7 @@ class BoundaryConditions:
 
         self.neumann = {}
         self.dirichlet = {}
+        # self.convective = {}
 
     def add(self, bc_type, indices, values):
         assert len(indices) == len(values)
@@ -19,6 +20,9 @@ class BoundaryConditions:
         elif bc_type == 'neumann':
             for i, idx in enumerate(indices):
                 self.neumann[idx] = values[i]
+        # elif bc_type == 'convective':
+        #     for i, idx in enumerate(indices):
+        #         self.convective[idx] = values[i]
         else:
             raise ValueError(f'bc_type {bc_type} not recognized')
     

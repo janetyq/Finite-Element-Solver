@@ -46,7 +46,8 @@ def calculate_element_stiffness_matrix(element, param, dim=1):
         P = np.hstack([np.ones((3, 1)), element])
         area = calculate_triangle_area(element)
         phis = np.linalg.solve(P, np.eye(3))[1:].T
-        f = calc_quadrature(func, element) if func is not None else 1
+        # f = calc_quadrature(func, element) if func is not None else 1
+        f = func(idx)
         return phis @ phis.T * area * f
     else: # dim == 2
         # outputs 6x6 element stiffness matrix = a(u, v) = int (sigma(u) : epsilon(v)) over element
@@ -79,7 +80,8 @@ def calculate_element_boundary_load_vector(element, param, dim=1):
         res = np.array([func(point) for point in element]).flatten()
     # else:
     #     res = np.sum([func(point) for point in element], axis=0)
-    return 1/2 * res * E
+    # return 1/2 * res * E
+    return res * E
 
 
 ## ASSEMBLY ##
