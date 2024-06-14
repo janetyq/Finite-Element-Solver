@@ -1,8 +1,9 @@
+from datetime import datetime
+import matplotlib.animation as animation 
 import numpy as np
 import pickle
-import matplotlib.animation as animation 
+
 from Mesh import *
-import matplotlib.animation as animation
 
 class Solution:
     def __init__(self, mesh, values=None):

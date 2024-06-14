@@ -103,31 +103,31 @@ if __name__ == '__main__':
     # new_solver.solve()
     # new_solver.solution.plot_surface('u', title='L2 Projection')
 
-    # # POISSON'S EQUATION
-    def test_function(point):
-        a = 50
-        x, y = point - np.array([0.5, 0.5])
-        r2 = x**2 + y**2
-        return 4*a*a*(1-a*r2)*e**(-a*r2)
+    # # # POISSON'S EQUATION
+    # def test_function(point):
+    #     a = 50
+    #     x, y = point - np.array([0.5, 0.5])
+    #     r2 = x**2 + y**2
+    #     return 4*a*a*(1-a*r2)*e**(-a*r2)
 
-    equation = Equation('poisson')
-    new_solver = Solver(mesh, equation, zero_bc, test_function)
-    new_solver.solve()
+    # equation = Equation('poisson')
+    # new_solver = Solver(mesh, equation, zero_bc, test_function)
+    # new_solver.solve()
 
-    # new_solver.solution.calc_gradient('u')
-    # new_solver.solution.plot_arrows('grad_u', title='Poisson Gradient')
+    # # new_solver.solution.calc_gradient('u')
+    # # new_solver.solution.plot_arrows('grad_u', title='Poisson Gradient')
 
-    fig = plt.figure(figsize=(10, 5))
-    axs = [fig.add_subplot(121, projection='3d'), fig.add_subplot(122)]
-    new_solver.solution.plot_surface('u', title='Poisson Solution', ax=axs[0], show=False)
-    new_solver.solution.plot_colored('face_residuals', title='Poisson Residuals', ax=axs[1])
+    # fig = plt.figure(figsize=(10, 5))
+    # axs = [fig.add_subplot(121, projection='3d'), fig.add_subplot(122)]
+    # new_solver.solution.plot_surface('u', title='Poisson Solution', ax=axs[0], show=False)
+    # new_solver.solution.plot_colored('face_residuals', title='Poisson Residuals', ax=axs[1])
 
-    new_solver.adaptive_refinement(max_iters=1, max_triangles=2000)
-    new_solver.solve()
-    fig = plt.figure(figsize=(10, 5))
-    axs = [fig.add_subplot(121, projection='3d'), fig.add_subplot(122)]
-    new_solver.solution.plot_surface('u', title='Poisson Solution', ax=axs[0], show=False)
-    new_solver.solution.plot_colored('face_residuals', title='Poisson Residuals', ax=axs[1])
+    # new_solver.adaptive_refinement(max_iters=1, max_triangles=2000)
+    # new_solver.solve()
+    # fig = plt.figure(figsize=(10, 5))
+    # axs = [fig.add_subplot(121, projection='3d'), fig.add_subplot(122)]
+    # new_solver.solution.plot_surface('u', title='Poisson Solution', ax=axs[0], show=False)
+    # new_solver.solution.plot_colored('face_residuals', title='Poisson Residuals', ax=axs[1])
 
 
     

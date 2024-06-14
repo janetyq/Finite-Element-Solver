@@ -5,8 +5,17 @@ class TopologyOptimizer:
         self.solver = solver
         self.parameters = parameters # iters, volume_frac, alpha, beta
         self.solution = Solution(solver.mesh)
+        self.face_neighbors = self.solver.mesh.calculate_face_neighbors()
 
-    def oc_density(self, rho, sensitivity, vol_frac):
+    def filter_sensitivity(self, sensitivity):
+        # simple averaging with neighbors
+        smoothed_sensitivity = np.zeros_like(sensitivity)
+        for face_idx, face in enumerate(self.solver.mesh.faces):
+            neighbor_value = np.mean([sensitivity[neighbor_idx] for neighbor_idx in self.face_neighbors[face_idx]])
+            smoothed_sensitivity[face_idx] = 0.5 * neighbor_value + 0.5 * sensitivity[face_idx]
+        return smoothed_sensitivity
+
+    def oc_density(self, rho, sensitivity, volume_frac):
         # sensitivity is the gradient of the compliance with respect to the density
         l, r = 0.0, 1e15 # search interval
         while (l*(1+1e-15)) < r:
@@ -15,7 +24,7 @@ class TopologyOptimizer:
             # rho_new = np.clip(rho_new, rho_new - 0.1, rho_new + 0.1) # change limit
             rho_new = np.clip(rho_new, 0, 1) 
 
-            if self.solver.mesh.calculate_mean_value(rho_new) < vol_frac:
+            if self.solver.mesh.calculate_mean_value(rho_new) < volume_frac:
                 r = m
             else:
                 l = m
@@ -23,7 +32,6 @@ class TopologyOptimizer:
 
 
     def solve(self):
-        face_neighbors = self.solver.mesh.calculate_face_neighbors()
         if self.solver.equation.name == 'linear_elastic':
             E_0 = self.solver.equation.parameters['E']
             iters, volume_frac = self.parameters['iters'], self.parameters['volume_frac']
@@ -43,6 +51,7 @@ class TopologyOptimizer:
                 u, deformed_mesh = self.solver.solution.values['u'], self.solver.solution.values['deformed_mesh']
 
                 # print results
+                # TODO: print as table
                 print('\nIteration', iter)
                 print('C:', C)
                 print(f'Volume ratio: {rho_mean}')
@@ -51,18 +60,17 @@ class TopologyOptimizer:
                 scaling = (len(self.solver.mesh.faces)) / C
 
                 # update rho
-                dC_drho = p * E_0 * rho**(p-1) * C_faces
-                rho += alpha * scaling * dC_drho + beta * min(volume_frac - rho_mean, 0)
+                # dC_drho = p * E_0 * rho**(p-1) * C_faces
+                # rho += alpha * scaling * dC_drho + beta * min(volume_frac - rho_mean, 0)
+                sensitivity = self.filter_sensitivity(p * E_0 * rho**(p-1) * C_faces)
+                rho = self.oc_density(rho, sensitivity, volume_frac)
 
-                print('avg. rho change:', self.solver.mesh.calculate_mean_value(alpha * scaling * dC_drho))
-                # print('avg. vol correction:', beta * (volume_frac - rho))
-
-                # smoothing
-                smoothed_rho = np.zeros(len(rho))
-                for face_idx, face in enumerate(self.solver.mesh.faces):
-                    neighbor_value = np.mean([rho[neighbor_idx] for neighbor_idx in face_neighbors[face_idx]])
-                    smoothed_rho[face_idx] = 0.5 * neighbor_value + 0.5 * rho[face_idx]
-                rho = np.clip(smoothed_rho, 0, 1)
+                # # smoothing
+                # smoothed_rho = np.zeros(len(rho))
+                # for face_idx, face in enumerate(self.solver.mesh.faces):
+                #     neighbor_value = np.mean([rho[neighbor_idx] for neighbor_idx in face_neighbors[face_idx]])
+                #     smoothed_rho[face_idx] = 0.5 * neighbor_value + 0.5 * rho[face_idx]
+                # rho = np.clip(smoothed_rho, 0, 1)
 
                 us.append(u.copy())
                 deformed_meshes.append(deformed_mesh)

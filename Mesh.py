@@ -37,8 +37,12 @@ class Mesh:
     def copy(self):
         return Mesh(self.points.copy(), self.faces.copy(), self.boundary.copy())
 
+    def get_deformed_mesh(self, u):
+        points = self.points + u.reshape(-1, 2)
+        return Mesh(points, self.faces, self.boundary)
+
     # PLOTTING
-    def plot(self, title=None, ax=None, show=True, linewidth=0.2, mode=None, fill_regions=None):
+    def plot(self, title=None, ax=None, show=True, linewidth=0.2, mode=None, fill_regions=None, save=None, idxs=None):
         if ax is None:
             fig, ax = plt.subplots()
 
@@ -73,13 +77,19 @@ class Mesh:
                     ax.fill(vertices[:, 0], vertices[:, 1], color=color, alpha=0.2, label=label if i == 0 else None)
                     i += 1
 
+        if idxs:
+            ax.scatter(self.points[idxs, 0], self.points[idxs, 1], color='red', s=5)
+
         ax.set_title(title)
         ax.set_aspect('equal')
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.ticklabel_format(useOffset=False)
 
-        if show:
+        if save:
+            plt.savefig(save)
+            plt.close()
+        elif show:
             plt.show()
         return ax
 
@@ -213,6 +223,30 @@ class EasyMesher:
         
         return mesh
 
+class RectMesher:
+    def __init__(self, corners, resolution):
+        self.corners = corners
+        self.resolution = resolution
+
+    def mesh(self):
+        x_range = np.linspace(self.corners[0][0], self.corners[1][0], self.resolution[0])
+        y_range = np.linspace(self.corners[0][1], self.corners[1][1], self.resolution[1])
+
+        points = np.array([[x, y] for y in y_range for x in x_range])
+
+        faces = []
+
+        def get_index(i, j):
+            return j*self.resolution[0] + i
+
+        for i in range(self.resolution[0]-1):
+            for j in range(self.resolution[1]-1):
+                faces.append([get_index(i, j), get_index(i+1, j), get_index(i+1, j+1)])
+                faces.append([get_index(i, j), get_index(i+1, j+1), get_index(i, j+1)])
+
+        boundary = get_boundary_from_points_faces(points, faces)
+
+        return Mesh(points, faces, boundary)
 
 if __name__ == '__main__':
 
@@ -237,3 +271,9 @@ if __name__ == '__main__':
     #         ax.plot([center[0], neighbor_center[0]], [center[1], neighbor_center[1]], color=random_color)
     # mesh.plot(ax=ax, show=False)
     # plt.show()
+
+    corners = [[0, 0], [2, 1]]
+    mesher = RectMesher(corners, resolution=(80, 40))
+    mesh2 = mesher.mesh()
+    mesh2.save('meshes/spring_80x40.pkl')
+    mesh2.plot(save='results/rect_mesh.png')
