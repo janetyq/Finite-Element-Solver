@@ -7,7 +7,6 @@ from matplotlib.tri import Triangulation
 from utils.helper import *
 from matplotlib.colorbar import Colorbar
 
-
 class Mesh:
     def __init__(self, points, faces, boundary):
         self.points = np.array(points)
@@ -42,80 +41,55 @@ class Mesh:
         return Mesh(points, self.faces, self.boundary)
 
     # PLOTTING
-    def plot(self, title=None, ax=None, show=True, linewidth=0.2, mode=None, fill_regions=None, save=None, idxs=None):
-        if ax is None:
-            fig, ax = plt.subplots()
+    @plot_decorator
+    def plot_wireframe(self, ax=None, *args, **kwargs):
+        ax.triplot(self.points[:, 0], self.points[:, 1], self.faces, color='black', linewidth=0.2)
+        for seg in self.boundary:
+            ax.plot(self.points[seg, 0], self.points[seg, 1], color='black', linewidth=0.5)
 
-        if mode is None or mode == "wireframe":
-            # triangulation and boundary
-            ax.triplot(self.points[:, 0], self.points[:, 1], self.faces, color='black', linewidth=linewidth)
-            for seg in self.boundary:
-                ax.plot(self.points[seg, 0], self.points[seg, 1], color='black', linewidth=linewidth*2)
-                # for testing normals
-                # vec = self.points[seg[1]] - self.points[seg[0]]
-                # point = np.mean(self.points[seg], axis=0) + 0.5 * np.array([-vec[1], vec[0]])            
-                # ax.scatter(point[0], point[1], color='green', s=5)
-        elif mode == "boundary":
-            for seg in self.boundary:
-                ax.plot(self.points[seg, 0], self.points[seg, 1], color='gray', linewidth=linewidth*2)
-        elif mode == "solid":
-            # plot mesh
-            for face in self.faces:
-                vertices = self.points[face]
-                center = np.mean(vertices, axis=0)
-                vertices = center + 0.95 * (vertices - center)
-                ax.fill(vertices[:, 0], vertices[:, 1], 'b-', alpha=0.2)
-            for edge in self.boundary:
-                ax.plot(self.points[[edge[0], edge[1]], 0], self.points[[edge[0], edge[1]], 1], 'k-')
+    @plot_decorator
+    def plot_boundary(self, ax=None, *args, **kwargs):
+        for seg in self.boundary:
+            ax.plot(self.points[seg, 0], self.points[seg, 1], color='gray', linewidth=0.5)
 
-        if fill_regions is not None:      
-            for color, region, label in fill_regions:
-                # region indexes into faces
-                i = 0
-                for face_idx in region:
+    @plot_decorator
+    def plot_solid(self, ax=None, *args, **kwargs):
+        for face in self.faces:
+            vertices = self.points[face]
+            center = np.mean(vertices, axis=0)
+            vertices = center + 0.95 * (vertices - center)
+            ax.fill(vertices[:, 0], vertices[:, 1], 'b-', alpha=0.2)
+        for edge in self.boundary:
+            ax.plot(self.points[[edge[0], edge[1]], 0], self.points[[edge[0], edge[1]], 1], 'k-')
+
+    @plot_decorator
+    def plot(self, fig=None, ax=None, mode='wireframe', color_faces=None, color_vertices=None, *args, **kwargs):
+        if color_faces is not None:      
+            for color, face_idxs, label in color_faces:
+                first = True
+                for face_idx in face_idxs:
                     vertices = self.points[self.faces[face_idx]]
-                    ax.fill(vertices[:, 0], vertices[:, 1], color=color, alpha=0.2, label=label if i == 0 else None)
-                    i += 1
-
-        if idxs:
-            ax.scatter(self.points[idxs, 0], self.points[idxs, 1], color='red', s=5)
-
-        ax.set_title(title)
-        ax.set_aspect('equal')
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.ticklabel_format(useOffset=False)
-
-        if save:
-            plt.savefig(save)
-            plt.close()
-        elif show:
-            plt.show()
-        return ax
+                    ax.fill(vertices[:, 0], vertices[:, 1], color=color, alpha=0.2, label=label if first else None)
+                    first = False
+        if color_vertices is not None:
+            for color, vert_idxs, label in color_vertices:
+                ax.scatter(self.points[vert_idxs, 0], self.points[vert_idxs, 1], color=color, s=5, label=label)
+        
+        if mode == 'wireframe':
+            return self.plot_wireframe(fig=fig, ax=ax, *args, **kwargs)
+        elif mode == 'solid':
+            return self.plot_solid(fig=fig, ax=ax, *args, **kwargs)
+        elif mode == 'boundary':
+            return self.plot_boundary(fig=fig, ax=ax, *args, **kwargs)
     
-    def plot_colored(self, values, title=None, fig=None, ax=None, show=True, save=None, cbar_label='Value', cbar_lim=None):
-        if ax is None:
-            fig, ax = plt.subplots()
-
+    @plot_decorator
+    def plot_colored(self, values, fig=None, ax=None, cbar_label='Value', cbar_lim=None, *args, **kwargs):
         triang = Triangulation(self.points[:, 0], self.points[:, 1], self.faces)
         surf = ax.tripcolor(triang, values, shading='flat')
         cbar = fig.colorbar(surf, ax=ax)
         cbar.set_label(cbar_label)
         if cbar_lim:
             cbar.set_clim(cbar_lim)
-
-        ax.set_title(title)
-        ax.set_aspect('equal')
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.ticklabel_format(useOffset=False)
-
-        if save:
-            plt.savefig(save)
-            plt.close()
-        elif show:
-            plt.show()
-        return ax, surf, cbar
 
     # METRICS
     def calculate_total_value(self, u):
@@ -129,10 +103,10 @@ class Mesh:
 
     def calculate_dirichlet_energy(self, u):
         energy = 0
-        u_gradient = self.calculate_gradient(u)
-        for face_idx, face in enumerate(self.faces):
-            area = calculate_triangle_area(self.points[face])
-            energy += 1/2 * area * calc_dot(u_gradient[face_idx], u_gradient[face_idx])
+        # u_gradient = self.calculate_gradient(u)
+        # for face_idx, face in enumerate(self.faces):
+        #     area = calculate_triangle_area(self.points[face])
+        #     energy += 1/2 * area * calc_dot(u_gradient[face_idx], u_gradient[face_idx])
         return energy
 
     def calculate_energy(self, u, dudt):
@@ -273,20 +247,40 @@ class RectMesher:
         return Mesh(points, faces, boundary)
 
 if __name__ == '__main__':
+    # # EasyMesher to make a rectangle mesh
+    # w, h = 3, 1
+    # outline = np.array([[0, 0], [w, 0], [w, h], [0, h]])
+    # mesher = EasyMesher(outline, approx_triangles=500)
+    # mesh = mesher.mesh()
+    # mesh.save_to_obj("meshes/rect.obj")
+    # mesh.save('meshes/easy_rectangle.pkl')
 
-    # EasyMesher to make a rectangle mesh
-    w, h = 3, 1
-    outline = np.array([[0, 0], [w, 0], [w, h], [0, h]])
-    mesher = EasyMesher(outline, approx_triangles=500)
+    # RectMesher to make a rectangular mesh
+    corners = [[0, 0], [2, 1]]
+    mesher = RectMesher(corners, resolution=(160, 80))
     mesh = mesher.mesh()
-    mesh.save_to_obj("meshes/rect.obj")
-    mesh.save('meshes/easy_rectangle.pkl')
+    mesh.save('meshes/160x80.pkl')
+    face_list = []
+    for face_idx, face in enumerate(mesh.faces):
+        center = np.mean(mesh.points[face], axis=0)
+        if center[0] > 1.9:
+            face_list.append(face_idx)
+    color_faces = [('blue', face_list, 'right')]
+    vert_list = []
+    for vert_idx, vert in enumerate(mesh.points):
+        if vert[0] < 0.1:
+            vert_list.append(vert_idx)
+    color_vertices = [('red', vert_list, 'left')]
 
-    corners = [[0, 0], [4, 1]]
-    mesher = RectMesher(corners, resolution=(161, 41))
-    mesh2 = mesher.mesh()
-    mesh2.save('meshes/spring_long.pkl')
-    mesh2.plot(save='results/rect_mesh.png')
+    mesh.plot(mode='wireframe', color_faces=color_faces, color_vertices=color_vertices)
+
+    values = []
+    for face_idx, face in enumerate(mesh.faces):
+        x, y = np.mean(mesh.points[face], axis=0)
+        value = abs(((y-0.5) - 0.3*np.sin(10*x)))
+        values.append(value)
+    mesh.plot_colored(values)
+
 
     # # plot neighbors
     # face_neighbors = mesh.calculate_face_neighbors()

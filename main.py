@@ -12,6 +12,11 @@ from Mesh import *
 np.set_printoptions(suppress=True)
 
 # TODO:
+# topopt gradient fix calculation
+    # fix linear elastic solve density handling
+# force bc
+    # give units
+
 # detect convergence - research
 # add BC specfication to all solvers - WAVE
 # improve README, more references
@@ -49,11 +54,7 @@ if __name__ == '__main__':
     np.set_printoptions(linewidth=200)
 
     # MESH
-    # MESH_FILE = 'meshes/hole1000_mesh.pkl'
-    # MESH_FILE = 'meshes/square1000_mesh.pkl'
     MESH_FILE = 'meshes/spring_long.pkl'
-    # MESH_FILE = 'meshes/regular_mesh3.pkl'
-    # MESH_FILE = 'meshes/easy_rectangle.pkl'
     mesh = Mesh.load(MESH_FILE)
     points, faces, boundary = mesh.get_info()
     boundary_idxs = list(set(boundary.ravel()))
@@ -172,22 +173,24 @@ if __name__ == '__main__':
     # # # solver.solution.plot_colored('u_values', idx=5, contour=20, show=True)
     # # solver.solution.plot_animation('u_values', save='results/heat.gif')
    
-#    input("Press Enter to continue...")
 
-    # # # WAVE EQUATION
+    # # WAVE EQUATION
     # wave_center = np.mean(points, axis=0)
     # u_initial = bump_function(points, wave_center, size=0.2*min(w, h))
     # dudt_initial = np.zeros(len(points))
     
-    # # equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.02, 'iters': 10})
-    # # solver = Solver(mesh, equation, None)
-    # # solver.solve()
-    # # solver.solution.plot_animation('u_values')
+    # equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.04, 'iters': 10})
+    # solver = Solver(mesh, equation, None)
+    # solver.solve()
+    # solver.solution.plot_colored('u_values', idx=10)
+    # solver.solution.plot_surface('u_values', idx=10, projection='3d')
+    # solver.solution.plot_animation('u_values', mode='surface', save='results/wave_surface.gif')
+    # solver.solution.plot_animation('u_values', mode='surface', save='results/wave_colored.gif')
 
     # LINEAR ELASTICS
     def down_force(point):
         if point[0] > w - 1e-6 and np.abs(point[1] - h/2) < 0.1:
-            return np.array([0, -50])
+            return np.array([0, -1000])
         return np.array([0, 0])
 
     beam_bc = BoundaryConditions(mesh)
@@ -199,15 +202,13 @@ if __name__ == '__main__':
     equation = Equation('linear_elastic', {'E': 125, 'nu': 0.4})
     solver = Solver(mesh, equation, beam_bc, load_function=down_force)
     solver.solve()
+    # solver.solution.plot_colored('stress')
     # solver.solution.plot_deformed('stress')
-    solver.solution.plot_colored('stress', save="results/stress.png")
 
     # TOPOLOGY OPTIMIZATION
-    topoptimizer = TopologyOptimizer(solver, {'iters': 25, 'volume_frac': 0.5})
+    topoptimizer = TopologyOptimizer(solver, {'iters': 5, 'volume_frac': 0.5})
     topoptimizer.solve()
-    # topoptimizer.solution.plot_animation('rhos', save='results/topopt.png')
-    topoptimizer.solution.plot_colored('rhos', idx=10, save="results/rho10.png")
-    topoptimizer.solution.plot_colored('rhos', idx=20, save="results/rho20.png")
+    topoptimizer.solution.plot_colored('rhos', idx=3)
     topoptimizer.solution.plot_animation('rhos', save='results/topopt.gif', cbar_lim=[0, 1])
 
 

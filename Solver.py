@@ -179,7 +179,7 @@ class Solver:
         E = self.equation.parameters['E']
         E = E_min + np.full(len(self.mesh.faces), E) * rho**p
         nu = self.equation.parameters['nu']
-        nu = np.full(len(self.mesh.faces), nu)
+        nu = np.full(len(self.mesh.faces), nu) * rho**p
 
         material_func = np.vstack([E, nu]).T
         K = assemble_matrix(self.mesh.points, self.mesh.faces, calculate_element_stiffness_matrix, func=material_func, dim=2)
@@ -209,19 +209,19 @@ class Solver:
         self.solution.set_values("strain", np.linalg.norm(eps_faces, axis=-1))
         self.solution.set_values("stress", np.linalg.norm(sigma_faces, axis=-1))
         
-        C_faces = np.zeros(len(self.mesh.faces))
+        compliance_faces = np.zeros(len(self.mesh.faces))
         force_faces = np.zeros(len(self.mesh.faces))
         for face_idx, face in enumerate(self.mesh.faces):
             e_idxs = np.array([2*face, 2*face+1]).T.flatten()
             u_face = u[e_idxs]
             K_face = calculate_element_stiffness_matrix(self.mesh.points[face], (material_func, face_idx), dim=2)
-            C_faces[face_idx] = u_face.T @ K_face @ u_face
-            force_faces[face_idx] = np.linalg.norm(K_face @ u_face)
-        self.solution.set_values("compliance", C_faces)
-        self.solution.set_values("total_compliance", np.sum(C_faces))
-        self.solution.set_values("force_faces", force_faces)
-        force_vertices = self.solution._convert_face_values_to_vertex_values(force_faces)
-        self.solution.set_values("force_vertices", force_vertices)
+            compliance_faces[face_idx] = u_face.T @ K_face @ u_face
+            # force_faces[face_idx] = (K_face @ u_face)
+            # if force_faces[face_idx] > 0.5:
+            #     pass
+        self.solution.set_values("compliance", compliance_faces)
+        self.solution.set_values("compliance_total", np.sum(compliance_faces))
+        # self.solution.set_values("force", force_faces)
 
     def adaptive_refinement(self, max_triangles=1000, max_iters=20):
         # TODO: there's a bug somewhere

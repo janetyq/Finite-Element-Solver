@@ -14,21 +14,22 @@ class BoundaryConditions:
 
     def add(self, bc_type, indices, values):
         if bc_type == 'dirichlet':
-            assert len(indices) == len(values)
-            for idx, value in zip(indices, values):
-                self.dirichlet[idx] = value
+            if len(indices) == len(values):
+                for idx, value in zip(indices, values):
+                    self.dirichlet[idx] = value
+            else:
+                for idx in indices:
+                    self.dirichlet[idx] = values
         elif bc_type == 'neumann':
-            assert len(indices) == len(values)
-            for idx, value in zip(indices, values):
-                self.neumann[idx] = value
-        elif bc_type == 'force':
-            print('note: force bc only supported for linear elastic')
-            avg_force = np.array(values) / len(indices)
+            if len(indices) == len(values):
+                for idx, value in zip(indices, values):
+                    self.neumann[idx] = value
+            else:
+                for idx in indices:
+                    self.neumann[idx] = values
+        elif bc_type == 'stress':
             for idx in indices:
-                self.neumann[idx] = avg_force
-        # elif bc_type == 'convective':
-        #     for i, idx in enumerate(indices):
-        #         self.convective[idx] = values[i]
+                self.neumann[idx] = np.array(values)/2
         else:
             raise ValueError(f'bc_type {bc_type} not recognized')
     
@@ -44,9 +45,9 @@ class BoundaryConditions:
         self.free_idxs = list(set(range(N)) - set(self.fixed_idxs))
 
         if dim == 2:
-            self.fixed_idxs = np.array([[2*idx, 2*idx+1] for idx in self.fixed_idxs]).flatten()
-            self.free_idxs = np.array([[2*idx, 2*idx+1] for idx in self.free_idxs]).flatten()
-            self.fixed_values = np.array(self.fixed_values).flatten()
+            self.fixed_idxs = list(np.array([[2*idx, 2*idx+1] for idx in self.fixed_idxs]).flatten())
+            self.free_idxs = list(np.array([[2*idx, 2*idx+1] for idx in self.free_idxs]).flatten())
+            self.fixed_values = list(np.array(self.fixed_values).flatten())
         
         # neumann boundary conditions
         def neumann_func(point):

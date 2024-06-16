@@ -1,9 +1,7 @@
 __pycache__/
-test*
-results/*
-!results/topopt.gif
+results*
 meshes/*
-!meshes/square*
-temp*
+!meshes/[0-9]*x[0-9]*
 _*
-output*
+test*
+temp*

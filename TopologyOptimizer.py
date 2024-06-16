@@ -41,7 +41,7 @@ class TopologyOptimizer:
             for iter in range(iters):
                 self.solver.equation.parameters['rho'] = rho # update rho
                 self.solver.solve()
-                C = self.solver.solution.values['total_compliance']
+                C = self.solver.solution.values['compliance_total']
                 C_faces = self.solver.solution.values['compliance']
 
                 u, deformed_mesh = self.solver.solution.values['u'], self.solver.solution.values['deformed_mesh']
