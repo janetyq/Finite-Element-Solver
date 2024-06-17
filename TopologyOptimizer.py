@@ -30,16 +30,20 @@ class TopologyOptimizer:
                 l = m
         return rho_new
 
-    def solve(self, target_compliance=None):
+    def solve(self, target_compliance=None, rho_initial=None):
         if self.solver.equation.name == 'linear_elastic':
             iters, volume_frac = self.parameters['iters'], self.parameters['volume_frac']
             
             E, p = self.solver.equation.parameters['E'], 3
-            rho = self.solver.equation.parameters.get('rho', np.full(len(self.solver.mesh.faces), volume_frac))
+            if rho_initial is not None:
+                assert len(rho_initial) == len(self.solver.mesh.faces), 'rho_initial must have same length as faces'
+                rho = rho_initial
+            else:
+                rho = self.solver.boundary_conditions.rho
             
             rhos, us, deformed_meshes, compliances = [], [], [], []
             for iter in range(iters):
-                self.solver.equation.parameters['rho'] = rho # update rho
+                self.solver.boundary_conditions.set_rho(rho) # update rho
                 self.solver.solve()
                 C = self.solver.solution.values['compliance_total']
                 C_faces = self.solver.solution.values['compliance']
@@ -72,7 +76,7 @@ class TopologyOptimizer:
                     rho = self.oc_density(rho, sensitivity, volume_frac)
 
             self.solution.set_values('us', us)
-            self.solution.set_values('deformed_meshes', deformed_meshes)
+            self.solution.set_values('deformed_mesh', deformed_meshes)
             self.solution.set_values('rhos', rhos)
             self.solution.set_values('compliances', compliances)
         else:

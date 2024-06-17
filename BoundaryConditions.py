@@ -1,5 +1,5 @@
 import numpy as np
-from utils.matrices import *
+import matplotlib.pyplot as plt
 
 # supports dirichlet, neumann, and mixed boundary conditions
 # add boundary conditions with list of indices and values at indices
@@ -10,9 +10,12 @@ class BoundaryConditions:
 
         self.neumann = {}
         self.dirichlet = {}
-        # self.convective = {}
+        self.force = {}
+
+        self.rho = np.ones((len(self.mesh.faces))) # for topology optimization
 
     def add(self, bc_type, indices, values):
+        values = np.array(values)
         if bc_type == 'dirichlet':
             if len(indices) == len(values):
                 for idx, value in zip(indices, values):
@@ -25,13 +28,30 @@ class BoundaryConditions:
                 for idx, value in zip(indices, values):
                     self.neumann[idx] = value
             else:
-                for idx in indices:
+                for idx in indices: # stress
                     self.neumann[idx] = values
-        elif bc_type == 'stress':
-            for idx in indices:
-                self.neumann[idx] = np.array(values)/2
         else:
             raise ValueError(f'bc_type {bc_type} not recognized')
+
+    def add_force(self, load_func):
+        assert len(self.force) == 0, 'load already defined'
+        for idx in range(len(self.mesh.points)):
+            self.force[idx] = np.array(load_func(self.mesh.points[idx]))
+
+    def set_rho(self, rho):
+        assert len(rho) == len(self.mesh.faces), 'rho must have same length as faces'
+        self.rho = rho
+
+    def plot(self):
+        fig, ax = plt.subplots(1, 1)
+        self.mesh.plot_colored(self.rho, fig=fig, ax=ax, show=False, cbar_label='Density', title='BC')
+        for idx, value in self.dirichlet.items():
+            ax.plot(self.mesh.points[idx][0], self.mesh.points[idx][1], 'ro')
+        for idx, value in self.neumann.items():
+            # plot arrows
+            ax.quiver(self.mesh.points[idx][0], self.mesh.points[idx][1], value[0], value[1])
+        plt.show()
+
     
     def check(self):
         # check that max one BC per node
@@ -47,15 +67,13 @@ class BoundaryConditions:
         if dim == 2:
             self.fixed_idxs = list(np.array([[2*idx, 2*idx+1] for idx in self.fixed_idxs]).flatten())
             self.free_idxs = list(np.array([[2*idx, 2*idx+1] for idx in self.free_idxs]).flatten())
-            self.fixed_values = list(np.array(self.fixed_values).flatten())
-        
-        # neumann boundary conditions
-        def neumann_func(point):
-            point_idx = np.where(np.all(self.mesh.points == point, axis=1))[0][0]
-            if point_idx not in self.neumann:
-                return 0 if dim == 1 else [0] * dim
-            else:
-                return self.neumann[point_idx]
-        self.neumann_load = assemble_vector(self.mesh.points, self.mesh.boundary, calculate_element_boundary_load_vector, neumann_func, dim=dim)
-        
+        self.fixed_values = list(np.array(self.fixed_values).flatten())
+
+        self.neumann_load = []
+        self.force_load = []
+        for idx, point in enumerate(self.mesh.points):
+            self.neumann_load.append(self.neumann[idx] if idx in self.neumann else np.zeros(dim))
+            self.force_load.append(self.force[idx] if idx in self.force else np.zeros(dim))
+        self.neumann_load = np.array(self.neumann_load)
+        self.force_load = np.array(self.force_load)        
 
