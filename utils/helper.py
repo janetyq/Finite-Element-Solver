@@ -1,5 +1,6 @@
 import numpy as np
 from math import sin, cos, pi
+import matplotlib.pyplot as plt
 
 # 2d vector operations - faster than numpy
 def calc_dot(vec1, vec2):
@@ -63,3 +64,77 @@ def get_boundary_from_points_faces(points, faces):
 
     return boundary_edges
 
+
+# TODO: 3d plot, legend
+# plotting
+def plot_decorator(plot_func):
+    def wrapper(*args, **kwargs):
+        fig = kwargs.get('fig', None)
+        ax = kwargs.get('ax', None)
+        title = kwargs.get('title', None)
+        save = kwargs.get('save', None)
+        show = kwargs.get('show', True)
+        projection = kwargs.get('projection', '2d')
+
+        # Create a new figure and axis if not provided
+        if fig is None or ax is None:
+            if projection == '3d':
+                fig = plt.figure()
+                ax = fig.add_subplot(111, projection='3d')
+                kwargs['fig'] = fig
+                kwargs['ax'] = ax
+            else:
+                fig, ax = plt.subplots()
+                kwargs['fig'] = fig
+                kwargs['ax'] = ax
+
+        return_value = plot_func(*args, **kwargs)
+
+        # Set settings
+        if title:
+            ax.set_title(title)
+        if projection != '3d':
+            ax.set_aspect('equal')
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.ticklabel_format(useOffset=False)
+
+        # check if legend is needed
+        if any(ax.get_legend_handles_labels()[1]):
+            ax.legend()
+
+        # Save or show the plot
+        if save:
+            plt.savefig(save)
+            plt.close()
+        elif show:
+            plt.show()
+        
+        return return_value
+    return wrapper
+
+# Material properties
+def Enu_to_Lame(E, nu):
+    # mu - shear modulus, lambda - Lame constant
+    mu = E / (2 * (1 + nu))
+    lamb = E * nu / ((1 + nu) * (1 - 2 * nu))
+    return mu, lamb
+
+def Lame_to_Enu(mu, lamb):
+    # E - Young's modulus, nu - Poisson's ratio
+    E = mu * (3 * lamb + 2 * mu) / (lamb + mu)
+    nu = lamb / (2 * (lamb + mu))
+    return E, nu
+
+# FEM
+def calculate_hat_gradients(element):
+    area = calculate_triangle_area(element)
+    a, b, c = [], [], []
+    for i in range(3):
+        x_j, x_k = element[(i+1)%3], element[(i+2)%3]
+        a.append(x_j[0]*x_k[1] - x_k[0]*x_j[1])
+        b.append(x_j[1] - x_k[1])
+        c.append(x_k[0] - x_j[0])
+    a, b, c = np.array([a, b, c]) / (2 * area)
+        
+    return area, a, b, c
