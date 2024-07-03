@@ -24,21 +24,20 @@ def zero_force(point):
 
 
 # Mesh
-MESH_FILE = '../../meshes/160x80.pkl'
+MESH_FILE = '../../meshes/80x40.pkl'
 mesh = Mesh.load(MESH_FILE)
 points, faces, boundary = mesh.get_info()
 w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
 boundary_idxs = list(set(boundary.ravel()))
 left_idxs = [idx for idx in boundary_idxs if points[idx][0] < 1e-6]
 right_idxs = [idx for idx in boundary_idxs if points[idx][0] > w-1e-6]
-mesh.plot(save="temp1.png")
+Plotter(mesh).plot_mesh(color_vertices=[('red', left_idxs, 'left'), ('blue', right_idxs, 'right')])
 
 
 with open('results/rho_bistable_graph1.json', 'r') as f:
     rho = json.load(f) 
 
-mesh.plot_colored(rho, save="temp2.png")
-
+Plotter(mesh).plot_values(rho, mode='colored')
 
 def solve_with_rho(rho, bc):
     equation = Equation('linear_elastic', {'E': 125, 'nu': 0.0, 'rho': np.array(rho)})

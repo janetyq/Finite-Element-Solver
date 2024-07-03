@@ -1,5 +1,4 @@
 from datetime import datetime
-import matplotlib.animation as animation 
 import numpy as np
 import pickle
 
@@ -51,7 +50,6 @@ class Solution:
             else:
                 raise ValueError(f'Invalid values shape for mode {mode}')
 
-
     def set_values(self, name, value):
         self.values[name] = value
 
@@ -86,4 +84,13 @@ class Solution:
                 vertex_values[v_idx] = face_values[face_idx]
         return vertex_values
 
-    
+    def plot(self, name, idx=None, deformed=False, mode=None, options=None):
+        # special to mechanics solve
+        values = self.get_values(name, idx=idx)
+        options = options if options is not None else {}
+        options['title'] = options.get('title', name)
+        if deformed:
+            points = self.mesh.points + self.get_values('u').reshape(-1, 2)
+            deformed_mesh = Mesh(points, self.mesh.faces, self.mesh.boundary)
+            return Plotter(deformed_mesh, options=options).plot_values(values, mode=mode)
+        return Plotter(self.mesh, options=options).plot_values(values, mode=mode)

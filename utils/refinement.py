@@ -243,9 +243,7 @@ if __name__ == '__main__':
     mesh = Mesh(points, faces, boundary)
     original_mesh = mesh.copy()
 
-
     refinement_mesh = RefinementMesh(mesh)
-
 
     import random
     # refine_lists = [{4}, {16}]

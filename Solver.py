@@ -35,8 +35,8 @@ class Solver:
         if self.equation.dim == 1: # TODO: implement 2D
             self.K, self.K_faces = self._assemble_matrix(self._calculate_element_stiffness_matrix)
         else: # dim = 2
-            rho = self.boundary_conditions.rho
-            E_min, p = 1e-9, 3
+            rho = self.equation.parameters.get('rho', 1)
+            E_min, p = 1e-6, 3
             E = E_min + np.full(len(self.mesh.faces), self.equation.parameters['E']) * rho**p
             nu = np.full(len(self.mesh.faces), self.equation.parameters['nu']) * rho**p
             self.material_func = np.vstack([E, nu]).T 
@@ -195,12 +195,11 @@ class Solver:
             #     pass
 
         self.solution.set_values("u", self.u)
-        self.solution.set_values("deformed_mesh", self.mesh.get_deformed_mesh(self.u))
         self.solution.set_values("rho", self.equation.parameters.get('rho', np.full(len(self.mesh.faces), 1)))
         self.solution.set_values("strain", np.linalg.norm(eps_faces, axis=-1))
         self.solution.set_values("stress", np.linalg.norm(sigma_faces, axis=-1))
         self.solution.set_values("compliance", compliance_faces)
-        self.solution.set_values("compliance_total", self.u.T @ self.K @ self.u) # = sum(compliance_faces)
+        self.solution.set_values("total_compliance", self.u.T @ self.K @ self.u) # = sum(compliance_faces)
         # self.solution.set_values("force", force_faces)
 
     def _assemble_matrix(self, calculate_element_matrix, params=None): # TODO: params inconsistent here, face indexed

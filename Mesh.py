@@ -1,11 +1,8 @@
 import pickle
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib.tri import Triangulation
 from utils.helper import *
-from matplotlib.colorbar import Colorbar
+
+from Plotter import *
 
 class Mesh:
     def __init__(self, points, faces, boundary):
@@ -17,6 +14,7 @@ class Mesh:
         self.areas = np.array([calculate_triangle_area(self.points[face]) for face in self.faces])
         self.edges = self._get_all_edges()
 
+    # TODO: Save and load to better formats - off, obj
     @classmethod
     def load(cls, path='test_mesh.pkl'):
         with open(path, 'rb') as f:
@@ -36,60 +34,8 @@ class Mesh:
     def copy(self):
         return Mesh(self.points.copy(), self.faces.copy(), self.boundary.copy())
 
-    def get_deformed_mesh(self, u):
-        points = self.points + u.reshape(-1, 2)
-        return Mesh(points, self.faces, self.boundary)
-
-    # PLOTTING
-    @plot_decorator
-    def plot_wireframe(self, ax=None, *args, **kwargs):
-        ax.triplot(self.points[:, 0], self.points[:, 1], self.faces, color='black', linewidth=0.2)
-        for seg in self.boundary:
-            ax.plot(self.points[seg, 0], self.points[seg, 1], color='black', linewidth=0.5)
-
-    @plot_decorator
-    def plot_boundary(self, ax=None, *args, **kwargs):
-        for seg in self.boundary:
-            ax.plot(self.points[seg, 0], self.points[seg, 1], color='gray', linewidth=0.5)
-
-    @plot_decorator
-    def plot_solid(self, ax=None, *args, **kwargs):
-        for face in self.faces:
-            vertices = self.points[face]
-            center = np.mean(vertices, axis=0)
-            vertices = center + 0.95 * (vertices - center)
-            ax.fill(vertices[:, 0], vertices[:, 1], 'b-', alpha=0.2)
-        for edge in self.boundary:
-            ax.plot(self.points[[edge[0], edge[1]], 0], self.points[[edge[0], edge[1]], 1], 'k-')
-
-    @plot_decorator
-    def plot(self, fig=None, ax=None, mode='wireframe', color_faces=None, color_vertices=None, *args, **kwargs):
-        if color_faces is not None:      
-            for color, face_idxs, label in color_faces:
-                first = True
-                for face_idx in face_idxs:
-                    vertices = self.points[self.faces[face_idx]]
-                    ax.fill(vertices[:, 0], vertices[:, 1], color=color, alpha=0.2, label=label if first else None)
-                    first = False
-        if color_vertices is not None:
-            for color, vert_idxs, label in color_vertices:
-                ax.scatter(self.points[vert_idxs, 0], self.points[vert_idxs, 1], color=color, s=5, label=label)
-        
-        if mode == 'wireframe':
-            return self.plot_wireframe(fig=fig, ax=ax, *args, **kwargs)
-        elif mode == 'solid':
-            return self.plot_solid(fig=fig, ax=ax, *args, **kwargs)
-        elif mode == 'boundary':
-            return self.plot_boundary(fig=fig, ax=ax, *args, **kwargs)
-    
-    @plot_decorator
-    def plot_colored(self, values, fig=None, ax=None, cbar_label='Value', cbar_lim=None, *args, **kwargs):
-        triang = Triangulation(self.points[:, 0], self.points[:, 1], self.faces)
-        surf = ax.tripcolor(triang, values, shading='flat')
-        cbar = fig.colorbar(surf, ax=ax)
-        cbar.set_label(cbar_label)
-        if cbar_lim:
-            cbar.set_clim(cbar_lim)
+    def plot(self):
+        return Plotter(self).plot_mesh()
 
     # METRICS
     def calculate_total_value(self, u):
@@ -123,17 +69,6 @@ class Mesh:
             # keep only elements that appear twice
             self.face_neighbors[face_idx] = [idx for idx in self.face_neighbors[face_idx] if self.face_neighbors[face_idx].count(idx) == 2]
         return self.face_neighbors
-
-    def save_to_obj(self, filename):
-        with open(filename, 'w') as f:
-            for vertex in self.points:
-                f.write("v {} {} {}\n".format(vertex[0], vertex[1], 0))
-            
-            for face in self.faces:
-                f.write("f")
-                for vertex_index in face:
-                    f.write(" {}".format(vertex_index + 1))  # OBJ file indices start from 1
-                f.write("\n")
 
     def _get_all_edges(self):
         all_edges = set()
@@ -173,7 +108,7 @@ class EasyMesher:
         self.outline = outline
         self.dx = np.sqrt(2 * calculate_polygon_area(outline) / approx_triangles)
 
-    def mesh(self):
+    def mesh(self, plot=True):
         x_min, x_max = np.min(self.outline[:, 0]), np.max(self.outline[:, 0])
         y_min, y_max = np.min(self.outline[:, 1]), np.max(self.outline[:, 1])
         x_range = np.arange(x_min, x_max, self.dx)
@@ -214,10 +149,10 @@ class EasyMesher:
         boundary = get_boundary_from_points_faces(points, faces)
         mesh = Mesh(points, faces, boundary)
 
-        fig, ax = plt.subplots()
-        ax.plot(self.outline[:, 0], self.outline[:, 1], 'r-')
-        mesh.plot(ax=ax, show=False, mode="solid")
-        plt.show()
+        if plot:
+            fig, ax = plt.subplots()
+            ax.plot(self.outline[:, 0], self.outline[:, 1], 'r-')
+            Plotter(mesh, fig=fig, ax=ax, options={'title': 'EasyMesher mesh'}).plot_mesh(mode='wireframe')
         
         return mesh
 
@@ -226,7 +161,7 @@ class RectMesher:
         self.corners = corners
         self.resolution = resolution
 
-    def mesh(self):
+    def mesh(self, plot=True):
         x_range = np.linspace(self.corners[0][0], self.corners[1][0], self.resolution[0])
         y_range = np.linspace(self.corners[0][1], self.corners[1][1], self.resolution[1])
 
@@ -243,55 +178,58 @@ class RectMesher:
                 faces.append([get_index(i, j), get_index(i+1, j+1), get_index(i, j+1)])
 
         boundary = get_boundary_from_points_faces(points, faces)
+        mesh = Mesh(points, faces, boundary)
+
+        if plot:
+            Plotter(mesh, options={'title': 'RectMesher mesh'}).plot_mesh(mode='wireframe')
 
         return Mesh(points, faces, boundary)
 
 if __name__ == '__main__':
-    # # EasyMesher to make a rectangle mesh
-    # w, h = 3, 1
-    # outline = np.array([[0, 0], [w, 0], [w, h], [0, h]])
-    # mesher = EasyMesher(outline, approx_triangles=500)
-    # mesh = mesher.mesh()
-    # mesh.save_to_obj("meshes/rect.obj")
-    # mesh.save('meshes/easy_rectangle.pkl')
-
-    # RectMesher to make a rectangular mesh
-    corners = [[0, 0], [2, 1]]
-    mesher = RectMesher(corners, resolution=(160, 80))
+    # EasyMesher for a simple mesh of any polygon
+    outline = np.array([[0, 0], [1, 2], [3, 2], [2, 0], [0, 0]])
+    mesher = EasyMesher(outline, approx_triangles=500)
     mesh = mesher.mesh()
-    mesh.save('meshes/160x80.pkl')
+    mesh.save('meshes/easymesher_demo.pkl')
+
+    # RectMesher to make a uniform rectangular mesh
+    corners = [[0, 0], [2, 1]]
+    resolution = (40, 20)
+    mesher = RectMesher(corners, resolution=resolution)
+    mesh = mesher.mesh()
+    mesh.save(f'meshes/{resolution[0]}x{resolution[1]}.pkl')
+
+    # Mesh plotting examples with color
     face_list = []
     for face_idx, face in enumerate(mesh.faces):
         center = np.mean(mesh.points[face], axis=0)
-        if center[0] > 1.9:
+        if center[0] > corners[1][0]/2:
             face_list.append(face_idx)
-    color_faces = [('blue', face_list, 'right')]
+    color_faces = [('blue', face_list, 'right blue faces')]
     vert_list = []
     for vert_idx, vert in enumerate(mesh.points):
-        if vert[0] < 0.1:
+        if vert[0] < 1e-3:
             vert_list.append(vert_idx)
-    color_vertices = [('red', vert_list, 'left')]
-
-    mesh.plot(mode='wireframe', color_faces=color_faces, color_vertices=color_vertices)
+    color_vertices = [('red', vert_list, 'left red vertices')]
+    Plotter(mesh, options={'title': 'Labeled mesh plot'}).plot_mesh(mode='wireframe', color_faces=color_faces, color_vertices=color_vertices)
 
     values = []
     for face_idx, face in enumerate(mesh.faces):
         x, y = np.mean(mesh.points[face], axis=0)
         value = abs(((y-0.5) - 0.3*np.sin(10*x)))
         values.append(value)
-    mesh.plot_colored(values)
+    Plotter(mesh, options={'title': 'Colorful value plot'}).plot_values(values, mode='colored')
 
-
-    # # plot neighbors
-    # face_neighbors = mesh.calculate_face_neighbors()
-    # fig, ax = plt.subplots()
-    # for face_idx, neighbors in face_neighbors.items():
-    #     if face_idx % 2 == 0 or face_idx % 3 == 0:
-    #         continue
-    #     center = np.mean(mesh.points[mesh.faces[face_idx]], axis=0)
-    #     random_color = np.random.rand(3)
-    #     for neighbor_idx in neighbors:
-    #         neighbor_center = np.mean(mesh.points[mesh.faces[neighbor_idx]], axis=0)
-    #         ax.plot([center[0], neighbor_center[0]], [center[1], neighbor_center[1]], color=random_color)
-    # mesh.plot(ax=ax, show=False)
-    # plt.show()
+    # Neighbors plotting example
+    face_neighbors = mesh.calculate_face_neighbors()
+    fig, ax = plt.subplots()
+    for face_idx, neighbors in face_neighbors.items():
+        if face_idx % 2 == 0 or face_idx % 3 == 0:
+            continue
+        center = np.mean(mesh.points[mesh.faces[face_idx]], axis=0)
+        random_color = np.random.rand(3)
+        for neighbor_idx in neighbors:
+            neighbor_center = np.mean(mesh.points[mesh.faces[neighbor_idx]], axis=0)
+            ax.plot([center[0], neighbor_center[0]], [center[1], neighbor_center[1]], color=random_color)
+    Plotter(mesh, fig=fig, ax=ax, options={'title': 'Face neighbors'}).plot_mesh(mode='wireframe')
+    

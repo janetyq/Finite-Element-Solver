@@ -64,55 +64,6 @@ def get_boundary_from_points_faces(points, faces):
 
     return boundary_edges
 
-
-# TODO: 3d plot, legend
-# plotting
-def plot_decorator(plot_func):
-    def wrapper(*args, **kwargs):
-        fig = kwargs.get('fig', None)
-        ax = kwargs.get('ax', None)
-        title = kwargs.get('title', None)
-        save = kwargs.get('save', None)
-        show = kwargs.get('show', True)
-        projection = kwargs.get('projection', '2d')
-
-        # Create a new figure and axis if not provided
-        if fig is None or ax is None:
-            if projection == '3d':
-                fig = plt.figure()
-                ax = fig.add_subplot(111, projection='3d')
-                kwargs['fig'] = fig
-                kwargs['ax'] = ax
-            else:
-                fig, ax = plt.subplots()
-                kwargs['fig'] = fig
-                kwargs['ax'] = ax
-
-        return_value = plot_func(*args, **kwargs)
-
-        # Set settings
-        if title:
-            ax.set_title(title)
-        if projection != '3d':
-            ax.set_aspect('equal')
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.ticklabel_format(useOffset=False)
-
-        # check if legend is needed
-        if any(ax.get_legend_handles_labels()[1]):
-            ax.legend()
-
-        # Save or show the plot
-        if save:
-            plt.savefig(save)
-            plt.close()
-        elif show:
-            plt.show()
-        
-        return return_value
-    return wrapper
-
 # Material properties
 def Enu_to_Lame(E, nu):
     # mu - shear modulus, lambda - Lame constant
@@ -138,3 +89,16 @@ def calculate_hat_gradients(element):
     a, b, c = np.array([a, b, c]) / (2 * area)
         
     return area, a, b, c
+
+# Printing
+class color:
+   PURPLE = '\033[95m'
+   CYAN = '\033[96m'
+   DARKCYAN = '\033[36m'
+   BLUE = '\033[94m'
+   GREEN = '\033[92m'
+   YELLOW = '\033[93m'
+   RED = '\033[91m'
+   BOLD = '\033[1m'
+   UNDERLINE = '\033[4m'
+   END = '\033[0m'

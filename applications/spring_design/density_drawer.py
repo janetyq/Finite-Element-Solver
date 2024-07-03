@@ -5,6 +5,7 @@ import numpy as np
 
 sys.path.append('../../')
 from Mesh import Mesh
+from Plotter import *
 
 # Load mesh
 MESH_FILE = '../../meshes/80x40.pkl'
@@ -17,7 +18,7 @@ triangulation = tri.Triangulation(points[:, 0], points[:, 1], faces)
 
 # Create the plot
 fig, ax = plt.subplots()
-mesh.plot(ax=ax, show=False)
+Plotter(mesh, fig=fig, ax=ax, options={'title': 'Drawer', 'show': False}).plot_mesh(mode='wireframe')
 
 selected_idxs = set()
 mouse_pressed = False
