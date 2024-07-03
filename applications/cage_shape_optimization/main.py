@@ -52,11 +52,11 @@ for face_idx in range(len(faces)):
     else:
         air_faces.append(face_idx)
 
-@plot_decorator
-def plot_stuff(mesh, control_handles, fixed_handles, fig=None, ax=None, *args, **kwargs):
+def plot_stuff(mesh, control_handles, fixed_handles, save=None):
     color_faces = [['lightblue', air_faces, r"$\Omega_a (air)$"], ['gray', sink_faces, r"$\Omega_s (heat sink)$"]]
 
-    mesh.plot(fig=fig, ax=ax, color_faces=color_faces, *args, **kwargs, show=False)
+    fig, ax = plt.subplots()
+    Plotter(mesh, fig=fig, ax=ax, options={'title': 'Mesh', 'show': False, 'save': save}).plot_mesh(mode='wireframe', color_faces=color_faces)
     vertices = mesh.points
     ax.scatter(control_handles[:, 0], control_handles[:, 1], c='green', s=40, label="Control handles")
     ax.scatter(fixed_handles[:, 0], fixed_handles[:, 1], c='black', s=40, label="Fixed handles")
@@ -102,7 +102,7 @@ print(f"Control handles: {control_handles.shape}, Fixed handles: {fixed_handles.
 
 
 # plot handles
-plot_stuff(mesh, control_handles, fixed_handles, title='plot 1')
+plot_stuff(mesh, control_handles, fixed_handles)
 
 # Handle weights
 weights = bbw_weights(vertices, faces, all_handles)
@@ -111,8 +111,8 @@ lbs = igl.lbs_matrix(vertices, weights)
 # PDE solver
 equation = Equation('poisson', parameters={'func': k_func})
 bc = BoundaryConditions(mesh)
-bc.add('neumann', flux_boundary, [100 for idx in flux_boundary])
-bc.add('dirichlet', cold_boundary, [0 for idx in cold_boundary])
+bc.add('neumann', flux_boundary, [100])
+bc.add('dirichlet', cold_boundary, [0])
 solver = Solver(mesh, equation, bc)
 
 
@@ -130,7 +130,7 @@ def get_edge_loss(points):
 
 cbar_lim = None
 
-def run(control_input: np.ndarray, plot=False, savefig=None):
+def run(control_input: np.ndarray, plot=False, save=None):
     global cbar_lim
     new_control_handles = control_handles + control_input
     new_all_handles = np.concatenate([new_control_handles, fixed_handles], axis=0).copy()
@@ -152,17 +152,18 @@ def run(control_input: np.ndarray, plot=False, savefig=None):
 
     if plot:
         print(f"Costs: {[round(cost, 3) for cost in costs]}")
-        plot_stuff(new_mesh, new_control_handles, fixed_handles, save=f"{savefig}_1")
+        plot_stuff(new_mesh, new_control_handles, fixed_handles, save=f"{save}_1")
 
         title = "Initial Solution" if np.allclose(control_input, 0) else "Optimized Solution"
         fig, ax = plt.subplots()
-        ax.set_aspect('equal')
+        values = solver.solution.values['u']
+        cbar_lim = (min(values), max(values)) if cbar_lim is None else cbar_lim
+        Plotter(mesh, fig=fig, ax=ax, options={'title': title, 'show': False, 'cbar_label': 'Temperature'}).plot_values(values, mode='colored')
         for edge in sink_edges:
             ax.plot([new_vertices[edge[0]][0], new_vertices[edge[1]][0]], [new_vertices[edge[0]][1], new_vertices[edge[1]][1]], c='black')
-        _, _, cbar = solver.solution.plot_colored('u', title=title, contour=0, show=False, cbar_label='Temperature', cbar_lim=cbar_lim, fig=fig, ax=ax, save=f"{savefig}_2")
-        cbar_lim = [cbar.vmin, cbar.vmax] if cbar_lim is None else cbar_lim
+        plt.savefig(f"{save}_2.png")
 
-        with open(f'{savefig}_handles.pkl', 'wb') as f:
+        with open(f'{save}_handles.pkl', 'wb') as f:
             pickle.dump(control_input, f)
     
     return total_cost, costs
@@ -216,29 +217,16 @@ def gradient_estimator(control_input, run, init_cost=None):
             perturbed_input = control_input.copy()
     return gradients
 
+# TODO:
+# better optimization algo and comparisons
+#   genetic
+#   iterative algos
+#   simulated annealing
+#   gradient descent
 
-# also can do genetic algo
-# plot initial vs end temp for iterations
-# plot effect of different material prop
-# grad descent vs simulated annealing
-# different boundary conditions
+# easier/more problem specifications - boundary conditions, num handles, etc.
 
-# # Example control_input
-# d = 0.3
-# control_input = np.zeros_like(control_handles)
-# run(control_input, plot=True)
-
-# for i in range(len(control_handles)):
-#     handle = control_handles[i]
-#     if handle[1] == 1:
-#         control_input[i] = [0.0, d if i % 2 == 0 else -d]
-
-# run(control_input, plot=True)
-
-# # # Simulated annealing
-# control_input = np.zeros_like(control_handles)
-# best_control_input = simulated_annealing(run, control_input, 0.01, change=0.01)
-# run(best_control_input, plot=True)
+# actual gradient OR auto diff
 
 if __name__ == '__main__':
     import json
@@ -248,16 +236,18 @@ if __name__ == '__main__':
     control_input = np.zeros_like(control_handles)
     alpha = 0.005
     for i in range(100):
-        cost, costs = run(control_input, plot=True, savefig=f"results/iter_{i}")
+        cost, costs = run(control_input, plot=True, save=f"../../results/cage_{i}")
         gradients = gradient_estimator(control_input, run, init_cost=cost)
         control_input -= np.clip(alpha * gradients, -0.05, 0.05)
         print(f"Iter: {i}, Cost: {cost}, Alpha: {alpha}")
         cost_history.append(costs)
 
-        with open('results/cost_history.json', 'wb') as f:
-            f.write(json.dumps(cost_history))
-
         alpha *= 0.93
+
+    print(f"Cost history: {cost_history}")
+
+    with open('../../results/cage_costs.json', 'wb') as f:
+        f.write(json.dumps(cost_history))
 
     # Random sampling
     results = []

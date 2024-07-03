@@ -102,9 +102,9 @@ def calculate_boundary_edges(vertices, faces):
 
     return np.array(list(boundary_edges))
 
-if __name__ == "__main__":
-    import igl
-    
+if __name__ == "__main__": # weird demo of moving one handle and seeing mesh deform
+    import matplotlib.pyplot as plt
+    from matplotlib.widgets import Button
 
     vertices, faces, boundary, BE = generate_rect_mesh(1, 1, 5, 5)
 
@@ -127,9 +127,6 @@ if __name__ == "__main__":
 
     print(f"vertices: {vertices.shape}, W: {weights.shape}, lbs: {lbs.shape}")
     deformed_vertices = lbs @ handle_transforms
-
-    import matplotlib.pyplot as plt
-    from matplotlib.widgets import Button
 
     new_control_handles = np.copy(control_handles)
 

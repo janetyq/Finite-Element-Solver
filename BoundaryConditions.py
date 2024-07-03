@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from Plotter import *
 
 # supports dirichlet, neumann, and mixed boundary conditions
 # add boundary conditions with list of indices and values at indices
@@ -11,8 +12,6 @@ class BoundaryConditions:
         self.neumann = {}
         self.dirichlet = {}
         self.force = {}
-
-        self.rho = np.ones((len(self.mesh.faces))) # for topology optimization
 
     def add(self, bc_type, indices, values):
         values = np.array(values)
@@ -26,7 +25,7 @@ class BoundaryConditions:
         elif bc_type == 'neumann':
             if len(indices) == len(values):
                 for idx, value in zip(indices, values):
-                    self.neumann[idx] = value
+                    self.neumann[idx] = value # TODO: check support for list of values
             else:
                 for idx in indices: # stress
                     self.neumann[idx] = values
@@ -38,22 +37,8 @@ class BoundaryConditions:
         for idx in range(len(self.mesh.points)):
             self.force[idx] = np.array(load_func(self.mesh.points[idx]))
 
-    def set_rho(self, rho):
-        assert len(rho) == len(self.mesh.faces), 'rho must have same length as faces'
-        self.rho = rho
-
-    def plot(self):
-        fig, ax = plt.subplots(1, 1)
-        self.mesh.plot_colored(self.rho, fig=fig, ax=ax, show=False, cbar_label='Density', title='BC')
-        for idx, value in self.dirichlet.items():
-            ax.plot(self.mesh.points[idx][0], self.mesh.points[idx][1], 'ro')
-        for idx, value in self.neumann.items():
-            # plot arrows
-            ax.quiver(self.mesh.points[idx][0], self.mesh.points[idx][1], value[0], value[1])
-        plt.show()
-
-    
     def check(self):
+        # TODO:
         # check that max one BC per node
         # check that BC defined only on boundary
         pass
@@ -75,5 +60,7 @@ class BoundaryConditions:
             self.neumann_load.append(self.neumann[idx] if idx in self.neumann else np.zeros(dim))
             self.force_load.append(self.force[idx] if idx in self.force else np.zeros(dim))
         self.neumann_load = np.array(self.neumann_load)
-        self.force_load = np.array(self.force_load)        
+        self.force_load = np.array(self.force_load)  
 
+    def plot(self, values=None): # TODO: what is values, body force?
+        return Plotter(self.mesh).plot_bc(self, values)      

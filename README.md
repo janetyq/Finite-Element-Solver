@@ -120,6 +120,7 @@ The solver starts with a uniform density field and iteratively updates the densi
     - Adaptive refinement for all equations
     - Expand to a 3d solver
     - Sparse solver
+    - Applications - cage-based shape optimization, invere spring design
 
 
 ### References
