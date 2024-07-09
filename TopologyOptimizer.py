@@ -3,15 +3,31 @@ from utils.helper import *
 from Solver import *
 
 class TopologyOptimizer:
-    def __init__(self, mesh, equation, boundary_conditions):
+    '''
+    Density based topology optimization
+
+    Creates a solver and iteratively updates density field to minimize some objective 
+    for some equation and boundary conditions.
+    '''
+    def __init__(self, mesh, equation, boundary_conditions, iters=10, volume_frac=1.0):
+        assert equation.name == 'linear_elastic', \
+            'TopologyOptimizer only supports linear_elastic equations'
+        self.orig_equation = equation.__copy__()
         self.solver = Solver(mesh, equation, boundary_conditions)
-        self.equation = equation
-        assert equation.name == 'linear_elastic',  \
-            'Only linear_elastic equation is supported for topology optimization'
         self.face_neighbors = self.solver.mesh.calculate_face_neighbors()
         self.solution = Solution(mesh)
 
-    def filter_sensitivity(self, sensitivity): #TODO: filter better than this
+        self.iters = iters
+        self.volume_frac = volume_frac
+
+        self.rho = None
+        self.set_rho(np.full(len(mesh.faces), self.volume_frac))
+
+    def set_rho(self, rho):
+        self.rho = rho
+        self.solver.equation.parameters['E'] = self.rho**3 * self.orig_equation.parameters['E']
+
+    def filter_sensitivity(self, sensitivity): #TODO: research a better filter
         # simple averaging with neighbors
         smoothed_sensitivity = np.zeros_like(sensitivity)
         for face_idx, face in enumerate(self.solver.mesh.faces):
@@ -19,13 +35,13 @@ class TopologyOptimizer:
             smoothed_sensitivity[face_idx] = 0.5 * neighbor_value + 0.5 * sensitivity[face_idx]
         return smoothed_sensitivity
 
-    def oc_density(self, rho, sensitivity, volume_frac):
+    def oc_density(self, sensitivity, volume_frac):
         # sensitivity is the gradient of the compliance with respect to the density
         l, r = 0.0, 1e15 # search interval
         while (l*(1+1e-15)) < r:
             m = 0.5*(l+r)
-            rho_new = rho * np.sqrt(sensitivity / m)
-            # rho_new = np.clip(rho_new, rho_new - 0.1, rho_new + 0.1) # change limit
+            rho_new = self.rho * np.sqrt(sensitivity / m)
+            rho_new = np.clip(rho_new, self.rho - 0.1, self.rho + 0.1) # change limit
             rho_new = np.clip(rho_new, 1e-6, 1) 
 
             if self.solver.mesh.calculate_mean_value(rho_new) < volume_frac:
@@ -34,73 +50,45 @@ class TopologyOptimizer:
                 l = m
         return rho_new
 
-    def solve(self, target_compliance=None, plot=False):
-        if self.solver.equation.name == 'linear_elastic':
-            iters = self.equation.parameters['iters']
-            volume_frac = self.equation.parameters['volume_frac']
-            p = 3 # penalization factor
+    def solve(self, objective_name='min_compliance', objective_args=None, 
+                    optimization_method='oc', optimization_args=None, plot=False):
 
-            if 'rho' in self.solver.equation.parameters:
-                rho = self.solver.equation.parameters['rho']
-                assert len(rho) == len(self.solver.mesh.faces), 'rho_initial must have same length as faces'
-            else:
-                rho = np.full(len(self.solver.mesh.faces), volume_frac)
-            
-            rhos, us, compliances = [], [], []
-            stresses, strains = [], []
-            for iter in range(iters):
-                self.solver.equation.parameters['rho'] = rho
-                self.solver.solve()
-                
-                u = self.solver.solution.values['u']
-                C_faces = self.solver.solution.values['compliance']
+        objective_func, gradient_func = self._select_objective(objective_name)
+        optimization_func = self._select_optimization(optimization_method, optimization_args)
 
-                us.append(u.copy())
-                rhos.append(rho.copy())
-                compliances.append(C_faces)
-                stresses.append(self.solver.solution.values['stress'].copy())
-                strains.append(self.solver.solution.values['strain'].copy())
+        solution_list = []
+        for iter in range(self.iters):
+            # solve
+            solution = self.solver.solve()
+            solution.set_values('rho', self.rho)
+            solution_list.append(solution.__copy__())
 
-                print('\nIteration', iter)
-                print(f'{color.BOLD}Total compliance: {np.sum(C_faces):4f} {color.END}')
-                print('max displacement', np.max(u, axis=0))
-                print('volume fraction:', self.solver.mesh.calculate_mean_value(rho))
+            # log and plot
+            self._log_iteration(iter, solution)
+            if plot is True:
+                self._plot_iteration(iter, solution)
 
-                if plot:
-                    deformed_mesh = self._get_deformed_mesh()
-                    options = {'title': f'Iteration {iter}, C={np.sum(C_faces):.4f}', 'cbar_label': 'Density', 'save': f"results/rho{iter}.png"}
-                    Plotter(deformed_mesh, options=options).plot_values(rho)
+            # update rho
+            gradient = self.filter_sensitivity(gradient_func(objective_args))
+            updated_rho = optimization_func(gradient)
+            self.set_rho(updated_rho)
 
-                # update rho
-                sensitivity = p/rho * C_faces
-                sensitivity = self.filter_sensitivity(sensitivity)
-                rho = self.oc_density(rho, sensitivity, volume_frac)
-
-                # # experimental
-                # if target_compliance is not None:
-                #     if np.abs(C - target_compliance) < 1e-6:
-                #         break
-                #     sensitivity = 2*(C_faces - target_compliance) * p/rho * C_faces
-                # sensitivity = self.filter_sensitivity(sensitivity)
-                # rho += np.clip(0.1 * sensitivity, -0.1, 0.1)
-                # rho = np.clip(rho, 1e-6, 1)
-
-            self.solution.set_values('us', us)
-            self.solution.set_values('rhos', rhos)
-            self.solution.set_values('compliances', compliances)
-            self.solution.set_values('stresses', stresses)
-            self.solution.set_values('strains', strains)
-        else:
-            raise ValueError(f'Topology optimization not supported for {self.equation.name} equation')
-        
+        self.solution = Solution.combine_solutions(solution_list)
         return self.solution
 
-    def _get_deformed_mesh(self, idx=-1):
-        try:
-            u = self.solution.values['us'][idx]
-        except:
-            u = self.solver.solution.values['u']
-        return Mesh(self.solver.mesh.points + u.reshape(-1, 2), self.solver.mesh.faces, self.solver.mesh.boundary)
+    def compliance(self, args):
+        return self.solver.solution.values['compliance'].sum()
+
+    def compliance_gradient(self, args):
+        return self.solver.solution.values['compliance'] * 3/self.rho
+
+    def target_compliance_objective(self, args):
+        target = args[0]
+        return (self.compliance() - target)**2
+
+    def target_compliance_gradient(self, args):
+        target = args[0]
+        return self.compliance_gradient() * 2 * (self.compliance() - target)
 
     def plot(self, name, deformed=True, options=None):
         # animation of the optimization process
@@ -110,9 +98,44 @@ class TopologyOptimizer:
         values = self.solution.get_values(name, mode=None) # TODO: mode not supported for list values
         if len(values[0]) == len(self.solver.mesh.faces):
             values = [self.solution._convert_face_values_to_vertex_values(v) for v in values]
-
-        if not deformed:
-            plotter = Plotter(self.solver.mesh, options=options) 
+       
+        plotter = Plotter(self.solver.mesh, options=options) 
+        if deformed:
+            plotter.plot_animation(values, mode='colored', meshes=[self._get_deformed_mesh(idx) for idx in range(len(values))])
+        else:
             plotter.plot_animation(values, mode='colored')
-        else: #TODO: deformed mesh plotting, need to modify plotter
-            raise NotImplementedError('Deformed mesh animation not implemented yet')
+
+    def _select_objective(self, objective_name):
+        if objective_name == 'min_compliance':
+            return self.compliance, self.compliance_gradient
+        elif objective_name == 'target_compliance':
+            return self.target_compliance_objective, self.target_compliance_gradient
+        else:
+            raise ValueError(f'Invalid objective: {objective_name}')
+
+    def _select_optimization(self, optimization_method, optimization_args):
+        if optimization_method == 'oc':
+            return lambda gradient: self.oc_density(gradient, self.volume_frac)
+        else:
+            raise ValueError(f'Invalid optimization method: {optimization_method}')
+
+    def _log_iteration(self, iter, solution):
+        max_displacement = np.max(solution.values['u'], axis=0)
+        compliance = solution.values['compliance'].sum()
+        print(f'\nIteration: {iter}')
+        print(f'{color.BOLD}Total compliance: {compliance:4f} {color.END}')
+        print(f'Max displacement {max_displacement}')
+        print(f'Volume fraction: {self.solver.mesh.calculate_mean_value(self.rho)}')
+
+    def _plot_iteration(self, iter, solution):
+        deformed_mesh = self._get_deformed_mesh()
+        compliance = solution.values['compliance'].sum()
+        options = {'title': f'Iteration {iter}, C={compliance:.4f}', 'cbar_label': 'Density', 'save': f"results/rho{iter}.png"}
+        Plotter(deformed_mesh, options=options).plot_values(self.rho)
+
+    def _get_deformed_mesh(self, idx=-1):
+        try:
+            u = self.solution.values['u_list'][idx]
+        except:
+            u = self.solver.solution.values['u']
+        return Mesh(self.solver.mesh.points + u.reshape(-1, 2), self.solver.mesh.faces, self.solver.mesh.boundary)

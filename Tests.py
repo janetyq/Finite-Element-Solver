@@ -71,7 +71,7 @@ def test_linear_elastic():
     left_idxs = [idx for idx in mesh.boundary_idxs if mesh.points[idx][0] < 1e-6]
     right_middle_idxs = [idx for idx in mesh.boundary_idxs if mesh.points[idx][0] > w-1e-6 and 0.2 < mesh.points[idx][1] < 0.8]
     bc.add('dirichlet', left_idxs, [0, 0])
-    bc.add('neumann', right_middle_idxs, [5, 0])
+    bc.add('neumann', right_middle_idxs, [5, 0]) # stress
     bc.plot()
 
     equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
@@ -89,17 +89,17 @@ def test_topology_optimization():
     bc.add('dirichlet', left_idxs, [0, 0])
     bc.add_force(down_force)
 
-    equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4, 'iters': 20, 'volume_frac': 0.5})
-    topopt = TopologyOptimizer(mesh, equation, bc)
-    solution = topopt.solve(plot=False)
+    equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
+    topopt = TopologyOptimizer(mesh, equation, bc, iters=10, volume_frac=0.5)
+    solution = topopt.solve(plot=True)
     
     # Plotter(topopt._get_deformed_mesh(5), options={'title': 'TopoOpt iter 5'}).plot_values(solution.get_values('rhos', idx=5))
-    # options = {'title': 'Topology Optimization', 'cbar_lim': [0, 1], 'cbar_label': 'Density', 'save': 'results/topopt.gif'}
-    topopt.plot('rhos', deformed=False, options=options) # animation
+    options = {'title': 'Topology Optimization', 'cbar_lim': [0, 1], 'cbar_label': 'Density', 'save': 'results/topopt.gif'}
+    topopt.plot('rho_list', deformed=False, options=options) # animation
 
     fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-    Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[0], options={'title': 'Final Density', 'show': False}).plot_values(solution.get_values('rhos', idx=-1))
-    Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[1], options={'title': 'Final Stress'}).plot_values(solution.get_values('stresses', idx=-1))
+    Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[0], options={'title': 'Final Density', 'show': False}).plot_values(solution.get_values('rho_list', idx=-1))
+    Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[1], options={'title': 'Final Stress'}).plot_values(solution.get_values('stress_list', idx=-1))
 
 def test_adaptive_refinement():
     w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
@@ -148,11 +148,11 @@ if __name__ == "__main__":
     MESH_FILE = 'meshes/40x40.pkl'
     mesh = Mesh.load(MESH_FILE)
 
-    test_plot_mesh()
-    test_l2_projection()
-    test_poisson()
-    test_heat_equation()
-    test_wave_equation() # TODO: running test_wave after test_heat seems to have plotting issues
-    test_linear_elastic()
+    # test_plot_mesh()
+    # test_l2_projection()
+    # test_poisson()
+    # test_heat_equation()
+    # test_wave_equation() # TODO: running test_wave after test_heat seems to have plotting issues
+    # test_linear_elastic()
     test_topology_optimization()
-    test_adaptive_refinement()
+    # test_adaptive_refinement()
