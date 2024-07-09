@@ -32,23 +32,18 @@ class Solver:
 
         # assemble mass and stiffness matrices and load vector
         self.M, self.M_faces = self._assemble_matrix(self._calculate_element_mass_matrix)
+        self.b = self._assemble_vector(self._calculate_element_load_vector, self.boundary_conditions.force_load)
+        self.b += self._assemble_vector(self._calculate_element_boundary_load_vector, self.boundary_conditions.neumann_load)
+
         if self.equation.dim == 1: # TODO: implement 2D
             self.K, self.K_faces = self._assemble_matrix(self._calculate_element_stiffness_matrix)
-        else: # dim = 2
+        if self.equation.name == "linear_elastic":
             rho = self.equation.parameters.get('rho', 1)
             E_min, p = 1e-6, 3
             E = E_min + np.full(len(self.mesh.faces), self.equation.parameters['E']) * rho**p
             nu = np.full(len(self.mesh.faces), self.equation.parameters['nu']) * rho**p
             self.material_func = np.vstack([E, nu]).T 
             self.K, self.K_faces = self._assemble_matrix(self._calculate_element_stiffness_matrix, self.material_func)
-        self.b = self._assemble_vector(self._calculate_element_load_vector, self.boundary_conditions.force_load)
-        self.b += self._assemble_vector(self._calculate_element_boundary_load_vector, self.boundary_conditions.neumann_load)
-        
-        # create solution vector
-        self.u = np.zeros(len(self.mesh.points) * self.dim)
-        self.free = self.boundary_conditions.free_idxs
-        self.fixed = self.boundary_conditions.fixed_idxs
-        self.u[self.fixed] = self.boundary_conditions.fixed_values
 
     def solve(self):
         self.preprocess()
@@ -102,18 +97,40 @@ class Solver:
     #         self.solution.set_values("aposteriori_residual", residuals)
     #         pass
 
+    def _solve_linear_system(self, A, b, use_bc=True):
+        # solves Au=b, taking fixed vars and loads into account
+        x = np.zeros_like(b)
+        if use_bc:
+            free = self.boundary_conditions.free_idxs
+            fixed = self.boundary_conditions.fixed_idxs
+            x[fixed] = self.boundary_conditions.fixed_values
+            A_mod = A[np.ix_(free, free)]
+            b_mod = b[free] - A[np.ix_(free, fixed)] @ x[fixed]
+            x[free] = np.linalg.solve(A_mod, b_mod)
+            return x
+        else:
+            return np.linalg.solve(A, b)
+
+    def _solve_nonlinear_system(self, A, b, x0, tol=1e-6, max_iters=100):
+        # newton solver
+        x = x0.copy() # TODO: x0 needed only for shape, do better
+        for iter in range(max_iters):
+            print(f'iter {iter}')
+            dx = self._solve_linear_system(A(x), A(x) @ x - b(x))
+            if np.linalg.norm(dx) < tol:
+                break
+            x -= dx
+        return x
+
     def _solve_projection(self):
         print('Solving L2 projection...') # M @ u = b
-        M_mod = self.M[np.ix_(self.free, self.free)]
-        b_mod = self.b[self.free] - self.M[np.ix_(self.free, self.fixed)] @ self.u[self.fixed]
-        self.u[self.free] = np.linalg.solve(M_mod, b_mod)
-        self.solution.set_values("u", self.u)
+        u = self._solve_linear_system(self.M, self.b)
+        # u = self._solve_nonlinear_system(lambda _: self.M, lambda _: self.b, x0=np.zeros_like(self.b))
+        self.solution.set_values("u", u)
     
     def _solve_poisson(self):
         print('Solving Poisson equation...') # K @ u = b
-        K_mod = self.K[np.ix_(self.free, self.free)]
-        b_mod = self.b[self.free] - self.K[np.ix_(self.free, self.fixed)] @ self.u[self.fixed]
-        self.u[self.free] = np.linalg.solve(K_mod, b_mod)
+        u = self._solve_linear_system(self.K, self.b)
         self.solution.set_values("u", self.u)
         # residuals = np.zeros(len(self.mesh.faces))
         # for face_idx, face in enumerate(self.mesh.faces):
@@ -124,20 +141,17 @@ class Solver:
     def _solve_heat(self):
         print('Solving heat equation...') # M @ u' + K @ u = b
         #  (M + K*dt) @ u_{n+1} = M @ u_n + b*dt, backwards Euler
-        M_mod = self.M[np.ix_(self.free, self.free)]
-        K_mod = self.K[np.ix_(self.free, self.free)]
-        self.u = self.equation.parameters['u_initial']
-        self.u[self.fixed] = self.boundary_conditions.fixed_values
+        u = self.equation.parameters['u_initial']
         dt, iters = self.equation.parameters['dt'], self.equation.parameters['iters']
-        b_mod = self.b[self.free] - self.K[np.ix_(self.free, self.fixed)] @ self.u[self.fixed]
+
         t_values = [0]
-        u_values = [self.u]
-        print(f't = {t_values[0]:.3f}, mean temp = {self.mesh.calculate_mean_value(u_values[0]):.3f}')
+        u_values = [u]
         for i in range(iters):
-            self.u[self.free] = np.linalg.solve(M_mod + K_mod * dt, M_mod @ self.u[self.free] + b_mod * dt)
+            u = self._solve_linear_system(self.M + self.K * dt, self.M @ u + self.b * dt)
             t_values.append(dt * (i+1))
-            u_values.append(self.u.copy())
+            u_values.append(u.copy())
             print(f't = {t_values[-1]:.3f}, mean temp = {self.mesh.calculate_mean_value(u_values[-1]):.3f}')
+
         self.solution.set_values("t_values", t_values)
         self.solution.set_values("u_values", u_values)
 
@@ -146,16 +160,16 @@ class Solver:
         u, dudt = self.equation.parameters['u_initial'], self.equation.parameters['dudt_initial']
         c = self.equation.parameters['c']
         dt, iters = self.equation.parameters['dt'], self.equation.parameters['iters']
-        x = np.block([u, dudt])
-
+        
         # Crank-Nicolson method - average of forward and backward Euler
         A_left = np.block([[self.M, -dt/2 * self.M],
-                        [c**2 * dt/2 * self.K, self.M]])
+                           [c**2 * dt/2 * self.K, self.M]])
         A_right = np.block([[self.M, dt/2 * self.M],
                             [-c**2 * dt/2 * self.K, self.M]])
         b_right = np.block([np.zeros_like(self.b), dt/2 * (self.b + np.roll(self.b, -1))])
 
         N = len(self.mesh.points)
+        x = np.block([u, dudt])
         t_values = [0]
         u_values = [x[:N]]
         dudt_values = [x[N:]]
@@ -163,7 +177,7 @@ class Solver:
         print(f't = {t_values[-1]:.3f}, total energy = {total_energy:.3f}')
 
         for i in range(iters):
-            x = np.linalg.solve(A_left, A_right @ x + b_right)
+            x = self._solve_linear_system(A_left, A_right @ x + b_right, use_bc=False) # TODO: bc not supported for wave
             t_values.append(dt * (i+1))
             u_values.append(x[:N])
             dudt_values.append(x[N:])
@@ -175,9 +189,7 @@ class Solver:
         self.solution.set_values("dudt_values", dudt_values)
 
     def _solve_linear_elastic(self):
-        K_mod = self.K[np.ix_(self.free, self.free)]
-        b_mod = self.b[self.free] - self.K[np.ix_(self.free, self.fixed)] @ self.u[self.fixed]
-        self.u[self.free] = np.linalg.solve(K_mod, b_mod)
+        u = self._solve_linear_system(self.K, self.b)
 
         eps_faces = np.zeros((len(self.mesh.faces), 3))
         sigma_faces = np.zeros((len(self.mesh.faces), 3))
@@ -186,7 +198,7 @@ class Solver:
 
         for face_idx, face in enumerate(self.mesh.faces):
             element = self.mesh.points[face]
-            u_face = self.u[np.array([2*face, 2*face+1]).T.flatten()]
+            u_face = u[np.array([2*face, 2*face+1]).T.flatten()]
             eps_faces[face_idx] = self.B_elements[face_idx] @ u_face
             sigma_faces[face_idx] = self.D_elements[face_idx] @ eps_faces[face_idx]
             compliance_faces[face_idx] = u_face.T @ self.K_faces[face_idx] @ u_face
@@ -194,12 +206,12 @@ class Solver:
             # if np.max(self.K_faces[face_idx] @ u_face) > 0.1:
             #     pass
 
-        self.solution.set_values("u", self.u)
+        self.solution.set_values("u", u)
         self.solution.set_values("rho", self.equation.parameters.get('rho', np.full(len(self.mesh.faces), 1)))
         self.solution.set_values("strain", np.linalg.norm(eps_faces, axis=-1))
         self.solution.set_values("stress", np.linalg.norm(sigma_faces, axis=-1))
         self.solution.set_values("compliance", compliance_faces)
-        self.solution.set_values("total_compliance", self.u.T @ self.K @ self.u) # = sum(compliance_faces)
+        self.solution.set_values("total_compliance", 0.5 * (u.T @ self.K @ u)) # = sum(compliance_faces)
         # self.solution.set_values("force", force_faces)
 
     def _assemble_matrix(self, calculate_element_matrix, params=None): # TODO: params inconsistent here, face indexed
@@ -287,6 +299,3 @@ class Solver:
             refinement_mesh.refine_triangles(refine_idxs)
             self.mesh = refinement_mesh.get_mesh()
             max_iters -= 1
-
-
-

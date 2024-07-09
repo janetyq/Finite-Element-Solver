@@ -17,7 +17,7 @@ def test_plot_mesh():
     plotter.plot_mesh(mode='wireframe', color_vertices=[('red', mesh.boundary_idxs, 'boundary')])
     plotter.plot_mesh(mode='solid')
 
-def test_l2_projection(): # TODO: projection looks off
+def test_l2_projection():
     def cool_f(point):
         x, y = point - np.array([0.5, 0.5])
         return [np.sin(40*(x**2+y**2))]
@@ -27,6 +27,9 @@ def test_l2_projection(): # TODO: projection looks off
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
     solution.plot('u', mode='surface', options={'title': 'L2 Projection'})
+
+def test_poisson_equation():
+    raise NotImplementedError('Poisson equation test is not implemented') # TODO
 
 def test_heat_equation():
     w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
@@ -92,7 +95,7 @@ def test_topology_optimization():
     
     # Plotter(topopt._get_deformed_mesh(5), options={'title': 'TopoOpt iter 5'}).plot_values(solution.get_values('rhos', idx=5))
     # options = {'title': 'Topology Optimization', 'cbar_lim': [0, 1], 'cbar_label': 'Density', 'save': 'results/topopt.gif'}
-    # topopt.plot('rhos', deformed=False, options=options)
+    topopt.plot('rhos', deformed=False, options=options) # animation
 
     fig, ax = plt.subplots(1, 2, figsize=(10, 4))
     Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[0], options={'title': 'Final Density', 'show': False}).plot_values(solution.get_values('rhos', idx=-1))
@@ -146,9 +149,10 @@ if __name__ == "__main__":
     mesh = Mesh.load(MESH_FILE)
 
     test_plot_mesh()
-    # test_l2_projection()
-    # test_heat_equation()
-    # test_wave_equation() # TODO: running test_wave after test_heat seems to have plotting issues
-    # test_linear_elastic()
-    # test_topology_optimization()
-    # test_adaptive_refinement()
+    test_l2_projection()
+    test_poisson()
+    test_heat_equation()
+    test_wave_equation() # TODO: running test_wave after test_heat seems to have plotting issues
+    test_linear_elastic()
+    test_topology_optimization()
+    test_adaptive_refinement()
