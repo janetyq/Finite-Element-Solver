@@ -64,18 +64,23 @@ class Plotter:
             self.plot_values(values, title='BC')
         self._apply_options()
 
-    def plot_animation(self, values, t_values=None, mode='colored'):
+    def plot_animation(self, values, t_values=None, meshes=None, mode='colored'):
         if not plt.fignum_exists(self.fig.number):
             self.reset()
         save = self.options.get('save', None)
         self.options['title'] =  t_values[0] if t_values is not None else 0
         self.options['show'] = False
         self.options['save'] = False
+
+        if meshes is not None:
+            self.mesh = meshes[0]
         self.plot_values(values[0], mode=mode)
 
         def update(frame):
             self.ax.clear()
             self.options['title'] = t_values[frame] if t_values is not None else frame
+            if meshes is not None:
+                self.mesh = meshes[frame]
             self.plot_values(values[frame], mode=mode)
 
         ani = FuncAnimation(self.fig, update, frames=range(len(values)), blit=False, repeat=True)

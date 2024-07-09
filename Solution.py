@@ -94,3 +94,10 @@ class Solution:
             deformed_mesh = Mesh(points, self.mesh.faces, self.mesh.boundary)
             return Plotter(deformed_mesh, options=options).plot_values(values, mode=mode)
         return Plotter(self.mesh, options=options).plot_values(values, mode=mode)
+
+    @classmethod
+    def combine_solutions(cls, solution_list):
+        combined_solution = Solution(solution_list[0].mesh) # TODO: bit weird
+        for name in solution_list[0].values.keys():
+            combined_solution.values[name + '_list'] = np.array([s.get_values(name) for s in solution_list])
+        return combined_solution

@@ -10,6 +10,9 @@ class Equation:
         self.parameters = parameters
         self.dim = 2 if name == "linear_elastic" else 1
 
+    def __copy__(self):
+        return self.__class__(self.name, self.parameters.copy()) # TODO: check if this works for list values
+
 class Solver:
     def __init__(self, mesh, equation, boundary_conditions=None):
         self.mesh = mesh
@@ -38,15 +41,14 @@ class Solver:
         if self.equation.dim == 1: # TODO: implement 2D
             self.K, self.K_faces = self._assemble_matrix(self._calculate_element_stiffness_matrix)
         if self.equation.name == "linear_elastic":
-            rho = self.equation.parameters.get('rho', 1)
             E_min, p = 1e-6, 3
-            E = E_min + np.full(len(self.mesh.faces), self.equation.parameters['E']) * rho**p
-            nu = np.full(len(self.mesh.faces), self.equation.parameters['nu']) * rho**p
+            E = np.full(len(self.mesh.faces), self.equation.parameters['E'])
+            nu = np.full(len(self.mesh.faces), self.equation.parameters['nu'])
             self.material_func = np.vstack([E, nu]).T 
             self.K, self.K_faces = self._assemble_matrix(self._calculate_element_stiffness_matrix, self.material_func)
 
     def solve(self):
-        self.preprocess()
+        self.preprocess() # TODO: don't call this every time
         self.solution.reset()
         
         equation_solvers = {
@@ -203,11 +205,8 @@ class Solver:
             sigma_faces[face_idx] = self.D_elements[face_idx] @ eps_faces[face_idx]
             compliance_faces[face_idx] = u_face.T @ self.K_faces[face_idx] @ u_face
             # force_faces[face_idx] = np.linalg.norm(np.mean((self.K_faces[face_idx] @ u_face).reshape(-1, 2), axis=0))
-            # if np.max(self.K_faces[face_idx] @ u_face) > 0.1:
-            #     pass
 
         self.solution.set_values("u", u)
-        self.solution.set_values("rho", self.equation.parameters.get('rho', np.full(len(self.mesh.faces), 1)))
         self.solution.set_values("strain", np.linalg.norm(eps_faces, axis=-1))
         self.solution.set_values("stress", np.linalg.norm(sigma_faces, axis=-1))
         self.solution.set_values("compliance", compliance_faces)
