@@ -133,7 +133,7 @@ class Plotter:
 
     def _plot_arrows(self, values):
         face_points = np.mean(self.mesh.points[self.mesh.faces], axis=1)
-        self.ax.quiver(face_points[:, 0], face_points[:, 1], values[:, 0], values[:, 1], alpha=0.5)
+        self.ax.quiver(face_points[:, 0], face_points[:, 1], values[:, 0], values[:, 1], alpha=0.5, scale=10)
 
     def _apply_options(self):
         self.ax.set_title(self.options.get('title', None))

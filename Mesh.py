@@ -4,7 +4,27 @@ from utils.helper import *
 
 from Plotter import *
 
+class LinearTriangleElement: # TODO: perhaps put area calculation and quadrature in here too?
+    '''
+    Shape function phi(x) = a + b*x + c*y
+    '''
+    def __init__(self, points, area):
+        self.points = points
+        self.area = area
+
+        a, b, c = [], [], []
+        for i in range(3):
+            x_j, x_k = points[(i+1)%3], points[(i+2)%3]
+            a.append((x_j[0]*x_k[1] - x_k[0]*x_j[1]) / (2 * area))
+            b.append((x_j[1] - x_k[1]) / (2 * area))
+            c.append((x_k[0] - x_j[0]) / (2 * area))
+
+        self.gradient = np.array([b, c]).T
+
 class Mesh:
+    '''
+    2D triangular mesh
+    '''
     def __init__(self, points, faces, boundary):
         self.points = np.array(points)
         self.faces = np.array(faces)
@@ -13,6 +33,7 @@ class Mesh:
         self.boundary_idxs = list(set(self.boundary.ravel()))
         self.areas = np.array([calculate_triangle_area(self.points[face]) for face in self.faces])
         self.edges = self._get_all_edges()
+        self.shape_functions = self._get_all_shape_functions()
 
     # TODO: Save and load to better formats - off, obj
     @classmethod
@@ -47,18 +68,35 @@ class Mesh:
     def calculate_mean_value(self, u):
         return self.calculate_total_value(u) / sum(self.areas)
 
+    def calculate_element_gradient(self, elt_idx, u): # TODO: args suck, some code repetitive
+        dim = len(u.shape)
+        a, b, c = self.shape_functions[elt_idx]
+        u_vals = u[self.faces[elt_idx]]
+        if dim == 1:
+            gradient = np.array(
+                [np.dot(b, u_vals), np.dot(c, u_vals)],
+            )
+        else:
+            gradient = np.array(
+                [[np.dot(b, u_vals[:, 0]), np.dot(c, u_vals[:, 0])],
+                [np.dot(b, u_vals[:, 1]), np.dot(c, u_vals[:, 1])]]
+            )
+        return gradient
+
+    def calculate_gradient(self, u):
+        gradient = []
+        for elt_idx, elt in enumerate(self.faces):
+            gradient.append(self.calculate_element_gradient(elt_idx, u))
+        return np.array(gradient)
+
     def calculate_dirichlet_energy(self, u):
-        energy = 0
-        # u_gradient = self.calculate_gradient(u)
-        # for face_idx, face in enumerate(self.faces):
-        #     area = calculate_triangle_area(self.points[face])
-        #     energy += 1/2 * area * calc_dot(u_gradient[face_idx], u_gradient[face_idx])
-        return energy
+        u_gradient = self.calculate_gradient(u)
+        return sum([self.areas[face_idx] * calculate_dot(u_gradient[face_idx], u_gradient[face_idx]) 
+                    for face_idx in range(len(self.faces))])
 
     def calculate_energy(self, u, dudt):
-        # TODO: not conserved in wave eqn for some reason
         dirichlet_energy = self.calculate_dirichlet_energy(u)
-        kinetic_energy = 1/2 * self.calculate_total_value(dudt**2)
+        kinetic_energy = self.calculate_total_value(dudt**2)
         return dirichlet_energy + kinetic_energy
         
     def calculate_face_neighbors(self):
@@ -78,6 +116,16 @@ class Mesh:
                 all_edges.add(tuple(sorted(edge)))
         all_edges = np.array(list(all_edges))
         return all_edges
+
+    def _get_all_shape_functions(self):
+        '''
+        Calculates shape function for element elt_idx
+        N(x, y) = a + b*x + c*y
+        '''
+        shape_functions = []
+        for elt_idx, element in enumerate(self.faces):
+            shape_functions.append(LinearTriangleElement(self.points[element], self.areas[elt_idx]))
+        return shape_functions
 
     def get_edges_in_idxs(self, vertices_idxs, exclude_corners=False):
         in_edges = []
@@ -100,23 +148,17 @@ class Mesh:
                 in_boundary_idxs.append(idx)
         return in_boundary_idxs
 
-class EasyMesher:
-    '''
-    Creates an approximate uniform mesh of a given outline
-    '''
-    def __init__(self, outline, approx_triangles=100):
-        self.outline = outline
-        self.dx = np.sqrt(2 * calculate_polygon_area(outline) / approx_triangles)
-
-    def mesh(self, plot=True):
-        x_min, x_max = np.min(self.outline[:, 0]), np.max(self.outline[:, 0])
-        y_min, y_max = np.min(self.outline[:, 1]), np.max(self.outline[:, 1])
-        x_range = np.arange(x_min, x_max, self.dx)
-        y_range = np.arange(y_min, y_max, self.dx)
+    @classmethod
+    def create_approx_mesh(cls, outline, approx_triangles=100):
+        dx = np.sqrt(2 * calculate_polygon_area(outline) / approx_triangles)
+        x_min, x_max = np.min(outline[:, 0]), np.max(outline[:, 0])
+        y_min, y_max = np.min(outline[:, 1]), np.max(outline[:, 1])
+        x_range = np.arange(x_min, x_max, dx)
+        y_range = np.arange(y_min, y_max, dx)
         x_range += (x_max - x_range[-1])/2
         y_range += (y_max - y_range[-1])/2
+
         points = np.array([[x, y] for y in y_range for x in x_range])
-        
         faces = []
 
         def get_index(i, j):
@@ -134,7 +176,7 @@ class EasyMesher:
             center = np.mean(points[face], axis=0)
             offcenters = [(center + points[i])/2 for i in face]
             for offcenter in offcenters:
-                if not point_in_polygon(offcenter, self.outline):
+                if not point_in_polygon(offcenter, outline):
                     removed_faces.append(face)
                     break
         for face in removed_faces:
@@ -149,55 +191,48 @@ class EasyMesher:
         boundary = get_boundary_from_points_faces(points, faces)
         mesh = Mesh(points, faces, boundary)
 
-        if plot:
-            fig, ax = plt.subplots()
-            ax.plot(self.outline[:, 0], self.outline[:, 1], 'r-')
-            Plotter(mesh, fig=fig, ax=ax, options={'title': 'EasyMesher mesh'}).plot_mesh(mode='wireframe')
-        
+        fig, ax = plt.subplots()
+        ax.plot(outline[:, 0], outline[:, 1], 'r-')
+        Plotter(mesh, fig=fig, ax=ax, options={'title': 'Approximate mesh'}).plot_mesh(mode='wireframe')
+    
         return mesh
 
-class RectMesher:
-    def __init__(self, corners, resolution):
-        self.corners = corners
-        self.resolution = resolution
-
-    def mesh(self, plot=True):
-        x_range = np.linspace(self.corners[0][0], self.corners[1][0], self.resolution[0])
-        y_range = np.linspace(self.corners[0][1], self.corners[1][1], self.resolution[1])
+    @classmethod
+    def create_rect_mesh(cls, corners, resolution):
+        x_range = np.linspace(corners[0][0], corners[1][0], resolution[0])
+        y_range = np.linspace(corners[0][1], corners[1][1], resolution[1])
 
         points = np.array([[x, y] for y in y_range for x in x_range])
-
         faces = []
 
         def get_index(i, j):
-            return j*self.resolution[0] + i
+            return j*resolution[0] + i
 
-        for i in range(self.resolution[0]-1):
-            for j in range(self.resolution[1]-1):
+        for i in range(resolution[0]-1):
+            for j in range(resolution[1]-1):
                 faces.append([get_index(i, j), get_index(i+1, j), get_index(i+1, j+1)])
                 faces.append([get_index(i, j), get_index(i+1, j+1), get_index(i, j+1)])
 
         boundary = get_boundary_from_points_faces(points, faces)
         mesh = Mesh(points, faces, boundary)
 
-        if plot:
-            Plotter(mesh, options={'title': 'RectMesher mesh'}).plot_mesh(mode='wireframe')
+        fig, ax = plt.subplots()
+        ax.plot([corners[0][0], corners[1][0], corners[1][0], corners[0][0], corners[0][0]], 
+                [corners[0][1], corners[0][1], corners[1][1], corners[1][1], corners[0][1]], 'r-')
+        Plotter(mesh, fig=fig, ax=ax, options={'title': 'Rectangular mesh'}).plot_mesh(mode='wireframe')
 
-        return Mesh(points, faces, boundary)
+        return mesh
+
 
 if __name__ == '__main__':
-    # EasyMesher for a simple mesh of any polygon
-    outline = np.array([[0, 0], [1, 2], [3, 2], [2, 0], [0, 0]])
-    mesher = EasyMesher(outline, approx_triangles=500)
-    mesh = mesher.mesh()
-    mesh.save('meshes/easymesher_demo.pkl')
-
-    # RectMesher to make a uniform rectangular mesh
-    corners = [[0, 0], [2, 1]]
-    resolution = (40, 20)
-    mesher = RectMesher(corners, resolution=resolution)
-    mesh = mesher.mesh()
+    corners = [[0, 0], [1, 1]]
+    resolution = (10, 10)
+    mesh = Mesh.create_rect_mesh(corners, resolution=resolution)
     mesh.save(f'meshes/{resolution[0]}x{resolution[1]}.pkl')
+
+    outline = np.array([[0, 0], [1, 2], [3, 2], [2, 0], [0, 0]])
+    mesh = Mesh.create_approx_mesh(outline, approx_triangles=500)
+    mesh.save('meshes/approx_mesh.pkl')
 
     # Mesh plotting examples with color
     face_list = []

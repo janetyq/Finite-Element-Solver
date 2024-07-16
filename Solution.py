@@ -56,18 +56,10 @@ class Solution:
     def reset(self):
         self.values = {}
 
-    def calc_gradient(self, name):
+    def calculate_gradient(self, name): # TODO: rename, overloaded
         values = self.get_values(name)
-        gradient = np.zeros((len(self.mesh.faces), 2))
-        for face_idx, face in enumerate(self.mesh.faces):
-            element = self.mesh.points[face]
-            for i in range(3):
-                edge_i = element[(i+1)%3] - element[i]
-                edge_j = element[(i+2)%3] - element[i]
-                sign = calc_cross(edge_i, edge_j) / np.abs(calc_cross(edge_i, edge_j))
-                gradient[face_idx] += sign * values[face[(i+2)%3]] * np.array([-edge_i[1], edge_i[0]]) / (2*self.mesh.areas[face_idx])
-        self.values["grad_" + name] = gradient
-        return gradient
+        self.values["grad_" + name] = self.mesh.calculate_gradient(values)
+        return self.values["grad_" + name]
 
     def _convert_vertex_values_to_face_values(self, vertex_values):
         assert len(vertex_values) == len(self.mesh.points)
@@ -84,7 +76,7 @@ class Solution:
                 vertex_values[v_idx] = face_values[face_idx]
         return vertex_values
 
-    def plot(self, name, idx=None, deformed=False, mode=None, options=None):
+    def plot(self, name, idx=None, deformed=False, mode=None, options=None): #TODO: support None name
         # special to mechanics solve
         values = self.get_values(name, idx=idx)
         options = options if options is not None else {}
