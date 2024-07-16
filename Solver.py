@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.optimize import minimize
+
 from utils.refinement import *
 from BoundaryConditions import *
 from Mesh import *
@@ -41,7 +43,6 @@ class Solver:
         if self.equation.dim == 1: # TODO: implement 2D
             self.K, self.K_faces = self._assemble_matrix(self._calculate_element_stiffness_matrix)
         if self.equation.name == "linear_elastic":
-            E_min, p = 1e-6, 3
             E = np.full(len(self.mesh.faces), self.equation.parameters['E'])
             nu = np.full(len(self.mesh.faces), self.equation.parameters['nu'])
             self.material_func = np.vstack([E, nu]).T 
@@ -133,7 +134,7 @@ class Solver:
     def _solve_poisson(self):
         print('Solving Poisson equation...') # K @ u = b
         u = self._solve_linear_system(self.K, self.b)
-        self.solution.set_values("u", self.u)
+        self.solution.set_values("u", u)
         # residuals = np.zeros(len(self.mesh.faces))
         # for face_idx, face in enumerate(self.mesh.faces):
         #     load = np.linalg.norm([self.load_function(point) for point in self.mesh.points[face]])
@@ -261,7 +262,7 @@ class Solver:
         raise ValueError('Not implemented')
         # return 1/12 * area * param.flatten() * M
 
-    def _calculate_element_stiffness_matrix(self, element, param): #
+    def _calculate_element_stiffness_matrix(self, element, param): # TODO: hat gradients not fixed
         if self.dim == 1: # TODO collapse
             P = np.hstack([np.ones((3, 1)), self.mesh.points[element]])
             area = calculate_triangle_area(self.mesh.points[element])
@@ -298,3 +299,63 @@ class Solver:
             refinement_mesh.refine_triangles(refine_idxs)
             self.mesh = refinement_mesh.get_mesh()
             max_iters -= 1
+
+
+from Energy import *
+
+class EnergySolver:
+    def __init__(self, mesh, boundary_conditions):
+        self.mesh = mesh
+        self.boundary_conditions = boundary_conditions
+        self.energy_density = LinearElasticEnergyDensity()
+
+        self.boundary_conditions.do(self.mesh.points.shape[0], dim=2)
+        self.free = self.boundary_conditions.free_idxs
+        self.fixed = self.boundary_conditions.fixed_idxs
+        self.fixed_values = self.boundary_conditions.fixed_values
+
+        self.solution = Solution(mesh)
+
+        # elt_idx = 10
+        # self.energy_density.set_shape_function(self.mesh.shape_functions[elt_idx])
+        # self.energy_density.check_gradients()
+        # check_gradient(self.energy, self.energy_gradient, len(self.mesh.points)*2)
+
+    def calculate_value(self):
+        # TODO: precalculate all energy_density values all at once
+        pass
+
+    def accumulate_elements(self, element_function, u): # TODO: not used
+        total = np.zeros_like(u, 2) # TODO: flexible shape
+        for elt_idx, element in enumerate(self.mesh.faces):
+            total[element] += self.mesh.areas[elt_idx] * element_function(elt_idx)
+        return total
+
+    def energy(self, u):
+        total_energy = 0
+        u[self.fixed] = self.fixed_values
+        for elt_idx, element in enumerate(self.mesh.faces):
+            self.energy_density.set_shape_function(self.mesh.shape_functions[elt_idx])
+            total_energy += self.mesh.areas[elt_idx] * self.energy_density.calc_W_from_x(u.reshape(-1, 2)[element])
+        return total_energy
+
+    def energy_gradient(self, u):
+        total_energy_gradient = np.zeros(len(u)).reshape(-1, 2)
+        u[self.fixed] = self.fixed_values
+        for elt_idx, element in enumerate(self.mesh.faces):
+            self.energy_density.set_shape_function(self.mesh.shape_functions[elt_idx])
+            total_energy_gradient[element] += self.mesh.areas[elt_idx] * self.energy_density.calc_dW_dx(u.reshape(-1, 2)[element])
+        total_energy_gradient = total_energy_gradient.flatten()
+        total_energy_gradient[self.fixed] = 0
+        return total_energy_gradient
+
+    def solve(self): # TODO: implement hessian
+        u_initial = np.zeros(len(self.mesh.points)*2)
+        u_initial[self.fixed] = self.fixed_values
+        output = minimize(self.energy, u_initial, jac=self.energy_gradient, method='Newton-CG')
+        print(f"Iterations: {output.nit}, Success: {output.success}, Message: {output.message}")
+        print(f"Gradient: {np.linalg.norm(output.jac)}")
+        print(f"Energy: {output.fun}")
+        print(f"Gradient norm: {np.linalg.norm(output.jac)}")
+        self.solution.set_values("u", output.x)
+        return self.solution

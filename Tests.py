@@ -29,7 +29,15 @@ def test_l2_projection():
     solution.plot('u', mode='surface', options={'title': 'L2 Projection'})
 
 def test_poisson_equation():
-    raise NotImplementedError('Poisson equation test is not implemented') # TODO
+    equation = Equation('poisson')
+    bc = BoundaryConditions(mesh)
+    bc.add('dirichlet', mesh.boundary_idxs, [0])
+    bc.add_force(lambda point: [1])
+    solver = Solver(mesh, equation, bc)
+    solution = solver.solve()
+    # solution.plot('u', mode='surface', options={'title': 'Poisson Solution'})
+    gradient = solution.calculate_gradient('u')
+    Plotter(mesh, options={'title': 'Gradient'}).plot_values(gradient, mode='arrows')
 
 def test_heat_equation():
     w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
@@ -117,7 +125,7 @@ def test_adaptive_refinement():
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
     Plotter(mesh, options={'title': 'Poisson Solution'}).plot_values(solution.get_values('u'), mode='surface')
-    solution.calc_gradient('u')
+    solution.calculate_gradient('u')
     Plotter(mesh, options={'title': 'gradient'}).plot_values(solution.get_values('grad_u'), mode='arrows')
 
     raise NotImplementedError('Adaptive refinement demo is not implemented') # TODO
@@ -150,9 +158,9 @@ if __name__ == "__main__":
 
     # test_plot_mesh()
     # test_l2_projection()
-    # test_poisson()
+    test_poisson_equation()
     # test_heat_equation()
     # test_wave_equation() # TODO: running test_wave after test_heat seems to have plotting issues
     # test_linear_elastic()
-    test_topology_optimization()
+    # test_topology_optimization()
     # test_adaptive_refinement()
