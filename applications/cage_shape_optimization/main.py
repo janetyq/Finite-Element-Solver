@@ -28,7 +28,7 @@ mesh = Mesh(vertices, elements, boundary_edges)
 
 # Boundary
 flux_boundary = mesh.get_boundary_idxs_in_rect([sink_x1, 0, sink_x2, 0]) # bottom of heat sink
-cold_boundary = [idx for idx in boundary_indices if idx not in flux_boundary]
+cold_boundary = [v_idx for v_idx in boundary_indices if v_idx not in flux_boundary]
 
 flux_edges = mesh.get_edges_in_idxs(flux_boundary)
 cold_edges = mesh.get_edges_in_idxs(cold_boundary)
@@ -45,12 +45,12 @@ sink_edges = mesh.get_edges_in_idxs(sink_boundary, exclude_corners=True)
 
 sink_elements = []
 air_elements = []
-for element_idx in range(len(elements)):
-    x, y = np.mean(vertices[elements[element_idx]], axis=0)
+for e_idx in range(len(elements)):
+    x, y = np.mean(vertices[elements[e_idx]], axis=0)
     if (sink_x1 <= x <= sink_x2) and (sink_y1 <= y <= sink_y2):
-        sink_elements.append(element_idx)
+        sink_elements.append(e_idx)
     else:
-        air_elements.append(element_idx)
+        air_elements.append(e_idx)
 
 def plot_stuff(mesh, control_handles, fixed_handles, save=None):
     color_elements = [['lightblue', air_elements, r"$\Omega_a (air)$"], ['gray', sink_elements, r"$\Omega_s (heat sink)$"]]
@@ -152,7 +152,7 @@ def run(control_input: np.ndarray, plot=False, save=None):
 
     if plot:
         print(f"Costs: {[round(cost, 3) for cost in costs]}")
-        plot_stuff(new_mesh, new_control_handles, fixed_handles, save=f"{save}_1")
+        plot_stuff(new_mesh, new_control_handles, fixed_handles, save=f"{save}_1") # TODO: missing control handles
 
         title = "Initial Solution" if np.allclose(control_input, 0) else "Optimized Solution"
         fig, ax = plt.subplots()

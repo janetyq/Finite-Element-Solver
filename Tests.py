@@ -35,7 +35,7 @@ def test_poisson_equation():
     bc.add_force(lambda point: [1])
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    # solution.plot('u', mode='surface', options={'title': 'Poisson Solution'})
+    solution.plot('u', mode='surface', options={'title': 'Poisson Solution'})
     gradient = solution.calculate_gradient('u')
     Plotter(mesh, options={'title': 'Gradient'}).plot_values(gradient, mode='arrows')
 
@@ -65,7 +65,7 @@ def test_wave_equation(): # TODO: Wave energy not fully implemented
     solver = Solver(mesh, equation)
     solution = solver.solve()
 
-    last_value = solution.get_values('u_values', idx=-1)
+    last_value = solution.get_values('u_values', iter_idx=-1)
     all_values = solution.get_values('u_values')
     plotter = Plotter(mesh, options={'title': 'Wave Equation'})
     plotter.plot_values(last_value)
@@ -76,10 +76,10 @@ def test_linear_elastic():
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     print(w, h)
     bc = BoundaryConditions(mesh)
-    left_idxs = [idx for idx in mesh.boundary_idxs if mesh.vertices[idx][0] < 1e-6]
-    right_middle_idxs = [idx for idx in mesh.boundary_idxs if mesh.vertices[idx][0] > w-1e-6 and 0.2 < mesh.vertices[idx][1] < 0.8]
+    left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
+    right_middle_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6 and 0.2 < mesh.vertices[v_idx][1] < 0.8]
     bc.add('dirichlet', left_idxs, [0, 0])
-    bc.add('neumann', right_middle_idxs, [5, 0]) # stress
+    bc.add('neumann', right_middle_idxs, [50, 0]) # stress
     bc.plot()
 
     equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
@@ -93,7 +93,7 @@ def test_topology_optimization():
         return np.array([0, -0.5])
 
     bc = BoundaryConditions(mesh)
-    left_idxs = [idx for idx in mesh.boundary_idxs if mesh.vertices[idx][0] < 1e-6]
+    left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
     bc.add('dirichlet', left_idxs, [0, 0])
     bc.add_force(down_force)
 
@@ -101,13 +101,13 @@ def test_topology_optimization():
     topopt = TopologyOptimizer(mesh, equation, bc, iters=10, volume_frac=0.5)
     solution = topopt.solve(plot=True)
     
-    # Plotter(topopt._get_deformed_mesh(5), options={'title': 'TopoOpt iter 5'}).plot_values(solution.get_values('rhos', idx=5))
+    # Plotter(topopt._get_deformed_mesh(5), options={'title': 'TopoOpt iter 5'}).plot_values(solution.get_values('rhos', iter_idx=5))
     options = {'title': 'Topology Optimization', 'cbar_lim': [0, 1], 'cbar_label': 'Density', 'save': 'results/topopt.gif'}
     topopt.plot('rho_list', deformed=False, options=options) # animation
 
     fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-    Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[0], options={'title': 'Final Density', 'show': False}).plot_values(solution.get_values('rho_list', idx=-1))
-    Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[1], options={'title': 'Final Stress'}).plot_values(solution.get_values('stress_list', idx=-1))
+    Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[0], options={'title': 'Final Density', 'show': False}).plot_values(solution.get_values('rho_list', iter_idx=-1))
+    Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[1], options={'title': 'Final Stress'}).plot_values(solution.get_values('stress_list', iter_idx=-1))
 
 def test_adaptive_refinement():
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
@@ -155,17 +155,17 @@ def test_energy_solver():
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
     bc = BoundaryConditions(mesh)
-    left_idxs = [idx for idx in mesh.boundary_idxs if mesh.vertices[idx][0] < 1e-6]
-    right_idxs = [idx for idx in mesh.boundary_idxs if mesh.vertices[idx][0] > w-1e-6]
+    left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
+    right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
     bc.add('dirichlet', left_idxs, [0, 0])
     bc.add('dirichlet', right_idxs, [0.5, 0])
     # bc.plot()
 
     energy_solver = EnergySolver(mesh, equation, bc)
     solution = energy_solver.solve()
-    # vertices = mesh.vertices + solution.get_values('u').reshape(-1, 2)
-    # deformed_mesh = Mesh(vertices, mesh.elements, mesh.boundary)
-    # deformed_mesh.plot()
+    vertices = mesh.vertices + solution.get_values('u').reshape(-1, 2)
+    deformed_mesh = Mesh(vertices, mesh.elements, mesh.boundary)
+    deformed_mesh.plot()
 
 if __name__ == "__main__":
     MESH_FILE = 'meshes/20x20.pkl'
@@ -178,5 +178,5 @@ if __name__ == "__main__":
     # test_wave_equation() # TODO: running test_wave after test_heat seems to have plotting issues
     # test_linear_elastic()
     # test_topology_optimization()
+    # test_energy_solver()
     # test_adaptive_refinement()
-    test_energy_solver()

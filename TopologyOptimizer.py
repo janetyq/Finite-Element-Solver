@@ -30,9 +30,9 @@ class TopologyOptimizer:
     def filter_sensitivity(self, sensitivity): #TODO: research a better filter
         # simple averaging with neighbors
         smoothed_sensitivity = np.zeros_like(sensitivity)
-        for element_idx, element in enumerate(self.solver.mesh.elements):
-            neighbor_value = np.mean([sensitivity[neighbor_idx] for neighbor_idx in self.element_neighbors[element_idx]])
-            smoothed_sensitivity[element_idx] = 0.5 * neighbor_value + 0.5 * sensitivity[element_idx]
+        for e_idx, element in enumerate(self.solver.mesh.elements):
+            neighbor_value = np.mean([sensitivity[neighbor_idx] for neighbor_idx in self.element_neighbors[e_idx]])
+            smoothed_sensitivity[e_idx] = 0.5 * neighbor_value + 0.5 * sensitivity[e_idx]
         return smoothed_sensitivity
 
     def oc_density(self, sensitivity, volume_frac):
@@ -101,7 +101,7 @@ class TopologyOptimizer:
        
         plotter = Plotter(self.solver.mesh, options=options) 
         if deformed:
-            plotter.plot_animation(values, mode='colored', meshes=[self._get_deformed_mesh(idx) for idx in range(len(values))])
+            plotter.plot_animation(values, mode='colored', meshes=[self._get_deformed_mesh(iter_idx) for iter_idx in range(self.iters)])
         else:
             plotter.plot_animation(values, mode='colored')
 
@@ -133,9 +133,9 @@ class TopologyOptimizer:
         options = {'title': f'Iteration {iter}, C={compliance:.4f}', 'cbar_label': 'Density', 'save': f"results/rho{iter}.png"}
         Plotter(deformed_mesh, options=options).plot_values(self.rho)
 
-    def _get_deformed_mesh(self, idx=-1):
+    def _get_deformed_mesh(self, iter_idx=-1):
         try:
-            u = self.solution.values['u_list'][idx]
+            u = self.solution.values['u_list'][iter_idx]
         except:
             u = self.solver.solution.values['u']
         return Mesh(self.solver.mesh.vertices + u.reshape(-1, 2), self.solver.mesh.elements, self.solver.mesh.boundary)

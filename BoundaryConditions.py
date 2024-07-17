@@ -17,25 +17,25 @@ class BoundaryConditions:
         values = np.array(values)
         if bc_type == 'dirichlet':
             if len(indices) == len(values):
-                for idx, value in zip(indices, values):
-                    self.dirichlet[idx] = value
+                for v_idx, value in zip(indices, values):
+                    self.dirichlet[v_idx] = value
             else:
-                for idx in indices:
-                    self.dirichlet[idx] = values
+                for v_idx in indices:
+                    self.dirichlet[v_idx] = values
         elif bc_type == 'neumann':
             if len(indices) == len(values):
-                for idx, value in zip(indices, values):
-                    self.neumann[idx] = value # TODO: check support for list of values
+                for v_idx, value in zip(indices, values):
+                    self.neumann[v_idx] = value # TODO: check support for list of values
             else:
-                for idx in indices: # stress
-                    self.neumann[idx] = values
+                for v_idx in indices: # stress
+                    self.neumann[v_idx] = values
         else:
             raise ValueError(f'bc_type {bc_type} not recognized')
 
     def add_force(self, load_func):
         assert len(self.force) == 0, 'load already defined'
-        for idx in range(len(self.mesh.vertices)):
-            self.force[idx] = np.array(load_func(self.mesh.vertices[idx]))
+        for v_idx in range(len(self.mesh.vertices)):
+            self.force[v_idx] = np.array(load_func(self.mesh.vertices[v_idx]))
 
     def check(self):
         # TODO:
@@ -50,15 +50,15 @@ class BoundaryConditions:
         self.free_idxs = list(set(range(N)) - set(self.fixed_idxs))
 
         if dim == 2:
-            self.fixed_idxs = list(np.array([[2*idx, 2*idx+1] for idx in self.fixed_idxs]).flatten())
-            self.free_idxs = list(np.array([[2*idx, 2*idx+1] for idx in self.free_idxs]).flatten())
+            self.fixed_idxs = list(np.array([[2*v_idx, 2*v_idx+1] for v_idx in self.fixed_idxs]).flatten())
+            self.free_idxs = list(np.array([[2*v_idx, 2*v_idx+1] for v_idx in self.free_idxs]).flatten())
         self.fixed_values = list(np.array(self.fixed_values).flatten())
 
         self.neumann_load = []
         self.force_load = []
-        for idx, point in enumerate(self.mesh.vertices):
-            self.neumann_load.append(self.neumann[idx] if idx in self.neumann else np.zeros(dim))
-            self.force_load.append(self.force[idx] if idx in self.force else np.zeros(dim))
+        for v_idx in range(len(self.mesh.vertices)):
+            self.neumann_load.append(self.neumann[v_idx] if v_idx in self.neumann else np.zeros(dim))
+            self.force_load.append(self.force[v_idx] if v_idx in self.force else np.zeros(dim))
         self.neumann_load = np.array(self.neumann_load)
         self.force_load = np.array(self.force_load)  
 

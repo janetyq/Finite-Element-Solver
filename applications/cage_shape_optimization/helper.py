@@ -56,7 +56,7 @@ def bbw_weights(vertex_positions: np.ndarray, elements: np.ndarray, handle_posit
     print(f"BBW weights: {weights.shape}")
     return weights
 
-
+# TODO: use mesher instead
 def generate_rect_mesh(width: int, height: int, num_x: int, num_y: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     vertices = np.zeros((num_x * num_y, 2))
     elements = np.zeros((2 * (num_x - 1) * (num_y - 1), 3), dtype=int)
@@ -67,19 +67,19 @@ def generate_rect_mesh(width: int, height: int, num_x: int, num_y: int) -> tuple
             idx = i * num_y + j
             vertices[idx] = [i * width / (num_x - 1), j * height / (num_y - 1)]
 
-    element_idx = 0
+    e_idx = 0
     for i in range(num_x - 1):
         for j in range(num_y - 1):
             if (i+j) % 2 == 0:
                 idx = i * num_y + j
-                elements[element_idx] = [idx, idx + 1, idx + num_y]
-                elements[element_idx + 1] = [idx + 1, idx + num_y + 1, idx + num_y]
-                element_idx += 2
+                elements[e_idx] = [idx, idx + 1, idx + num_y]
+                elements[e_idx + 1] = [idx + 1, idx + num_y + 1, idx + num_y]
+                e_idx += 2
             else:
                 idx = i * num_y + j
-                elements[element_idx] = [idx, idx + 1, idx + num_y + 1]
-                elements[element_idx + 1] = [idx, idx + num_y + 1, idx + num_y]
-                element_idx += 2
+                elements[e_idx] = [idx, idx + 1, idx + num_y + 1]
+                elements[e_idx + 1] = [idx, idx + num_y + 1, idx + num_y]
+                e_idx += 2
 
     boundary_edges = calculate_boundary_edges(vertices, elements)
     boundary_indices = np.unique(boundary_edges.flatten())
@@ -117,7 +117,7 @@ if __name__ == "__main__": # weird demo of moving one handle and seeing mesh def
         control_handles.append([1.0, i/n]) # right
     control_handles = np.array(control_handles, dtype=np.float64)
 
-    fixed_vertices = [idx for idx in range(len(vertices)) if vertices[idx][1] == 0]
+    fixed_vertices = [v_idx for v_idx in range(len(vertices)) if vertices[v_idx][1] == 0]
 
     weights = bbw_weights(vertices, elements, control_handles)
     # weights = linear_weights(vertices, control_handles)
