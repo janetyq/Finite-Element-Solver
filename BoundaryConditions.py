@@ -34,8 +34,8 @@ class BoundaryConditions:
 
     def add_force(self, load_func):
         assert len(self.force) == 0, 'load already defined'
-        for idx in range(len(self.mesh.points)):
-            self.force[idx] = np.array(load_func(self.mesh.points[idx]))
+        for idx in range(len(self.mesh.vertices)):
+            self.force[idx] = np.array(load_func(self.mesh.vertices[idx]))
 
     def check(self):
         # TODO:
@@ -56,7 +56,7 @@ class BoundaryConditions:
 
         self.neumann_load = []
         self.force_load = []
-        for idx, point in enumerate(self.mesh.points):
+        for idx, point in enumerate(self.mesh.vertices):
             self.neumann_load.append(self.neumann[idx] if idx in self.neumann else np.zeros(dim))
             self.force_load.append(self.force[idx] if idx in self.force else np.zeros(dim))
         self.neumann_load = np.array(self.neumann_load)

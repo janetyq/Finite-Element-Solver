@@ -26,11 +26,11 @@ def zero_force(point):
 # Mesh
 MESH_FILE = '../../meshes/80x40.pkl'
 mesh = Mesh.load(MESH_FILE)
-points, faces, boundary = mesh.get_info()
-w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
+vertices, elements, boundary = mesh.get_info()
+w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
 boundary_idxs = list(set(boundary.ravel()))
-left_idxs = [idx for idx in boundary_idxs if points[idx][0] < 1e-6]
-right_idxs = [idx for idx in boundary_idxs if points[idx][0] > w-1e-6]
+left_idxs = [idx for idx in boundary_idxs if vertices[idx][0] < 1e-6]
+right_idxs = [idx for idx in boundary_idxs if vertices[idx][0] > w-1e-6]
 Plotter(mesh).plot_mesh(color_vertices=[('red', left_idxs, 'left'), ('blue', right_idxs, 'right')])
 
 

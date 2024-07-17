@@ -40,9 +40,9 @@ def test_poisson_equation():
     Plotter(mesh, options={'title': 'Gradient'}).plot_values(gradient, mode='arrows')
 
 def test_heat_equation():
-    w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
-    heat_center = np.max(mesh.points, axis=0)
-    u_initial = bump_function(mesh.points, heat_center, mag=50, size=0.5*min(w, h)) + 300
+    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
+    heat_center = np.max(mesh.vertices, axis=0)
+    u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.5*min(w, h)) + 300
     
     equation = Equation('heat', {'u_initial': u_initial.copy(), 'iters': 5, 'dt': 0.01})
     solver = Solver(mesh, equation)
@@ -56,10 +56,10 @@ def test_heat_equation():
     plotter.plot_animation(u_values, t_values, mode='colored')
 
 def test_wave_equation(): # TODO: Wave energy not fully implemented
-    w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
-    wave_center = np.max(mesh.points, axis=0)
-    u_initial = bump_function(mesh.points, wave_center, size=0.3*min(w, h))
-    dudt_initial = np.zeros(len(mesh.points))
+    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
+    wave_center = np.max(mesh.vertices, axis=0)
+    u_initial = bump_function(mesh.vertices, wave_center, size=0.3*min(w, h))
+    dudt_initial = np.zeros(len(mesh.vertices))
     
     equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.04, 'iters': 10})
     solver = Solver(mesh, equation)
@@ -73,11 +73,11 @@ def test_wave_equation(): # TODO: Wave energy not fully implemented
     plotter.plot_animation(all_values, mode='surface')
 
 def test_linear_elastic():
-    w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
+    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     print(w, h)
     bc = BoundaryConditions(mesh)
-    left_idxs = [idx for idx in mesh.boundary_idxs if mesh.points[idx][0] < 1e-6]
-    right_middle_idxs = [idx for idx in mesh.boundary_idxs if mesh.points[idx][0] > w-1e-6 and 0.2 < mesh.points[idx][1] < 0.8]
+    left_idxs = [idx for idx in mesh.boundary_idxs if mesh.vertices[idx][0] < 1e-6]
+    right_middle_idxs = [idx for idx in mesh.boundary_idxs if mesh.vertices[idx][0] > w-1e-6 and 0.2 < mesh.vertices[idx][1] < 0.8]
     bc.add('dirichlet', left_idxs, [0, 0])
     bc.add('neumann', right_middle_idxs, [5, 0]) # stress
     bc.plot()
@@ -93,7 +93,7 @@ def test_topology_optimization():
         return np.array([0, -0.5])
 
     bc = BoundaryConditions(mesh)
-    left_idxs = [idx for idx in mesh.boundary_idxs if mesh.points[idx][0] < 1e-6]
+    left_idxs = [idx for idx in mesh.boundary_idxs if mesh.vertices[idx][0] < 1e-6]
     bc.add('dirichlet', left_idxs, [0, 0])
     bc.add_force(down_force)
 
@@ -110,7 +110,7 @@ def test_topology_optimization():
     Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[1], options={'title': 'Final Stress'}).plot_values(solution.get_values('stress_list', idx=-1))
 
 def test_adaptive_refinement():
-    w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
+    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     def test_function(point):
         # return [1]
         a = 50
@@ -152,19 +152,19 @@ def test_adaptive_refinement():
     # plt.show()
 
 def test_energy_solver():
-    w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
+    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
     bc = BoundaryConditions(mesh)
-    left_idxs = [idx for idx in mesh.boundary_idxs if mesh.points[idx][0] < 1e-6]
-    right_idxs = [idx for idx in mesh.boundary_idxs if mesh.points[idx][0] > w-1e-6]
+    left_idxs = [idx for idx in mesh.boundary_idxs if mesh.vertices[idx][0] < 1e-6]
+    right_idxs = [idx for idx in mesh.boundary_idxs if mesh.vertices[idx][0] > w-1e-6]
     bc.add('dirichlet', left_idxs, [0, 0])
     bc.add('dirichlet', right_idxs, [0.5, 0])
     # bc.plot()
 
     energy_solver = EnergySolver(mesh, equation, bc)
     solution = energy_solver.solve()
-    # points = mesh.points + solution.get_values('u').reshape(-1, 2)
-    # deformed_mesh = Mesh(points, mesh.faces, mesh.boundary)
+    # vertices = mesh.vertices + solution.get_values('u').reshape(-1, 2)
+    # deformed_mesh = Mesh(vertices, mesh.elements, mesh.boundary)
     # deformed_mesh.plot()
 
 if __name__ == "__main__":

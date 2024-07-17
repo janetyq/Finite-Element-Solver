@@ -23,7 +23,7 @@ class Solver:
         self.solution = Solution(mesh)
         self.dim = self.equation.dim
 
-        self.boundary_conditions.do(self.mesh.points.shape[0], dim=self.dim)
+        self.boundary_conditions.do(self.mesh.vertices.shape[0], dim=self.dim)
 
     def set_mesh(self, mesh):
         self.mesh = mesh
@@ -31,21 +31,21 @@ class Solver:
 
     def set_bc(self, bc):
         self.boundary_conditions = bc
-        self.boundary_conditions.do(self.mesh.points.shape[0], dim=self.equation.dim)
+        self.boundary_conditions.do(self.mesh.vertices.shape[0], dim=self.equation.dim)
 
     def preprocess(self):
         # assemble mass and stiffness matrices and load vector
-        self.M, self.M_faces = self._assemble_matrix(self._calculate_element_mass_matrix)
+        self.M, self.M_elements = self._assemble_matrix(self._calculate_element_mass_matrix)
         self.b = self._assemble_vector(self._calculate_element_load_vector, self.boundary_conditions.force_load)
         self.b += self._assemble_vector(self._calculate_element_boundary_load_vector, self.boundary_conditions.neumann_load)
 
         if self.equation.dim == 1: # TODO: implement 2D
-            self.K, self.K_faces = self._assemble_matrix(self._calculate_element_stiffness_matrix)
+            self.K, self.K_elements = self._assemble_matrix(self._calculate_element_stiffness_matrix)
         if self.equation.name == "linear_elastic":
-            E = np.full(len(self.mesh.faces), self.equation.parameters['E'])
-            nu = np.full(len(self.mesh.faces), self.equation.parameters['nu'])
+            E = np.full(len(self.mesh.elements), self.equation.parameters['E'])
+            nu = np.full(len(self.mesh.elements), self.equation.parameters['nu'])
             self.material_func = np.vstack([E, nu]).T 
-            self.K, self.K_faces = self._assemble_matrix(self._calculate_element_stiffness_matrix, self.material_func)
+            self.K, self.K_elements = self._assemble_matrix(self._calculate_element_stiffness_matrix, self.material_func)
 
     def solve(self):
         self.preprocess() # TODO: don't call this every time
@@ -89,9 +89,9 @@ class Solver:
     #     # Apriori error ||e|| <= C * h^2 * ||f"||
     #     if apriori:
     #         # compute apriori residual
-    #         residuals = np.zeros(len(self.mesh.faces))
-    #         for face_idx, face in enumerate(self.mesh.faces):
-    #             residuals[face_idx] = 0 # placeholder
+    #         residuals = np.zeros(len(self.mesh.elements))
+    #         for element_idx, element in enumerate(self.mesh.elements):
+    #             residuals[element_idx] = 0 # placeholder
     #         self.solution.set_values("apriori_residual", residuals)
     #     else:
     #         # compute aposteriori residual
@@ -134,11 +134,11 @@ class Solver:
         print('Solving Poisson equation...') # K @ u = b
         u = self._solve_linear_system(self.K, self.b)
         self.solution.set_values("u", u)
-        # residuals = np.zeros(len(self.mesh.faces))
-        # for face_idx, face in enumerate(self.mesh.faces):
-        #     load = np.linalg.norm([self.load_function(point) for point in self.mesh.points[face]])
-        #     residuals[face_idx] += load * self.mesh.areas[face_idx] / 3
-        # self.solution.set_values("face_residuals", residuals)
+        # residuals = np.zeros(len(self.mesh.elements))
+        # for element_idx, element in enumerate(self.mesh.elements):
+        #     load = np.linalg.norm([self.load_function(point) for point in self.mesh.vertices[element]])
+        #     residuals[element_idx] += load * self.mesh.areas[element_idx] / 3
+        # self.solution.set_values("element_residuals", residuals)
 
     def _solve_heat(self):
         print('Solving heat equation...') # M @ u' + K @ u = b
@@ -170,7 +170,7 @@ class Solver:
                             [-c**2 * dt/2 * self.K, self.M]])
         b_right = np.block([np.zeros_like(self.b), dt/2 * (self.b + np.roll(self.b, -1))])
 
-        N = len(self.mesh.points)
+        N = len(self.mesh.vertices)
         x = np.block([u, dudt])
         t_values = [0]
         u_values = [x[:N]]
@@ -193,69 +193,69 @@ class Solver:
     def _solve_linear_elastic(self):
         u = self._solve_linear_system(self.K, self.b)
 
-        eps_faces = np.zeros((len(self.mesh.faces), 3))
-        sigma_faces = np.zeros((len(self.mesh.faces), 3))
-        compliance_faces = np.zeros(len(self.mesh.faces))
-        force_faces = np.zeros(len(self.mesh.faces))
+        eps_elements = np.zeros((len(self.mesh.elements), 3))
+        sigma_elements = np.zeros((len(self.mesh.elements), 3))
+        compliance_elements = np.zeros(len(self.mesh.elements))
+        force_elements = np.zeros(len(self.mesh.elements))
 
-        for face_idx, face in enumerate(self.mesh.faces):
-            element = self.mesh.points[face]
-            u_face = u[np.array([2*face, 2*face+1]).T.flatten()]
-            eps_faces[face_idx] = self.B_elements[face_idx] @ u_face
-            sigma_faces[face_idx] = self.D_elements[face_idx] @ eps_faces[face_idx]
-            compliance_faces[face_idx] = u_face.T @ self.K_faces[face_idx] @ u_face
-            # force_faces[face_idx] = np.linalg.norm(np.mean((self.K_faces[face_idx] @ u_face).reshape(-1, 2), axis=0))
+        for element_idx, element in enumerate(self.mesh.elements):
+            element = self.mesh.vertices[element]
+            u_element = u[np.array([2*element, 2*element+1]).T.flatten()]
+            eps_elements[element_idx] = self.B_elements[element_idx] @ u_element
+            sigma_elements[element_idx] = self.D_elements[element_idx] @ eps_elements[element_idx]
+            compliance_elements[element_idx] = u_element.T @ self.K_elements[element_idx] @ u_element
+            # force_elements[element_idx] = np.linalg.norm(np.mean((self.K_elements[element_idx] @ u_element).reshape(-1, 2), axis=0))
 
         self.solution.set_values("u", u)
-        self.solution.set_values("strain", np.linalg.norm(eps_faces, axis=-1))
-        self.solution.set_values("stress", np.linalg.norm(sigma_faces, axis=-1))
-        self.solution.set_values("compliance", compliance_faces)
-        self.solution.set_values("total_compliance", 0.5 * (u.T @ self.K @ u)) # = sum(compliance_faces)
-        # self.solution.set_values("force", force_faces)
+        self.solution.set_values("strain", np.linalg.norm(eps_elements, axis=-1))
+        self.solution.set_values("stress", np.linalg.norm(sigma_elements, axis=-1))
+        self.solution.set_values("compliance", compliance_elements)
+        self.solution.set_values("total_compliance", 0.5 * (u.T @ self.K @ u)) # = sum(compliance_elements)
+        # self.solution.set_values("force", force_elements)
 
-    def _assemble_matrix(self, calculate_element_matrix, params=None): # TODO: params inconsistent here, face indexed
-        N = len(self.mesh.points)
+    def _assemble_matrix(self, calculate_element_matrix, params=None): # TODO: params inconsistent here, element indexed
+        N = len(self.mesh.vertices)
         A = np.zeros((self.dim * N, self.dim * N))
         A_elements = []
         special = self.dim == 2 and calculate_element_matrix == self._calculate_element_stiffness_matrix
         if special: # TODO: remove this
             self.B_elements, self.D_elements = [], []
-        for idx, face in enumerate(self.mesh.faces):
-            idxs = np.array([self.dim*face + i for i in range(self.dim)]).T.flatten()
+        for idx, element in enumerate(self.mesh.elements):
+            idxs = np.array([self.dim*element + i for i in range(self.dim)]).T.flatten()
             if special:
-                element_matrix, B, D = calculate_element_matrix(face, params[idx])
+                element_matrix, B, D = calculate_element_matrix(element, params[idx])
                 A[np.ix_(idxs, idxs)] += element_matrix
                 A_elements.append(element_matrix)
                 self.B_elements.append(B)
                 self.D_elements.append(D)
             else:
-                element_matrix = calculate_element_matrix(face, params)
+                element_matrix = calculate_element_matrix(element, params)
                 A[np.ix_(idxs, idxs)] += element_matrix
                 A_elements.append(element_matrix)
 
         return A, A_elements
 
     def _assemble_vector(self, calculate_element_vector, params): #
-        b = np.zeros((len(self.mesh.points), self.dim))
+        b = np.zeros((len(self.mesh.vertices), self.dim))
         if calculate_element_vector == self._calculate_element_boundary_load_vector:
             for bedge in self.mesh.boundary:
                 b[bedge] += calculate_element_vector(bedge, params[bedge])
         else:
-            for face in self.mesh.faces:
-                b[face] += calculate_element_vector(face, params[face])
+            for element in self.mesh.elements:
+                b[element] += calculate_element_vector(element, params[element])
         return b.flatten()
 
     def _calculate_element_load_vector(self, element, param): #
-        return param * 1/3 * calculate_triangle_area(self.mesh.points[element])
+        return param * 1/3 * calculate_triangle_area(self.mesh.vertices[element])
 
     def _calculate_element_boundary_load_vector(self, element, param):
-        return param * 1/2 * np.linalg.norm(self.mesh.points[element][0] - self.mesh.points[element][1])
+        return param * 1/2 * np.linalg.norm(self.mesh.vertices[element][0] - self.mesh.vertices[element][1])
 
     def _calculate_element_mass_matrix(self, element, param): #
         M = np.zeros((self.dim*len(element), self.dim*len(element)))
         M[::self.dim, ::self.dim] = 1
         M += np.eye(self.dim*len(element))
-        area = calculate_triangle_area(self.mesh.points[element])
+        area = calculate_triangle_area(self.mesh.vertices[element])
         if param is None:
             return 1/12 * area * M
         raise ValueError('Not implemented')
@@ -263,8 +263,8 @@ class Solver:
 
     def _calculate_element_stiffness_matrix(self, element, param): # TODO: hat gradients not fixed
         if self.dim == 1: # TODO collapse
-            P = np.hstack([np.ones((3, 1)), self.mesh.points[element]])
-            area = calculate_triangle_area(self.mesh.points[element])
+            P = np.hstack([np.ones((3, 1)), self.mesh.vertices[element]])
+            area = calculate_triangle_area(self.mesh.vertices[element])
             phis = np.linalg.solve(P, np.eye(3))[1:].T
             param = 1
             return phis @ phis.T * area * param
@@ -276,7 +276,7 @@ class Solver:
             mu, lamb = Enu_to_Lame(E, nu) # TODO: make space varying?
             D = mu * np.array([[2, 0, 0], [0, 2, 0], [0, 0, 1]]) + \
                 lamb * np.array([[1, 1, 0], [1, 1, 0], [0, 0, 0]])
-            area, a, b, c = calculate_hat_gradients(self.mesh.points[element])
+            area, a, b, c = calculate_hat_gradients(self.mesh.vertices[element])
             B = np.array([[b[0], 0, b[1], 0, b[2], 0],
                         [0, c[0], 0, c[1], 0, c[2]],
                         [c[0], b[0], c[1], b[1], c[2], b[2]]])
@@ -284,16 +284,16 @@ class Solver:
 
     def adaptive_refinement(self, max_triangles=1000, max_iters=20):
         # TODO: there's a bug somewhere
-        if 'face_residuals' not in self.solution.values:
-            raise ValueError('No face residuals found in solution')
+        if 'element_residuals' not in self.solution.values:
+            raise ValueError('No element residuals found in solution')
         refinement_mesh = RefinementMesh(self.mesh)
-        while len(self.mesh.faces) < max_triangles or max_iters == 0:
-            face_residuals = self.solution.values['face_residuals']
-            max_residual = max(face_residuals)
+        while len(self.mesh.elements) < max_triangles or max_iters == 0:
+            element_residuals = self.solution.values['element_residuals']
+            max_residual = max(element_residuals)
             refine_idxs = []
-            for face_idx, residual in enumerate(face_residuals):
+            for element_idx, residual in enumerate(element_residuals):
                 if residual > 0.9 * max_residual:
-                    refine_idxs.append(face_idx)
+                    refine_idxs.append(element_idx)
 
             refinement_mesh.refine_triangles(refine_idxs)
             self.mesh = refinement_mesh.get_mesh()
@@ -311,7 +311,7 @@ class EnergySolver:
         self.boundary_conditions = boundary_conditions
         self.solution = Solution(mesh)
 
-        self.boundary_conditions.do(self.mesh.points.shape[0], dim=2)
+        self.boundary_conditions.do(self.mesh.vertices.shape[0], dim=2)
         self.free = self.boundary_conditions.free_idxs
         self.fixed = self.boundary_conditions.fixed_idxs
         self.fixed_values = self.boundary_conditions.fixed_values
@@ -319,7 +319,7 @@ class EnergySolver:
         self.energy_density = self._select_energy(equation)
 
         # TODO: flat u + bc handling weird
-        # check_gradient(self.energy, self.energy_gradient, len(self.mesh.points)*2)
+        # check_gradient(self.energy, self.energy_gradient, len(self.mesh.vertices)*2)
 
     def _select_energy(self, equation):
         if equation.name == "linear_elastic":
@@ -327,37 +327,37 @@ class EnergySolver:
         else:
             raise ValueError(f"Unknown equation name: {equation.name}")
 
-    def element_energy(self, elt_idx, u_elt):
-        grad_u_element = self.mesh.calculate_element_gradient(elt_idx, u_elt)
+    def element_energy(self, element_idx, u_element):
+        grad_u_element = self.mesh.calculate_element_gradient(element_idx, u_element)
         self.energy_density.set_grad_u(grad_u_element)
         return self.energy_density.W
 
-    def element_gradient(self, elt_idx, u_elt):
-        grad_u_element = self.mesh.calculate_element_gradient(elt_idx, u_elt)
+    def element_gradient(self, element_idx, u_element):
+        grad_u_element = self.mesh.calculate_element_gradient(element_idx, u_element)
         self.energy_density.set_grad_u(grad_u_element)
         dW_dF = self.energy_density.dW_dF
-        dF_dx = self.mesh.shape_functions[elt_idx].super_gradient()
+        dF_dx = self.mesh.shape_functions[element_idx].super_gradient()
         dW_dx = np.einsum('ij,mnij->mn', dW_dF, dF_dx)
         return dW_dx
 
     def energy(self, u):
         u[self.fixed] = self.fixed_values
         total = 0
-        for elt_idx, element in enumerate(self.mesh.faces):
-            total += self.element_energy(elt_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[elt_idx]
+        for element_idx, element in enumerate(self.mesh.elements):
+            total += self.element_energy(element_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[element_idx]
         return total
 
     def energy_gradient(self, u):
         u[self.fixed] = self.fixed_values
-        total_energy_gradient = np.zeros((len(self.mesh.points), 2))
-        for elt_idx, element in enumerate(self.mesh.faces):
-            total_energy_gradient[element] += self.element_gradient(elt_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[elt_idx]
+        total_energy_gradient = np.zeros((len(self.mesh.vertices), 2))
+        for element_idx, element in enumerate(self.mesh.elements):
+            total_energy_gradient[element] += self.element_gradient(element_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[element_idx]
         total_energy_gradient = total_energy_gradient.flatten()
         total_energy_gradient[self.fixed] = 0
         return total_energy_gradient
 
     def solve(self): # TODO: implement hessian
-        u = np.zeros(len(self.mesh.points) * 2)
+        u = np.zeros(len(self.mesh.vertices) * 2)
         u[self.fixed] = self.fixed_values
         print("Initial energy:", self.energy(u))
         output = minimize(self.energy, u, jac=self.energy_gradient, method='Newton-CG')
