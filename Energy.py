@@ -18,19 +18,19 @@ class LinearElasticEnergyDensity: # TODO: inheritance
     # Calculate grad_u -> F, S, W, dS_dF, dW_dS, dW_dF
     def set_grad_u(self, grad_u):
         self.F = np.eye(2) + grad_u
-        self.S = self.calc_S_from_F(self.F)
-        self.W = self.calc_W_from_S(self.S)
-        self.dS_dF = self.calc_dS_dF(self.F)
-        self.dW_dS = self.calc_dW_dS(self.S)
+        self.S = self.calculate_S_from_F(self.F)
+        self.W = self.calculate_W_from_S(self.S)
+        self.dS_dF = self.calculate_dS_dF(self.F)
+        self.dW_dS = self.calculate_dW_dS(self.S)
         self.dW_dF = np.einsum('mn,ijmn->ij', self.dW_dS, self.dS_dF)
     
-    def calc_S_from_F(self, F):
+    def calculate_S_from_F(self, F):
         return 0.5 * (F.T @ F - np.eye(2))
 
-    def calc_W_from_S(self, S):
+    def calculate_W_from_S(self, S):
         return 0.5 * (self.lamb * np.trace(S)**2 + 2 * self.mu * np.trace(S.T @ S))
 
-    def calc_dS_dF(self, F):
+    def calculate_dS_dF(self, F):
         '''
         S: (2, 2)
         F: (2, 2)
@@ -47,7 +47,7 @@ class LinearElasticEnergyDensity: # TODO: inheritance
                             dS_dF[i, j, m, n] += 0.5 * F[i, n]
         return dS_dF
 
-    def calc_dW_dS(self, S):
+    def calculate_dW_dS(self, S):
         '''
         W: 1
         S: (2, 2)
@@ -56,9 +56,9 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         return self.lamb * np.trace(S) * np.eye(2) + 2 * self.mu * S
 
     def check_gradients(self):
-        check_gradient(self.calc_S_from_F, self.calc_dS_dF, (2, 2))
-        check_gradient(self.calc_W_from_S, self.calc_dW_dS, (2, 2))
-        check_gradient(self.calc_W_from_F, self.calc_dW_dF, (2, 2))
+        check_gradient(self.calculate_S_from_F, self.calculate_dS_dF, (2, 2))
+        check_gradient(self.calculate_W_from_S, self.calculate_dW_dS, (2, 2))
+        check_gradient(self.calculate_W_from_F, self.calculate_dW_dF, (2, 2))
         print("Gradient checks completed")
 
     def Enu_to_Lame(self, E, nu):
