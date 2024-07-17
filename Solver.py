@@ -23,6 +23,8 @@ class Solver:
         self.solution = Solution(mesh)
         self.dim = self.equation.dim
 
+        self.boundary_conditions.do(self.mesh.points.shape[0], dim=self.dim)
+
     def set_mesh(self, mesh):
         self.mesh = mesh
         self.solution = Solution(mesh)
@@ -32,9 +34,6 @@ class Solver:
         self.boundary_conditions.do(self.mesh.points.shape[0], dim=self.equation.dim)
 
     def preprocess(self):
-        # todo: do more matrix building
-        self.boundary_conditions.do(self.mesh.points.shape[0], dim=self.dim)
-
         # assemble mass and stiffness matrices and load vector
         self.M, self.M_faces = self._assemble_matrix(self._calculate_element_mass_matrix)
         self.b = self._assemble_vector(self._calculate_element_load_vector, self.boundary_conditions.force_load)
@@ -304,55 +303,64 @@ class Solver:
 from Energy import *
 
 class EnergySolver:
-    def __init__(self, mesh, boundary_conditions):
+    def __init__(self, mesh, equation, boundary_conditions):
+        assert equation.name == "linear_elastic", "EnergySolver only supports linear elastic equation"
+
         self.mesh = mesh
+        self.equation = equation
         self.boundary_conditions = boundary_conditions
-        self.energy_density = LinearElasticEnergyDensity()
+        self.solution = Solution(mesh)
 
         self.boundary_conditions.do(self.mesh.points.shape[0], dim=2)
         self.free = self.boundary_conditions.free_idxs
         self.fixed = self.boundary_conditions.fixed_idxs
         self.fixed_values = self.boundary_conditions.fixed_values
 
-        self.solution = Solution(mesh)
+        self.energy_density = self._select_energy(equation)
 
-        # elt_idx = 10
-        # self.energy_density.set_shape_function(self.mesh.shape_functions[elt_idx])
-        # self.energy_density.check_gradients()
+        # TODO: flat u + bc handling weird
         # check_gradient(self.energy, self.energy_gradient, len(self.mesh.points)*2)
 
-    def calculate_value(self):
-        # TODO: precalculate all energy_density values all at once
-        pass
+    def _select_energy(self, equation):
+        if equation.name == "linear_elastic":
+            return LinearElasticEnergyDensity(equation.parameters['E'], equation.parameters['nu'])
+        else:
+            raise ValueError(f"Unknown equation name: {equation.name}")
 
-    def accumulate_elements(self, element_function, u): # TODO: not used
-        total = np.zeros_like(u, 2) # TODO: flexible shape
-        for elt_idx, element in enumerate(self.mesh.faces):
-            total[element] += self.mesh.areas[elt_idx] * element_function(elt_idx)
-        return total
+    def element_energy(self, elt_idx, u_elt):
+        grad_u_element = self.mesh.calculate_element_gradient(elt_idx, u_elt)
+        self.energy_density.set_grad_u(grad_u_element)
+        return self.energy_density.W
+
+    def element_gradient(self, elt_idx, u_elt):
+        grad_u_element = self.mesh.calculate_element_gradient(elt_idx, u_elt)
+        self.energy_density.set_grad_u(grad_u_element)
+        dW_dF = self.energy_density.dW_dF
+        dF_dx = self.mesh.shape_functions[elt_idx].super_gradient()
+        dW_dx = np.einsum('ij,mnij->mn', dW_dF, dF_dx)
+        return dW_dx
 
     def energy(self, u):
-        total_energy = 0
         u[self.fixed] = self.fixed_values
+        total = 0
         for elt_idx, element in enumerate(self.mesh.faces):
-            self.energy_density.set_shape_function(self.mesh.shape_functions[elt_idx])
-            total_energy += self.mesh.areas[elt_idx] * self.energy_density.calc_W_from_x(u.reshape(-1, 2)[element])
-        return total_energy
+            total += self.element_energy(elt_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[elt_idx]
+        return total
 
     def energy_gradient(self, u):
-        total_energy_gradient = np.zeros(len(u)).reshape(-1, 2)
         u[self.fixed] = self.fixed_values
+        total_energy_gradient = np.zeros((len(self.mesh.points), 2))
         for elt_idx, element in enumerate(self.mesh.faces):
-            self.energy_density.set_shape_function(self.mesh.shape_functions[elt_idx])
-            total_energy_gradient[element] += self.mesh.areas[elt_idx] * self.energy_density.calc_dW_dx(u.reshape(-1, 2)[element])
+            total_energy_gradient[element] += self.element_gradient(elt_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[elt_idx]
         total_energy_gradient = total_energy_gradient.flatten()
         total_energy_gradient[self.fixed] = 0
         return total_energy_gradient
 
     def solve(self): # TODO: implement hessian
-        u_initial = np.zeros(len(self.mesh.points)*2)
-        u_initial[self.fixed] = self.fixed_values
-        output = minimize(self.energy, u_initial, jac=self.energy_gradient, method='Newton-CG')
+        u = np.zeros(len(self.mesh.points) * 2)
+        u[self.fixed] = self.fixed_values
+        print("Initial energy:", self.energy(u))
+        output = minimize(self.energy, u, jac=self.energy_gradient, method='Newton-CG')
         print(f"Iterations: {output.nit}, Success: {output.success}, Message: {output.message}")
         print(f"Gradient: {np.linalg.norm(output.jac)}")
         print(f"Energy: {output.fun}")
