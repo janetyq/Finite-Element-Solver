@@ -4,7 +4,7 @@ from utils.helper import *
 
 from Plotter import *
 
-class LinearTriangleElement: # TODO: perhaps put area calculation and quadrature in here too?
+class LinearTriangleElement: # TODO: perhaps put quadrature in here too?
     '''
     Shape function phi(x) = a + b*x + c*y
     '''
@@ -19,7 +19,19 @@ class LinearTriangleElement: # TODO: perhaps put area calculation and quadrature
             b.append((x_j[1] - x_k[1]) / (2 * area))
             c.append((x_k[0] - x_j[0]) / (2 * area))
 
-        self.gradient = np.array([b, c]).T
+        self.gradient = np.array([b, c]).T # shape (3, 2)
+
+    def deformation_gradient(self, u_elt):
+        return np.eye(2) + self.gradient.T @ u_elt
+
+    def super_gradient(self):
+        dF_dx = np.zeros((3, 2, 2, 2))
+        for k in range(3):
+            for l in range(2):
+                for i in range(2):
+                    for j in range(2):
+                        dF_dx[k, l, i, j] = self.gradient[k, i] if l == j else 0.0
+        return dF_dx
 
 class Mesh:
     '''
@@ -65,28 +77,30 @@ class Mesh:
         elif len(u) == len(self.points):    # u defined on vertices
             return sum([self.areas[face_idx] * np.mean(u[self.faces[face_idx]]) for face_idx in range(len(self.faces))])
 
+    # def calculate_total_value_function(self, function):
+    #     # function takes in elt_idx -> returns value
+    #     eval_shape = function(0).shape
+    #     if eval_shape == ():  # scalar
+    #         total = np.zeros(len(self.points))
+    #         return sum([self.areas[face_idx] * function(face_idx) for face_idx in range(len(self.faces))])
+    #     else:
+    #         # function output shape (nodes_per_element, output_dim)
+    #         total = np.zeros((len(self.points), eval_shape[1]))
+    #         for elt_idx, element in enumerate(self.faces):
+    #             total[element] += self.areas[elt_idx] * function(elt_idx)
+    #     return total
+
     def calculate_mean_value(self, u):
         return self.calculate_total_value(u) / sum(self.areas)
 
-    def calculate_element_gradient(self, elt_idx, u): # TODO: args suck, some code repetitive
-        dim = len(u.shape)
-        a, b, c = self.shape_functions[elt_idx]
-        u_vals = u[self.faces[elt_idx]]
-        if dim == 1:
-            gradient = np.array(
-                [np.dot(b, u_vals), np.dot(c, u_vals)],
-            )
-        else:
-            gradient = np.array(
-                [[np.dot(b, u_vals[:, 0]), np.dot(c, u_vals[:, 0])],
-                [np.dot(b, u_vals[:, 1]), np.dot(c, u_vals[:, 1])]]
-            )
-        return gradient
+    def calculate_element_gradient(self, elt_idx, u_elt): # TODO: args suck, some code repetitive
+        shape_gradient = self.shape_functions[elt_idx].gradient
+        return shape_gradient.T @ u_elt
 
-    def calculate_gradient(self, u):
+    def calculate_gradient(self, u): # TODO: works, but need to understand 1D vs 2D use in dirichlet energy
         gradient = []
         for elt_idx, elt in enumerate(self.faces):
-            gradient.append(self.calculate_element_gradient(elt_idx, u))
+            gradient.append(self.calculate_element_gradient(elt_idx, u[elt]))
         return np.array(gradient)
 
     def calculate_dirichlet_energy(self, u):

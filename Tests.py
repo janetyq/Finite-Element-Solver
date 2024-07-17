@@ -151,16 +151,32 @@ def test_adaptive_refinement():
     # Plotter(mesh, options={'title': 'Final Mesh', 'show': False}).plot_mesh(mode='wireframe')
     # plt.show()
 
+def test_energy_solver():
+    w, h = np.max(mesh.points[:, 0]), np.max(mesh.points[:, 1])
+    equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
+    bc = BoundaryConditions(mesh)
+    left_idxs = [idx for idx in mesh.boundary_idxs if mesh.points[idx][0] < 1e-6]
+    right_idxs = [idx for idx in mesh.boundary_idxs if mesh.points[idx][0] > w-1e-6]
+    bc.add('dirichlet', left_idxs, [0, 0])
+    bc.add('dirichlet', right_idxs, [0.5, 0])
+    # bc.plot()
+
+    energy_solver = EnergySolver(mesh, equation, bc)
+    solution = energy_solver.solve()
+    # points = mesh.points + solution.get_values('u').reshape(-1, 2)
+    # deformed_mesh = Mesh(points, mesh.faces, mesh.boundary)
+    # deformed_mesh.plot()
 
 if __name__ == "__main__":
-    MESH_FILE = 'meshes/40x40.pkl'
+    MESH_FILE = 'meshes/20x20.pkl'
     mesh = Mesh.load(MESH_FILE)
 
     # test_plot_mesh()
     # test_l2_projection()
-    test_poisson_equation()
+    # test_poisson_equation()
     # test_heat_equation()
     # test_wave_equation() # TODO: running test_wave after test_heat seems to have plotting issues
     # test_linear_elastic()
     # test_topology_optimization()
     # test_adaptive_refinement()
+    test_energy_solver()
