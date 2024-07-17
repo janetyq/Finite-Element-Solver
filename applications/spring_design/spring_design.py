@@ -29,8 +29,8 @@ mesh = Mesh.load(MESH_FILE)
 vertices, elements, boundary = mesh.get_info()
 w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
 boundary_idxs = list(set(boundary.ravel()))
-left_idxs = [idx for idx in boundary_idxs if vertices[idx][0] < 1e-6]
-right_idxs = [idx for idx in boundary_idxs if vertices[idx][0] > w-1e-6]
+left_idxs = [v_idx for v_idx in boundary_idxs if vertices[v_idx][0] < 1e-6]
+right_idxs = [v_idx for v_idx in boundary_idxs if vertices[v_idx][0] > w-1e-6]
 Plotter(mesh).plot_mesh(color_vertices=[('red', left_idxs, 'left'), ('blue', right_idxs, 'right')])
 
 

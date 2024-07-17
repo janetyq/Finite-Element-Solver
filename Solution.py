@@ -25,14 +25,14 @@ class Solution:
     def __reduce__(self):
         return (self.__class__, (self.mesh, self.values))
 
-    def get_values(self, name, idx=None, mode=None):
+    def get_values(self, name, iter_idx=None, mode=None):
         if name is None:
             return np.zeros(len(self.mesh.elements))
         elif name not in self.values:
             print('--> contains:', self.values.keys())
             raise ValueError(f'{name} not found in solution')
         
-        values = self.values[name][idx] if idx is not None else self.values[name]
+        values = self.values[name][iter_idx] if iter_idx is not None else self.values[name]
         if mode is None:
             return values
         elif mode == 'element':
@@ -64,21 +64,21 @@ class Solution:
     def _convert_vertex_values_to_element_values(self, vertex_values):
         assert len(vertex_values) == len(self.mesh.vertices)
         element_values = np.zeros(len(self.mesh.elements))
-        for element_idx, element in enumerate(self.mesh.elements):
-            element_values[element_idx] = np.mean([vertex_values[v_idx] for v_idx in element])
+        for e_idx, element in enumerate(self.mesh.elements):
+            element_values[e_idx] = np.mean([vertex_values[v_idx] for v_idx in element])
         return element_values
 
     def _convert_element_values_to_vertex_values(self, element_values):
         assert len(element_values) == len(self.mesh.elements)
         vertex_values = np.zeros(len(self.mesh.vertices))
-        for element_idx, element in enumerate(self.mesh.elements):
+        for e_idx, element in enumerate(self.mesh.elements):
             for v_idx in element:
-                vertex_values[v_idx] = element_values[element_idx]
+                vertex_values[v_idx] = element_values[e_idx]
         return vertex_values
 
-    def plot(self, name, idx=None, deformed=False, mode=None, options=None): #TODO: support None name
+    def plot(self, name, iter_idx=None, deformed=False, mode=None, options=None): #TODO: support None name
         # special to mechanics solve
-        values = self.get_values(name, idx=idx)
+        values = self.get_values(name, iter_idx=iter_idx)
         options = options if options is not None else {}
         options['title'] = options.get('title', name)
         if deformed:

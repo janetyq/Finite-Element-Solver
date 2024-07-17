@@ -73,40 +73,40 @@ class Mesh:
     # METRICS
     def calculate_total_value(self, u):
         if len(u) == len(self.elements):       # u defined on elements
-            return sum([self.areas[element_idx] * u[element_idx] for element_idx in range(len(self.elements))])
+            return sum([self.areas[e_idx] * u[e_idx] for e_idx in range(len(self.elements))])
         elif len(u) == len(self.vertices):    # u defined on vertices
-            return sum([self.areas[element_idx] * np.mean(u[self.elements[element_idx]]) for element_idx in range(len(self.elements))])
+            return sum([self.areas[e_idx] * np.mean(u[self.elements[e_idx]]) for e_idx in range(len(self.elements))])
 
     # def calculate_total_value_function(self, function):
-    #     # function takes in element_idx -> returns value
+    #     # function takes in e_idx -> returns value
     #     eval_shape = function(0).shape
     #     if eval_shape == ():  # scalar
     #         total = np.zeros(len(self.vertices))
-    #         return sum([self.areas[element_idx] * function(element_idx) for element_idx in range(len(self.elements))])
+    #         return sum([self.areas[e_idx] * function(e_idx) for e_idx in range(len(self.elements))])
     #     else:
     #         # function output shape (nodes_per_element, output_dim)
     #         total = np.zeros((len(self.vertices), eval_shape[1]))
-    #         for element_idx, element in enumerate(self.elements):
-    #             total[element] += self.areas[element_idx] * function(element_idx)
+    #         for e_idx, element in enumerate(self.elements):
+    #             total[element] += self.areas[e_idx] * function(e_idx)
     #     return total
 
     def calculate_mean_value(self, u):
         return self.calculate_total_value(u) / sum(self.areas)
 
-    def calculate_element_gradient(self, element_idx, u_element): # TODO: args suck, some code repetitive
-        shape_gradient = self.shape_functions[element_idx].gradient
+    def calculate_element_gradient(self, e_idx, u_element): # TODO: args suck, some code repetitive
+        shape_gradient = self.shape_functions[e_idx].gradient
         return shape_gradient.T @ u_element
 
     def calculate_gradient(self, u): # TODO: works, but need to understand 1D vs 2D use in dirichlet energy
         gradient = []
-        for element_idx, elt in enumerate(self.elements):
-            gradient.append(self.calculate_element_gradient(element_idx, u[elt]))
+        for e_idx, elt in enumerate(self.elements):
+            gradient.append(self.calculate_element_gradient(e_idx, u[elt]))
         return np.array(gradient)
 
     def calculate_dirichlet_energy(self, u):
         u_gradient = self.calculate_gradient(u)
-        return sum([self.areas[element_idx] * calculate_dot(u_gradient[element_idx], u_gradient[element_idx]) 
-                    for element_idx in range(len(self.elements))])
+        return sum([self.areas[e_idx] * calculate_dot(u_gradient[e_idx], u_gradient[e_idx]) 
+                    for e_idx in range(len(self.elements))])
 
     def calculate_energy(self, u, dudt):
         dirichlet_energy = self.calculate_dirichlet_energy(u)
@@ -114,12 +114,12 @@ class Mesh:
         return dirichlet_energy + kinetic_energy
         
     def calculate_element_neighbors(self):
-        self.element_neighbors = {element_idx: [] for element_idx in range(len(self.elements))}
-        for element_idx, element in enumerate(self.elements):
+        self.element_neighbors = {e_idx: [] for e_idx in range(len(self.elements))}
+        for e_idx, element in enumerate(self.elements):
             for neighbor_idx in element:
-                self.element_neighbors[element_idx].extend(np.where(self.elements == neighbor_idx)[0])
+                self.element_neighbors[e_idx].extend(np.where(self.elements == neighbor_idx)[0])
             # keep only elements that appear twice
-            self.element_neighbors[element_idx] = [idx for idx in self.element_neighbors[element_idx] if self.element_neighbors[element_idx].count(idx) == 2]
+            self.element_neighbors[e_idx] = [v_idx for v_idx in self.element_neighbors[e_idx] if self.element_neighbors[e_idx].count(v_idx) == 2]
         return self.element_neighbors
 
     def _get_all_edges(self):
@@ -133,12 +133,12 @@ class Mesh:
 
     def _get_all_shape_functions(self):
         '''
-        Calculates shape function for element element_idx
+        Calculates shape function for element e_idx
         N(x, y) = a + b*x + c*y
         '''
         shape_functions = []
-        for element_idx, element in enumerate(self.elements):
-            shape_functions.append(LinearTriangleElement(self.vertices[element], self.areas[element_idx]))
+        for e_idx, element in enumerate(self.elements):
+            shape_functions.append(LinearTriangleElement(self.vertices[element], self.areas[e_idx]))
         return shape_functions
 
     def get_edges_in_idxs(self, vertices_idxs, exclude_corners=False):
@@ -156,10 +156,10 @@ class Mesh:
     def get_boundary_idxs_in_rect(self, rect):
         x_min, y_min, x_max, y_max = rect
         in_boundary_idxs = []
-        for idx in self.boundary_idxs:
-            x, y = self.vertices[idx]
+        for v_idx in self.boundary_idxs:
+            x, y = self.vertices[v_idx]
             if x_min <= x <= x_max and y_min <= y <= y_max:
-                in_boundary_idxs.append(idx)
+                in_boundary_idxs.append(v_idx)
         return in_boundary_idxs
 
     @classmethod
@@ -197,11 +197,11 @@ class Mesh:
             elements.remove(element)
 
         # remove unnecessary vertices
-        used_point_idxs = np.unique(np.array(elements).flatten())
+        used_v_idxs = np.unique(np.array(elements).flatten())
         # map old indices to new indices
-        idx_map = {old: new for new, old in enumerate(used_point_idxs)}
-        vertices = vertices[used_point_idxs]
-        elements = [[idx_map[idx] for idx in element] for element in elements]
+        v_idx_map = {old: new for new, old in enumerate(used_v_idxs)}
+        vertices = vertices[used_v_idxs]
+        elements = [[v_idx_map[e_idx] for e_idx in element] for element in elements]
         boundary = get_boundary_from_vertices_elements(vertices, elements)
         mesh = Mesh(vertices, elements, boundary)
 
@@ -240,20 +240,20 @@ class Mesh:
 
 if __name__ == '__main__':
     corners = [[0, 0], [1, 1]]
-    resolution = (10, 10)
+    resolution = (5, 5)
     mesh = Mesh.create_rect_mesh(corners, resolution=resolution)
     mesh.save(f'meshes/{resolution[0]}x{resolution[1]}.pkl')
 
-    outline = np.array([[0, 0], [1, 2], [3, 2], [2, 0], [0, 0]])
-    mesh = Mesh.create_approx_mesh(outline, approx_triangles=500)
-    mesh.save('meshes/approx_mesh.pkl')
+    # outline = np.array([[0, 0], [1, 2], [3, 2], [2, 0], [0, 0]])
+    # mesh = Mesh.create_approx_mesh(outline, approx_triangles=500)
+    # mesh.save('meshes/approx_mesh.pkl')
 
     # Mesh plotting examples with color
     element_list = []
-    for element_idx, element in enumerate(mesh.elements):
+    for e_idx, element in enumerate(mesh.elements):
         center = np.mean(mesh.vertices[element], axis=0)
         if center[0] > corners[1][0]/2:
-            element_list.append(element_idx)
+            element_list.append(e_idx)
     color_elements = [('blue', element_list, 'right blue elements')]
     vert_list = []
     for vert_idx, vert in enumerate(mesh.vertices):
@@ -263,7 +263,7 @@ if __name__ == '__main__':
     Plotter(mesh, options={'title': 'Labeled mesh plot'}).plot_mesh(mode='wireframe', color_elements=color_elements, color_vertices=color_vertices)
 
     values = []
-    for element_idx, element in enumerate(mesh.elements):
+    for e_idx, element in enumerate(mesh.elements):
         x, y = np.mean(mesh.vertices[element], axis=0)
         value = abs(((y-0.5) - 0.3*np.sin(10*x)))
         values.append(value)
@@ -272,10 +272,10 @@ if __name__ == '__main__':
     # Neighbors plotting example
     element_neighbors = mesh.calculate_element_neighbors()
     fig, ax = plt.subplots()
-    for element_idx, neighbors in element_neighbors.items():
-        if element_idx % 2 == 0 or element_idx % 3 == 0:
+    for e_idx, neighbors in element_neighbors.items():
+        if e_idx % 2 == 0 or e_idx % 3 == 0:
             continue
-        center = np.mean(mesh.vertices[mesh.elements[element_idx]], axis=0)
+        center = np.mean(mesh.vertices[mesh.elements[e_idx]], axis=0)
         random_color = np.random.rand(3)
         for neighbor_idx in neighbors:
             neighbor_center = np.mean(mesh.vertices[mesh.elements[neighbor_idx]], axis=0)

@@ -25,10 +25,10 @@ class Plotter:
     # Main plotting
     def plot_mesh(self, mode='wireframe', color_elements=None, color_vertices=None):
         if color_elements is not None:      
-            for color, element_idxs, label in color_elements:
+            for color, e_idxs, label in color_elements:
                 first = True
-                for element_idx in element_idxs:
-                    vertices = self.mesh.vertices[self.mesh.elements[element_idx]]
+                for e_idx in e_idxs:
+                    vertices = self.mesh.vertices[self.mesh.elements[e_idx]]
                     self.ax.fill(vertices[:, 0], vertices[:, 1], color=color, alpha=0.2, label=label if first else None)
                     first = False
         if color_vertices is not None:
@@ -54,10 +54,10 @@ class Plotter:
 
     # Specialty plotting
     def plot_bc(self, bc, values=None):
-        for idx, value in bc.dirichlet.items():
-            self.ax.plot(self.mesh.vertices[idx][0], self.mesh.vertices[idx][1], 'ro')
-        for idx, value in bc.neumann.items():
-            self.ax.quiver(self.mesh.vertices[idx][0], self.mesh.vertices[idx][1], value[0], value[1])
+        for v_idx, value in bc.dirichlet.items():
+            self.ax.plot(self.mesh.vertices[v_idx][0], self.mesh.vertices[v_idx][1], 'ro')
+        for v_idx, value in bc.neumann.items():
+            self.ax.quiver(self.mesh.vertices[v_idx][0], self.mesh.vertices[v_idx][1], value[0], value[1])
         if values is None:
             self.plot_mesh(mode='wireframe')
         else:

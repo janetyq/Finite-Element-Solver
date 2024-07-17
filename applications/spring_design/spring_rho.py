@@ -11,20 +11,20 @@ def get_rho(design=None):
     if design is None:
         rho = [1 for _ in mesh.elements]
     elif isinstance(design, list) or isinstance(design, set):
-        for idx, element in enumerate(mesh.elements):
-            if idx in design:
+        for e_idx, element in enumerate(mesh.elements):
+            if e_idx in design:
                 rho.append(1)
             else:
                 rho.append(0)
     elif design == 'sine':
-        for idx, element in enumerate(mesh.elements):
+        for e_idx, element in enumerate(mesh.elements):
             x, y = np.mean(mesh.vertices[element], axis=0)
             if np.abs(y - 0.5 - 0.3*sin(10*x)) < 0.1:
                 rho.append(1)
             else:
                 rho.append(0)
     elif design == 'bistable_graph1':
-        for idx, element in enumerate(mesh.elements):
+        for e_idx, element in enumerate(mesh.elements):
             x, y = np.mean(mesh.vertices[element], axis=0)
             y -= 0.5
             if np.abs(y - 0.5*x) < 0.2 or np.abs(y + 0.5*x) < 0.2:

@@ -90,8 +90,8 @@ class Solver:
     #     if apriori:
     #         # compute apriori residual
     #         residuals = np.zeros(len(self.mesh.elements))
-    #         for element_idx, element in enumerate(self.mesh.elements):
-    #             residuals[element_idx] = 0 # placeholder
+    #         for e_idx, element in enumerate(self.mesh.elements):
+    #             residuals[e_idx] = 0 # placeholder
     #         self.solution.set_values("apriori_residual", residuals)
     #     else:
     #         # compute aposteriori residual
@@ -135,9 +135,9 @@ class Solver:
         u = self._solve_linear_system(self.K, self.b)
         self.solution.set_values("u", u)
         # residuals = np.zeros(len(self.mesh.elements))
-        # for element_idx, element in enumerate(self.mesh.elements):
+        # for e_idx, element in enumerate(self.mesh.elements):
         #     load = np.linalg.norm([self.load_function(point) for point in self.mesh.vertices[element]])
-        #     residuals[element_idx] += load * self.mesh.areas[element_idx] / 3
+        #     residuals[e_idx] += load * self.mesh.areas[e_idx] / 3
         # self.solution.set_values("element_residuals", residuals)
 
     def _solve_heat(self):
@@ -198,13 +198,13 @@ class Solver:
         compliance_elements = np.zeros(len(self.mesh.elements))
         force_elements = np.zeros(len(self.mesh.elements))
 
-        for element_idx, element in enumerate(self.mesh.elements):
-            element = self.mesh.vertices[element]
+        for e_idx, element in enumerate(self.mesh.elements):
+            element = self.mesh.elements[e_idx]
             u_element = u[np.array([2*element, 2*element+1]).T.flatten()]
-            eps_elements[element_idx] = self.B_elements[element_idx] @ u_element
-            sigma_elements[element_idx] = self.D_elements[element_idx] @ eps_elements[element_idx]
-            compliance_elements[element_idx] = u_element.T @ self.K_elements[element_idx] @ u_element
-            # force_elements[element_idx] = np.linalg.norm(np.mean((self.K_elements[element_idx] @ u_element).reshape(-1, 2), axis=0))
+            eps_elements[e_idx] = self.B_elements[e_idx] @ u_element
+            sigma_elements[e_idx] = self.D_elements[e_idx] @ eps_elements[e_idx]
+            compliance_elements[e_idx] = u_element.T @ self.K_elements[e_idx] @ u_element
+            # force_elements[e_idx] = np.linalg.norm(np.mean((self.K_elements[e_idx] @ u_element).reshape(-1, 2), axis=0))
 
         self.solution.set_values("u", u)
         self.solution.set_values("strain", np.linalg.norm(eps_elements, axis=-1))
@@ -220,54 +220,55 @@ class Solver:
         special = self.dim == 2 and calculate_element_matrix == self._calculate_element_stiffness_matrix
         if special: # TODO: remove this
             self.B_elements, self.D_elements = [], []
-        for idx, element in enumerate(self.mesh.elements):
+        for e_idx, element in enumerate(self.mesh.elements):
             idxs = np.array([self.dim*element + i for i in range(self.dim)]).T.flatten()
             if special:
-                element_matrix, B, D = calculate_element_matrix(element, params[idx])
+                element_matrix, B, D = calculate_element_matrix(e_idx, params[e_idx])
                 A[np.ix_(idxs, idxs)] += element_matrix
                 A_elements.append(element_matrix)
                 self.B_elements.append(B)
                 self.D_elements.append(D)
             else:
-                element_matrix = calculate_element_matrix(element, params)
+                element_matrix = calculate_element_matrix(e_idx, params)
                 A[np.ix_(idxs, idxs)] += element_matrix
                 A_elements.append(element_matrix)
 
         return A, A_elements
 
-    def _assemble_vector(self, calculate_element_vector, params): #
+    def _assemble_vector(self, calculate_element_vector, params):
         b = np.zeros((len(self.mesh.vertices), self.dim))
         if calculate_element_vector == self._calculate_element_boundary_load_vector:
-            for bedge in self.mesh.boundary:
-                b[bedge] += calculate_element_vector(bedge, params[bedge])
+            for b_idx, bedge in enumerate(self.mesh.boundary):
+                b[bedge] += calculate_element_vector(b_idx, params[bedge])
         else:
-            for element in self.mesh.elements:
-                b[element] += calculate_element_vector(element, params[element])
+            for e_idx, element in enumerate(self.mesh.elements):
+                b[element] += calculate_element_vector(e_idx, params[element])
         return b.flatten()
 
-    def _calculate_element_load_vector(self, element, param): #
-        return param * 1/3 * calculate_triangle_area(self.mesh.vertices[element])
+    def _calculate_element_load_vector(self, e_idx, param):
+        return param * 1/3 * self.mesh.areas[e_idx]
 
-    def _calculate_element_boundary_load_vector(self, element, param):
-        return param * 1/2 * np.linalg.norm(self.mesh.vertices[element][0] - self.mesh.vertices[element][1])
+    def _calculate_element_boundary_load_vector(self, b_idx, param): # TODO: generalize this
+        boundary = self.mesh.boundary[b_idx]
+        return param * 1/2 * np.linalg.norm(self.mesh.vertices[boundary][0] - self.mesh.vertices[boundary][1])
 
-    def _calculate_element_mass_matrix(self, element, param): #
+    def _calculate_element_mass_matrix(self, e_idx, param):
+        element = self.mesh.elements[e_idx]
         M = np.zeros((self.dim*len(element), self.dim*len(element)))
         M[::self.dim, ::self.dim] = 1
         M += np.eye(self.dim*len(element))
-        area = calculate_triangle_area(self.mesh.vertices[element])
         if param is None:
-            return 1/12 * area * M
+            return 1/12 * self.mesh.areas[e_idx] * M
         raise ValueError('Not implemented')
-        # return 1/12 * area * param.flatten() * M
+        # return 1/12 * self.mesh.areas[e_idx] * param.flatten() * M
 
-    def _calculate_element_stiffness_matrix(self, element, param): # TODO: hat gradients not fixed
+    def _calculate_element_stiffness_matrix(self, e_idx, param): # TODO: hat gradients not fixed
+        element = self.mesh.elements[e_idx]
         if self.dim == 1: # TODO collapse
             P = np.hstack([np.ones((3, 1)), self.mesh.vertices[element]])
-            area = calculate_triangle_area(self.mesh.vertices[element])
             phis = np.linalg.solve(P, np.eye(3))[1:].T
             param = 1
-            return phis @ phis.T * area * param
+            return phis @ phis.T * self.mesh.areas[e_idx] * param
         else: # dim == 2
             # outputs 6x6 element stiffness matrix = a(u, v) = int (sigma(u) : epsilon(v)) over element
             E, nu = param
@@ -276,11 +277,14 @@ class Solver:
             mu, lamb = Enu_to_Lame(E, nu) # TODO: make space varying?
             D = mu * np.array([[2, 0, 0], [0, 2, 0], [0, 0, 1]]) + \
                 lamb * np.array([[1, 1, 0], [1, 1, 0], [0, 0, 0]])
-            area, a, b, c = calculate_hat_gradients(self.mesh.vertices[element])
+            # area, a, b, c = calculate_hat_gradients(self.mesh.vertices[element])
+            hat_grad = self.mesh.shape_functions[e_idx].gradient
+            b = hat_grad[:, 0]
+            c = hat_grad[:, 1]
             B = np.array([[b[0], 0, b[1], 0, b[2], 0],
                         [0, c[0], 0, c[1], 0, c[2]],
                         [c[0], b[0], c[1], b[1], c[2], b[2]]])
-            return B.T @ D @ B * area, B, D
+            return B.T @ D @ B * self.mesh.areas[e_idx], B, D
 
     def adaptive_refinement(self, max_triangles=1000, max_iters=20):
         # TODO: there's a bug somewhere
@@ -291,9 +295,9 @@ class Solver:
             element_residuals = self.solution.values['element_residuals']
             max_residual = max(element_residuals)
             refine_idxs = []
-            for element_idx, residual in enumerate(element_residuals):
+            for e_idx, residual in enumerate(element_residuals):
                 if residual > 0.9 * max_residual:
-                    refine_idxs.append(element_idx)
+                    refine_idxs.append(e_idx)
 
             refinement_mesh.refine_triangles(refine_idxs)
             self.mesh = refinement_mesh.get_mesh()
@@ -327,31 +331,31 @@ class EnergySolver:
         else:
             raise ValueError(f"Unknown equation name: {equation.name}")
 
-    def element_energy(self, element_idx, u_element):
-        grad_u_element = self.mesh.calculate_element_gradient(element_idx, u_element)
+    def element_energy(self, e_idx, u_element):
+        grad_u_element = self.mesh.calculate_element_gradient(e_idx, u_element)
         self.energy_density.set_grad_u(grad_u_element)
         return self.energy_density.W
 
-    def element_gradient(self, element_idx, u_element):
-        grad_u_element = self.mesh.calculate_element_gradient(element_idx, u_element)
+    def element_gradient(self, e_idx, u_element):
+        grad_u_element = self.mesh.calculate_element_gradient(e_idx, u_element)
         self.energy_density.set_grad_u(grad_u_element)
         dW_dF = self.energy_density.dW_dF
-        dF_dx = self.mesh.shape_functions[element_idx].super_gradient()
+        dF_dx = self.mesh.shape_functions[e_idx].super_gradient()
         dW_dx = np.einsum('ij,mnij->mn', dW_dF, dF_dx)
         return dW_dx
 
     def energy(self, u):
         u[self.fixed] = self.fixed_values
         total = 0
-        for element_idx, element in enumerate(self.mesh.elements):
-            total += self.element_energy(element_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[element_idx]
+        for e_idx, element in enumerate(self.mesh.elements):
+            total += self.element_energy(e_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[e_idx]
         return total
 
     def energy_gradient(self, u):
         u[self.fixed] = self.fixed_values
         total_energy_gradient = np.zeros((len(self.mesh.vertices), 2))
-        for element_idx, element in enumerate(self.mesh.elements):
-            total_energy_gradient[element] += self.element_gradient(element_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[element_idx]
+        for e_idx, element in enumerate(self.mesh.elements):
+            total_energy_gradient[element] += self.element_gradient(e_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[e_idx]
         total_energy_gradient = total_energy_gradient.flatten()
         total_energy_gradient[self.fixed] = 0
         return total_energy_gradient

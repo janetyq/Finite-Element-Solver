@@ -51,9 +51,9 @@ class RefinementMesh:
         Refines triangles in refine_list
         and updates self.mesh
         '''
-        for idx in refine_list:
+        for e_idx in refine_list:
             # print(self.triangles[triangle_idx].status)
-            self.refine(self.triangle_index_map[idx])
+            self.refine(self.triangle_index_map[e_idx])
         # self.plot(title=f'refined {triangle_idx}', triangle_idxs=refine_list)
         
         for triangle_idx in list(range(len(self.triangles)))[::-1]:
