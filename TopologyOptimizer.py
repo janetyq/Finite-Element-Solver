@@ -14,7 +14,7 @@ class TopologyOptimizer:
             'TopologyOptimizer only supports linear_elastic equations'
         self.orig_equation = equation.__copy__()
         self.solver = Solver(mesh, equation, boundary_conditions)
-        self.element_neighbors = self.solver.mesh.calculate_element_neighbors()
+        self.element_neighbors = self.solver.mesh.element_neighbors
         self.solution = Solution(mesh)
 
         self.iters = iters
