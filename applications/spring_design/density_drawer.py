@@ -10,11 +10,11 @@ from Plotter import *
 # Load mesh
 MESH_FILE = '../../meshes/80x40.pkl'
 mesh = Mesh.load(MESH_FILE)
-points, faces, boundary = mesh.get_info()
+vertices, elements, boundary = mesh.get_info()
 boundary_idxs = list(set(boundary.ravel()))
 
 # Create a triangulation object
-triangulation = tri.Triangulation(points[:, 0], points[:, 1], faces)
+triangulation = tri.Triangulation(vertices[:, 0], vertices[:, 1], elements)
 
 # Create the plot
 fig, ax = plt.subplots()
@@ -71,8 +71,8 @@ def on_release(event):
 # Function to fill the triangle with color if the point is inside
 def fill_triangle(event):
     click_point = np.array([event.xdata, event.ydata])
-    for i, triangle in enumerate(faces):
-        p0, p1, p2 = points[triangle]
+    for i, triangle in enumerate(elements):
+        p0, p1, p2 = vertices[triangle]
         v0, v1, v2 = p1 - p0, p2 - p0, click_point - p0
         # if is_point_in_triangle(click_point, v0, v1, v2):
         if is_point_near_triangle(click_point, p0, p1, p2):

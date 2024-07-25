@@ -23,12 +23,12 @@ sink_x1, sink_x2 = 1.0, 2.0
 sink_y1, sink_y2 = 0, 1
 
 # Mesh
-vertices, faces, boundary_indices, boundary_edges = generate_rect_mesh(w, h, nw, nh)
-mesh = Mesh(vertices, faces, boundary_edges)
+vertices, elements, boundary_indices, boundary_edges = generate_rect_mesh(w, h, nw, nh)
+mesh = Mesh(vertices, elements, boundary_edges)
 
 # Boundary
 flux_boundary = mesh.get_boundary_idxs_in_rect([sink_x1, 0, sink_x2, 0]) # bottom of heat sink
-cold_boundary = [idx for idx in boundary_indices if idx not in flux_boundary]
+cold_boundary = [v_idx for v_idx in boundary_indices if v_idx not in flux_boundary]
 
 flux_edges = mesh.get_edges_in_idxs(flux_boundary)
 cold_edges = mesh.get_edges_in_idxs(cold_boundary)
@@ -43,21 +43,21 @@ for i, vertex in enumerate(vertices):
         sink_boundary.append(i)
 sink_edges = mesh.get_edges_in_idxs(sink_boundary, exclude_corners=True)
 
-sink_faces = []
-air_faces = []
-for face_idx in range(len(faces)):
-    x, y = np.mean(vertices[faces[face_idx]], axis=0)
+sink_elements = []
+air_elements = []
+for e_idx in range(len(elements)):
+    x, y = np.mean(vertices[elements[e_idx]], axis=0)
     if (sink_x1 <= x <= sink_x2) and (sink_y1 <= y <= sink_y2):
-        sink_faces.append(face_idx)
+        sink_elements.append(e_idx)
     else:
-        air_faces.append(face_idx)
+        air_elements.append(e_idx)
 
 def plot_stuff(mesh, control_handles, fixed_handles, save=None):
-    color_faces = [['lightblue', air_faces, r"$\Omega_a (air)$"], ['gray', sink_faces, r"$\Omega_s (heat sink)$"]]
+    color_elements = [['lightblue', air_elements, r"$\Omega_a (air)$"], ['gray', sink_elements, r"$\Omega_s (heat sink)$"]]
 
     fig, ax = plt.subplots()
-    Plotter(mesh, fig=fig, ax=ax, options={'title': 'Mesh', 'show': False, 'save': save}).plot_mesh(mode='wireframe', color_faces=color_faces)
-    vertices = mesh.points
+    Plotter(mesh, fig=fig, ax=ax, options={'title': 'Mesh', 'show': False, 'save': save}).plot_mesh(mode='wireframe', color_elements=color_elements)
+    vertices = mesh.vertices
     ax.scatter(control_handles[:, 0], control_handles[:, 1], c='green', s=40, label="Control handles")
     ax.scatter(fixed_handles[:, 0], fixed_handles[:, 1], c='black', s=40, label="Fixed handles")
     for edge in sink_edges:
@@ -76,7 +76,7 @@ def plot_stuff(mesh, control_handles, fixed_handles, save=None):
 
 # Thermal conductivity
 def k_func(e_idx):
-    if e_idx in sink_faces:
+    if e_idx in sink_elements:
         return 10.0
     else:
         return 1.0
@@ -105,7 +105,7 @@ print(f"Control handles: {control_handles.shape}, Fixed handles: {fixed_handles.
 plot_stuff(mesh, control_handles, fixed_handles)
 
 # Handle weights
-weights = bbw_weights(vertices, faces, all_handles)
+weights = bbw_weights(vertices, elements, all_handles)
 lbs = igl.lbs_matrix(vertices, weights)
 
 # PDE solver
@@ -120,12 +120,12 @@ solver = Solver(mesh, equation, bc)
 
 # FUNCTIONS
 
-def get_edge_loss(points):
+def get_edge_loss(vertices):
     loss = 0
-    for i in range(len(points)):
-        x, y = points[i]
+    for i in range(len(vertices)):
+        x, y = vertices[i]
         loss += 1/min(x, w-x)**2 + 1/min(y, h-y)**2
-    loss /= len(points)
+    loss /= len(vertices)
     return loss
 
 cbar_lim = None
@@ -136,7 +136,7 @@ def run(control_input: np.ndarray, plot=False, save=None):
     new_all_handles = np.concatenate([new_control_handles, fixed_handles], axis=0).copy()
     handle_transforms = get_handle_transforms(all_handles, new_all_handles)
     new_vertices = lbs @ handle_transforms
-    new_mesh = Mesh(new_vertices, faces, boundary_edges)
+    new_mesh = Mesh(new_vertices, elements, boundary_edges)
     solver.set_mesh(new_mesh)
     solver.solve()
     
@@ -152,7 +152,7 @@ def run(control_input: np.ndarray, plot=False, save=None):
 
     if plot:
         print(f"Costs: {[round(cost, 3) for cost in costs]}")
-        plot_stuff(new_mesh, new_control_handles, fixed_handles, save=f"{save}_1")
+        plot_stuff(new_mesh, new_control_handles, fixed_handles, save=f"{save}_1") # TODO: missing control handles
 
         title = "Initial Solution" if np.allclose(control_input, 0) else "Optimized Solution"
         fig, ax = plt.subplots()

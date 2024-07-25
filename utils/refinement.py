@@ -20,10 +20,10 @@ class RefinementMesh:
         self.mesh = mesh
 
         # internal representation - do not use outside of this class
-        self.points = mesh.points
-        self.faces = mesh.faces
+        self.vertices = mesh.vertices
+        self.elements = mesh.elements
         self.boundary = [list(edge) for edge in mesh.boundary]
-        self.triangles = [Triangle(face) for face in self.faces]
+        self.triangles = [Triangle(element) for element in self.elements]
 
         self.triangle_index_map = {idx: idx for idx in range(len(self.triangles))}
 
@@ -42,7 +42,7 @@ class RefinementMesh:
                 return idx
 
     def get_point_idx(self, point):
-        for idx, p in enumerate(self.points):
+        for idx, p in enumerate(self.vertices):
             if (p == point).all():
                 return idx
 
@@ -51,9 +51,9 @@ class RefinementMesh:
         Refines triangles in refine_list
         and updates self.mesh
         '''
-        for idx in refine_list:
+        for e_idx in refine_list:
             # print(self.triangles[triangle_idx].status)
-            self.refine(self.triangle_index_map[idx])
+            self.refine(self.triangle_index_map[e_idx])
         # self.plot(title=f'refined {triangle_idx}', triangle_idxs=refine_list)
         
         for triangle_idx in list(range(len(self.triangles)))[::-1]:
@@ -97,12 +97,12 @@ class RefinementMesh:
         new_point_idxs = []
         for i in range(3):
             edge = [triangle.vertex_idxs[i], triangle.vertex_idxs[(i+1)%3]]
-            midpoint = (self.points[edge[0]] + self.points[edge[1]]) / 2
+            midpoint = (self.vertices[edge[0]] + self.vertices[edge[1]]) / 2
             # if midpoint already exists, use that
             idx = self.get_point_idx(midpoint)
             if idx is None:
-                self.points = np.vstack((self.points, midpoint))
-                idx = len(self.points) - 1
+                self.vertices = np.vstack((self.vertices, midpoint))
+                idx = len(self.vertices) - 1
             new_point_idxs.append(idx)
 
             self.update_boundary(edge, idx)
@@ -176,25 +176,25 @@ class RefinementMesh:
         self.update_boundary(edge, new_idx)
 
     def update_mesh(self):
-        # set mesh as points, faces
+        # set mesh as vertices, elements
         self.triangle_index_map = {}
-        faces = []
+        elements = []
         for triangle_idx, triangle in enumerate(self.triangles):
             if triangle.status != 'red child' and triangle.status != 'green child':
                 continue
-            faces.append(triangle.vertex_idxs)
-            self.triangle_index_map[len(faces) - 1] = triangle_idx
-        faces = np.array(faces)
+            elements.append(triangle.vertex_idxs)
+            self.triangle_index_map[len(elements) - 1] = triangle_idx
+        elements = np.array(elements)
 
-        used_idxs = list(set(faces.flatten()))
+        used_idxs = list(set(elements.flatten()))
         index_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(used_idxs)}
         
-        self.points = self.points[used_idxs]
-        self.faces = np.vectorize(index_mapping.get)(faces)
+        self.vertices = self.vertices[used_idxs]
+        self.elements = np.vectorize(index_mapping.get)(elements)
         self.boundary = np.vectorize(index_mapping.get)(self.boundary)
         self.boundary = [list(edge) for edge in self.boundary]
 
-        self.mesh = Mesh(self.points, self.faces, self.boundary)
+        self.mesh = Mesh(self.vertices, self.elements, self.boundary)
     
     def get_mesh(self):
         return self.mesh
@@ -202,31 +202,31 @@ class RefinementMesh:
     def plot(self, title=None, edge=None, main_idx=None, green_idx=None, red_idx=None, triangle_idxs=None):
         ax = self.mesh.plot(title=title, show=False, linewidth=3)
         if edge is not None:
-            edge_points = self.points[edge]
-            ax.plot(edge_points[:, 0], edge_points[:, 1], linewidth=3, color='blue')
+            edge_vertices = self.vertices[edge]
+            ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], linewidth=3, color='blue')
         if main_idx is not None:
             main_triangle = self.triangles[main_idx]
-            main_center = np.mean(self.points[main_triangle.vertex_idxs], axis=0)
+            main_center = np.mean(self.vertices[main_triangle.vertex_idxs], axis=0)
             ax.scatter(main_center[0], main_center[1], color='blue')
         if green_idx is not None:
             green_triangle = self.triangles[green_idx]
-            green_center = np.mean(self.points[green_triangle.vertex_idxs], axis=0)
+            green_center = np.mean(self.vertices[green_triangle.vertex_idxs], axis=0)
             ax.scatter(green_center[0], green_center[1], color='green')
         if red_idx is not None:
             red_triangle = self.triangles[red_idx]
-            red_center = np.mean(self.points[red_triangle.vertex_idxs], axis=0)
+            red_center = np.mean(self.vertices[red_triangle.vertex_idxs], axis=0)
             ax.scatter(red_center[0], red_center[1], color='red')
         if triangle_idxs is not None:
             for triangle_idx in triangle_idxs:
                 triangle = self.triangles[triangle_idx]
-                center = np.mean(self.points[triangle.vertex_idxs], axis=0)
+                center = np.mean(self.vertices[triangle.vertex_idxs], axis=0)
                 ax.scatter(center[0], center[1], color='black')
         plot_triangles = []
         for triangle in self.triangles:
             if triangle.status == 'red child' or triangle.status == 'green child':
                 plot_triangles.append(triangle)
             
-        plotting_mesh = Mesh(self.points, [triangle.vertex_idxs for triangle in plot_triangles], self.boundary)
+        plotting_mesh = Mesh(self.vertices, [triangle.vertex_idxs for triangle in plot_triangles], self.boundary)
         plotting_mesh.plot(ax=ax, linewidth=1, color='cyan')
 
     def get_mesh(self):
@@ -237,10 +237,10 @@ if __name__ == '__main__':
     # MESH_FILE = '../shared_meshes/square20_mesh.pkl'
     # mesh = Mesh.load(MESH_FILE)
     # mesh.plot()
-    points = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
-    faces = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]])
+    vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
+    elements = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]])
     boundary = [[0, 1], [1, 2], [2, 3], [3, 0]]
-    mesh = Mesh(points, faces, boundary)
+    mesh = Mesh(vertices, elements, boundary)
     original_mesh = mesh.copy()
 
     refinement_mesh = RefinementMesh(mesh)
@@ -248,7 +248,7 @@ if __name__ == '__main__':
     import random
     # refine_lists = [{4}, {16}]
     for i in range(8):
-        refine_list = set(random.randint(0, len(mesh.faces)-1) for _ in range(5))
+        refine_list = set(random.randint(0, len(mesh.elements)-1) for _ in range(5))
         # refine_list = refine_lists[i]
         print(refine_list)
         refinement_mesh.refine_triangles(refine_list)

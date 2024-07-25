@@ -3,20 +3,20 @@ from math import sin, cos, pi
 import matplotlib.pyplot as plt
 
 # 2d vector operations - faster than numpy
-def calc_dot(vec1, vec2):
+def calculate_dot(vec1, vec2):
     return vec1[0]*vec2[0] + vec1[1]*vec2[1]
 
-def calc_norm(vec):
+def calculate_norm(vec):
     return (vec[0]**2 + vec[1]**2)**0.5
 
-def calc_cross(vec1, vec2):
+def calculate_cross(vec1, vec2):
     return vec1[0]*vec2[1] - vec1[1]*vec2[0]
 
-def bump_function(points, center, mag=100, size=0.5):
-    return np.array([mag*cos(pi/2*np.linalg.norm(point - center)/size) if np.linalg.norm(point - center) < size else 0 for point in points])
+def bump_function(vertices, center, mag=100, size=0.5):
+    return np.array([mag*cos(pi/2*np.linalg.norm(point - center)/size) if np.linalg.norm(point - center) < size else 0 for point in vertices])
 
-def calculate_triangle_area(points):
-    p1, p2, p3 = points
+def calculate_triangle_area(vertices):
+    p1, p2, p3 = vertices
     return 0.5 * abs((p1[0] * (p2[1] - p3[1]) + p2[0] * (p3[1] - p1[1]) + p3[0] * (p1[1] - p2[1])))
 
 def calculate_polygon_area(polygon):
@@ -36,14 +36,14 @@ def point_in_polygon(point, polygon):
                 inside = not inside
     return inside
 
-def get_boundary_from_points_faces(points, faces):
+def get_boundary_from_vertices_elements(vertices, elements):
     edges = set()
     boundary_edges = set()
 
-    # Step 1: Convert faces to edges
-    for face in faces:
-        for i in range(3):  # Each face is a triangle (3 vertices)
-            edge = tuple(sorted([face[i], face[(i + 1) % 3]]))  # Edges are represented by sorted vertex indices
+    # Step 1: Convert elements to edges
+    for element in elements:
+        for i in range(3):  # Each element is a triangle (3 vertices)
+            edge = tuple(sorted([element[i], element[(i + 1) % 3]]))  # Edges are represented by sorted vertex indices
             if edge in edges:
                 # If edge is already in set, it's an interior edge, remove it from edges
                 edges.remove(edge)
@@ -54,8 +54,8 @@ def get_boundary_from_points_faces(points, faces):
     # Step 2: Identify boundary edges
     for edge in edges:
         count = 0
-        for face in faces:
-            if edge[0] in face and edge[1] in face:
+        for element in elements:
+            if edge[0] in element and edge[1] in element:
                 count += 1
         if count == 1:
             boundary_edges.add(edge)
@@ -77,19 +77,6 @@ def Lame_to_Enu(mu, lamb):
     nu = lamb / (2 * (lamb + mu))
     return E, nu
 
-# FEM
-def calculate_hat_gradients(element):
-    area = calculate_triangle_area(element)
-    a, b, c = [], [], []
-    for i in range(3):
-        x_j, x_k = element[(i+1)%3], element[(i+2)%3]
-        a.append(x_j[0]*x_k[1] - x_k[0]*x_j[1])
-        b.append(x_j[1] - x_k[1])
-        c.append(x_k[0] - x_j[0])
-    a, b, c = np.array([a, b, c]) / (2 * area)
-        
-    return area, a, b, c
-
 # Printing
 class color:
    PURPLE = '\033[95m'
@@ -102,3 +89,52 @@ class color:
    BOLD = '\033[1m'
    UNDERLINE = '\033[4m'
    END = '\033[0m'
+
+def check_gradient(function, gradient, input_shape):
+    u = np.random.random(input_shape)
+    computed_gradient = gradient(u)
+    eps_list = np.logspace(-10, 0, 20)
+    errors_list = []
+    for eps in eps_list:
+        numerical_gradient = []
+        for idx in np.ndindex(input_shape):
+            direction = np.zeros(input_shape)
+            direction[idx] = 1
+            eval_p = function(u + eps * direction)
+            eval_m = function(u - eps * direction)
+            numerical_gradient.append((eval_p - eval_m) / (2 * eps))
+        numerical_gradient = np.array(numerical_gradient).reshape(computed_gradient.shape)
+        # print(f'numerical_gradient: {numerical_gradient} \ncomputed_gradient: {computed_gradient}')
+        errors_list.append(np.linalg.norm(numerical_gradient - computed_gradient))
+    
+    plt.title('Gradient check')
+    plt.plot(eps_list, errors_list)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel('eps')
+    plt.ylabel('error')
+    plt.show()
+
+def check_hessian(gradient, hessian, input_shape):
+    u = np.random.random(input_shape)
+    computed_hessian = hessian(u)
+    eps_list = np.logspace(-10, 0, 20)
+    errors_list = []
+    for eps in eps_list:
+        numerical_hessian = []
+        for idx in np.ndindex(input_shape):
+            direction = np.zeros(input_shape)
+            direction[idx] = 1
+            eval_p = gradient(u + eps * direction)
+            eval_m = gradient(u - eps * direction)
+            numerical_hessian.append((eval_p - eval_m) / (2 * eps))
+        numerical_hessian = np.array(numerical_hessian).reshape(computed_hessian.shape)
+        errors_list.append(np.linalg.norm(numerical_hessian - computed_hessian))
+    
+    plt.title('Hessian check')
+    plt.plot(eps_list, errors_list)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel('eps')
+    plt.ylabel('error')
+    plt.show()

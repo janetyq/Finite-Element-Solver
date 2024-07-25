@@ -14,14 +14,14 @@ class TopologyOptimizer:
             'TopologyOptimizer only supports linear_elastic equations'
         self.orig_equation = equation.__copy__()
         self.solver = Solver(mesh, equation, boundary_conditions)
-        self.face_neighbors = self.solver.mesh.calculate_face_neighbors()
+        self.element_neighbors = self.solver.mesh.element_neighbors
         self.solution = Solution(mesh)
 
         self.iters = iters
         self.volume_frac = volume_frac
 
         self.rho = None
-        self.set_rho(np.full(len(mesh.faces), self.volume_frac))
+        self.set_rho(np.full(len(mesh.elements), self.volume_frac))
 
     def set_rho(self, rho):
         self.rho = rho
@@ -30,9 +30,9 @@ class TopologyOptimizer:
     def filter_sensitivity(self, sensitivity): #TODO: research a better filter
         # simple averaging with neighbors
         smoothed_sensitivity = np.zeros_like(sensitivity)
-        for face_idx, face in enumerate(self.solver.mesh.faces):
-            neighbor_value = np.mean([sensitivity[neighbor_idx] for neighbor_idx in self.face_neighbors[face_idx]])
-            smoothed_sensitivity[face_idx] = 0.5 * neighbor_value + 0.5 * sensitivity[face_idx]
+        for e_idx, element in enumerate(self.solver.mesh.elements):
+            neighbor_value = np.mean([sensitivity[neighbor_idx] for neighbor_idx in self.element_neighbors[e_idx]])
+            smoothed_sensitivity[e_idx] = 0.5 * neighbor_value + 0.5 * sensitivity[e_idx]
         return smoothed_sensitivity
 
     def oc_density(self, sensitivity, volume_frac):
@@ -96,12 +96,12 @@ class TopologyOptimizer:
         options['cbar_label'] = options.get('cbar_label', name)
 
         values = self.solution.get_values(name, mode=None) # TODO: mode not supported for list values
-        if len(values[0]) == len(self.solver.mesh.faces):
-            values = [self.solution._convert_face_values_to_vertex_values(v) for v in values]
+        if len(values[0]) == len(self.solver.mesh.elements):
+            values = [self.solution._convert_element_values_to_vertex_values(v) for v in values]
        
         plotter = Plotter(self.solver.mesh, options=options) 
         if deformed:
-            plotter.plot_animation(values, mode='colored', meshes=[self._get_deformed_mesh(idx) for idx in range(len(values))])
+            plotter.plot_animation(values, mode='colored', meshes=[self._get_deformed_mesh(iter_idx) for iter_idx in range(self.iters)])
         else:
             plotter.plot_animation(values, mode='colored')
 
@@ -133,9 +133,9 @@ class TopologyOptimizer:
         options = {'title': f'Iteration {iter}, C={compliance:.4f}', 'cbar_label': 'Density', 'save': f"results/rho{iter}.png"}
         Plotter(deformed_mesh, options=options).plot_values(self.rho)
 
-    def _get_deformed_mesh(self, idx=-1):
+    def _get_deformed_mesh(self, iter_idx=-1):
         try:
-            u = self.solution.values['u_list'][idx]
+            u = self.solution.values['u_list'][iter_idx]
         except:
             u = self.solver.solution.values['u']
-        return Mesh(self.solver.mesh.points + u.reshape(-1, 2), self.solver.mesh.faces, self.solver.mesh.boundary)
+        return Mesh(self.solver.mesh.vertices + u.reshape(-1, 2), self.solver.mesh.elements, self.solver.mesh.boundary)

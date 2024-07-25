@@ -25,28 +25,28 @@ class Solution:
     def __reduce__(self):
         return (self.__class__, (self.mesh, self.values))
 
-    def get_values(self, name, idx=None, mode=None):
+    def get_values(self, name, iter_idx=None, mode=None):
         if name is None:
-            return np.zeros(len(self.mesh.faces))
+            return np.zeros(len(self.mesh.elements))
         elif name not in self.values:
             print('--> contains:', self.values.keys())
             raise ValueError(f'{name} not found in solution')
         
-        values = self.values[name][idx] if idx is not None else self.values[name]
+        values = self.values[name][iter_idx] if iter_idx is not None else self.values[name]
         if mode is None:
             return values
-        elif mode == 'face':
-            if len(values) == len(self.mesh.faces):
+        elif mode == 'element':
+            if len(values) == len(self.mesh.elements):
                 return values
-            elif len(values) == len(self.mesh.points):
-                return self._convert_vertex_values_to_face_values(values)
+            elif len(values) == len(self.mesh.vertices):
+                return self._convert_vertex_values_to_element_values(values)
             else:
                 raise ValueError(f'Invalid values shape for mode {mode}')
         elif mode == 'vertex':
-            if len(values) == len(self.mesh.points):
+            if len(values) == len(self.mesh.vertices):
                 return values
-            elif len(values) == len(self.mesh.faces):
-                return self._convert_face_values_to_vertex_values(values)
+            elif len(values) == len(self.mesh.elements):
+                return self._convert_element_values_to_vertex_values(values)
             else:
                 raise ValueError(f'Invalid values shape for mode {mode}')
 
@@ -56,42 +56,34 @@ class Solution:
     def reset(self):
         self.values = {}
 
-    def calc_gradient(self, name):
+    def calculate_gradient(self, name): # TODO: rename, overloaded
         values = self.get_values(name)
-        gradient = np.zeros((len(self.mesh.faces), 2))
-        for face_idx, face in enumerate(self.mesh.faces):
-            element = self.mesh.points[face]
-            for i in range(3):
-                edge_i = element[(i+1)%3] - element[i]
-                edge_j = element[(i+2)%3] - element[i]
-                sign = calc_cross(edge_i, edge_j) / np.abs(calc_cross(edge_i, edge_j))
-                gradient[face_idx] += sign * values[face[(i+2)%3]] * np.array([-edge_i[1], edge_i[0]]) / (2*self.mesh.areas[face_idx])
-        self.values["grad_" + name] = gradient
-        return gradient
+        self.values["grad_" + name] = self.mesh.calculate_gradient(values)
+        return self.values["grad_" + name]
 
-    def _convert_vertex_values_to_face_values(self, vertex_values):
-        assert len(vertex_values) == len(self.mesh.points)
-        face_values = np.zeros(len(self.mesh.faces))
-        for face_idx, face in enumerate(self.mesh.faces):
-            face_values[face_idx] = np.mean([vertex_values[v_idx] for v_idx in face])
-        return face_values
+    def _convert_vertex_values_to_element_values(self, vertex_values):
+        assert len(vertex_values) == len(self.mesh.vertices)
+        element_values = np.zeros(len(self.mesh.elements))
+        for e_idx, element in enumerate(self.mesh.elements):
+            element_values[e_idx] = np.mean([vertex_values[v_idx] for v_idx in element])
+        return element_values
 
-    def _convert_face_values_to_vertex_values(self, face_values):
-        assert len(face_values) == len(self.mesh.faces)
-        vertex_values = np.zeros(len(self.mesh.points))
-        for face_idx, face in enumerate(self.mesh.faces):
-            for v_idx in face:
-                vertex_values[v_idx] = face_values[face_idx]
+    def _convert_element_values_to_vertex_values(self, element_values):
+        assert len(element_values) == len(self.mesh.elements)
+        vertex_values = np.zeros(len(self.mesh.vertices))
+        for e_idx, element in enumerate(self.mesh.elements):
+            for v_idx in element:
+                vertex_values[v_idx] = element_values[e_idx]
         return vertex_values
 
-    def plot(self, name, idx=None, deformed=False, mode=None, options=None):
+    def plot(self, name, iter_idx=None, deformed=False, mode=None, options=None): #TODO: support None name
         # special to mechanics solve
-        values = self.get_values(name, idx=idx)
+        values = self.get_values(name, iter_idx=iter_idx)
         options = options if options is not None else {}
         options['title'] = options.get('title', name)
         if deformed:
-            points = self.mesh.points + self.get_values('u').reshape(-1, 2)
-            deformed_mesh = Mesh(points, self.mesh.faces, self.mesh.boundary)
+            vertices = self.mesh.vertices + self.get_values('u').reshape(-1, 2)
+            deformed_mesh = Mesh(vertices, self.mesh.elements, self.mesh.boundary)
             return Plotter(deformed_mesh, options=options).plot_values(values, mode=mode)
         return Plotter(self.mesh, options=options).plot_values(values, mode=mode)
 
