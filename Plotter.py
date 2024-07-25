@@ -102,8 +102,10 @@ class Plotter:
         for element in self.mesh.elements:
             vertices = self.mesh.vertices[element]
             center = np.mean(vertices, axis=0)
-            vertices = center + 0.95 * (vertices - center)
-            self.ax.fill(vertices[:, 0], vertices[:, 1], 'b-', alpha=0.2)
+            vertices = center + 0.9 * (vertices - center)
+            # self.ax.fill(vertices[:, 0], vertices[:, 1], 'b-', alpha=0.2)
+            vertices = np.append(vertices, [vertices[0]], axis=0)
+            self.ax.plot(vertices[:, 0], vertices[:, 1], 'b-', alpha=0.5)
         for edge in self.mesh.boundary:
             self.ax.plot(self.mesh.vertices[[edge[0], edge[1]], 0], self.mesh.vertices[[edge[0], edge[1]], 1], 'k-')
 

@@ -21,17 +21,26 @@ class LinearTriangleElement: # TODO: perhaps put quadrature in here too?
 
         self.gradient = np.array([b, c]).T # shape (3, 2)
 
+        self.dF_dx = self.calculate_dF_dx()
+
     def deformation_gradient(self, u_element):
+        # F = I + grad_u = I + grad_phi^T @ u
         return np.eye(2) + self.gradient.T @ u_element
 
-    def super_gradient(self): # TODO: understand this
-        dF_dx = np.zeros((3, 2, 2, 2))
-        for k in range(3):
-            for l in range(2):
-                for i in range(2):
-                    for j in range(2):
-                        dF_dx[k, l, i, j] = self.gradient[k, i] if l == j else 0.0
+    def calculate_dF_dx(self):
+        # dF_dx = I x grad_phi^T, TODO: figure out kronecker product
+        dF_dx = np.zeros((2, 2, 3, 2))
+        for i in range(2):
+            for j in range(2):
+                for m in range(3):
+                    for n in range(2):
+                        if j == n:
+                            dF_dx[i, j, m, n] = self.gradient[m, i]
         return dF_dx
+
+    def calculate_d2F_dx2(self):
+        # d2F_dx2 = 0
+        return np.zeros((2, 2, 2, 3, 2))
 
 class Mesh:
     '''
@@ -46,6 +55,7 @@ class Mesh:
         self.areas = np.array([calculate_triangle_area(self.vertices[element]) for element in self.elements])
         self.edges = self._get_all_edges()
         self.shape_functions = self._get_all_shape_functions()
+        self.element_neighbors = self._calculate_element_neighbors(self.elements)
 
     # TODO: Save and load to better formats - off, obj
     @classmethod
@@ -113,14 +123,15 @@ class Mesh:
         kinetic_energy = self.calculate_total_value(dudt**2)
         return dirichlet_energy + kinetic_energy
         
-    def calculate_element_neighbors(self):
-        self.element_neighbors = {e_idx: [] for e_idx in range(len(self.elements))}
-        for e_idx, element in enumerate(self.elements):
+    def _calculate_element_neighbors(self, elements):
+        element_neighbors = {e_idx: [] for e_idx in range(len(elements))}
+        for e_idx, element in enumerate(elements):
             for neighbor_idx in element:
-                self.element_neighbors[e_idx].extend(np.where(self.elements == neighbor_idx)[0])
+                element_neighbors[e_idx].extend(np.where(elements == neighbor_idx)[0])
             # keep only elements that appear twice
-            self.element_neighbors[e_idx] = [v_idx for v_idx in self.element_neighbors[e_idx] if self.element_neighbors[e_idx].count(v_idx) == 2]
-        return self.element_neighbors
+            element_neighbors[e_idx] = list(set([v_idx for v_idx in element_neighbors[e_idx] if element_neighbors[e_idx].count(v_idx) == 2]))
+        
+        return element_neighbors
 
     def _get_all_edges(self):
         all_edges = set()
@@ -230,10 +241,10 @@ class Mesh:
         boundary = get_boundary_from_vertices_elements(vertices, elements)
         mesh = Mesh(vertices, elements, boundary)
 
-        fig, ax = plt.subplots()
-        ax.plot([corners[0][0], corners[1][0], corners[1][0], corners[0][0], corners[0][0]], 
-                [corners[0][1], corners[0][1], corners[1][1], corners[1][1], corners[0][1]], 'r-')
-        Plotter(mesh, fig=fig, ax=ax, options={'title': 'Rectangular mesh'}).plot_mesh(mode='wireframe')
+        # fig, ax = plt.subplots()
+        # ax.plot([corners[0][0], corners[1][0], corners[1][0], corners[0][0], corners[0][0]], 
+        #         [corners[0][1], corners[0][1], corners[1][1], corners[1][1], corners[0][1]], 'r-')
+        # Plotter(mesh, fig=fig, ax=ax, options={'title': 'Rectangular mesh'}).plot_mesh(mode='wireframe')
 
         return mesh
 
@@ -270,7 +281,7 @@ if __name__ == '__main__':
     Plotter(mesh, options={'title': 'Colorful value plot'}).plot_values(values, mode='colored')
 
     # Neighbors plotting example
-    element_neighbors = mesh.calculate_element_neighbors()
+    element_neighbors = mesh.calculate_element_neighbors(mesh.elements)
     fig, ax = plt.subplots()
     for e_idx, neighbors in element_neighbors.items():
         if e_idx % 2 == 0 or e_idx % 3 == 0:

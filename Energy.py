@@ -2,12 +2,17 @@ import numpy as np
 from utils.helper import check_gradient
 
 class LinearElasticEnergyDensity: # TODO: inheritance
+    # TODO: figure out elasticity tensor, hessian, intuition?
     '''
     Strain energy density on 2D triangular elements
 
-    F: deformation gradient dx/dX
-    S: strain tensor
-    W: strain energy density
+    F: deformation gradient dx/dX (2, 2)
+    S: strain tensor (2, 2)
+    W: strain energy density (1)
+
+    dS_dF: (2, 2, 2, 2)
+    dW_dS: (2, 2)
+    dW_dF: (2, 2)
     '''
     def __init__(self, E, nu):
         self.E = E
@@ -22,7 +27,9 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         self.W = self.calculate_W_from_S(self.S)
         self.dS_dF = self.calculate_dS_dF(self.F)
         self.dW_dS = self.calculate_dW_dS(self.S)
-        self.dW_dF = np.einsum('mn,ijmn->ij', self.dW_dS, self.dS_dF)
+        self.dW_dF = np.einsum('ij,ijmn->mn', self.dW_dS, self.dS_dF)
+        self.d2S_dF2 = self.calculate_d2S_dF2(self.F)
+        self.d2W_dS2 = self.calculate_d2W_dS2(self.S)
     
     def calculate_S_from_F(self, F):
         return 0.5 * (F.T @ F - np.eye(2))
@@ -31,29 +38,45 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         return 0.5 * (self.lamb * np.trace(S)**2 + 2 * self.mu * np.trace(S.T @ S))
 
     def calculate_dS_dF(self, F):
-        '''
-        S: (2, 2)
-        F: (2, 2)
-        dS_dF: (2, 2, 2, 2)
-        '''
         dS_dF = np.zeros((2, 2, 2, 2))
         for i in range(2):
             for j in range(2):
                 for m in range(2):
                     for n in range(2):
                         if j == n:
-                            dS_dF[i, j, m, n] += 0.5 * F[i, m]
-                        if j == m:
-                            dS_dF[i, j, m, n] += 0.5 * F[i, n]
+                            dS_dF[i, j, m, n] += 0.5 * F[m, i]
+                        if i == n:
+                            dS_dF[i, j, m, n] += 0.5 * F[m, j]
         return dS_dF
 
+    def calculate_d2S_dF2(self, F):
+        d2S_dF2 = np.zeros((2, 2, 2, 2, 2, 2))
+        for i in range(2):
+            for j in range(2):
+                for m in range(2):
+                    for n in range(2):
+                        for k in range(2):
+                            for l in range(2):
+                                if j == n and k == m and i == l:
+                                    d2S_dF2[i, j, m, n, k, l] += 0.5
+                                if i == n and k == m and j == l:
+                                    d2S_dF2[i, j, m, n, k, l] += 0.5
+        return d2S_dF2
+
     def calculate_dW_dS(self, S):
-        '''
-        W: 1
-        S: (2, 2)
-        dW_dS: (2, 2)
-        '''
         return self.lamb * np.trace(S) * np.eye(2) + 2 * self.mu * S
+
+    def calculate_d2W_dS2(self, S):
+        d2W_dS2 = np.zeros((2, 2, 2, 2))
+        for i in range(2):
+            for j in range(2):
+                for m in range(2):
+                    for n in range(2):
+                        if i == j and m == n:
+                            d2W_dS2[i, j, m, n] += self.lamb
+                        if i == m and j == n:
+                            d2W_dS2[i, j, m, n] += 2 * self.mu
+        return d2W_dS2
 
     def check_gradients(self):
         check_gradient(self.calculate_S_from_F, self.calculate_dS_dF, (2, 2))
@@ -70,3 +93,11 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         E = mu * (3 * lamb + 2 * mu) / (lamb + mu)
         nu = lamb / (2 * (lamb + mu))
         return E, nu
+
+class NeohookeanEnergyDensity:
+    def __init__(self, mu, lamb):
+        self.mu = mu
+        self.lamb = lamb
+
+    def set_grad_u(self, grad_u):
+        pass

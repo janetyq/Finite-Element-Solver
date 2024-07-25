@@ -114,3 +114,27 @@ def check_gradient(function, gradient, input_shape):
     plt.xlabel('eps')
     plt.ylabel('error')
     plt.show()
+
+def check_hessian(gradient, hessian, input_shape):
+    u = np.random.random(input_shape)
+    computed_hessian = hessian(u)
+    eps_list = np.logspace(-10, 0, 20)
+    errors_list = []
+    for eps in eps_list:
+        numerical_hessian = []
+        for idx in np.ndindex(input_shape):
+            direction = np.zeros(input_shape)
+            direction[idx] = 1
+            eval_p = gradient(u + eps * direction)
+            eval_m = gradient(u - eps * direction)
+            numerical_hessian.append((eval_p - eval_m) / (2 * eps))
+        numerical_hessian = np.array(numerical_hessian).reshape(computed_hessian.shape)
+        errors_list.append(np.linalg.norm(numerical_hessian - computed_hessian))
+    
+    plt.title('Hessian check')
+    plt.plot(eps_list, errors_list)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel('eps')
+    plt.ylabel('error')
+    plt.show()
