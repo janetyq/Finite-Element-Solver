@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.optimize import minimize
+
 from utils.refinement import *
 from BoundaryConditions import *
 from Mesh import *
@@ -21,31 +23,29 @@ class Solver:
         self.solution = Solution(mesh)
         self.dim = self.equation.dim
 
+        self.boundary_conditions.do(self.mesh.vertices.shape[0], dim=self.dim)
+
     def set_mesh(self, mesh):
         self.mesh = mesh
         self.solution = Solution(mesh)
 
     def set_bc(self, bc):
         self.boundary_conditions = bc
-        self.boundary_conditions.do(self.mesh.points.shape[0], dim=self.equation.dim)
+        self.boundary_conditions.do(self.mesh.vertices.shape[0], dim=self.equation.dim)
 
     def preprocess(self):
-        # todo: do more matrix building
-        self.boundary_conditions.do(self.mesh.points.shape[0], dim=self.dim)
-
         # assemble mass and stiffness matrices and load vector
-        self.M, self.M_faces = self._assemble_matrix(self._calculate_element_mass_matrix)
+        self.M, self.M_elements = self._assemble_matrix(self._calculate_element_mass_matrix)
         self.b = self._assemble_vector(self._calculate_element_load_vector, self.boundary_conditions.force_load)
         self.b += self._assemble_vector(self._calculate_element_boundary_load_vector, self.boundary_conditions.neumann_load)
 
         if self.equation.dim == 1: # TODO: implement 2D
-            self.K, self.K_faces = self._assemble_matrix(self._calculate_element_stiffness_matrix)
+            self.K, self.K_elements = self._assemble_matrix(self._calculate_element_stiffness_matrix)
         if self.equation.name == "linear_elastic":
-            E_min, p = 1e-6, 3
-            E = np.full(len(self.mesh.faces), self.equation.parameters['E'])
-            nu = np.full(len(self.mesh.faces), self.equation.parameters['nu'])
+            E = np.full(len(self.mesh.elements), self.equation.parameters['E'])
+            nu = np.full(len(self.mesh.elements), self.equation.parameters['nu'])
             self.material_func = np.vstack([E, nu]).T 
-            self.K, self.K_faces = self._assemble_matrix(self._calculate_element_stiffness_matrix, self.material_func)
+            self.K, self.K_elements = self._assemble_matrix(self._calculate_element_stiffness_matrix, self.material_func)
 
     def solve(self):
         self.preprocess() # TODO: don't call this every time
@@ -89,9 +89,9 @@ class Solver:
     #     # Apriori error ||e|| <= C * h^2 * ||f"||
     #     if apriori:
     #         # compute apriori residual
-    #         residuals = np.zeros(len(self.mesh.faces))
-    #         for face_idx, face in enumerate(self.mesh.faces):
-    #             residuals[face_idx] = 0 # placeholder
+    #         residuals = np.zeros(len(self.mesh.elements))
+    #         for e_idx, element in enumerate(self.mesh.elements):
+    #             residuals[e_idx] = 0 # placeholder
     #         self.solution.set_values("apriori_residual", residuals)
     #     else:
     #         # compute aposteriori residual
@@ -133,12 +133,12 @@ class Solver:
     def _solve_poisson(self):
         print('Solving Poisson equation...') # K @ u = b
         u = self._solve_linear_system(self.K, self.b)
-        self.solution.set_values("u", self.u)
-        # residuals = np.zeros(len(self.mesh.faces))
-        # for face_idx, face in enumerate(self.mesh.faces):
-        #     load = np.linalg.norm([self.load_function(point) for point in self.mesh.points[face]])
-        #     residuals[face_idx] += load * self.mesh.areas[face_idx] / 3
-        # self.solution.set_values("face_residuals", residuals)
+        self.solution.set_values("u", u)
+        # residuals = np.zeros(len(self.mesh.elements))
+        # for e_idx, element in enumerate(self.mesh.elements):
+        #     load = np.linalg.norm([self.load_function(point) for point in self.mesh.vertices[element]])
+        #     residuals[e_idx] += load * self.mesh.areas[e_idx] / 3
+        # self.solution.set_values("element_residuals", residuals)
 
     def _solve_heat(self):
         print('Solving heat equation...') # M @ u' + K @ u = b
@@ -170,7 +170,7 @@ class Solver:
                             [-c**2 * dt/2 * self.K, self.M]])
         b_right = np.block([np.zeros_like(self.b), dt/2 * (self.b + np.roll(self.b, -1))])
 
-        N = len(self.mesh.points)
+        N = len(self.mesh.vertices)
         x = np.block([u, dudt])
         t_values = [0]
         u_values = [x[:N]]
@@ -193,81 +193,82 @@ class Solver:
     def _solve_linear_elastic(self):
         u = self._solve_linear_system(self.K, self.b)
 
-        eps_faces = np.zeros((len(self.mesh.faces), 3))
-        sigma_faces = np.zeros((len(self.mesh.faces), 3))
-        compliance_faces = np.zeros(len(self.mesh.faces))
-        force_faces = np.zeros(len(self.mesh.faces))
+        eps_elements = np.zeros((len(self.mesh.elements), 3))
+        sigma_elements = np.zeros((len(self.mesh.elements), 3))
+        compliance_elements = np.zeros(len(self.mesh.elements))
+        force_elements = np.zeros(len(self.mesh.elements))
 
-        for face_idx, face in enumerate(self.mesh.faces):
-            element = self.mesh.points[face]
-            u_face = u[np.array([2*face, 2*face+1]).T.flatten()]
-            eps_faces[face_idx] = self.B_elements[face_idx] @ u_face
-            sigma_faces[face_idx] = self.D_elements[face_idx] @ eps_faces[face_idx]
-            compliance_faces[face_idx] = u_face.T @ self.K_faces[face_idx] @ u_face
-            # force_faces[face_idx] = np.linalg.norm(np.mean((self.K_faces[face_idx] @ u_face).reshape(-1, 2), axis=0))
+        for e_idx, element in enumerate(self.mesh.elements):
+            element = self.mesh.elements[e_idx]
+            u_element = u[np.array([2*element, 2*element+1]).T.flatten()]
+            eps_elements[e_idx] = self.B_elements[e_idx] @ u_element
+            sigma_elements[e_idx] = self.D_elements[e_idx] @ eps_elements[e_idx]
+            compliance_elements[e_idx] = u_element.T @ self.K_elements[e_idx] @ u_element
+            # force_elements[e_idx] = np.linalg.norm(np.mean((self.K_elements[e_idx] @ u_element).reshape(-1, 2), axis=0))
 
         self.solution.set_values("u", u)
-        self.solution.set_values("strain", np.linalg.norm(eps_faces, axis=-1))
-        self.solution.set_values("stress", np.linalg.norm(sigma_faces, axis=-1))
-        self.solution.set_values("compliance", compliance_faces)
-        self.solution.set_values("total_compliance", 0.5 * (u.T @ self.K @ u)) # = sum(compliance_faces)
-        # self.solution.set_values("force", force_faces)
+        self.solution.set_values("strain", np.linalg.norm(eps_elements, axis=-1))
+        self.solution.set_values("stress", np.linalg.norm(sigma_elements, axis=-1))
+        self.solution.set_values("compliance", compliance_elements)
+        self.solution.set_values("total_compliance", 0.5 * (u.T @ self.K @ u)) # = sum(compliance_elements)
+        # self.solution.set_values("force", force_elements)
 
-    def _assemble_matrix(self, calculate_element_matrix, params=None): # TODO: params inconsistent here, face indexed
-        N = len(self.mesh.points)
+    def _assemble_matrix(self, calculate_element_matrix, params=None): # TODO: params inconsistent here, element indexed
+        N = len(self.mesh.vertices)
         A = np.zeros((self.dim * N, self.dim * N))
         A_elements = []
         special = self.dim == 2 and calculate_element_matrix == self._calculate_element_stiffness_matrix
         if special: # TODO: remove this
             self.B_elements, self.D_elements = [], []
-        for idx, face in enumerate(self.mesh.faces):
-            idxs = np.array([self.dim*face + i for i in range(self.dim)]).T.flatten()
+        for e_idx, element in enumerate(self.mesh.elements):
+            idxs = np.array([self.dim*element + i for i in range(self.dim)]).T.flatten()
             if special:
-                element_matrix, B, D = calculate_element_matrix(face, params[idx])
+                element_matrix, B, D = calculate_element_matrix(e_idx, params[e_idx])
                 A[np.ix_(idxs, idxs)] += element_matrix
                 A_elements.append(element_matrix)
                 self.B_elements.append(B)
                 self.D_elements.append(D)
             else:
-                element_matrix = calculate_element_matrix(face, params)
+                element_matrix = calculate_element_matrix(e_idx, params)
                 A[np.ix_(idxs, idxs)] += element_matrix
                 A_elements.append(element_matrix)
 
         return A, A_elements
 
-    def _assemble_vector(self, calculate_element_vector, params): #
-        b = np.zeros((len(self.mesh.points), self.dim))
+    def _assemble_vector(self, calculate_element_vector, params):
+        b = np.zeros((len(self.mesh.vertices), self.dim))
         if calculate_element_vector == self._calculate_element_boundary_load_vector:
-            for bedge in self.mesh.boundary:
-                b[bedge] += calculate_element_vector(bedge, params[bedge])
+            for b_idx, bedge in enumerate(self.mesh.boundary):
+                b[bedge] += calculate_element_vector(b_idx, params[bedge])
         else:
-            for face in self.mesh.faces:
-                b[face] += calculate_element_vector(face, params[face])
+            for e_idx, element in enumerate(self.mesh.elements):
+                b[element] += calculate_element_vector(e_idx, params[element])
         return b.flatten()
 
-    def _calculate_element_load_vector(self, element, param): #
-        return param * 1/3 * calculate_triangle_area(self.mesh.points[element])
+    def _calculate_element_load_vector(self, e_idx, param):
+        return param * 1/3 * self.mesh.areas[e_idx]
 
-    def _calculate_element_boundary_load_vector(self, element, param):
-        return param * 1/2 * np.linalg.norm(self.mesh.points[element][0] - self.mesh.points[element][1])
+    def _calculate_element_boundary_load_vector(self, b_idx, param): # TODO: generalize this
+        boundary = self.mesh.boundary[b_idx]
+        return param * 1/2 * np.linalg.norm(self.mesh.vertices[boundary][0] - self.mesh.vertices[boundary][1])
 
-    def _calculate_element_mass_matrix(self, element, param): #
+    def _calculate_element_mass_matrix(self, e_idx, param):
+        element = self.mesh.elements[e_idx]
         M = np.zeros((self.dim*len(element), self.dim*len(element)))
         M[::self.dim, ::self.dim] = 1
         M += np.eye(self.dim*len(element))
-        area = calculate_triangle_area(self.mesh.points[element])
         if param is None:
-            return 1/12 * area * M
+            return 1/12 * self.mesh.areas[e_idx] * M
         raise ValueError('Not implemented')
-        # return 1/12 * area * param.flatten() * M
+        # return 1/12 * self.mesh.areas[e_idx] * param.flatten() * M
 
-    def _calculate_element_stiffness_matrix(self, element, param): #
+    def _calculate_element_stiffness_matrix(self, e_idx, param): # TODO: hat gradients not fixed
+        element = self.mesh.elements[e_idx]
         if self.dim == 1: # TODO collapse
-            P = np.hstack([np.ones((3, 1)), self.mesh.points[element]])
-            area = calculate_triangle_area(self.mesh.points[element])
+            P = np.hstack([np.ones((3, 1)), self.mesh.vertices[element]])
             phis = np.linalg.solve(P, np.eye(3))[1:].T
             param = 1
-            return phis @ phis.T * area * param
+            return phis @ phis.T * self.mesh.areas[e_idx] * param
         else: # dim == 2
             # outputs 6x6 element stiffness matrix = a(u, v) = int (sigma(u) : epsilon(v)) over element
             E, nu = param
@@ -276,25 +277,30 @@ class Solver:
             mu, lamb = Enu_to_Lame(E, nu) # TODO: make space varying?
             D = mu * np.array([[2, 0, 0], [0, 2, 0], [0, 0, 1]]) + \
                 lamb * np.array([[1, 1, 0], [1, 1, 0], [0, 0, 0]])
-            area, a, b, c = calculate_hat_gradients(self.mesh.points[element])
+            # area, a, b, c = calculate_hat_gradients(self.mesh.vertices[element])
+            hat_grad = self.mesh.shape_functions[e_idx].gradient
+            b = hat_grad[:, 0]
+            c = hat_grad[:, 1]
             B = np.array([[b[0], 0, b[1], 0, b[2], 0],
                         [0, c[0], 0, c[1], 0, c[2]],
                         [c[0], b[0], c[1], b[1], c[2], b[2]]])
-            return B.T @ D @ B * area, B, D
+            return B.T @ D @ B * self.mesh.areas[e_idx], B, D
 
     def adaptive_refinement(self, max_triangles=1000, max_iters=20):
         # TODO: there's a bug somewhere
-        if 'face_residuals' not in self.solution.values:
-            raise ValueError('No face residuals found in solution')
+        if 'element_residuals' not in self.solution.values:
+            raise ValueError('No element residuals found in solution')
         refinement_mesh = RefinementMesh(self.mesh)
-        while len(self.mesh.faces) < max_triangles or max_iters == 0:
-            face_residuals = self.solution.values['face_residuals']
-            max_residual = max(face_residuals)
+        while len(self.mesh.elements) < max_triangles or max_iters == 0:
+            element_residuals = self.solution.values['element_residuals']
+            max_residual = max(element_residuals)
             refine_idxs = []
-            for face_idx, residual in enumerate(face_residuals):
+            for e_idx, residual in enumerate(element_residuals):
                 if residual > 0.9 * max_residual:
-                    refine_idxs.append(face_idx)
+                    refine_idxs.append(e_idx)
 
             refinement_mesh.refine_triangles(refine_idxs)
             self.mesh = refinement_mesh.get_mesh()
             max_iters -= 1
+
+

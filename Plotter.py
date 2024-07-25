@@ -23,17 +23,17 @@ class Plotter:
         self.cbar = None # used by colored plots
 
     # Main plotting
-    def plot_mesh(self, mode='wireframe', color_faces=None, color_vertices=None):
-        if color_faces is not None:      
-            for color, face_idxs, label in color_faces:
+    def plot_mesh(self, mode='wireframe', color_elements=None, color_vertices=None):
+        if color_elements is not None:      
+            for color, e_idxs, label in color_elements:
                 first = True
-                for face_idx in face_idxs:
-                    vertices = self.mesh.points[self.mesh.faces[face_idx]]
+                for e_idx in e_idxs:
+                    vertices = self.mesh.vertices[self.mesh.elements[e_idx]]
                     self.ax.fill(vertices[:, 0], vertices[:, 1], color=color, alpha=0.2, label=label if first else None)
                     first = False
         if color_vertices is not None:
             for color, vert_idxs, label in color_vertices:
-                self.ax.scatter(self.mesh.points[vert_idxs, 0], self.mesh.points[vert_idxs, 1], color=color, s=5, label=label)
+                self.ax.scatter(self.mesh.vertices[vert_idxs, 0], self.mesh.vertices[vert_idxs, 1], color=color, s=5, label=label)
         
         if mode == 'wireframe':
             self._plot_wireframe()
@@ -54,10 +54,10 @@ class Plotter:
 
     # Specialty plotting
     def plot_bc(self, bc, values=None):
-        for idx, value in bc.dirichlet.items():
-            self.ax.plot(self.mesh.points[idx][0], self.mesh.points[idx][1], 'ro')
-        for idx, value in bc.neumann.items():
-            self.ax.quiver(self.mesh.points[idx][0], self.mesh.points[idx][1], value[0], value[1])
+        for v_idx, value in bc.dirichlet.items():
+            self.ax.plot(self.mesh.vertices[v_idx][0], self.mesh.vertices[v_idx][1], 'ro')
+        for v_idx, value in bc.neumann.items():
+            self.ax.quiver(self.mesh.vertices[v_idx][0], self.mesh.vertices[v_idx][1], value[0], value[1])
         if values is None:
             self.plot_mesh(mode='wireframe')
         else:
@@ -94,22 +94,24 @@ class Plotter:
     
     # Mesh plotting helpers
     def _plot_wireframe(self):
-        self.ax.triplot(self.mesh.points[:, 0], self.mesh.points[:, 1], self.mesh.faces, color='black', linewidth=0.2)
+        self.ax.triplot(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], self.mesh.elements, color='black', linewidth=0.2)
         for seg in self.mesh.boundary:
-            self.ax.plot(self.mesh.points[seg, 0], self.mesh.points[seg, 1], color='black', linewidth=0.5)
+            self.ax.plot(self.mesh.vertices[seg, 0], self.mesh.vertices[seg, 1], color='black', linewidth=0.5)
 
     def _plot_solid(self):
-        for face in self.mesh.faces:
-            vertices = self.mesh.points[face]
+        for element in self.mesh.elements:
+            vertices = self.mesh.vertices[element]
             center = np.mean(vertices, axis=0)
-            vertices = center + 0.95 * (vertices - center)
-            self.ax.fill(vertices[:, 0], vertices[:, 1], 'b-', alpha=0.2)
+            vertices = center + 0.9 * (vertices - center)
+            # self.ax.fill(vertices[:, 0], vertices[:, 1], 'b-', alpha=0.2)
+            vertices = np.append(vertices, [vertices[0]], axis=0)
+            self.ax.plot(vertices[:, 0], vertices[:, 1], 'b-', alpha=0.5)
         for edge in self.mesh.boundary:
-            self.ax.plot(self.mesh.points[[edge[0], edge[1]], 0], self.mesh.points[[edge[0], edge[1]], 1], 'k-')
+            self.ax.plot(self.mesh.vertices[[edge[0], edge[1]], 0], self.mesh.vertices[[edge[0], edge[1]], 1], 'k-')
 
     # Value plotting helpers
     def _plot_colored(self, values, contour=0):
-        triangulation = Triangulation(self.mesh.points[:, 0], self.mesh.points[:, 1], triangles=self.mesh.faces)
+        triangulation = Triangulation(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], triangles=self.mesh.elements)
         tripcolor = self.ax.tripcolor(triangulation, values, cmap='viridis')
 
         clim = self.options.get('cbar_lim', (min(values), max(values)))
@@ -127,13 +129,13 @@ class Plotter:
             self.ax.remove()
             self.ax = self.fig.add_subplot(111, projection='3d')
         values = np.array(values)
-        assert values.shape == (len(self.mesh.points),), f'Invalid values shape: {values.shape}'
-        triangulation = Triangulation(self.mesh.points[:, 0], self.mesh.points[:, 1], triangles=self.mesh.faces)
+        assert values.shape == (len(self.mesh.vertices),), f'Invalid values shape: {values.shape}'
+        triangulation = Triangulation(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], triangles=self.mesh.elements)
         surf = self.ax.plot_trisurf(triangulation, values, cmap='viridis')
 
     def _plot_arrows(self, values):
-        face_points = np.mean(self.mesh.points[self.mesh.faces], axis=1)
-        self.ax.quiver(face_points[:, 0], face_points[:, 1], values[:, 0], values[:, 1], alpha=0.5)
+        element_vertices = np.mean(self.mesh.vertices[self.mesh.elements], axis=1)
+        self.ax.quiver(element_vertices[:, 0], element_vertices[:, 1], values[:, 0], values[:, 1], alpha=0.5, scale=10)
 
     def _apply_options(self):
         self.ax.set_title(self.options.get('title', None))
