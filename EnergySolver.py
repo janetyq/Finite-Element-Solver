@@ -1,8 +1,12 @@
-from Energy import *
+from scipy.optimize import minimize
+
+from Energies import *
+from Solution import *
 
 class EnergySolver:
     def __init__(self, mesh, equation, boundary_conditions):
         assert equation.name == "linear_elastic", "EnergySolver only supports linear elastic equation"
+        # note: does not exactly match linear elastic solve for larger deformations bc doesn't use small strain approx
 
         self.mesh = mesh
         self.equation = equation
@@ -17,12 +21,13 @@ class EnergySolver:
         self.energy_density = self._select_energy(equation)
 
         # TODO: flat u + bc handling weird
+        
         # elt_idx = 10
         # check_gradient(lambda u: self.element_energy(elt_idx, u), lambda u: self.element_gradient(elt_idx, u), (3, 2))
         # check_hessian(lambda u: self.element_gradient(elt_idx, u), lambda u: self.element_hessian(elt_idx, u), (3, 2))
 
         # check_gradient(self.energy, self.energy_gradient, len(self.mesh.vertices)*2)
-        check_hessian(self.energy_gradient, self.energy_hessian, len(self.mesh.vertices)*2)
+        # check_hessian(self.energy_gradient, self.energy_hessian, len(self.mesh.vertices)*2)
 
     def _select_energy(self, equation):
         if equation.name == "linear_elastic":
@@ -92,10 +97,28 @@ class EnergySolver:
         u = np.zeros(len(self.mesh.vertices) * 2)
         u[self.fixed] = self.fixed_values
         print("Initial energy:", self.energy(u))
-        output = minimize(self.energy, u, jac=self.energy_gradient, method='Newton-CG', callback=lambda x: print(self.energy(x)))
-        print(f"Iterations: {output.nit}, Success: {output.success}, Message: {output.message}")
-        print(f"Gradient: {np.linalg.norm(output.jac)}")
-        print(f"Energy: {output.fun}")
-        print(f"Gradient norm: {np.linalg.norm(output.jac)}")
-        self.solution.set_values("u", output.x)
+        # output = minimize(self.energy, u, jac=self.energy_gradient, #hess=self.energy_hessian, 
+        #                   method='Newton-CG', callback=lambda x: print(self.energy(x)))
+        # print(f"Iterations: {output.nit}, Success: {output.success}, Message: {output.message}")
+        # print(f"Gradient: {np.linalg.norm(output.jac)}")
+        # print(f"Energy: {output.fun}")
+        # print(f"Gradient norm: {np.linalg.norm(output.jac)}")
+        # self.solution.set_values("u", output.x)
+        u = self._newton_solve(u)
+        self.solution.set_values("u", u)
         return self.solution
+
+    def _newton_solve(self, u):
+        i = 0
+        while i == 0 or np.linalg.norm(newton_step) > 1e-6:
+            i += 1
+            gradient = self.energy_gradient(u)
+            hessian = self.energy_hessian(u)
+            try:
+                newton_step = np.linalg.solve(hessian, -gradient)
+            except:
+                print("Singular hessian, adding regularization")
+                newton_step = np.linalg.solve(hessian + 1e-8 * np.eye(hessian.shape[0]), -gradient)
+            u += newton_step
+            print(f"{i} {self.energy(u)}")
+        return u

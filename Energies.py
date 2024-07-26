@@ -2,24 +2,18 @@ import numpy as np
 from utils.helper import check_gradient
 
 class LinearElasticEnergyDensity: # TODO: inheritance
-    # TODO: figure out elasticity tensor, hessian, intuition?
     '''
     Strain energy density on 2D triangular elements
 
     F: deformation gradient dx/dX (2, 2)
     S: strain tensor (2, 2)
     W: strain energy density (1)
-
-    dS_dF: (2, 2, 2, 2)
-    dW_dS: (2, 2)
-    dW_dF: (2, 2)
     '''
     def __init__(self, E, nu):
         self.E = E
         self.nu = nu
         self.mu, self.lamb = self.Enu_to_Lame(self.E, self.nu)
 
-    # TODO: better understand gradient order
     # Calculate grad_u -> F, S, W, dS_dF, dW_dS, dW_dF
     def set_grad_u(self, grad_u):
         self.F = np.eye(2) + grad_u

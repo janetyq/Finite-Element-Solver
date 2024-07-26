@@ -9,8 +9,10 @@ from Mesh import *
 from Plotter import *
 from Solver import *
 from TopologyOptimizer import *
+from EnergySolver import *
 
 np.set_printoptions(suppress=True)
+np.set_printoptions(linewidth=200)
 
 def test_plot_mesh():
     plotter = Plotter(mesh, options={'title': 'Mesh'})
@@ -80,7 +82,7 @@ def test_linear_elastic():
     right_middle_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6 and 0.2 < mesh.vertices[v_idx][1] < 0.8]
     bc.add('dirichlet', left_idxs, [0, 0])
     bc.add('neumann', right_middle_idxs, [50, 0]) # stress
-    bc.plot()
+    # bc.plot()
 
     equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
     solver = Solver(mesh, equation, bc)
@@ -151,14 +153,14 @@ def test_adaptive_refinement():
     # Plotter(mesh, options={'title': 'Final Mesh', 'show': False}).plot_mesh(mode='wireframe')
     # plt.show()
 
-def test_energy_solver():
+def test_energy_solver(): # TODO: add support for force bc
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
     bc = BoundaryConditions(mesh)
     left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
     right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
     bc.add('dirichlet', left_idxs, [0, 0])
-    bc.add('dirichlet', right_idxs, [0.5, 0])
+    bc.add('dirichlet', right_idxs, [0.001, 0])
     # bc.plot()
 
     energy_solver = EnergySolver(mesh, equation, bc)
@@ -167,8 +169,30 @@ def test_energy_solver():
     deformed_mesh = Mesh(vertices, mesh.elements, mesh.boundary)
     deformed_mesh.plot()
 
+    u1 = solution.get_values('u')
+    energy1 = energy_solver.energy(u1)
+
+    solver2 = Solver(mesh, equation, bc)
+    solution2 = solver2.solve()
+    vertices = mesh.vertices + solution2.get_values('u').reshape(-1, 2)
+    deformed_mesh2 = Mesh(vertices, mesh.elements, mesh.boundary)
+    deformed_mesh2.plot()
+
+    u2 = solution2.get_values('u')
+    energy2 = energy_solver.energy(u2)
+
+    # e1_energy_density = energy_solver.element_energy(0, u2.reshape(-1, 2)[mesh.elements[0]])
+    # e1_energy = energy_solver.mesh.areas[0] * e1_energy_density
+    # s1_energy = solution2.get_values('compliance')[0]
+
+    # e1_strain = energy_solver.energy_density.S
+    # e_idx = 0
+    # u_element = u2.reshape(-1, 2)[mesh.elements[e_idx]]
+
+    print(energy1, energy2)
+
 if __name__ == "__main__":
-    MESH_FILE = 'meshes/20x20.pkl'
+    MESH_FILE = 'meshes/10x10.pkl'
     mesh = Mesh.load(MESH_FILE)
 
     # test_plot_mesh()
