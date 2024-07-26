@@ -3,44 +3,7 @@ import numpy as np
 from utils.helper import *
 
 from Plotter import *
-
-class LinearTriangleElement: # TODO: perhaps put quadrature in here too?
-    '''
-    Shape function phi(x) = a + b*x + c*y
-    '''
-    def __init__(self, vertices, area):
-        self.vertices = vertices
-        self.area = area
-
-        a, b, c = [], [], []
-        for i in range(3):
-            x_j, x_k = vertices[(i+1)%3], vertices[(i+2)%3]
-            a.append((x_j[0]*x_k[1] - x_k[0]*x_j[1]) / (2 * area))
-            b.append((x_j[1] - x_k[1]) / (2 * area))
-            c.append((x_k[0] - x_j[0]) / (2 * area))
-
-        self.gradient = np.array([b, c]).T # shape (3, 2)
-
-        self.dF_dx = self.calculate_dF_dx()
-
-    def deformation_gradient(self, u_element):
-        # F = I + grad_u = I + grad_phi^T @ u
-        return np.eye(2) + self.gradient.T @ u_element
-
-    def calculate_dF_dx(self):
-        # dF_dx = I x grad_phi^T, TODO: figure out kronecker product
-        dF_dx = np.zeros((2, 2, 3, 2))
-        for i in range(2):
-            for j in range(2):
-                for m in range(3):
-                    for n in range(2):
-                        if j == n:
-                            dF_dx[i, j, m, n] = self.gradient[m, i]
-        return dF_dx
-
-    def calculate_d2F_dx2(self):
-        # d2F_dx2 = 0
-        return np.zeros((2, 2, 2, 3, 2))
+from Elements import *
 
 class Mesh:
     '''
@@ -77,8 +40,8 @@ class Mesh:
     def copy(self):
         return Mesh(self.vertices.copy(), self.elements.copy(), self.boundary.copy())
 
-    def plot(self):
-        return Plotter(self).plot_mesh()
+    def plot(self, fig=None, ax=None, options={}):
+        return Plotter(self, fig=fig, ax=ax, options=options).plot_mesh()
 
     # METRICS
     def calculate_total_value(self, u):
@@ -86,19 +49,6 @@ class Mesh:
             return sum([self.areas[e_idx] * u[e_idx] for e_idx in range(len(self.elements))])
         elif len(u) == len(self.vertices):    # u defined on vertices
             return sum([self.areas[e_idx] * np.mean(u[self.elements[e_idx]]) for e_idx in range(len(self.elements))])
-
-    # def calculate_total_value_function(self, function):
-    #     # function takes in e_idx -> returns value
-    #     eval_shape = function(0).shape
-    #     if eval_shape == ():  # scalar
-    #         total = np.zeros(len(self.vertices))
-    #         return sum([self.areas[e_idx] * function(e_idx) for e_idx in range(len(self.elements))])
-    #     else:
-    #         # function output shape (nodes_per_element, output_dim)
-    #         total = np.zeros((len(self.vertices), eval_shape[1]))
-    #         for e_idx, element in enumerate(self.elements):
-    #             total[element] += self.areas[e_idx] * function(e_idx)
-    #     return total
 
     def calculate_mean_value(self, u):
         return self.calculate_total_value(u) / sum(self.areas)
@@ -130,7 +80,6 @@ class Mesh:
                 element_neighbors[e_idx].extend(np.where(elements == neighbor_idx)[0])
             # keep only elements that appear twice
             element_neighbors[e_idx] = list(set([v_idx for v_idx in element_neighbors[e_idx] if element_neighbors[e_idx].count(v_idx) == 2]))
-        
         return element_neighbors
 
     def _get_all_edges(self):
