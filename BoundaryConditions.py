@@ -27,7 +27,7 @@ class BoundaryConditions:
                 for v_idx, value in zip(indices, values):
                     self.neumann[v_idx] = value # TODO: check support for list of values
             else:
-                for v_idx in indices: # stress
+                for v_idx in indices: # for elastics problems: neumann value = stress
                     self.neumann[v_idx] = values
         else:
             raise ValueError(f'bc_type {bc_type} not recognized')

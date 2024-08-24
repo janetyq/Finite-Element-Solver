@@ -25,28 +25,8 @@ class Solver:
 
         self.boundary_conditions.do(self.mesh.vertices.shape[0], dim=self.dim)
 
-    def set_mesh(self, mesh):
-        self.mesh = mesh
-        self.solution = Solution(mesh)
-
-    def set_bc(self, bc):
-        self.boundary_conditions = bc
-        self.boundary_conditions.do(self.mesh.vertices.shape[0], dim=self.equation.dim)
-
-    def preprocess(self):
-        # assemble mass and stiffness matrices and load vector
-        # self.M = self._assemble_matrix(self._calculate_element_mass_matrix)
-        self.b = self._assemble_vector(self.mesh.elements, self._calculate_element_load_vector, self.boundary_conditions.force_load)
-        self.b += self._assemble_vector(self.mesh.boundary, self._calculate_element_boundary_load_vector, self.boundary_conditions.neumann_load)
-
-        if self.equation.name == "linear_elastic":
-            E = np.full(len(self.mesh.elements), self.equation.parameters['E'])
-            nu = np.full(len(self.mesh.elements), self.equation.parameters['nu'])
-            self.material_func = np.vstack([E, nu]).T 
-        self.K = self._assemble_matrix(self._calculate_element_stiffness_matrix)
-
     def solve(self):
-        self.preprocess() # TODO: don't call this every time
+        self._assemble_everything() # TODO: don't call this every time
         self.solution.reset()
         
         equation_solvers = {
@@ -57,45 +37,24 @@ class Solver:
             "linear_elastic": self._solve_linear_elastic,
         }
 
-        solver_method = equation_solvers.get(self.equation.name)
-        if solver_method:
-            solver_method()
-        else:
+        try:
+            equation_solvers[self.equation.name]()
+        except:
             raise ValueError(f"Unknown equation name: {self.equation.name}")
 
         return self.solution
 
-    # # residuals
-    # def calculate_residuals(self):
-    #     # apriori and aposteriori error estimation
+    def _assemble_everything(self):
+        # assemble mass and stiffness matrices and load vector
+        self.M = self._assemble_matrix(self._calculate_element_mass_matrix)
+        self.b = self._assemble_vector(self.mesh.elements, self._calculate_element_load_vector, self.boundary_conditions.force_load)
+        self.b += self._assemble_vector(self.mesh.boundary, self._calculate_element_boundary_load_vector, self.boundary_conditions.neumann_load)
 
-    #     equation_residuals = {
-    #         "projection": self._calculate_projection_residuals,
-    #         "poisson": self._calculate_poisson_residuals,
-    #         "heat": self._calculate_heat_residuals,
-    #         "wave": self._calculate_wave_residuals,
-    #         "linear_elastic": self._calculate_linear_elastic_residuals,
-    #     }
-
-    #     residual_method = equation_residuals.get(self.equation.name)
-    #     if residual_method:
-    #         residual_method()
-    #     else:
-    #         raise ValueError(f"Unknown equation name: {self.equation.name}")
-
-    # def _calculate_projection_residuals(self, apriori=True):
-    #     # Apriori error ||e|| <= C * h^2 * ||f"||
-    #     if apriori:
-    #         # compute apriori residual
-    #         residuals = np.zeros(len(self.mesh.elements))
-    #         for e_idx, element in enumerate(self.mesh.elements):
-    #             residuals[e_idx] = 0 # placeholder
-    #         self.solution.set_values("apriori_residual", residuals)
-    #     else:
-    #         # compute aposteriori residual
-    #         residuals = None
-    #         self.solution.set_values("aposteriori_residual", residuals)
-    #         pass
+        if self.equation.name == "linear_elastic":
+            E = np.full(len(self.mesh.elements), self.equation.parameters['E'])
+            nu = np.full(len(self.mesh.elements), self.equation.parameters['nu'])
+            self.material_func = np.vstack([E, nu]).T 
+        self.K = self._assemble_matrix(self._calculate_element_stiffness_matrix)
 
     def _solve_linear_system(self, A, b, use_bc=True):
         # solves Au=b, taking fixed vars and loads into account
@@ -113,7 +72,7 @@ class Solver:
 
     def _solve_nonlinear_system(self, A, b, x0, tol=1e-6, max_iters=100):
         # newton solver
-        x = x0.copy() # TODO: x0 needed only for shape, do better
+        x = x0.copy()
         for iter in range(max_iters):
             print(f'iter {iter}')
             dx = self._solve_linear_system(A(x), A(x) @ x - b(x))
@@ -125,18 +84,12 @@ class Solver:
     def _solve_projection(self):
         print('Solving L2 projection...') # M @ u = b
         u = self._solve_linear_system(self.M, self.b)
-        # u = self._solve_nonlinear_system(lambda _: self.M, lambda _: self.b, x0=np.zeros_like(self.b))
         self.solution.set_values("u", u)
     
     def _solve_poisson(self):
         print('Solving Poisson equation...') # K @ u = b
         u = self._solve_linear_system(self.K, self.b)
         self.solution.set_values("u", u)
-        # residuals = np.zeros(len(self.mesh.elements))
-        # for e_idx, element in enumerate(self.mesh.elements):
-        #     load = np.linalg.norm([self.load_function(point) for point in self.mesh.vertices[element]])
-        #     residuals[e_idx] += load * self.mesh.areas[e_idx] / 3
-        # self.solution.set_values("element_residuals", residuals)
 
     def _solve_heat(self):
         print('Solving heat equation...') # M @ u' + K @ u = b
@@ -203,14 +156,12 @@ class Solver:
             u_element = u[np.array([2*element, 2*element+1]).T.flatten()]
             eps_elements[e_idx] = B @ u_element
             sigma_elements[e_idx] = D @ eps_elements[e_idx]
-            compliance_elements[e_idx] = eps_elements[e_idx] @ sigma_elements[e_idx] * self.mesh.areas[e_idx]
+            compliance_elements[e_idx] = sigma_elements[e_idx] @ eps_elements[e_idx] * self.mesh.areas[e_idx]
 
         self.solution.set_values("u", u)
         self.solution.set_values("strain", np.linalg.norm(eps_elements, axis=-1))
         self.solution.set_values("stress", np.linalg.norm(sigma_elements, axis=-1))
         self.solution.set_values("compliance", compliance_elements)
-        self.solution.set_values("total_compliance", 0.5 * (u.T @ self.K @ u)) # = sum(compliance_elements)
-        # self.solution.set_values("force", force_elements)
 
     def _assemble_matrix(self, calculate_element_matrix): # TODO: bring back params eventually?
         N = len(self.mesh.vertices)
@@ -248,7 +199,7 @@ class Solver:
         if self.dim == 1:
             return hat_grad @ hat_grad.T * self.mesh.areas[e_idx]
         elif self.equation.name == "linear_elastic":
-            # outputs 6x6 element stiffness matrix = a(u, v) = int (sigma(u) : epsilon(v)) over element
+            # outputs 6x6 element stiffness matrix
             D = self._get_D(e_idx)
             B = self._get_B(e_idx)
             return B.T @ D @ B * self.mesh.areas[e_idx]
@@ -284,3 +235,35 @@ class Solver:
             refinement_mesh.refine_triangles(refine_idxs)
             self.mesh = refinement_mesh.get_mesh()
             max_iters -= 1
+
+    # # residuals
+    # def calculate_residuals(self):
+    #     # apriori and aposteriori error estimation
+
+    #     equation_residuals = {
+    #         "projection": self._calculate_projection_residuals,
+    #         "poisson": self._calculate_poisson_residuals,
+    #         "heat": self._calculate_heat_residuals,
+    #         "wave": self._calculate_wave_residuals,
+    #         "linear_elastic": self._calculate_linear_elastic_residuals,
+    #     }
+
+    #     residual_method = equation_residuals.get(self.equation.name)
+    #     if residual_method:
+    #         residual_method()
+    #     else:
+    #         raise ValueError(f"Unknown equation name: {self.equation.name}")
+
+    # def _calculate_projection_residuals(self, apriori=True):
+    #     # Apriori error ||e|| <= C * h^2 * ||f"||
+    #     if apriori:
+    #         # compute apriori residual
+    #         residuals = np.zeros(len(self.mesh.elements))
+    #         for e_idx, element in enumerate(self.mesh.elements):
+    #             residuals[e_idx] = 0 # placeholder
+    #         self.solution.set_values("apriori_residual", residuals)
+    #     else:
+    #         # compute aposteriori residual
+    #         residuals = None
+    #         self.solution.set_values("aposteriori_residual", residuals)
+    #         pass

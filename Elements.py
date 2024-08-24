@@ -1,4 +1,5 @@
 import numpy as np
+from utils.helper import *
 
 class LinearTriangleElement: # TODO: perhaps put quadrature in here too?
     '''
@@ -6,16 +7,16 @@ class LinearTriangleElement: # TODO: perhaps put quadrature in here too?
 
     Shape function phi(x) = a + b*x + c*y
     '''
-    def __init__(self, vertices, area):
+    def __init__(self, vertices):
         self.vertices = vertices
-        self.area = area
+        self.area = calculate_triangle_area(vertices)
 
         a, b, c = [], [], []
         for i in range(3):
             x_j, x_k = vertices[(i+1)%3], vertices[(i+2)%3]
-            a.append((x_j[0]*x_k[1] - x_k[0]*x_j[1]) / (2 * area))
-            b.append((x_j[1] - x_k[1]) / (2 * area))
-            c.append((x_k[0] - x_j[0]) / (2 * area))
+            a.append((x_j[0]*x_k[1] - x_k[0]*x_j[1]) / (2 * self.area))
+            b.append((x_j[1] - x_k[1]) / (2 * self.area))
+            c.append((x_k[0] - x_j[0]) / (2 * self.area))
 
         self.gradient = np.array([b, c]).T # shape (3, 2)
 

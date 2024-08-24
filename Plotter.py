@@ -129,7 +129,7 @@ class Plotter:
             self.ax.remove()
             self.ax = self.fig.add_subplot(111, projection='3d')
         values = np.array(values)
-        assert values.shape == (len(self.mesh.vertices),), f'Invalid values shape: {values.shape}'
+        assert values.shape == (len(self.mesh.vertices),), f'Invalid values shape: {values.shape}' # TODO: support this
         triangulation = Triangulation(self.mesh.vertices[:, 0], self.mesh.vertices[:, 1], triangles=self.mesh.elements)
         surf = self.ax.plot_trisurf(triangulation, values, cmap='viridis')
 
