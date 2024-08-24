@@ -4,7 +4,7 @@ from Energies import *
 from Solution import *
 
 class EnergySolver:
-    def __init__(self, mesh, equation, boundary_conditions):
+    def __init__(self, mesh, equation, boundary_conditions, verbose=True):
         assert equation.name == "linear_elastic", "EnergySolver only supports linear elastic equation"
         # note: does not exactly match linear elastic solve for larger deformations bc doesn't use small strain approx
 
@@ -19,6 +19,9 @@ class EnergySolver:
         self.fixed_values = self.boundary_conditions.fixed_values
 
         self.energy_density = self._select_energy(equation)
+
+        # other options, TODO: inheritance to hide these options
+        self.verbose = verbose
 
         # TODO: flat u + bc handling weird
         
@@ -93,25 +96,18 @@ class EnergySolver:
         total_energy_hessian[:, self.fixed] = 0
         return total_energy_hessian
 
-    def solve(self): # TODO: implement hessian
+    def solve(self, max_iters=100):
         u = np.zeros(len(self.mesh.vertices) * 2)
         u[self.fixed] = self.fixed_values
         print("Initial energy:", self.energy(u))
-        # output = minimize(self.energy, u, jac=self.energy_gradient, #hess=self.energy_hessian, 
-        #                   method='Newton-CG', callback=lambda x: print(self.energy(x)))
-        # print(f"Iterations: {output.nit}, Success: {output.success}, Message: {output.message}")
-        # print(f"Gradient: {np.linalg.norm(output.jac)}")
-        # print(f"Energy: {output.fun}")
-        # print(f"Gradient norm: {np.linalg.norm(output.jac)}")
-        # self.solution.set_values("u", output.x)
         u = self._newton_solve(u)
         self.solution.set_values("u", u)
         return self.solution
 
-    def _newton_solve(self, u):
-        i = 0
-        while i == 0 or np.linalg.norm(newton_step) > 1e-6:
-            i += 1
+    def _newton_solve(self, u, max_iters=100):
+        for iter in range(max_iters):
+            if self.verbose:
+                print(f"{iter} {self.energy(u)}")
             gradient = self.energy_gradient(u)
             hessian = self.energy_hessian(u)
             try:
@@ -119,6 +115,8 @@ class EnergySolver:
             except:
                 print("Singular hessian, adding regularization")
                 newton_step = np.linalg.solve(hessian + 1e-8 * np.eye(hessian.shape[0]), -gradient)
+            if np.linalg.norm(newton_step) < 1e-6:
+                break
             u += newton_step
-            print(f"{i} {self.energy(u)}")
+            
         return u

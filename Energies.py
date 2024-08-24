@@ -1,5 +1,5 @@
 import numpy as np
-from utils.helper import check_gradient
+from utils.helper import * 
 
 class LinearElasticEnergyDensity: # TODO: inheritance
     '''
@@ -12,7 +12,7 @@ class LinearElasticEnergyDensity: # TODO: inheritance
     def __init__(self, E, nu):
         self.E = E
         self.nu = nu
-        self.mu, self.lamb = self.Enu_to_Lame(self.E, self.nu)
+        self.mu, self.lamb = Enu_to_Lame(self.E, self.nu)
 
     # Calculate grad_u -> F, S, W, dS_dF, dW_dS, dW_dF
     def set_grad_u(self, grad_u):
@@ -26,6 +26,8 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         self.d2W_dS2 = self.calculate_d2W_dS2(self.S)
     
     def calculate_S_from_F(self, F):
+        # note: this is not the linear approx of infinitesimal strain theory,
+        #       so iterative solver does not converge in 1 iteration
         return 0.5 * (F.T @ F - np.eye(2))
 
     def calculate_W_from_S(self, S):
@@ -77,16 +79,6 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         check_gradient(self.calculate_W_from_S, self.calculate_dW_dS, (2, 2))
         check_gradient(self.calculate_W_from_F, self.calculate_dW_dF, (2, 2))
         print("Gradient checks completed")
-
-    def Enu_to_Lame(self, E, nu):
-        mu = E / (2 * (1 + nu))
-        lamb = E * nu / ((1 + nu) * (1 - 2 * nu))
-        return mu, lamb
-
-    def Lame_to_Enu(self, mu, lamb):
-        E = mu * (3 * lamb + 2 * mu) / (lamb + mu)
-        nu = lamb / (2 * (lamb + mu))
-        return E, nu
 
 class NeohookeanEnergyDensity:
     def __init__(self, mu, lamb):

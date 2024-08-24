@@ -160,7 +160,7 @@ def test_energy_solver(): # TODO: add support for force bc
     left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
     right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
     bc.add('dirichlet', left_idxs, [0, 0])
-    bc.add('dirichlet', right_idxs, [0.001, 0])
+    bc.add('dirichlet', right_idxs, [0.5, 0])
     # bc.plot()
 
     energy_solver = EnergySolver(mesh, equation, bc)
@@ -169,38 +169,44 @@ def test_energy_solver(): # TODO: add support for force bc
     deformed_mesh = Mesh(vertices, mesh.elements, mesh.boundary)
     deformed_mesh.plot()
 
-    u1 = solution.get_values('u')
-    energy1 = energy_solver.energy(u1)
+def test_boundary_conditions():
+    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
+    bc = BoundaryConditions(mesh)
+    left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
+    right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
+    bc.add('dirichlet', left_idxs, [0, 0])
+    bc.add('neumann', right_idxs, [[mesh.vertices[idx][1]*0.1, 0] for idx in right_idxs])
 
-    solver2 = Solver(mesh, equation, bc)
-    solution2 = solver2.solve()
-    vertices = mesh.vertices + solution2.get_values('u').reshape(-1, 2)
-    deformed_mesh2 = Mesh(vertices, mesh.elements, mesh.boundary)
-    deformed_mesh2.plot()
+    equation = Equation('linear_elastic', {'E': 1, 'nu': 0.4})
+    solver = Solver(mesh, equation, bc)
+    solution = solver.solve()
 
-    u2 = solution2.get_values('u')
-    energy2 = energy_solver.energy(u2)
+    solver.solution.plot('stress', deformed=True)
 
-    # e1_energy_density = energy_solver.element_energy(0, u2.reshape(-1, 2)[mesh.elements[0]])
-    # e1_energy = energy_solver.mesh.areas[0] * e1_energy_density
-    # s1_energy = solution2.get_values('compliance')[0]
-
-    # e1_strain = energy_solver.energy_density.S
-    # e_idx = 0
-    # u_element = u2.reshape(-1, 2)[mesh.elements[e_idx]]
-
-    print(energy1, energy2)
+    equation = Equation('poisson')
+    bc = BoundaryConditions(mesh)
+    bc.add('dirichlet', [idx for idx in mesh.boundary_idxs if idx not in right_idxs], [0])
+    bc.add('neumann', right_idxs, [1])
+    bc.add_force(lambda point: [1])
+    solver = Solver(mesh, equation, bc)
+    solution = solver.solve()
+    solution.plot('u', mode='surface', options={'title': 'Poisson Solution'})
+    gradient = solution.calculate_gradient('u')
+    gradient_norm = np.linalg.norm(gradient, axis=1)
+    gradient_norm_v = solution._convert_element_values_to_vertex_values(gradient_norm)
+    Plotter(mesh, options={'title': 'Gradient Norm'}).plot_values(gradient_norm_v, mode='surface')
 
 if __name__ == "__main__":
-    MESH_FILE = 'meshes/10x10.pkl'
+    MESH_FILE = 'meshes/20x20.pkl'
     mesh = Mesh.load(MESH_FILE)
 
-    # test_plot_mesh()
-    # test_l2_projection()
-    # test_poisson_equation()
-    # test_heat_equation()
-    # test_wave_equation() # TODO: running test_wave after test_heat seems to have plotting issues
-    # test_linear_elastic()
-    # test_topology_optimization()
-    # test_energy_solver()
-    # test_adaptive_refinement()
+    test_plot_mesh()
+    test_l2_projection()
+    test_poisson_equation()
+    test_heat_equation()
+    test_wave_equation() # TODO: running test_wave after test_heat seems to have plotting issues
+    test_linear_elastic()
+    test_topology_optimization()
+    test_energy_solver()
+    test_adaptive_refinement()
+    # test_boundary_conditions()

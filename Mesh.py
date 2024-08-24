@@ -14,10 +14,12 @@ class Mesh:
         self.elements = np.array(elements)
         self.boundary = np.array(boundary)
 
-        self.boundary_idxs = list(set(self.boundary.ravel()))
+        self.element_type = LinearTriangleElement
         self.areas = np.array([calculate_triangle_area(self.vertices[element]) for element in self.elements])
-        self.edges = self._get_all_edges()
         self.shape_functions = self._get_all_shape_functions()
+
+        self.boundary_idxs = list(set(self.boundary.ravel()))
+        self.edges = self._get_all_edges()
         self.element_neighbors = self._calculate_element_neighbors(self.elements)
 
     # TODO: Save and load to better formats - off, obj
@@ -98,7 +100,7 @@ class Mesh:
         '''
         shape_functions = []
         for e_idx, element in enumerate(self.elements):
-            shape_functions.append(LinearTriangleElement(self.vertices[element], self.areas[e_idx]))
+            shape_functions.append(LinearTriangleElement(self.vertices[element]))
         return shape_functions
 
     def get_edges_in_idxs(self, vertices_idxs, exclude_corners=False):
