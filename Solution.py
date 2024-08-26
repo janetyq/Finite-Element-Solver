@@ -2,7 +2,8 @@ from datetime import datetime
 import numpy as np
 import pickle
 
-from Mesh import *
+from FEMesh import *
+from Plotter import *
 
 class Solution:
     def __init__(self, mesh, values=None):
@@ -83,7 +84,7 @@ class Solution:
         options['title'] = options.get('title', name)
         if deformed:
             vertices = self.mesh.vertices + self.get_values('u').reshape(-1, 2)
-            deformed_mesh = Mesh(vertices, self.mesh.elements, self.mesh.boundary)
+            deformed_mesh = FEMesh(vertices, self.mesh.elements, self.mesh.boundary)
             return Plotter(deformed_mesh, options=options).plot_values(values, mode=mode)
         return Plotter(self.mesh, options=options).plot_values(values, mode=mode)
 

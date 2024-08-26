@@ -195,7 +195,7 @@ class Solver:
 
     def _calculate_element_stiffness_matrix(self, e_idx):
         element = self.mesh.elements[e_idx]
-        hat_grad = self.mesh.shape_functions[e_idx].gradient # phi?
+        hat_grad = self.mesh.element_objs[e_idx].gradient # phi?
         if self.dim == 1:
             return hat_grad @ hat_grad.T * self.mesh.areas[e_idx]
         elif self.equation.name == "linear_elastic":
@@ -212,7 +212,7 @@ class Solver:
                lamb * np.array([[1, 1, 0], [1, 1, 0], [0, 0, 0]])
 
     def _get_B(self, e_idx):
-        hat_grad = self.mesh.shape_functions[e_idx].gradient
+        hat_grad = self.mesh.element_objs[e_idx].gradient
         b = hat_grad[:, 0]
         c = hat_grad[:, 1]
         return np.array([[b[0],   0 , b[1],   0 , b[2],   0 ],

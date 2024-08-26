@@ -2,22 +2,9 @@ import numpy as np
 from math import sin, cos, pi
 import matplotlib.pyplot as plt
 
-# 2d vector operations - faster than numpy
-def calculate_dot(vec1, vec2):
-    return vec1[0]*vec2[0] + vec1[1]*vec2[1]
-
-def calculate_norm(vec):
-    return (vec[0]**2 + vec[1]**2)**0.5
-
-def calculate_cross(vec1, vec2):
-    return vec1[0]*vec2[1] - vec1[1]*vec2[0]
-
+# random useful functions
 def bump_function(vertices, center, mag=100, size=0.5):
     return np.array([mag*cos(pi/2*np.linalg.norm(point - center)/size) if np.linalg.norm(point - center) < size else 0 for point in vertices])
-
-def calculate_triangle_area(vertices):
-    p1, p2, p3 = vertices
-    return 0.5 * abs((p1[0] * (p2[1] - p3[1]) + p2[0] * (p3[1] - p1[1]) + p3[0] * (p1[1] - p2[1])))
 
 def calculate_polygon_area(polygon):
     x, y = polygon.T
@@ -90,6 +77,7 @@ class color:
    UNDERLINE = '\033[4m'
    END = '\033[0m'
 
+# Gradient checking - TODO: make faster
 def check_gradient(function, gradient, input_shape):
     u = np.random.random(input_shape)
     computed_gradient = gradient(u)
@@ -138,3 +126,23 @@ def check_hessian(gradient, hessian, input_shape):
     plt.xlabel('eps')
     plt.ylabel('error')
     plt.show()
+
+# Decorators
+def timer(func):
+    import time
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f'{func.__name__} took {end - start} seconds')
+        return result
+    return wrapper
+
+def calculate_smoothing_matrix(mesh, r):
+    centers = mesh.vertices[mesh.elements].mean(axis=1)
+    diff = centers[:, np.newaxis, :] - centers[np.newaxis, :, :]
+    distances = np.linalg.norm(diff, axis=2)
+    weight_matrix = np.maximum(0, r - distances)
+    normalized_weight_matrix = weight_matrix / (weight_matrix.sum(axis=1)[:, np.newaxis] + 1e-16)
+    return normalized_weight_matrix
+    
