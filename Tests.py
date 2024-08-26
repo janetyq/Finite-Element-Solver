@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from utils.helper import *
 
 from BoundaryConditions import *
-from Mesh import *
+from FEMesh import *
 from Plotter import *
 from Solver import *
 from TopologyOptimizer import *
@@ -112,6 +112,8 @@ def test_topology_optimization():
     Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[1], options={'title': 'Final Stress'}).plot_values(solution.get_values('stress_list', iter_idx=-1))
 
 def test_adaptive_refinement():
+    raise NotImplementedError('Adaptive refinement demo is not implemented') # TODO
+
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     def test_function(point):
         # return [1]
@@ -129,8 +131,6 @@ def test_adaptive_refinement():
     Plotter(mesh, options={'title': 'Poisson Solution'}).plot_values(solution.get_values('u'), mode='surface')
     solution.calculate_gradient('u')
     Plotter(mesh, options={'title': 'gradient'}).plot_values(solution.get_values('grad_u'), mode='arrows')
-
-    raise NotImplementedError('Adaptive refinement demo is not implemented') # TODO
 
     # solution_init = solver.solve()
     # solver.adaptive_refinement()
@@ -197,7 +197,7 @@ def test_boundary_conditions():
     Plotter(mesh, options={'title': 'Gradient Norm'}).plot_values(gradient_norm_v, mode='surface')
 
 if __name__ == "__main__":
-    MESH_FILE = 'meshes/20x20.pkl'
+    MESH_FILE = 'meshes/40x40.json'
     mesh = Mesh.load(MESH_FILE)
 
     test_plot_mesh()

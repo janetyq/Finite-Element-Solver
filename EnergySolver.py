@@ -47,7 +47,7 @@ class EnergySolver:
         grad_u_element = self.mesh.calculate_element_gradient(e_idx, u_element)
         self.energy_density.set_grad_u(grad_u_element)
         dW_dF = self.energy_density.dW_dF
-        dF_dx = self.mesh.shape_functions[e_idx].dF_dx
+        dF_dx = self.mesh.element_objs[e_idx].dF_dx
         dW_dx = np.einsum('ij,ijmn->mn', dW_dF, dF_dx)
         return dW_dx
 
@@ -59,7 +59,7 @@ class EnergySolver:
         d2S_dF2 = self.energy_density.d2S_dF2
         dW_dS = self.energy_density.dW_dS
         dS_dF = self.energy_density.dS_dF
-        dF_dx = self.mesh.shape_functions[e_idx].dF_dx
+        dF_dx = self.mesh.element_objs[e_idx].dF_dx
         dS_dx = np.einsum('klij,ijmn->klmn', dS_dF, dF_dx)
         term1 = np.einsum('abcdij,ijmn->abcdmn', d2S_dF2, dF_dx)
         term1 = np.einsum('abijcd,ijmn->abcdmn', term1, dF_dx)

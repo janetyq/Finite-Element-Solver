@@ -9,7 +9,7 @@ class LinearTriangleElement: # TODO: perhaps put quadrature in here too?
     '''
     def __init__(self, vertices):
         self.vertices = vertices
-        self.area = calculate_triangle_area(vertices)
+        self.area = calculate_polygon_area(vertices)
 
         a, b, c = [], [], []
         for i in range(3):

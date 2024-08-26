@@ -9,12 +9,12 @@ class TopologyOptimizer:
     Creates a solver and iteratively updates density field to minimize some objective 
     for some equation and boundary conditions.
     '''
-    def __init__(self, mesh, equation, boundary_conditions, iters=10, volume_frac=1.0):
+    def __init__(self, mesh, equation, boundary_conditions, iters=10, volume_frac=1.0, smoothing_radius=0.05):
         assert equation.name == 'linear_elastic', \
             'TopologyOptimizer only supports linear_elastic equations'
+        self.mesh = mesh
         self.orig_equation = equation.__copy__()
         self.solver = Solver(mesh, equation, boundary_conditions)
-        self.element_neighbors = self.solver.mesh.element_neighbors
         self.solution = Solution(mesh)
 
         self.iters = iters
@@ -23,17 +23,11 @@ class TopologyOptimizer:
         self.rho = None
         self.set_rho(np.full(len(mesh.elements), self.volume_frac))
 
+        self.smoothing_matrix = calculate_smoothing_matrix(self.mesh, r=smoothing_radius)
+
     def set_rho(self, rho):
         self.rho = rho
         self.solver.equation.parameters['E'] = self.rho**3 * self.orig_equation.parameters['E']
-
-    def filter_sensitivity(self, sensitivity): #TODO: research a better filter
-        # simple averaging with neighbors
-        smoothed_sensitivity = np.zeros_like(sensitivity)
-        for e_idx, element in enumerate(self.solver.mesh.elements):
-            neighbor_value = np.mean([sensitivity[neighbor_idx] for neighbor_idx in self.element_neighbors[e_idx]])
-            smoothed_sensitivity[e_idx] = 0.5 * neighbor_value + 0.5 * sensitivity[e_idx]
-        return smoothed_sensitivity
 
     def oc_density(self, sensitivity, volume_frac):
         # sensitivity is the gradient of the compliance with respect to the density
@@ -69,8 +63,8 @@ class TopologyOptimizer:
                 self._plot_iteration(iter, solution)
 
             # update rho
-            gradient = self.filter_sensitivity(gradient_func(objective_args))
-            updated_rho = optimization_func(gradient)
+            smoothed_gradient = self.smoothing_matrix @ gradient_func(objective_args)
+            updated_rho = optimization_func(smoothed_gradient)
             self.set_rho(updated_rho)
 
         self.solution = Solution.combine_solutions(solution_list)
@@ -138,4 +132,4 @@ class TopologyOptimizer:
             u = self.solution.values['u_list'][iter_idx]
         except:
             u = self.solver.solution.values['u']
-        return Mesh(self.solver.mesh.vertices + u.reshape(-1, 2), self.solver.mesh.elements, self.solver.mesh.boundary)
+        return FEMesh(self.solver.mesh.vertices + u.reshape(-1, 2), self.solver.mesh.elements, self.solver.mesh.boundary)
