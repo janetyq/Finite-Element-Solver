@@ -15,9 +15,11 @@ np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
 
 def test_plot_mesh():
-    plotter = Plotter(mesh, options={'title': 'Mesh'})
-    plotter.plot_mesh(mode='wireframe', color_vertices=[('red', mesh.boundary_idxs, 'boundary')])
-    plotter.plot_mesh(mode='solid')
+    plotter = Plotter(title='Mesh Plot')
+    plotter.plot(mesh, mode='mesh')
+    plotter.plot(mesh, mode='boundary')
+    plotter.plot_highlights(mesh, [mesh.boundary_idxs], ['red'], ['boundary'])
+    plotter.show()
 
 def test_l2_projection():
     def cool_f(point):
@@ -28,7 +30,10 @@ def test_l2_projection():
     bc.add_force(cool_f)
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    solution.plot('u', mode='surface', options={'title': 'L2 Projection'})
+
+    plotter = Plotter(title='L2 Projection')
+    plotter.plot(mesh, solution.get_values('u'), mode='surface')
+    plotter.show()
 
 def test_poisson_equation():
     equation = Equation('poisson')
@@ -37,9 +42,12 @@ def test_poisson_equation():
     bc.add_force(lambda point: [1])
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    solution.plot('u', mode='surface', options={'title': 'Poisson Solution'})
-    gradient = solution.calculate_gradient('u')
-    Plotter(mesh, options={'title': 'Gradient'}).plot_values(gradient, mode='arrows')
+    gradient = mesh.calculate_gradient(solution.get_values('u'))
+
+    plotter = Plotter(1, 2, title='Poisson Equation')
+    plotter.plot(mesh, solution.get_values('u'), mode='surface', title='Solution', idx=(0, 0))
+    plotter.plot(mesh, gradient, mode='arrows', title='Gradient', idx=(0, 1))
+    plotter.show()
 
 def test_heat_equation():
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
@@ -52,10 +60,10 @@ def test_heat_equation():
     u_values = solution.get_values('u_values')
     t_values = solution.get_values('t_values')
 
-    plotter = Plotter(mesh, options={'title': 'Heat Equation', 'cbar_lim': (300, 330), 'cbar_label': 'Temperature'})
-    plotter.plot_animation(u_values, t_values, mode='surface')
-    plotter.options['save'] = 'results/heat.gif'
-    plotter.plot_animation(u_values, t_values, mode='colored')
+    plotter = Plotter(1, 2, title='Heat Equation')
+    plotter.plot_animation(mesh, u_values, mode='colored', titles=[f'Color t={t}' for t in t_values], idx=(0, 0))
+    plotter.plot_animation(mesh, u_values, mode='surface', titles=[f'Surface t={t}' for t in t_values], idx=(0, 1))
+    plotter.show()
 
 def test_wave_equation(): # TODO: Wave energy not fully implemented
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
@@ -66,13 +74,12 @@ def test_wave_equation(): # TODO: Wave energy not fully implemented
     equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.04, 'iters': 10})
     solver = Solver(mesh, equation)
     solution = solver.solve()
+    u_values = solution.get_values('u_values')
+    t_values = solution.get_values('t_values')
 
-    last_value = solution.get_values('u_values', iter_idx=-1)
-    all_values = solution.get_values('u_values')
-    plotter = Plotter(mesh, options={'title': 'Wave Equation'})
-    plotter.plot_values(last_value)
-    plotter.options['save'] = 'results/wave.gif'
-    plotter.plot_animation(all_values, mode='surface')
+    plotter = Plotter(1, 1, title='Wave Equation')
+    plotter.plot_animation(mesh, u_values, mode='surface', titles=[f'Surface t={t}' for t in t_values], idx=(0, 0))
+    plotter.show()
 
 def test_linear_elastic():
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
@@ -87,10 +94,16 @@ def test_linear_elastic():
     equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
+    deformed_mesh = solution.get_deformed_mesh()
+    displacements = np.linalg.norm(solution.get_values('u').reshape(-1, 2), axis=1)
 
-    solver.solution.plot('stress', deformed=True)
+    plotter = Plotter(1, 2, title='Linear Elasticity')
+    plotter.plot(deformed_mesh, solution.get_values('stress'), mode='colored', title='Stress', idx=(0, 0))
+    plotter.plot(mesh, displacements, mode='colored', title='Displacement', idx=(0, 1))
+    plotter.show()
 
-def test_topology_optimization():
+
+def test_topology_optimization(iters=10):
     def down_force(point):
         return np.array([0, -0.5])
 
@@ -100,20 +113,22 @@ def test_topology_optimization():
     bc.add_force(down_force)
 
     equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
-    topopt = TopologyOptimizer(mesh, equation, bc, iters=10, volume_frac=0.5)
-    solution = topopt.solve(plot=True)
-    
-    # Plotter(topopt._get_deformed_mesh(5), options={'title': 'TopoOpt iter 5'}).plot_values(solution.get_values('rhos', iter_idx=5))
-    options = {'title': 'Topology Optimization', 'cbar_lim': [0, 1], 'cbar_label': 'Density', 'save': 'results/topopt.gif'}
-    topopt.plot('rho_list', deformed=False, options=options) # animation
+    topopt = TopologyOptimizer(mesh, equation, bc, iters=iters, volume_frac=0.5)
+    solution = topopt.solve(plot=False)
+    deformed_mesh = topopt._get_deformed_mesh()
 
-    fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-    Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[0], options={'title': 'Final Density', 'show': False}).plot_values(solution.get_values('rho_list', iter_idx=-1))
-    Plotter(topopt._get_deformed_mesh(), fig=fig, ax=ax[1], options={'title': 'Final Stress'}).plot_values(solution.get_values('stress_list', iter_idx=-1))
+    plotter = Plotter(title='Topology Optimization')
+    plotter.plot_animation(mesh, solution.get_values('rho_list'), mode='colored') # TODO: have mesh deform during animation, title
+    plotter.show()
+
+    rho_final = solution.get_values('rho_list', iter_idx=-1)
+    stress_final = solution.get_values('stress_list', iter_idx=-1)
+    plotter = Plotter(1, 2, title='Topology Optimization')
+    plotter.plot(deformed_mesh, rho_final, mode='colored', title='Final Density', idx=(0, 0))
+    plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final Stress', idx=(0, 1))
+    plotter.show()
 
 def test_adaptive_refinement():
-    raise NotImplementedError('Adaptive refinement demo is not implemented') # TODO
-
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     def test_function(point):
         # return [1]
@@ -128,9 +143,15 @@ def test_adaptive_refinement():
     bc.add("dirichlet", mesh.boundary_idxs, [0])
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    Plotter(mesh, options={'title': 'Poisson Solution'}).plot_values(solution.get_values('u'), mode='surface')
-    solution.calculate_gradient('u')
-    Plotter(mesh, options={'title': 'gradient'}).plot_values(solution.get_values('grad_u'), mode='arrows')
+    u = solution.get_values('u')
+    u_gradient = mesh.calculate_gradient(u)
+
+    plotter = Plotter(1, 2, title='Adaptive Refinement')
+    plotter.plot(mesh, u, mode='surface', title='Poisson Solution', idx=(0, 0))
+    plotter.plot(mesh, u_gradient, mode='arrows', title='Gradient', idx=(0, 1))
+    plotter.show()
+
+    raise NotImplementedError('Adaptive refinement demo is not implemented') # TODO
 
     # solution_init = solver.solve()
     # solver.adaptive_refinement()
@@ -161,52 +182,65 @@ def test_energy_solver(): # TODO: add support for force bc
     right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
     bc.add('dirichlet', left_idxs, [0, 0])
     bc.add('dirichlet', right_idxs, [0.5, 0])
-    # bc.plot()
 
     energy_solver = EnergySolver(mesh, equation, bc)
     solution = energy_solver.solve()
     vertices = mesh.vertices + solution.get_values('u').reshape(-1, 2)
-    deformed_mesh = Mesh(vertices, mesh.elements, mesh.boundary)
-    deformed_mesh.plot()
+    mesh_final = FEMesh(vertices, mesh.elements, mesh.boundary)
+
+    plotter = Plotter(title='Energy Solver')
+    plotter.plot(mesh_final, mode='mesh', title='Final')
+    plotter.show()
 
 def test_boundary_conditions():
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
+    
+    # Linear Elastic Example
+    equation = Equation('linear_elastic', {'E': 1, 'nu': 0.4})
     bc = BoundaryConditions(mesh)
     left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
     right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
     bc.add('dirichlet', left_idxs, [0, 0])
-    bc.add('neumann', right_idxs, [[mesh.vertices[idx][1]*0.1, 0] for idx in right_idxs])
+    bc.add('neumann', right_idxs, [[0.1, 0] for idx in right_idxs])
 
-    equation = Equation('linear_elastic', {'E': 1, 'nu': 0.4})
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
+    deformed_mesh = solution.get_deformed_mesh()
 
-    solver.solution.plot('stress', deformed=True)
+    plotter = Plotter(1, 2, title='Linear Elastic')
+    plotter.plot(mesh, bc=bc, mode='bc', title='Boundary Conditions')
+    plotter.plot(deformed_mesh, solution.get_values('stress'), mode='colored', title='Solution', idx=(0, 1))
+    plotter.show()
 
+    # Poisson Example
     equation = Equation('poisson')
     bc = BoundaryConditions(mesh)
     bc.add('dirichlet', [idx for idx in mesh.boundary_idxs if idx not in right_idxs], [0])
     bc.add('neumann', right_idxs, [1])
     bc.add_force(lambda point: [1])
+
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    solution.plot('u', mode='surface', options={'title': 'Poisson Solution'})
-    gradient = solution.calculate_gradient('u')
-    gradient_norm = np.linalg.norm(gradient, axis=1)
-    gradient_norm_v = solution._convert_element_values_to_vertex_values(gradient_norm)
-    Plotter(mesh, options={'title': 'Gradient Norm'}).plot_values(gradient_norm_v, mode='surface')
+    u = solution.get_values('u')
+    u_gradient = mesh.calculate_gradient(u)
+    u_gradient_norm = np.linalg.norm(u_gradient, axis=1)
+
+    plotter = Plotter(1, 2, title='Boundary Conditions')
+    plotter.plot(mesh, u, mode='surface', title='Poisson Solution', idx=(0, 0))
+    plotter.plot(mesh, u_gradient_norm, mode='surface', title='Gradient Norm', idx=(0, 1))
+    plotter.show()
 
 if __name__ == "__main__":
-    MESH_FILE = 'meshes/40x40.json'
-    mesh = Mesh.load(MESH_FILE)
+    MESH_FILE = 'files/mesh_100x20.json'
+    mesh = FEMesh.load(MESH_FILE)
 
     test_plot_mesh()
     test_l2_projection()
     test_poisson_equation()
     test_heat_equation()
-    test_wave_equation() # TODO: running test_wave after test_heat seems to have plotting issues
+    test_wave_equation()
     test_linear_elastic()
-    test_topology_optimization()
+    test_topology_optimization(iters=30) # TODO: save animation, smoothing
     test_energy_solver()
-    test_adaptive_refinement()
-    # test_boundary_conditions()
+    test_boundary_conditions()
+    # test_adaptive_refinement()

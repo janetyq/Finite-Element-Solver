@@ -62,5 +62,7 @@ class BoundaryConditions:
         self.neumann_load = np.array(self.neumann_load)
         self.force_load = np.array(self.force_load)  
 
-    def plot(self, values=None): # TODO: what is values, body force?
-        return Plotter(self.mesh).plot_bc(self, values)      
+    def plot(self):
+        plotter = Plotter(title='Boundary conditions')
+        plotter.plot(self.mesh, bc=self, mode='bc')
+        plotter.show()

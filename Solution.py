@@ -57,36 +57,8 @@ class Solution:
     def reset(self):
         self.values = {}
 
-    def calculate_gradient(self, name): # TODO: rename, overloaded
-        values = self.get_values(name)
-        self.values["grad_" + name] = self.mesh.calculate_gradient(values)
-        return self.values["grad_" + name]
-
-    def _convert_vertex_values_to_element_values(self, vertex_values):
-        assert len(vertex_values) == len(self.mesh.vertices)
-        element_values = np.zeros(len(self.mesh.elements))
-        for e_idx, element in enumerate(self.mesh.elements):
-            element_values[e_idx] = np.mean([vertex_values[v_idx] for v_idx in element])
-        return element_values
-
-    def _convert_element_values_to_vertex_values(self, element_values):
-        assert len(element_values) == len(self.mesh.elements)
-        vertex_values = np.zeros(len(self.mesh.vertices))
-        for e_idx, element in enumerate(self.mesh.elements):
-            for v_idx in element:
-                vertex_values[v_idx] = element_values[e_idx]
-        return vertex_values
-
-    def plot(self, name, iter_idx=None, deformed=False, mode=None, options=None): #TODO: support None name
-        # special to mechanics solve
-        values = self.get_values(name, iter_idx=iter_idx)
-        options = options if options is not None else {}
-        options['title'] = options.get('title', name)
-        if deformed:
-            vertices = self.mesh.vertices + self.get_values('u').reshape(-1, 2)
-            deformed_mesh = FEMesh(vertices, self.mesh.elements, self.mesh.boundary)
-            return Plotter(deformed_mesh, options=options).plot_values(values, mode=mode)
-        return Plotter(self.mesh, options=options).plot_values(values, mode=mode)
+    def get_deformed_mesh(self):
+        return FEMesh(self.mesh.vertices + self.get_values('u').reshape(-1, 2), self.mesh.elements, self.mesh.boundary)
 
     @classmethod
     def combine_solutions(cls, solution_list):

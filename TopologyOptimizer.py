@@ -9,7 +9,7 @@ class TopologyOptimizer:
     Creates a solver and iteratively updates density field to minimize some objective 
     for some equation and boundary conditions.
     '''
-    def __init__(self, mesh, equation, boundary_conditions, iters=10, volume_frac=1.0, smoothing_radius=0.05):
+    def __init__(self, mesh, equation, boundary_conditions, iters=10, volume_frac=1.0, smoothing_radius=0.1):
         assert equation.name == 'linear_elastic', \
             'TopologyOptimizer only supports linear_elastic equations'
         self.mesh = mesh
@@ -84,21 +84,6 @@ class TopologyOptimizer:
         target = args[0]
         return self.compliance_gradient() * 2 * (self.compliance() - target)
 
-    def plot(self, name, deformed=True, options=None):
-        # animation of the optimization process
-        options = options if options is not None else {}
-        options['cbar_label'] = options.get('cbar_label', name)
-
-        values = self.solution.get_values(name, mode=None) # TODO: mode not supported for list values
-        if len(values[0]) == len(self.solver.mesh.elements):
-            values = [self.solution._convert_element_values_to_vertex_values(v) for v in values]
-       
-        plotter = Plotter(self.solver.mesh, options=options) 
-        if deformed:
-            plotter.plot_animation(values, mode='colored', meshes=[self._get_deformed_mesh(iter_idx) for iter_idx in range(self.iters)])
-        else:
-            plotter.plot_animation(values, mode='colored')
-
     def _select_objective(self, objective_name):
         if objective_name == 'min_compliance':
             return self.compliance, self.compliance_gradient
@@ -124,10 +109,11 @@ class TopologyOptimizer:
     def _plot_iteration(self, iter, solution):
         deformed_mesh = self._get_deformed_mesh()
         compliance = solution.values['compliance'].sum()
-        options = {'title': f'Iteration {iter}, C={compliance:.4f}', 'cbar_label': 'Density', 'save': f"results/rho{iter}.png"}
-        Plotter(deformed_mesh, options=options).plot_values(self.rho)
+        plotter = Plotter(title=f'Iteration {iter}, C={compliance:.4f}')
+        plotter.plot(deformed_mesh, self.rho, mode='colored')
+        plotter.show()
 
-    def _get_deformed_mesh(self, iter_idx=-1):
+    def _get_deformed_mesh(self, iter_idx=-1): # TODO: duplicate
         try:
             u = self.solution.values['u_list'][iter_idx]
         except:
