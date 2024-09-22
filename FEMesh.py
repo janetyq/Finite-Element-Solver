@@ -4,7 +4,8 @@ from Elements import *
 
 class FEMesh(Mesh):
     '''
-    2D triangular mesh
+    Built on top of Mesh class
+    Adds functionality for FEM calculations (ie. element areas, gradients, integrals)
     '''
     def __init__(self, vertices, elements, boundary, element_type=LinearTriangleElement):
         Mesh.__init__(self, vertices, elements, boundary)
@@ -13,9 +14,6 @@ class FEMesh(Mesh):
         self.element_objs = self._get_element_objs()
 
         self.areas = [element.area for element in self.element_objs]
-
-    def plot(self, fig=None, ax=None, options={}):
-        return Plotter(self, fig=fig, ax=ax, options=options).plot_mesh()
 
     # METRICS
     def calculate_total_value(self, u):
@@ -74,4 +72,3 @@ class FEMesh(Mesh):
             if x_min <= x <= x_max and y_min <= y <= y_max:
                 in_boundary_idxs.append(v_idx)
         return in_boundary_idxs
-        
