@@ -13,18 +13,17 @@ class FEMesh(Mesh):
         self.element_type = element_type
         self.element_objs = self._get_element_objs()
 
-        self.areas = [element.area for element in self.element_objs]
+        self.volumes = [element.volume for element in self.element_objs]
 
     # METRICS
     def calculate_total_value(self, u):
         if len(u) == len(self.elements):       # u defined on elements
-            return sum([self.areas[e_idx] * u[e_idx] for e_idx in range(len(self.elements))])
+            return sum([self.volumes[e_idx] * u[e_idx] for e_idx in range(len(self.elements))])
         elif len(u) == len(self.vertices):    # u defined on vertices
-            return sum([self.areas[e_idx] * np.mean(u[self.elements[e_idx]]) for e_idx in range(len(self.elements))])
+            return sum([self.volumes[e_idx] * np.mean(u[self.elements[e_idx]]) for e_idx in range(len(self.elements))])
 
     def calculate_mean_value(self, u):
-        areas = [self.areas[e_idx] for e_idx in range(len(self.elements))]
-        return self.calculate_total_value(u) / sum(areas)
+        return self.calculate_total_value(u) / sum(self.volumes)
 
     def calculate_element_gradient(self, e_idx, u_element): # TODO: args suck, some code repetitive
         shape_gradient = self.element_objs[e_idx].gradient
@@ -39,7 +38,7 @@ class FEMesh(Mesh):
     def calculate_dirichlet_energy(self, u):
         u_gradient = self.calculate_gradient(u)
         squared_gradient_norm = np.einsum('ij,ij->i', u_gradient, u_gradient)
-        return sum([self.areas[e_idx] * squared_gradient_norm[e_idx] for e_idx in range(len(self.elements))])
+        return sum([self.volumes[e_idx] * squared_gradient_norm[e_idx] for e_idx in range(len(self.elements))])
 
     def calculate_energy(self, u, dudt):
         dirichlet_energy = self.calculate_dirichlet_energy(u)

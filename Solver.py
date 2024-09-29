@@ -156,7 +156,7 @@ class Solver:
             u_element = u[np.array([2*element, 2*element+1]).T.flatten()]
             eps_elements[e_idx] = B @ u_element
             sigma_elements[e_idx] = D @ eps_elements[e_idx]
-            compliance_elements[e_idx] = sigma_elements[e_idx] @ eps_elements[e_idx] * self.mesh.areas[e_idx]
+            compliance_elements[e_idx] = sigma_elements[e_idx] @ eps_elements[e_idx] * self.mesh.volumes[e_idx]
 
         self.solution.set_values("u", u)
         self.solution.set_values("strain", np.linalg.norm(eps_elements, axis=-1))
@@ -180,7 +180,7 @@ class Solver:
         return vector.flatten()
 
     def _calculate_element_load_vector(self, e_idx, param):
-        return param * 1/3 * self.mesh.areas[e_idx]
+        return param * 1/3 * self.mesh.volumes[e_idx]
 
     def _calculate_element_boundary_load_vector(self, b_idx, param): # TODO: generalize this
         boundary = self.mesh.boundary[b_idx]
@@ -191,18 +191,18 @@ class Solver:
         M = np.zeros((self.dim*len(element), self.dim*len(element)))
         M[::self.dim, ::self.dim] = 1
         M += np.eye(self.dim*len(element))
-        return 1/12 * self.mesh.areas[e_idx] * M
+        return 1/12 * self.mesh.volumes[e_idx] * M
 
     def _calculate_element_stiffness_matrix(self, e_idx):
         element = self.mesh.elements[e_idx]
         hat_grad = self.mesh.element_objs[e_idx].gradient # phi?
         if self.dim == 1:
-            return hat_grad @ hat_grad.T * self.mesh.areas[e_idx]
+            return hat_grad @ hat_grad.T * self.mesh.volumes[e_idx]
         elif self.equation.name == "linear_elastic":
             # outputs 6x6 element stiffness matrix
             D = self._get_D(e_idx)
             B = self._get_B(e_idx)
-            return B.T @ D @ B * self.mesh.areas[e_idx]
+            return B.T @ D @ B * self.mesh.volumes[e_idx]
         else:
             raise ValueError(f"Not implemented yet for dim {self.dim} and equation {self.equation.name}")
 
