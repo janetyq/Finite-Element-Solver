@@ -144,7 +144,7 @@ def run(control_input: np.ndarray, plot=False, save=None):
     obj_cost = average_bottom_temp
     control_cost = 5*np.sum(np.linalg.norm(control_input, axis=1))
 
-    tri_area = w*h/len(new_mesh.areas)
+    tri_area = w*h/len(new_mesh.volumes)
     edge_loss = 0.1*get_edge_loss(new_control_handles)
 
     costs = [obj_cost, edge_loss]

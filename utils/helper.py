@@ -16,6 +16,10 @@ def calculate_polygon_area(polygon):
     x, y = polygon.T
     return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
 
+def calculate_tetrahedron_volume(tetrahedron): # TODO: similar for triangle?
+    a, b, c = tetrahedron[1:] - tetrahedron[0]
+    return np.abs(np.dot(a, np.cross(b, c)) / 6)
+
 def point_in_polygon(point, polygon):
     x, y = point
     x_coords, y_coords = polygon.T

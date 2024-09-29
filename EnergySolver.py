@@ -72,14 +72,14 @@ class EnergySolver:
         u[self.fixed] = self.fixed_values
         total = 0
         for e_idx, element in enumerate(self.mesh.elements):
-            total += self.element_energy(e_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[e_idx]
+            total += self.element_energy(e_idx, u.reshape(-1, 2)[element]) * self.mesh.volumes[e_idx]
         return total
 
     def energy_gradient(self, u):
         u[self.fixed] = self.fixed_values
         total_energy_gradient = np.zeros((len(self.mesh.vertices), 2))
         for e_idx, element in enumerate(self.mesh.elements):
-            total_energy_gradient[element] += self.element_gradient(e_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[e_idx]
+            total_energy_gradient[element] += self.element_gradient(e_idx, u.reshape(-1, 2)[element]) * self.mesh.volumes[e_idx]
         total_energy_gradient = total_energy_gradient.flatten()
         total_energy_gradient[self.fixed] = 0
         return total_energy_gradient
@@ -90,7 +90,7 @@ class EnergySolver:
         total_energy_hessian = np.zeros((n, 2, n, 2))
         for e_idx, element in enumerate(self.mesh.elements):
             ix = np.ix_(element, range(2), element, range(2))
-            total_energy_hessian[ix] += self.element_hessian(e_idx, u.reshape(-1, 2)[element]) * self.mesh.areas[e_idx]
+            total_energy_hessian[ix] += self.element_hessian(e_idx, u.reshape(-1, 2)[element]) * self.mesh.volumes[e_idx]
         total_energy_hessian = total_energy_hessian.reshape(n*2, n*2)
         total_energy_hessian[self.fixed, :] = 0
         total_energy_hessian[:, self.fixed] = 0

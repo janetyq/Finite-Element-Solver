@@ -5,7 +5,7 @@ from matplotlib.tri import Triangulation
 from utils.helper import *
 
 class Mesh:
-    def __init__(self, vertices, elements, boundary):
+    def __init__(self, vertices, elements, boundary, type='tri'):
         # TODO: assert the correct dimensions, type-hinting
         self.vertices = np.array(vertices)
         self.elements = np.array(elements) # list of indices of vertices (num_elements, 3)
