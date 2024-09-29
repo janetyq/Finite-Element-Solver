@@ -16,25 +16,25 @@ class Equation:
         return self.__class__(self.name, self.parameters.copy()) # TODO: check if this works for list values
 
 class Solver:
-    def __init__(self, mesh, equation, boundary_conditions=None):
-        self.mesh = mesh
+    def __init__(self, femesh, equation, boundary_conditions=None):
+        self.femesh = femesh
         self.equation = equation
-        self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions(mesh)
-        self.solution = Solution(mesh)
+        self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions(femesh)
+        self.solution = Solution(femesh)
         self.dim = self.equation.dim
 
-        self.boundary_conditions.do(self.mesh.vertices.shape[0], dim=self.dim)
+        self.boundary_conditions.do(self.femesh.vertices.shape[0], dim=self.dim)
 
     def solve(self):
-        self._assemble_everything() # TODO: don't call this every time
+        self.assemble_everything() # TODO: don't call this every time
         self.solution.reset()
         
         equation_solvers = {
-            "projection": self._solve_projection,
-            "poisson": self._solve_poisson,
-            "heat": self._solve_heat,
-            "wave": self._solve_wave,
-            "linear_elastic": self._solve_linear_elastic,
+            "projection": self.solve_projection,
+            "poisson": self.solve_poisson,
+            "heat": self.solve_heat,
+            "wave": self.solve_wave,
+            "linear_elastic": self.solve_linear_elastic,
         }
 
         try:
@@ -44,19 +44,20 @@ class Solver:
 
         return self.solution
 
-    def _assemble_everything(self):
-        # assemble mass and stiffness matrices and load vector
-        self.M = self._assemble_matrix(self._calculate_element_mass_matrix)
-        self.b = self._assemble_vector(self.mesh.elements, self._calculate_element_load_vector, self.boundary_conditions.force_load)
-        self.b += self._assemble_vector(self.mesh.boundary, self._calculate_element_boundary_load_vector, self.boundary_conditions.neumann_load)
-
+    def assemble_everything(self):
         if self.equation.name == "linear_elastic":
-            E = np.full(len(self.mesh.elements), self.equation.parameters['E'])
-            nu = np.full(len(self.mesh.elements), self.equation.parameters['nu'])
-            self.material_func = np.vstack([E, nu]).T 
-        self.K = self._assemble_matrix(self._calculate_element_stiffness_matrix)
+            E = np.full(len(self.femesh.elements), self.equation.parameters['E'])
+            nu = np.full(len(self.femesh.elements), self.equation.parameters['nu'])
+            mu, lamb = Enu_to_Lame(E, nu) 
+            self.mu, self.lamb = mu, lamb
+            self.femesh.prepare_matrices(dim=self.dim, mu=mu, lamb=lamb)
+        else:
+            self.femesh.prepare_matrices(dim=self.dim)
 
-    def _solve_linear_system(self, A, b, use_bc=True):
+        self.b = (self.femesh.M @ self.boundary_conditions.force_load.flatten()).flatten()
+        self.b += (self.femesh.M_b @ self.boundary_conditions.neumann_load.flatten()).flatten()
+
+    def solve_linear_system(self, A, b, use_bc=True):
         # solves Au=b, taking fixed vars and loads into account
         x = np.zeros_like(b)
         if use_bc:
@@ -70,28 +71,28 @@ class Solver:
         else:
             return np.linalg.solve(A, b)
 
-    def _solve_nonlinear_system(self, A, b, x0, tol=1e-6, max_iters=100):
+    def solve_nonlinear_system(self, A, b, x0, tol=1e-6, max_iters=100):
         # newton solver
         x = x0.copy()
         for iter in range(max_iters):
             print(f'iter {iter}')
-            dx = self._solve_linear_system(A(x), A(x) @ x - b(x))
+            dx = self.solve_linear_system(A(x), A(x) @ x - b(x))
             if np.linalg.norm(dx) < tol:
                 break
             x -= dx
         return x
 
-    def _solve_projection(self):
+    def solve_projection(self):
         print('Solving L2 projection...') # M @ u = b
-        u = self._solve_linear_system(self.M, self.b)
+        u = self.solve_linear_system(self.femesh.M, self.b)
         self.solution.set_values("u", u)
     
-    def _solve_poisson(self):
+    def solve_poisson(self):
         print('Solving Poisson equation...') # K @ u = b
-        u = self._solve_linear_system(self.K, self.b)
+        u = self.solve_linear_system(self.femesh.K, self.b)
         self.solution.set_values("u", u)
 
-    def _solve_heat(self):
+    def solve_heat(self):
         print('Solving heat equation...') # M @ u' + K @ u = b
         #  (M + K*dt) @ u_{n+1} = M @ u_n + b*dt, backwards Euler
         u = self.equation.parameters['u_initial']
@@ -100,131 +101,75 @@ class Solver:
         t_values = [0]
         u_values = [u]
         for i in range(iters):
-            u = self._solve_linear_system(self.M + self.K * dt, self.M @ u + self.b * dt)
+            u = self.solve_linear_system(self.femesh.M + self.femesh.K * dt, self.femesh.M @ u + self.b * dt)
             t_values.append(dt * (i+1))
             u_values.append(u.copy())
-            print(f't = {t_values[-1]:.3f}, mean temp = {self.mesh.calculate_mean_value(u_values[-1]):.3f}')
+            print(f't = {t_values[-1]:.3f}, mean temp = {self.femesh.calculate_mean_value(u_values[-1]):.3f}')
 
         self.solution.set_values("t_values", t_values)
         self.solution.set_values("u_values", u_values)
 
-    def _solve_wave(self):
+    def solve_wave(self):
         print('Solving wave equation...') # M @ u" + K @ u = b
         u, dudt = self.equation.parameters['u_initial'], self.equation.parameters['dudt_initial']
         c = self.equation.parameters['c']
         dt, iters = self.equation.parameters['dt'], self.equation.parameters['iters']
         
         # Crank-Nicolson method - average of forward and backward Euler
-        A_left = np.block([[self.M, -dt/2 * self.M],
-                           [c**2 * dt/2 * self.K, self.M]])
-        A_right = np.block([[self.M, dt/2 * self.M],
-                            [-c**2 * dt/2 * self.K, self.M]])
+        A_left = np.block([[self.femesh.M, -dt/2 * self.femesh.M],
+                           [c**2 * dt/2 * self.femesh.K, self.femesh.M]])
+        A_right = np.block([[self.femesh.M, dt/2 * self.femesh.M],
+                            [-c**2 * dt/2 * self.femesh.K, self.femesh.M]])
         b_right = np.block([np.zeros_like(self.b), dt/2 * (self.b + np.roll(self.b, -1))])
 
-        N = len(self.mesh.vertices)
+        N = len(self.femesh.vertices)
         x = np.block([u, dudt])
         t_values = [0]
         u_values = [x[:N]]
         dudt_values = [x[N:]]
-        total_energy = self.mesh.calculate_energy(u_values[-1], dudt_values[-1])
+        total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1])
         print(f't = {t_values[-1]:.3f}, total energy = {total_energy:.3f}')
 
         for i in range(iters):
-            x = self._solve_linear_system(A_left, A_right @ x + b_right, use_bc=False) # TODO: bc not supported for wave
+            x = self.solve_linear_system(A_left, A_right @ x + b_right, use_bc=False) # TODO: bc not supported for wave
             t_values.append(dt * (i+1))
             u_values.append(x[:N])
             dudt_values.append(x[N:])
-            total_energy = self.mesh.calculate_energy(u_values[-1], dudt_values[-1])
+            total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1])
             print(f't = {t_values[-1]:.3f}, total energy = {total_energy:.3f}')
 
         self.solution.set_values("t_values", t_values)
         self.solution.set_values("u_values", u_values)
         self.solution.set_values("dudt_values", dudt_values)
 
-    def _solve_linear_elastic(self):
-        u = self._solve_linear_system(self.K, self.b)
+    def solve_linear_elastic(self):
+        u = self.solve_linear_system(self.femesh.K, self.b)
 
-        eps_elements = np.zeros((len(self.mesh.elements), 3))
-        sigma_elements = np.zeros((len(self.mesh.elements), 3))
-        compliance_elements = np.zeros(len(self.mesh.elements))
-        force_elements = np.zeros(len(self.mesh.elements))
+        eps_elements = np.zeros((len(self.femesh.elements), 3))
+        sigma_elements = np.zeros((len(self.femesh.elements), 3))
+        compliance_elements = np.zeros(len(self.femesh.elements))
+        force_elements = np.zeros(len(self.femesh.elements))
 
-        for e_idx, element in enumerate(self.mesh.elements):
-            element = self.mesh.elements[e_idx]
-            B = self._get_B(e_idx)
-            D = self._get_D(e_idx)
+        for e_idx, element in enumerate(self.femesh.elements):
+            element = self.femesh.elements[e_idx]
+            B = self.femesh.element_objs[e_idx].calculate_B()
+            D = self.femesh.element_objs[e_idx].calculate_D(self.mu[e_idx], self.lamb[e_idx])
             u_element = u[np.array([2*element, 2*element+1]).T.flatten()]
             eps_elements[e_idx] = B @ u_element
             sigma_elements[e_idx] = D @ eps_elements[e_idx]
-            compliance_elements[e_idx] = sigma_elements[e_idx] @ eps_elements[e_idx] * self.mesh.volumes[e_idx]
+            compliance_elements[e_idx] = sigma_elements[e_idx] @ eps_elements[e_idx] * self.femesh.element_objs[e_idx].volume
 
         self.solution.set_values("u", u)
         self.solution.set_values("strain", np.linalg.norm(eps_elements, axis=-1))
         self.solution.set_values("stress", np.linalg.norm(sigma_elements, axis=-1))
         self.solution.set_values("compliance", compliance_elements)
 
-    def _assemble_matrix(self, calculate_element_matrix): # TODO: bring back params eventually?
-        N = len(self.mesh.vertices)
-        A = np.zeros((self.dim * N, self.dim * N))
-        for e_idx, element in enumerate(self.mesh.elements):
-            idxs = np.array([self.dim*element + i for i in range(self.dim)]).T.flatten()
-            element_matrix = calculate_element_matrix(e_idx)
-            # print(element_matrix, '\n')
-            A[np.ix_(idxs, idxs)] += element_matrix
-        return A
-
-    def _assemble_vector(self, elements, calculate_element_vector, params):
-        vector = np.zeros((len(self.mesh.vertices), self.dim))
-        for e_idx, element in enumerate(elements):
-            vector[element] += calculate_element_vector(e_idx, params[element])
-        return vector.flatten()
-
-    def _calculate_element_load_vector(self, e_idx, param):
-        return param * 1/3 * self.mesh.volumes[e_idx]
-
-    def _calculate_element_boundary_load_vector(self, b_idx, param): # TODO: generalize this
-        boundary = self.mesh.boundary[b_idx]
-        return param * 1/2 * np.linalg.norm(self.mesh.vertices[boundary][0] - self.mesh.vertices[boundary][1])
-
-    def _calculate_element_mass_matrix(self, e_idx):
-        element = self.mesh.elements[e_idx]
-        M = np.zeros((self.dim*len(element), self.dim*len(element)))
-        M[::self.dim, ::self.dim] = 1
-        M += np.eye(self.dim*len(element))
-        return 1/12 * self.mesh.volumes[e_idx] * M
-
-    def _calculate_element_stiffness_matrix(self, e_idx):
-        element = self.mesh.elements[e_idx]
-        hat_grad = self.mesh.element_objs[e_idx].gradient # phi?
-        if self.dim == 1:
-            return hat_grad @ hat_grad.T * self.mesh.volumes[e_idx]
-        elif self.equation.name == "linear_elastic":
-            # outputs 6x6 element stiffness matrix
-            D = self._get_D(e_idx)
-            B = self._get_B(e_idx)
-            return B.T @ D @ B * self.mesh.volumes[e_idx]
-        else:
-            raise ValueError(f"Not implemented yet for dim {self.dim} and equation {self.equation.name}")
-
-    def _get_D(self, e_idx):
-        mu, lamb = Enu_to_Lame(*self.material_func[e_idx])
-        return mu * np.array([[2, 0, 0], [0, 2, 0], [0, 0, 1]]) + \
-               lamb * np.array([[1, 1, 0], [1, 1, 0], [0, 0, 0]])
-
-    def _get_B(self, e_idx):
-        hat_grad = self.mesh.element_objs[e_idx].gradient
-        b = hat_grad[:, 0]
-        c = hat_grad[:, 1]
-        return np.array([[b[0],   0 , b[1],   0 , b[2],   0 ],
-                         [  0 , c[0],   0 , c[1],   0 , c[2]],
-                         [c[0], b[0], c[1], b[1], c[2], b[2]]])
-
     def adaptive_refinement(self, max_triangles=1000, max_iters=20):
         # TODO: there's a bug somewhere
         if 'element_residuals' not in self.solution.values:
             raise ValueError('No element residuals found in solution')
-        refinement_mesh = RefinementMesh(self.mesh)
-        while len(self.mesh.elements) < max_triangles or max_iters == 0:
+        refinement_mesh = RefinementMesh(self.femesh)
+        while len(self.femesh.elements) < max_triangles or max_iters == 0:
             element_residuals = self.solution.values['element_residuals']
             max_residual = max(element_residuals)
             refine_idxs = []
@@ -233,7 +178,7 @@ class Solver:
                     refine_idxs.append(e_idx)
 
             refinement_mesh.refine_triangles(refine_idxs)
-            self.mesh = refinement_mesh.get_mesh()
+            self.femesh = refinement_mesh.get_mesh()
             max_iters -= 1
 
     # # residuals
@@ -254,12 +199,12 @@ class Solver:
     #     else:
     #         raise ValueError(f"Unknown equation name: {self.equation.name}")
 
-    # def _calculate_projection_residuals(self, apriori=True):
+    # def calculate_projection_residuals(self, apriori=True):
     #     # Apriori error ||e|| <= C * h^2 * ||f"||
     #     if apriori:
     #         # compute apriori residual
-    #         residuals = np.zeros(len(self.mesh.elements))
-    #         for e_idx, element in enumerate(self.mesh.elements):
+    #         residuals = np.zeros(len(self.femesh.elements))
+    #         for e_idx, element in enumerate(self.femesh.elements):
     #             residuals[e_idx] = 0 # placeholder
     #         self.solution.set_values("apriori_residual", residuals)
     #     else:

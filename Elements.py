@@ -1,71 +1,109 @@
 import numpy as np
 from utils.helper import *
 
-class LinearTriangleElement: # TODO: perhaps put quadrature in here too?
+
+class LinearElement:
+    '''
+    Base class for linear elements
+
+    N nodes in (N-1)-dimensional space
+    Shape function phi(x) = a + b*x_1 + c*x_2 + ... + z * x_{N-1}
+    '''    
+    N = None
+    def __init__(self, vertices):
+        self.vertices = vertices
+
+        dN_dphi = np.vstack([-np.ones(self.N-1), np.eye(self.N-1)])
+        J = (self.vertices[1:] - self.vertices[0]).T
+        self.shape_gradient = dN_dphi @ np.linalg.pinv(J)
+
+        self.dF_dx = self.calculate_dF_dx()
+
+    def calculate_mass_matrix(self, dim, **kwargs):
+        M = np.zeros((dim*self.N, dim*self.N))
+        M[::dim, ::dim] = 1
+        M += np.eye(dim*self.N)
+        return 1/(self.N*(self.N+1)) * self.volume * M
+
+    def calculate_stiffness_matrix(self, dim, **kwargs):
+        if dim == 1:
+            return self.shape_gradient @ self.shape_gradient.T * self.volume
+        else:
+            raise ValueError(f"Not implemented yet for dim {dim}")
+
+    # TODO: haven't checked if these make sense
+    def deformation_gradient(self, u_element):
+        # F = I + grad_u = I + grad_phi^T @ u
+        return np.eye(N-1) + self.shape_gradient.T @ u_element
+
+    def calculate_dF_dx(self):
+        # dF_dx = I x grad_phi^T, TODO: figure out kronecker product
+        dF_dx = np.zeros((self.N-1, self.N-1, self.N, self.N-1))
+        for i in range(self.N-1):
+            for j in range(self.N-1):
+                for m in range(self.N):
+                    for n in range(self.N-1):
+                        if j == n:
+                            dF_dx[i, j, m, n] = self.shape_gradient[m, i]
+        return dF_dx
+
+    def calculate_gradient(self, u_element):
+        # grad_u = grad_phi @ u
+        return self.shape_gradient.T @ u_element
+
+
+class LinearLineElement(LinearElement):
+    '''
+    1D linear element
+
+    Shape function phi(x) = a + b*x
+    '''
+    N = 2
+    def __init__(self, vertices):
+        self.volume = np.linalg.norm(vertices[1] - vertices[0])
+        super().__init__(vertices)
+    
+
+class LinearTriangleElement(LinearElement): # TODO: perhaps put quadrature in here too?
     '''
     2D linear triangle element
 
     Shape function phi(x) = a + b*x + c*y
     '''
+    N = 3
     def __init__(self, vertices):
-        self.vertices = vertices
         self.volume = calculate_polygon_area(vertices)
-
-        a, b, c = [], [], []
-        for i in range(3):
-            x_j, x_k = vertices[(i+1)%3], vertices[(i+2)%3]
-            a.append((x_j[0]*x_k[1] - x_k[0]*x_j[1]) / (2 * self.volume))
-            b.append((x_j[1] - x_k[1]) / (2 * self.volume))
-            c.append((x_k[0] - x_j[0]) / (2 * self.volume))
-
-        self.gradient = np.array([b, c]).T # shape (3, 2)
-
-        self.dF_dx = self.calculate_dF_dx()
+        super().__init__(vertices)
         # d2F_dx2 = 0
+    
+    def calculate_B(self):
+        b, c = self.shape_gradient.T
+        return np.array([[b[0],   0 , b[1],   0 , b[2],   0 ],
+                         [  0 , c[0],   0 , c[1],   0 , c[2]],
+                         [c[0], b[0], c[1], b[1], c[2], b[2]]])
+    
+    def calculate_D(self, mu, lamb):
+        return np.array([
+            [2*mu + lamb, lamb, 0],
+            [lamb, 2*mu + lamb, 0],
+            [0, 0, mu]
+        ])
 
-    def deformation_gradient(self, u_element):
-        # F = I + grad_u = I + grad_phi^T @ u
-        return np.eye(2) + self.gradient.T @ u_element
-
-    def calculate_dF_dx(self):
-        # dF_dx = I x grad_phi^T, TODO: figure out kronecker product
-        dF_dx = np.zeros((2, 2, 3, 2))
-        for i in range(2):
-            for j in range(2):
-                for m in range(3):
-                    for n in range(2):
-                        if j == n:
-                            dF_dx[i, j, m, n] = self.gradient[m, i]
-        return dF_dx
+    def calculate_stiffness_matrix(self, dim, **kwargs):
+        if dim == 1:
+            return super().calculate_stiffness_matrix(dim, **kwargs)
+        elif dim == 2:
+            mu, lamb, idx = kwargs['mu'], kwargs['lamb'], kwargs['idx']
+            B, D = self.calculate_B(), self.calculate_D(kwargs['mu'][idx], kwargs['lamb'][idx])
+            return B.T @ D @ B * self.volume
 
 
-class LinearTetrahedralElement:
+class LinearTetrahedralElement(LinearElement):
+    '''
+    3D linear tetrahedral element
+    '''
+    N = 4
     def __init__(self, vertices):
-        self.vertices = vertices
         self.volume = calculate_tetrahedron_volume(vertices)
+        super().__init__(vertices)
 
-        a, b, c, d = [], [], [], []
-        for i in range(4):
-            x_j, x_k, x_l = vertices[(i+1)%4], vertices[(i+2)%4], vertices[(i+3)%4]
-            a.append(np.linalg.det([x_j, x_k, x_l]) / (6 * self.volume))
-            b.append(np.linalg.det([x_k, x_l, x_j]) / (6 * self.volume))
-            c.append(np.linalg.det([x_l, x_j, x_k]) / (6 * self.volume))
-            d.append(np.linalg.det([x_k, x_j, x_l]) / (6 * self.volume))
-
-        self.gradient = np.array([b, c, d]).T
-
-        self.dF_dx = self.calculate_dF_dx()
-
-    def deformation_gradient(self, u_element):
-        # F = I + grad_u = I + grad_phi^T @ u
-        return np.eye(3) + self.gradient.T @ u_element
-
-    def calculate_dF_dx(self):
-        dF_dx = np.zeros((3, 3, 4, 3))
-        for i in range(3):
-            for j in range(3):
-                for m in range(4):
-                    for n in range(3):
-                        if j == n:
-                            dF_dx[i, j, m, n] = self.gradient[m, i]
-        return dF_dx

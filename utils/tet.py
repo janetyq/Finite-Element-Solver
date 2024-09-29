@@ -26,9 +26,10 @@ def plot_tet(tet_grid, surface):
     plotter.show()
 
 
-def plot_tetmesh_values(mesh, values):
+def plot_tetmesh_values(mesh, values, clim=None):
     tet_grid = mesh_to_grid(mesh)
-    clim = [values.min(), values.max()]
+    if clim is None:
+        clim = [values.min(), values.max()]
     tet_grid.plot(scalars=values, cmap='bwr', clim=clim, flip_scalars=True, show_edges=True)
 
 def plot_tetmesh_animation(mesh, values_array):
@@ -91,10 +92,14 @@ def create_rect_tetmesh(x_lim, y_lim, z_lim, subdividisions=2, plot=True):
     if plot:
         plot_tet(grid, surface_mesh)
 
+    mesh = grid_to_mesh(grid)
+    return mesh
 
+
+def grid_to_mesh(grid):
+    vertices = grid.points
     elements = grid.cells.reshape(-1, 5)[:, 1:]
-
-    return Mesh(grid.points, elements, [])
+    return Mesh(vertices, elements, [])
 
 def mesh_to_grid(mesh):
     cells = np.hstack([np.full((mesh.elements.shape[0], 1), 4), mesh.elements]).ravel()

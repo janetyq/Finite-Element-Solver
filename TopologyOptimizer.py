@@ -9,21 +9,21 @@ class TopologyOptimizer:
     Creates a solver and iteratively updates density field to minimize some objective 
     for some equation and boundary conditions.
     '''
-    def __init__(self, mesh, equation, boundary_conditions, iters=10, volume_frac=1.0, smoothing_radius=0.1):
+    def __init__(self, femesh, equation, boundary_conditions, iters=10, volume_frac=1.0, smoothing_radius=0.1):
         assert equation.name == 'linear_elastic', \
             'TopologyOptimizer only supports linear_elastic equations'
-        self.mesh = mesh
+        self.femesh = femesh
         self.orig_equation = equation.__copy__()
-        self.solver = Solver(mesh, equation, boundary_conditions)
-        self.solution = Solution(mesh)
+        self.solver = Solver(femesh, equation, boundary_conditions)
+        self.solution = Solution(femesh)
 
         self.iters = iters
         self.volume_frac = volume_frac
 
         self.rho = None
-        self.set_rho(np.full(len(mesh.elements), self.volume_frac))
+        self.set_rho(np.full(len(self.femesh.elements), self.volume_frac))
 
-        self.smoothing_matrix = calculate_smoothing_matrix(self.mesh, r=smoothing_radius)
+        self.smoothing_matrix = calculate_smoothing_matrix(self.femesh, r=smoothing_radius)
 
     def set_rho(self, rho):
         self.rho = rho
@@ -38,7 +38,7 @@ class TopologyOptimizer:
             rho_new = np.clip(rho_new, self.rho - 0.1, self.rho + 0.1) # change limit
             rho_new = np.clip(rho_new, 1e-6, 1) 
 
-            if self.solver.mesh.calculate_mean_value(rho_new) < volume_frac:
+            if self.solver.femesh.calculate_mean_value(rho_new) < volume_frac:
                 r = m
             else:
                 l = m
@@ -104,7 +104,7 @@ class TopologyOptimizer:
         print(f'\nIteration: {iter}')
         print(f'{color.BOLD}Total compliance: {compliance:4f} {color.END}')
         print(f'Max displacement {max_displacement}')
-        print(f'Volume fraction: {self.solver.mesh.calculate_mean_value(self.rho)}')
+        print(f'Volume fraction: {self.solver.femesh.calculate_mean_value(self.rho)}')
 
     def _plot_iteration(self, iter, solution):
         deformed_mesh = self._get_deformed_mesh()
@@ -118,4 +118,4 @@ class TopologyOptimizer:
             u = self.solution.values['u_list'][iter_idx]
         except:
             u = self.solver.solution.values['u']
-        return FEMesh(self.solver.mesh.vertices + u.reshape(-1, 2), self.solver.mesh.elements, self.solver.mesh.boundary)
+        return FEMesh(self.solver.femesh.vertices + u.reshape(-1, 2), self.solver.femesh.elements, self.solver.femesh.boundary)
