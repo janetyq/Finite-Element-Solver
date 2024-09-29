@@ -8,6 +8,17 @@ from matplotlib.tri import Triangulation
 import matplotlib.cm as cm
 from mpl_toolkits.mplot3d import Axes3D
 
+# FEM assembly
+def assemble_mass_matrix(N, dim):
+    N = len(self.mesh.vertices)
+    A = np.zeros((self.dim * N, self.dim * N))
+    for e_idx, element in enumerate(self.mesh.elements):
+        idxs = np.array([self.dim*element + i for i in range(self.dim)]).T.flatten()
+        element_matrix = calculate_element_matrix(e_idx)
+        # print(element_matrix, '\n')
+        A[np.ix_(idxs, idxs)] += element_matrix
+    return A
+
 # random useful functions
 def bump_function(vertices, center, mag=100, size=0.5):
     return np.array([mag*cos(pi/2*np.linalg.norm(point - center)/size) if np.linalg.norm(point - center) < size else 0 for point in vertices])

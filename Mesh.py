@@ -5,11 +5,11 @@ from matplotlib.tri import Triangulation
 from utils.helper import *
 
 class Mesh:
-    def __init__(self, vertices, elements, boundary, type='tri'):
+    def __init__(self, vertices, elements, boundary):
         # TODO: assert the correct dimensions, type-hinting
         self.vertices = np.array(vertices)
-        self.elements = np.array(elements) # list of indices of vertices (num_elements, 3)
-        self.boundary = np.array(boundary) # list of indices of vertices (num_boundary, 2)
+        self.elements = np.array(elements) # list of indices of vertices
+        self.boundary = np.array(boundary) # list of indices of vertices
         self.boundary_idxs = list(set(self.boundary.ravel()))
         self.edges = self._get_all_edges()
 

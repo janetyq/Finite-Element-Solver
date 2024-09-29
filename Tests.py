@@ -36,17 +36,23 @@ def test_l2_projection():
     plotter.show()
 
 def test_poisson_equation():
+    w = np.max(mesh.vertices[:, 0])
+    right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
+
     equation = Equation('poisson')
     bc = BoundaryConditions(mesh)
-    bc.add('dirichlet', mesh.boundary_idxs, [0])
+    bc.add('dirichlet', [idx for idx in mesh.boundary_idxs if idx not in right_idxs], [0])
+    bc.add('neumann', right_idxs, [1])
     bc.add_force(lambda point: [1])
+
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
     gradient = mesh.calculate_gradient(solution.get_values('u'))
 
-    plotter = Plotter(1, 2, title='Poisson Equation')
+    plotter = Plotter(1, 3, title='Poisson Equation')
     plotter.plot(mesh, solution.get_values('u'), mode='surface', title='Solution', idx=(0, 0))
     plotter.plot(mesh, gradient, mode='arrows', title='Gradient', idx=(0, 1))
+    plotter.plot(mesh, np.linalg.norm(gradient, axis=1), mode='surface', title='Gradient Norm', idx=(0, 2))
     plotter.show()
 
 def test_heat_equation():
@@ -83,7 +89,6 @@ def test_wave_equation(): # TODO: Wave energy not fully implemented
 
 def test_linear_elastic():
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
-    print(w, h)
     bc = BoundaryConditions(mesh)
     left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
     right_middle_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6 and 0.2 < mesh.vertices[v_idx][1] < 0.8]
@@ -231,7 +236,7 @@ def test_boundary_conditions():
     plotter.show()
 
 if __name__ == "__main__":
-    MESH_FILE = 'files/mesh_100x20.json'
+    MESH_FILE = 'files/mesh_80x40.json'
     mesh = FEMesh.load(MESH_FILE)
 
     test_plot_mesh()
@@ -240,7 +245,7 @@ if __name__ == "__main__":
     test_heat_equation()
     test_wave_equation()
     test_linear_elastic()
-    test_topology_optimization(iters=30) # TODO: save animation, smoothing
+    test_topology_optimization(iters=15) # TODO: save animation, smoothing
     test_energy_solver()
     test_boundary_conditions()
     # test_adaptive_refinement()

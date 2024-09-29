@@ -10,46 +10,78 @@ class FEMesh(Mesh):
     def __init__(self, vertices, elements, boundary, element_type=LinearTriangleElement):
         Mesh.__init__(self, vertices, elements, boundary)
 
-        self.element_type = element_type
-        self.element_objs = self._get_element_objs()
+        self.element_type = element_type # TODO: in future, allow for different element types, this could be list of element types
+        self.element_objs = [self.element_type(self.vertices[element]) for element in self.elements]
+        if element_type == LinearTriangleElement:
+            self.boundary_type = LinearLineElement
+        if element_type == LinearTetrahedralElement:
+            self.boundary_type = LinearTriangleElement
+        self.boundary_objs = [self.boundary_type(self.vertices[boundary]) for boundary in self.boundary]
 
-        self.volumes = [element.volume for element in self.element_objs]
+        self.prepare_matrices()
+
+    def prepare_matrices(self, dim=1, **kwargs):
+        # Can be called to reprepare matrices for different dim
+        self.dim = dim
+        self.M = self.assemble_matrix('mass', 'element', dim, **kwargs)
+        self.M_b = self.assemble_matrix('mass', 'boundary', dim, **kwargs)
+        self.K = self.assemble_matrix('stiffness', 'element', dim, **kwargs)
+        if dim == 1:
+            self.K_b = self.assemble_matrix('stiffness', 'boundary', dim, **kwargs)
+        # TODO: not assembling K_b for dim=2
+
+    def assemble_matrix(self, matrix_type_name, element_type_name, dim=1, **kwargs):
+        # TODO: term "element" is overloaded here, and its a bit hacky
+
+        if element_type_name == 'element':
+            elements, element_objs = self.elements, self.element_objs
+        elif element_type_name == 'boundary':
+            elements, element_objs = self.boundary, self.boundary_objs
+
+        matrix_calculators = {
+            'mass': lambda e_idx: element_objs[e_idx].calculate_mass_matrix(dim, idx=e_idx, **kwargs),
+            'stiffness': lambda e_idx: element_objs[e_idx].calculate_stiffness_matrix(dim, idx=e_idx, **kwargs),
+        }
+
+        N = len(self.vertices)
+        A = np.zeros((dim * N, dim * N))
+        for e_idx, element in enumerate(elements):
+            idxs = np.array([dim*element + i for i in range(dim)]).T.flatten()
+            element_matrix = matrix_calculators[matrix_type_name](e_idx)
+            A[np.ix_(idxs, idxs)] += element_matrix
+        return A
 
     # METRICS
     def calculate_total_value(self, u):
         if len(u) == len(self.elements):       # u defined on elements
-            return sum([self.volumes[e_idx] * u[e_idx] for e_idx in range(len(self.elements))])
+            return sum([self.element_objs[e_idx].volume * u[e_idx] for e_idx in range(len(self.elements))])
         elif len(u) == len(self.vertices):    # u defined on vertices
-            return sum([self.volumes[e_idx] * np.mean(u[self.elements[e_idx]]) for e_idx in range(len(self.elements))])
+            return sum([self.element_objs[e_idx].volume * np.mean(u[self.elements[e_idx]]) for e_idx in range(len(self.elements))])
 
     def calculate_mean_value(self, u):
-        return self.calculate_total_value(u) / sum(self.volumes)
+        return self.calculate_total_value(u) / sum([element.volume for element in self.element_objs])
 
-    def calculate_element_gradient(self, e_idx, u_element): # TODO: args suck, some code repetitive
-        shape_gradient = self.element_objs[e_idx].gradient
-        return shape_gradient.T @ u_element
+    # def calculate_element_gradient(self, e_idx, u_element): # TODO: args suck, some code repetitive
+    #     shape_gradient = self.element_objs[e_idx].shape_gradient
+    #     return shape_gradient.T @ u_element
 
     def calculate_gradient(self, u): # TODO: works, but need to understand 1D vs 2D use in dirichlet energy
         gradient = []
-        for e_idx, elt in enumerate(self.elements):
-            gradient.append(self.calculate_element_gradient(e_idx, u[elt]))
+        for e_idx, element_obj in enumerate(self.element_objs):
+            # u_elt = u[np.array([2*self.elements[e_idx], 2*self.elements[e_idx]+1]).T.flatten()]
+            u_elt = u[self.elements[e_idx]]
+            gradient.append(element_obj.shape_gradient.T @ u_elt)
         return np.array(gradient)
 
     def calculate_dirichlet_energy(self, u):
         u_gradient = self.calculate_gradient(u)
         squared_gradient_norm = np.einsum('ij,ij->i', u_gradient, u_gradient)
-        return sum([self.volumes[e_idx] * squared_gradient_norm[e_idx] for e_idx in range(len(self.elements))])
+        return sum([self.element_objs[e_idx].volume * squared_gradient_norm[e_idx] for e_idx in range(len(self.elements))])
 
     def calculate_energy(self, u, dudt):
         dirichlet_energy = self.calculate_dirichlet_energy(u)
         kinetic_energy = self.calculate_total_value(dudt**2)
         return dirichlet_energy + kinetic_energy
-
-    def _get_element_objs(self):
-        element_objs = []
-        for e_idx, element in enumerate(self.elements):
-            element_objs.append(self.element_type(self.vertices[element]))
-        return element_objs
 
     def get_edges_in_idxs(self, vertices_idxs, exclude_corners=False):
         in_edges = []
