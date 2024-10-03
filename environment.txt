@@ -1,3 +1,4 @@
 # Package install info
 conda install -c conda-forge numpy matplotlib scipy
 pip install tetgen
+pip install svg.path
