@@ -7,10 +7,14 @@ from Mesh import *
 from Solution import *
 
 class Equation:
-    def __init__(self, name, parameters=None):
+    def __init__(self, name, parameters=None, dim=None):
         self.name = name
         self.parameters = parameters
-        self.dim = 2 if name == "linear_elastic" else 1
+        if dim is None:
+            self.dim = 2 if name == "linear_elastic" else 1
+            print(f"Warning: dim not provided, assuming dim={self.dim}")
+        else:
+            self.dim = dim
 
     def __copy__(self):
         return self.__class__(self.name, self.parameters.copy()) # TODO: check if this works for list values
@@ -20,8 +24,8 @@ class Solver:
         self.femesh = femesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions(femesh)
-        self.solution = Solution(femesh)
         self.dim = self.equation.dim
+        self.solution = Solution(femesh, self.dim)
 
         self.boundary_conditions.do(self.femesh.vertices.shape[0], dim=self.dim)
 
@@ -37,10 +41,10 @@ class Solver:
             "linear_elastic": self.solve_linear_elastic,
         }
 
-        try:
-            equation_solvers[self.equation.name]()
-        except:
+        if self.equation.name not in equation_solvers:
             raise ValueError(f"Unknown equation name: {self.equation.name}")
+
+        equation_solvers[self.equation.name]()
 
         return self.solution
 
@@ -145,19 +149,21 @@ class Solver:
     def solve_linear_elastic(self):
         u = self.solve_linear_system(self.femesh.K, self.b)
 
-        eps_elements = np.zeros((len(self.femesh.elements), 3))
-        sigma_elements = np.zeros((len(self.femesh.elements), 3))
-        compliance_elements = np.zeros(len(self.femesh.elements))
-        force_elements = np.zeros(len(self.femesh.elements))
+        eps_elements = []
+        sigma_elements = []
+        compliance_elements = []
 
         for e_idx, element in enumerate(self.femesh.elements):
             element = self.femesh.elements[e_idx]
             B = self.femesh.element_objs[e_idx].calculate_B()
             D = self.femesh.element_objs[e_idx].calculate_D(self.mu[e_idx], self.lamb[e_idx])
-            u_element = u[np.array([2*element, 2*element+1]).T.flatten()]
-            eps_elements[e_idx] = B @ u_element
-            sigma_elements[e_idx] = D @ eps_elements[e_idx]
-            compliance_elements[e_idx] = sigma_elements[e_idx] @ eps_elements[e_idx] * self.femesh.element_objs[e_idx].volume
+            u_element = u[np.array([self.dim*element + d for d in range(self.dim)]).T.flatten()]
+            eps = B @ u_element
+            sigma = D @ eps
+            compliance = sigma @ eps * self.femesh.element_objs[e_idx].volume
+            eps_elements.append(eps)
+            sigma_elements.append(sigma)
+            compliance_elements.append(compliance)
 
         self.solution.set_values("u", u)
         self.solution.set_values("strain", np.linalg.norm(eps_elements, axis=-1))

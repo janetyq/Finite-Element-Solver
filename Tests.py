@@ -3,6 +3,7 @@ from math import sin, cos, pi, e
 import matplotlib.pyplot as plt
 
 from utils.helper import *
+from utils.tet import *
 
 from BoundaryConditions import *
 from FEMesh import *
@@ -41,8 +42,9 @@ def test_poisson_equation():
 
     equation = Equation('poisson')
     bc = BoundaryConditions(mesh)
-    bc.add('dirichlet', [idx for idx in mesh.boundary_idxs if idx not in right_idxs], [0])
-    bc.add('neumann', right_idxs, [1])
+    # bc.add('dirichlet', [idx for idx in mesh.boundary_idxs if idx not in right_idxs], [0])
+    # bc.add('neumann', right_idxs, [1])
+    bc.add('dirichlet', mesh.boundary_idxs, [0])
     bc.add_force(lambda point: [1])
 
     solver = Solver(mesh, equation, bc)
@@ -94,7 +96,7 @@ def test_linear_elastic():
     right_middle_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6 and 0.2 < mesh.vertices[v_idx][1] < 0.8]
     bc.add('dirichlet', left_idxs, [0, 0])
     bc.add('neumann', right_middle_idxs, [50, 0]) # stress
-    # bc.plot()
+    bc.plot()
 
     equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
     solver = Solver(mesh, equation, bc)
@@ -192,60 +194,42 @@ def test_energy_solver(): # TODO: add support for force bc
     solution = energy_solver.solve()
     vertices = mesh.vertices + solution.get_values('u').reshape(-1, 2)
     mesh_final = FEMesh(vertices, mesh.elements, mesh.boundary)
+    energy = solution.get_values('energy')
+    stresses = np.linalg.norm(solution.get_values('gradient').reshape(-1, 2), axis=1)
 
     plotter = Plotter(title='Energy Solver')
-    plotter.plot(mesh_final, mode='mesh', title='Final')
+    plotter.plot(mesh_final, stresses, mode='colored', title='Final')
     plotter.show()
 
-def test_boundary_conditions():
-    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
+def test_3d():
+    mesh = create_rect_tetmesh(x_lim=[0, 4], y_lim=[0, 1], z_lim=[0, 1], subdividisions=2, plot=False)
+    mesh = FEMesh(mesh.vertices, mesh.elements, mesh.boundary, element_type=LinearTetrahedralElement)
     
-    # Linear Elastic Example
-    equation = Equation('linear_elastic', {'E': 1, 'nu': 0.4})
-    bc = BoundaryConditions(mesh)
-    left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
-    right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
-    bc.add('dirichlet', left_idxs, [0, 0])
-    bc.add('neumann', right_idxs, [[0.1, 0] for idx in right_idxs])
+    w = max(mesh.vertices.flatten()) - min(mesh.vertices.flatten())
+    heat_center = np.max(mesh.vertices, axis=0)
+    u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.3*w) + 300
 
-    solver = Solver(mesh, equation, bc)
+    equation = Equation('heat', {'u_initial': u_initial.copy(), 'dudt_initial': np.zeros_like(u_initial).copy(), 'c': 1, 'iters': 20, 'dt': 0.04})
+    solver = Solver(mesh, equation)
     solution = solver.solve()
-    deformed_mesh = solution.get_deformed_mesh()
+    u_values = solution.get_values('u_values')
+    t_values = solution.get_values('t_values')
 
-    plotter = Plotter(1, 2, title='Linear Elastic')
-    plotter.plot(mesh, bc=bc, mode='bc', title='Boundary Conditions')
-    plotter.plot(deformed_mesh, solution.get_values('stress'), mode='colored', title='Solution', idx=(0, 1))
-    plotter.show()
-
-    # Poisson Example
-    equation = Equation('poisson')
-    bc = BoundaryConditions(mesh)
-    bc.add('dirichlet', [idx for idx in mesh.boundary_idxs if idx not in right_idxs], [0])
-    bc.add('neumann', right_idxs, [1])
-    bc.add_force(lambda point: [1])
-
-    solver = Solver(mesh, equation, bc)
-    solution = solver.solve()
-    u = solution.get_values('u')
-    u_gradient = mesh.calculate_gradient(u)
-    u_gradient_norm = np.linalg.norm(u_gradient, axis=1)
-
-    plotter = Plotter(1, 2, title='Boundary Conditions')
-    plotter.plot(mesh, u, mode='surface', title='Poisson Solution', idx=(0, 0))
-    plotter.plot(mesh, u_gradient_norm, mode='surface', title='Gradient Norm', idx=(0, 1))
-    plotter.show()
+    plot_tetmesh_animation(mesh, np.array(u_values))
+    print('done')
 
 if __name__ == "__main__":
-    MESH_FILE = 'files/mesh_80x40.json'
+    MESH_FILE = 'files/mesh_90x30.json'
     mesh = FEMesh.load(MESH_FILE)
+    # mesh.plot()
 
-    test_plot_mesh()
-    test_l2_projection()
-    test_poisson_equation()
-    test_heat_equation()
-    test_wave_equation()
-    test_linear_elastic()
-    test_topology_optimization(iters=15) # TODO: save animation, smoothing
-    test_energy_solver()
-    test_boundary_conditions()
+    # test_plot_mesh()
+    # test_l2_projection()
+    # test_poisson_equation()
+    # test_heat_equation()
+    # test_wave_equation()
+    # test_linear_elastic()
+    # test_topology_optimization(iters=40) # TODO: save animation, smoothing
+    # test_energy_solver()
+    test_3d()
     # test_adaptive_refinement()

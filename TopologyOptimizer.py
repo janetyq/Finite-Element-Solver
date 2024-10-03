@@ -15,7 +15,7 @@ class TopologyOptimizer:
         self.femesh = femesh
         self.orig_equation = equation.__copy__()
         self.solver = Solver(femesh, equation, boundary_conditions)
-        self.solution = Solution(femesh)
+        self.solution = Solution(femesh, self.orig_equation.dim)
 
         self.iters = iters
         self.volume_frac = volume_frac
