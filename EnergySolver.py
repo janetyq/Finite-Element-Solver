@@ -11,7 +11,7 @@ class EnergySolver:
         self.femesh = femesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions
-        self.solution = Solution(femesh)
+        self.solution = Solution(femesh, self.equation.dim)
 
         self.boundary_conditions.do(self.femesh.vertices.shape[0], dim=2)
         self.free = self.boundary_conditions.free_idxs
@@ -100,11 +100,11 @@ class EnergySolver:
         u = np.zeros(len(self.femesh.vertices) * 2)
         u[self.fixed] = self.fixed_values
         print("Initial energy:", self.energy(u))
-        u = self._newton_solve(u)
+        u = self.newton_solve(u)
         self.solution.set_values("u", u)
         return self.solution
 
-    def _newton_solve(self, u, max_iters=100):
+    def newton_solve(self, u, max_iters=100):
         for iter in range(max_iters):
             if self.verbose:
                 print(f"{iter} {self.energy(u)}")

@@ -28,8 +28,10 @@ class LinearElement:
     def calculate_stiffness_matrix(self, dim, **kwargs):
         if dim == 1:
             return self.shape_gradient @ self.shape_gradient.T * self.volume
-        else:
-            raise ValueError(f"Not implemented yet for dim {dim}")
+        # otherwise, the equation is linear elastic
+        mu, lamb, idx = kwargs['mu'], kwargs['lamb'], kwargs['idx']
+        B, D = self.calculate_B(), self.calculate_D(kwargs['mu'][idx], kwargs['lamb'][idx])
+        return B.T @ D @ B * self.volume
 
     # TODO: haven't checked if these make sense
     def deformation_gradient(self, u_element):
@@ -89,14 +91,6 @@ class LinearTriangleElement(LinearElement): # TODO: perhaps put quadrature in he
             [0, 0, mu]
         ])
 
-    def calculate_stiffness_matrix(self, dim, **kwargs):
-        if dim == 1:
-            return super().calculate_stiffness_matrix(dim, **kwargs)
-        elif dim == 2:
-            mu, lamb, idx = kwargs['mu'], kwargs['lamb'], kwargs['idx']
-            B, D = self.calculate_B(), self.calculate_D(kwargs['mu'][idx], kwargs['lamb'][idx])
-            return B.T @ D @ B * self.volume
-
 
 class LinearTetrahedralElement(LinearElement):
     '''
@@ -106,4 +100,25 @@ class LinearTetrahedralElement(LinearElement):
     def __init__(self, vertices):
         self.volume = calculate_tetrahedron_volume(vertices)
         super().__init__(vertices)
+
+    def calculate_B(self):
+        a, b, c = self.shape_gradient.T
+        return np.array([
+            [a[0], 0, 0, a[1], 0, 0, a[2], 0, 0, a[3], 0, 0],
+            [0, b[0], 0, 0, b[1], 0, 0, b[2], 0, 0, b[3], 0],
+            [0, 0, c[0], 0, 0, c[1], 0, 0, c[2], 0, 0, c[3]],
+            [b[0], a[0], 0, b[1], a[1], 0, b[2], a[2], 0, b[3], a[3], 0],
+            [0, c[0], b[0], 0, c[1], b[1], 0, c[2], b[2], 0, c[3], b[3]],
+            [c[0], 0, a[0], c[1], 0, a[1], c[2], 0, a[2], c[3], 0, a[3]]
+        ])
+    
+    def calculate_D(self, mu, lamb):
+        return np.array([
+            [2*mu + lamb, lamb, lamb, 0, 0, 0],
+            [lamb, 2*mu + lamb, lamb, 0, 0, 0],
+            [lamb, lamb, 2*mu + lamb, 0, 0, 0],
+            [0, 0, 0, mu, 0, 0],
+            [0, 0, 0, 0, mu, 0],
+            [0, 0, 0, 0, 0, mu]
+        ])
 

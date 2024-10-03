@@ -103,3 +103,6 @@ class FEMesh(Mesh):
             if x_min <= x <= x_max and y_min <= y <= y_max:
                 in_boundary_idxs.append(v_idx)
         return in_boundary_idxs
+
+    def copy(self):
+        return FEMesh(self.vertices.copy(), self.elements.copy(), self.boundary.copy(), self.element_type)

@@ -43,16 +43,11 @@ class BoundaryConditions:
         # check that BC defined only on boundary
         pass
 
-    def do(self, N, dim=1):
+    def do(self, N, dim):
         # dirichlet boundary conditions
-        self.fixed_idxs = list(self.dirichlet.keys())
-        self.fixed_values = list(self.dirichlet.values())
-        self.free_idxs = list(set(range(N)) - set(self.fixed_idxs))
-
-        if dim == 2:
-            self.fixed_idxs = list(np.array([[2*v_idx, 2*v_idx+1] for v_idx in self.fixed_idxs]).flatten())
-            self.free_idxs = list(np.array([[2*v_idx, 2*v_idx+1] for v_idx in self.free_idxs]).flatten())
-        self.fixed_values = list(np.array(self.fixed_values).flatten())
+        self.fixed_idxs = [dim*v_idx + d  for v_idx in self.dirichlet.keys() for d in range(dim)]
+        self.fixed_values = list(np.array(list(self.dirichlet.values())).flatten())
+        self.free_idxs = [dim*v_idx + d  for v_idx in list(set(range(N)) - set(self.dirichlet.keys())) for d in range(dim)]
 
         self.neumann_load = []
         self.force_load = []
