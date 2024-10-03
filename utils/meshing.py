@@ -6,15 +6,17 @@ from scipy.spatial import Delaunay
 
 sys.path.append('..')
 from Mesh import Mesh
+from Plotter import Plotter
 from utils.helper import *
 
 
 class RuppertsAlgorithm:
-    def __init__(self, pslg, min_angle=30):
+    def __init__(self, pslg, min_angle=30, max_area=None):
         self.vertices = np.array(pslg.vertices)
         self.segments = np.array([sorted(seg) for seg in pslg.segments])
         self.triangulation = Delaunay(self.vertices)
         self.min_angle = min_angle
+        self.max_area = max_area
 
     def get_encroached_segments(self):
         encroached_segments = []
@@ -60,6 +62,20 @@ class RuppertsAlgorithm:
             encroached_segments = self.get_encroached_segments() + new_encroached_segments
             bad_triangles = self.get_bad_triangles()
 
+        while self.max_area is not None:
+            flag = False
+            for triangle in self.triangulation.simplices:
+                area = calculate_polygon_area(self.vertices[triangle])
+                print(area)
+                if area > self.max_area:
+                    circumcenter = calculate_circumcenter(self.vertices[triangle])
+                    self.add_vertex(circumcenter)
+                    flag = True
+                    break
+            if not flag:
+                break
+            self.triangulation = Delaunay(self.vertices)
+            
         return Mesh(self.vertices, self.triangulation.simplices, [])
 
     def is_segment_encroached(self, segment, vertex=None):
@@ -168,3 +184,7 @@ def create_approx_mesh(outline, approx_triangles=100):
     plotter.show()
 
     return mesh
+
+if __name__ == '__main__':
+    mesh = create_rect_mesh(corners=[[0, 0], [2, 1]], resolution=(60, 30))
+    mesh.save('../files/mesh_60x30.json')

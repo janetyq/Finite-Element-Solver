@@ -6,3 +6,5 @@ test.py
 profile*
 ignore/
 other/
+*ignore*
+*test*

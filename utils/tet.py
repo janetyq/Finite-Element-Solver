@@ -1,7 +1,10 @@
+import sys
+
 import tetgen
 import pyvista as pv
 import numpy as np
 
+sys.path.append('..')
 from Mesh import Mesh
 
 
@@ -25,6 +28,9 @@ def plot_tet(tet_grid, surface):
                         [' Tet Mesh ', 'black']])
     plotter.show()
 
+def plot_tetmesh(mesh):
+    tet_grid = mesh_to_grid(mesh)
+    tet_grid.plot(show_edges=True)
 
 def plot_tetmesh_values(mesh, values, clim=None):
     tet_grid = mesh_to_grid(mesh)
@@ -32,19 +38,24 @@ def plot_tetmesh_values(mesh, values, clim=None):
         clim = [values.min(), values.max()]
     tet_grid.plot(scalars=values, cmap='bwr', clim=clim, flip_scalars=True, show_edges=True)
 
-def plot_tetmesh_animation(mesh, values_array):
+def plot_tetmesh_animation(mesh, values_array, save_file='tetmesh_animation.gif'):
     tet_grid = mesh_to_grid(mesh)
     tet_grid['v'] = values_array[0]
     plotter = pv.Plotter()
     clim = [min(values_array.flatten()), max(values_array.flatten())]
+
+    title = plotter.add_text("", font_size=12, color='black')
     actor = plotter.add_mesh(tet_grid, scalars="v", clim=clim, cmap='bwr', flip_scalars=True, show_edges=True)
 
-    def callback(frame):
-        i = int(frame)
-        print("updating frame", i)
-        tet_grid["v"] = values_array[i]
+    plotter.open_gif(save_file)
 
-    plotter.add_slider_widget(callback, [0, len(values_array)])
+    for i in range(len(values_array)):
+        title.SetText(0, f"Iter {i}")
+        tet_grid["v"] = values_array[i]
+        plotter.write_frame()
+    
+    for i in range(5):
+        plotter.write_frame()
 
     plotter.show()
 
