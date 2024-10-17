@@ -76,10 +76,10 @@ def test_heat_equation():
 def test_wave_equation(): # TODO: Wave energy not fully implemented
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     wave_center = np.max(mesh.vertices, axis=0)
-    u_initial = bump_function(mesh.vertices, wave_center, size=0.3*min(w, h))
+    u_initial = bump_function(mesh.vertices, wave_center, size=0.25*min(w, h))
     dudt_initial = np.zeros(len(mesh.vertices))
     
-    equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.04, 'iters': 10})
+    equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.03, 'iters': 20})
     solver = Solver(mesh, equation)
     solution = solver.solve()
     u_values = solution.get_values('u_values')
@@ -88,6 +88,11 @@ def test_wave_equation(): # TODO: Wave energy not fully implemented
     plotter = Plotter(1, 1, title='Wave Equation')
     plotter.plot_animation(mesh, u_values, mode='surface', titles=[f'Surface t={t}' for t in t_values], idx=(0, 0))
     plotter.show()
+
+    for i in range(6, len(u_values)):
+        plotter = Plotter(1, 1, title='Wave Equation')
+        plotter.plot(mesh, u_values[i], mode='surface', empty=True)
+        plotter.show()
 
 def test_linear_elastic():
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
@@ -131,7 +136,7 @@ def test_topology_optimization(iters=10):
     rho_final = solution.get_values('rho_list', iter_idx=-1)
     stress_final = solution.get_values('stress_list', iter_idx=-1)
     plotter = Plotter(1, 2, title='Topology Optimization')
-    plotter.plot(deformed_mesh, rho_final, mode='colored', title='Final Density', idx=(0, 0))
+    plotter.plot(deformed_mesh, rho_final, mode='colored', title='Topology Optimized Structure', idx=(0, 0), empty=True)
     plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final Stress', idx=(0, 1))
     plotter.show()
 
@@ -193,7 +198,7 @@ def test_energy_solver(): # TODO: add support for force bc
     energy_solver = EnergySolver(mesh, equation, bc)
     solution = energy_solver.solve()
     vertices = mesh.vertices + solution.get_values('u').reshape(-1, 2)
-    mesh_final = FEMesh(vertices, mesh.elements, mesh.boundary)
+    mesh_final = FEMesh(vertices, mesh.elements, mesh.boundary, element_type=LinearTriangleElement)
     energy = solution.get_values('energy')
     stresses = np.linalg.norm(solution.get_values('gradient').reshape(-1, 2), axis=1)
 
@@ -215,11 +220,11 @@ def test_3d():
     u_values = solution.get_values('u_values')
     t_values = solution.get_values('t_values')
 
-    plot_tetmesh_animation(mesh, np.array(u_values))
+    plot_tetmesh_animation(mesh, np.array(u_values), title='Heat Diffusion')
     print('done')
 
 if __name__ == "__main__":
-    MESH_FILE = 'files/mesh_90x30.json'
+    MESH_FILE = 'files/mesh_40x40.json'
     mesh = FEMesh.load(MESH_FILE)
     # mesh.plot()
 
@@ -227,9 +232,9 @@ if __name__ == "__main__":
     # test_l2_projection()
     # test_poisson_equation()
     # test_heat_equation()
-    # test_wave_equation()
+    test_wave_equation()
     # test_linear_elastic()
-    # test_topology_optimization(iters=40) # TODO: save animation, smoothing
+    # test_topology_optimization(iters=25) # TODO: save animation, smoothing
     # test_energy_solver()
-    test_3d()
+    # test_3d()
     # test_adaptive_refinement()

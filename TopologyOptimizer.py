@@ -55,7 +55,7 @@ class TopologyOptimizer:
             # solve
             solution = self.solver.solve()
             solution.set_values('rho', self.rho)
-            solution_list.append(solution.__copy__())
+            solution_list.append(solution)
 
             # log and plot
             self._log_iteration(iter, solution)

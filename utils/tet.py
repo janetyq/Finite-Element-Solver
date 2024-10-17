@@ -7,6 +7,31 @@ import numpy as np
 sys.path.append('..')
 from Mesh import Mesh
 
+def find_boundary_faces(tetrahedrons):
+    # This will store the faces and the number of times they appear
+    face_count = {}
+    
+    # Loop through each tetrahedron
+    for tet in tetrahedrons:
+        # Extract the four faces from the tetrahedron (combinations of 3 vertices)
+        faces = [
+            tuple(sorted([tet[0], tet[1], tet[2]])),
+            tuple(sorted([tet[0], tet[1], tet[3]])),
+            tuple(sorted([tet[0], tet[2], tet[3]])),
+            tuple(sorted([tet[1], tet[2], tet[3]]))
+        ]
+        
+        # Count each face's occurrence
+        for face in faces:
+            if face not in face_count:
+                face_count[face] = 0
+            face_count[face] += 1
+    
+    # Boundary faces are those that appear only once
+    boundary_faces = [list(face) for face, count in face_count.items() if count == 1]
+    
+    return np.array(boundary_faces)
+
 
 def plot_tet(tet_grid, surface):
     # plots tetrahedral mesh cut midway with the surface mesh outline
@@ -38,19 +63,21 @@ def plot_tetmesh_values(mesh, values, clim=None):
         clim = [values.min(), values.max()]
     tet_grid.plot(scalars=values, cmap='bwr', clim=clim, flip_scalars=True, show_edges=True)
 
-def plot_tetmesh_animation(mesh, values_array, save_file='tetmesh_animation.gif'):
+def plot_tetmesh_animation(mesh, values_array, save_file='tetmesh_animation.gif', title=None):
     tet_grid = mesh_to_grid(mesh)
     tet_grid['v'] = values_array[0]
     plotter = pv.Plotter()
     clim = [min(values_array.flatten()), max(values_array.flatten())]
 
-    title = plotter.add_text("", font_size=12, color='black')
+    if title is not None:
+        plotter.add_text(title, font_size=18, color='black', position='upper_edge')
+    text = plotter.add_text("", font_size=12, color='black')
     actor = plotter.add_mesh(tet_grid, scalars="v", clim=clim, cmap='bwr', flip_scalars=True, show_edges=True)
 
     plotter.open_gif(save_file)
 
     for i in range(len(values_array)):
-        title.SetText(0, f"Iter {i}")
+        text.SetText(0, f"Iter {i}")
         tet_grid["v"] = values_array[i]
         plotter.write_frame()
     
@@ -110,7 +137,8 @@ def create_rect_tetmesh(x_lim, y_lim, z_lim, subdividisions=2, plot=True):
 def grid_to_mesh(grid):
     vertices = grid.points
     elements = grid.cells.reshape(-1, 5)[:, 1:]
-    return Mesh(vertices, elements, [])
+    boundary = find_boundary_faces(elements)
+    return Mesh(vertices, elements, boundary)
 
 def mesh_to_grid(mesh):
     cells = np.hstack([np.full((mesh.elements.shape[0], 1), 4), mesh.elements]).ravel()
