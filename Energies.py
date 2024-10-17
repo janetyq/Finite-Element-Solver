@@ -81,9 +81,10 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         print("Gradient checks completed")
 
 class NeohookeanEnergyDensity:
-    def __init__(self, mu, lamb):
-        self.mu = mu
-        self.lamb = lamb
+    def __init__(self, E, nu):
+        self.E = E
+        self.nu = nu
+        self.mu, self.lamb = Enu_to_Lame(self.E, self.nu)
 
     def set_grad_u(self, grad_u):
         pass

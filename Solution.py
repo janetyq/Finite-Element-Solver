@@ -58,7 +58,7 @@ class Solution:
     def reset(self):
         self.values = {}
 
-    def get_deformed_femesh(self):
+    def get_deformed_mesh(self):
         femesh_deformed = self.femesh.copy()
         u = self.get_values('u')
         femesh_deformed.vertices += u.reshape(-1, self.dim)
@@ -66,7 +66,7 @@ class Solution:
 
     @classmethod
     def combine_solutions(cls, solution_list):
-        combined_solution = Solution(solution_list[0].femesh, self.equation.dim) # TODO: bit weird
+        combined_solution = Solution(solution_list[0].femesh, 2) # TODO: bit weird
         for name in solution_list[0].values.keys():
             combined_solution.values[name + '_list'] = np.array([s.get_values(name) for s in solution_list])
         return combined_solution

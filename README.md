@@ -1,21 +1,11 @@
 # Finite Element Solver
 
-Finite element method solver for partial differential equations (PDEs) on arbitrary 2d meshes. 
+This finite element method (FEM) solver is capable of solving a variety of partial differential equations (PDEs), such as Poisson, heat, wave, and both linear and nonlinear elasticity equations. It supports both Dirichlet and Neumann boundary conditions and can be applied to simulate both 2D and 3D meshes. Interesting features include custom meshing algorithms, adaptive mesh refinement to enhance simulation accuracy and topology optimization for optimizing structural design. (note: this README is a bit behind the current state of the project, reach out for more details)
 
-## Features
+## Details
+This solver uses the Galerkin finite element method with linear basis functions on triangular meshes for 2D problems and tetrahedral meshes for 3D. It is designed to be modular, making it easy to add new PDEs, finite element types, or energy density functions.
 
-- Can solve the following equations:
-    - L2 projection
-    - Poisson equation
-    - Heat equation
-    - Wave equation
-    - **Linear elastic mechanics**
-- Customizable boundary conditions (Dirichlet, Neumann, Mixed) and arbitrary load functions
-- **Adaptive mesh refinement**
-- **Topology optimization** for structural design
-- Custom generated meshes from my "Meshing" project
-
-## Equations
+## Examples
 ### L2 Projection
 Given a function $f(x, y)$, we can find its best approximation in the finite element space, which is the space of linear functions on the triangular mesh.
 
@@ -96,31 +86,24 @@ The boundary conditions are that the left edge is fixed and a downward force is 
 
 The solver starts with a uniform density field and iteratively updates the density field to minimize the compliance. This image shows the final density field. This structure uses approx 55% of the original material and only deforms slightly more.
 
-(More details with images of deformation, post-processed mesh, etc. coming soon)
-
 
 ## Methods
-
  - Galerkin Finite Element Method
- - Boundary conditions: Dirichlet, Neumann, Robin, Mixed
- - Physical models (PDEs): L2 projection, Poisson's equation, Heat equation, Wave equation, Navier-Cauchy equation for linear elastic mechanics
- - Quadrature: Midpoint, Trapezoidal, Simpson's
+ - Boundary conditions: Dirichlet, Neumann
+ - Partial Differential Equations (PDEs): L2 projection, Poisson's equation, Heat equation, Wave equation, Navier-Cauchy equation (linear elastics), hyperelasticity
  - Integration: Forward/Backward Euler, Crank-Nicolson
- - Smoothing: Laplacian smoothing
- - Refinement: Red-Green regular refinement
  - Energy measures: Dirichlet energy, Kinetic energy
  - Error estimates: A posteriori error residuals
- - Optimization: Gradient descent
- - Mesh data structures: Half-edge triangle mesh
+ - Optimization: Gradient descent, Newton-Raphson method, Optimality criteria method (SIMP)
+ - Mesh algorithms: Delaunay triangulation, Ruppert's algorithm (line segments -> triangle mesh), Red-Green refinement, half-edge data structure
 
 
-## Todo
-    - Add thermal expansion to linear elastics model
-    - Solve transport equations, fluid mechanics, etc.
-    - Adaptive refinement for all equations
-    - Expand to a 3d solver
-    - Sparse solver
-    - Applications - cage-based shape optimization, invere spring design
+## Next Steps (in progress)
+- Nonlinear elements: quadratic basis functions
+- More PDEs: time-dependent dynamics, thermal expansion, transport equations, fluid mechanics, etc.
+- Error estimates: a posteriori error estimates for adaptive refinement
+- Efficiency: sparse solver
+- Interesting Applications: cage-based shape optimization, inverse spring design
 
 
 ### References

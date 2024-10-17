@@ -13,7 +13,7 @@ class Mesh:
         self.vertices = np.array(vertices)
         self.elements = np.array(elements) # list of indices of vertices
         self.boundary = np.array(boundary) # list of indices of vertices
-        self.boundary_idxs = list(set(self.boundary.ravel()))
+        self.boundary_idxs = np.array(list(set(self.boundary.ravel())))
         self.edges = self._get_all_edges()
 
     def convert_vertex_values_to_element_values(self, vertex_values):

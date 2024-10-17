@@ -10,12 +10,9 @@ class FEMesh(Mesh):
     def __init__(self, vertices, elements, boundary, element_type=LinearTriangleElement):
         Mesh.__init__(self, vertices, elements, boundary)
 
-        self.element_type = element_type # TODO: in future, allow for different element types, this could be list of element types
+        self.element_type = element_type
+        self.boundary_type = element_type.SUB_TYPE
         self.element_objs = [self.element_type(self.vertices[element]) for element in self.elements]
-        if element_type == LinearTriangleElement:
-            self.boundary_type = LinearLineElement
-        if element_type == LinearTetrahedralElement:
-            self.boundary_type = LinearTriangleElement
         self.boundary_objs = [self.boundary_type(self.vertices[boundary]) for boundary in self.boundary]
 
         self.prepare_matrices()
@@ -61,16 +58,12 @@ class FEMesh(Mesh):
     def calculate_mean_value(self, u):
         return self.calculate_total_value(u) / sum([element.volume for element in self.element_objs])
 
-    # def calculate_element_gradient(self, e_idx, u_element): # TODO: args suck, some code repetitive
-    #     shape_gradient = self.element_objs[e_idx].shape_gradient
-    #     return shape_gradient.T @ u_element
-
     def calculate_gradient(self, u): # TODO: works, but need to understand 1D vs 2D use in dirichlet energy
         gradient = []
         for e_idx, element_obj in enumerate(self.element_objs):
             # u_elt = u[np.array([2*self.elements[e_idx], 2*self.elements[e_idx]+1]).T.flatten()]
             u_elt = u[self.elements[e_idx]]
-            gradient.append(element_obj.shape_gradient.T @ u_elt)
+            gradient.append(element_obj.grad_phi.T @ u_elt)
         return np.array(gradient)
 
     def calculate_dirichlet_energy(self, u):
@@ -105,4 +98,4 @@ class FEMesh(Mesh):
         return in_boundary_idxs
 
     def copy(self):
-        return FEMesh(self.vertices.copy(), self.elements.copy(), self.boundary.copy(), self.element_type)
+        return FEMesh(self.vertices.copy(), self.elements.copy(), self.boundary.copy(), element_type=self.element_type)

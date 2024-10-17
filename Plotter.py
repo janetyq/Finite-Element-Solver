@@ -23,7 +23,7 @@ class Plotter:
         self.cbar_infos = {}
 
     # function for plotting at a specific index
-    def plot(self, mesh, values=None, mode='mesh', idx=(0, 0), title=None, bc=None, clear=False):
+    def plot(self, mesh, values=None, mode='mesh', idx=(0, 0), title=None, bc=None, clear=False, empty=False):
         ax = self.axs[idx]
         if clear:
             ax.clear()
@@ -51,6 +51,8 @@ class Plotter:
             raise ValueError(f'Invalid plot mode: {mode}')
 
         ax.set_title(title) # overrides any existing title
+        if empty:
+            ax.axis('off')
 
     def plot_highlights(self, mesh, idxs_list, color_list, label_list, mode='vertices', idx=(0, 0)):
         if not (len(idxs_list) == len(color_list) == len(label_list)):

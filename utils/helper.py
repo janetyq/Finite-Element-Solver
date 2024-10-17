@@ -24,8 +24,11 @@ def bump_function(vertices, center, mag=100, size=0.5):
     return np.array([mag*cos(pi/2*np.linalg.norm(point - center)/size) if np.linalg.norm(point - center) < size else 0 for point in vertices])
 
 def calculate_polygon_area(polygon):
-    x, y = polygon.T
-    return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+    if polygon.shape[1] == 2:
+        x, y = polygon.T
+        return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+    else:
+        raise NotImplementedError('Polygon area not supported for 3D')
 
 def calculate_tetrahedron_volume(tetrahedron): # TODO: similar for triangle?
     a, b, c = tetrahedron[1:] - tetrahedron[0]

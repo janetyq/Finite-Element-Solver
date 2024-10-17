@@ -168,7 +168,7 @@ class Solver:
         self.solution.set_values("u", u)
         self.solution.set_values("strain", np.linalg.norm(eps_elements, axis=-1))
         self.solution.set_values("stress", np.linalg.norm(sigma_elements, axis=-1))
-        self.solution.set_values("compliance", compliance_elements)
+        self.solution.set_values("compliance", np.array(compliance_elements))
 
     def adaptive_refinement(self, max_triangles=1000, max_iters=20):
         # TODO: there's a bug somewhere
