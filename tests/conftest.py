@@ -10,8 +10,8 @@ matplotlib.use("Agg")
 
 import pytest
 
-from utils.meshing import create_rect_mesh
-from FEMesh import FEMesh
+from fem.mesh.generation import create_rect_mesh
+from fem.mesh.femesh import FEMesh
 
 
 @pytest.fixture

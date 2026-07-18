@@ -1,7 +1,33 @@
-# Tooling configuration only (not a distributable package yet).
-# The [tool.pytest.ini_options] table configures how pytest discovers/runs tests.
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finite-element-solver"
+version = "0.1.0"
+description = "A finite element method solver for 2D/3D PDEs, with custom meshing, adaptive refinement, and topology optimization."
+readme = "README.md"
+requires-python = ">=3.10"
+# Abstract (unpinned) runtime deps: what the library needs to import and run.
+# Reproducible, pinned versions for development live in requirements.txt.
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+# 3D tetrahedral meshing / rendering (fem.mesh + fem.plot.tet)
+viz3d = ["pyvista", "tetgen"]
+# SVG-outline meshing (fem.svg)
+svg = ["svg.path"]
+# Test / development tooling
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["fem*"]
 
 [tool.pytest.ini_options]
-# Put the repo root on sys.path so tests can `import FEMesh`, `import Solver`, etc.
-pythonpath = ["."]
+# The package is installed (pip install -e .), so tests import `fem` directly;
+# no sys.path shim needed.
 testpaths = ["tests"]

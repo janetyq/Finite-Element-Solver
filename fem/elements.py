@@ -1,5 +1,5 @@
 import numpy as np
-from utils.helper import *
+from fem.geometry import calculate_polygon_area, calculate_tetrahedron_volume
 
 
 class Element:

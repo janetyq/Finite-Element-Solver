@@ -1,5 +1,6 @@
 import numpy as np
-from utils.helper import * 
+from fem.materials import Enu_to_Lame
+from fem.numerics import check_gradient
 
 class LinearElasticEnergyDensity: # TODO: inheritance
     '''

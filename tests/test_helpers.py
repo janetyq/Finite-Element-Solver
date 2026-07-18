@@ -6,12 +6,12 @@ answers, so they make a good first regression net.
 import numpy as np
 import pytest
 
-from utils.helper import (
-    Enu_to_Lame,
-    Lame_to_Enu,
+from fem.materials import Enu_to_Lame, Lame_to_Enu
+from fem.geometry import (
     calculate_polygon_area,
     calculate_tetrahedron_volume,
     calculate_circumcenter,
+    point_in_polygon,
 )
 
 
@@ -49,6 +49,13 @@ class TestTetrahedronVolume:
     def test_unit_tetrahedron(self):
         tet = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])
         assert calculate_tetrahedron_volume(tet) == pytest.approx(1.0 / 6.0)
+
+
+class TestPointInPolygon:
+    def test_inside_and_outside(self):
+        square = np.array([[0, 0], [2, 0], [2, 2], [0, 2]])
+        assert point_in_polygon(np.array([1.0, 1.0]), square)
+        assert not point_in_polygon(np.array([3.0, 1.0]), square)
 
 
 class TestCircumcenter:

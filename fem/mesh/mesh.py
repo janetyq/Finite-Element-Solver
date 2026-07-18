@@ -2,9 +2,7 @@ import json
 import numpy as np
 from matplotlib.tri import Triangulation
 
-from Plotter import Plotter
-
-from utils.helper import *
+from fem.plot.plotter import Plotter
 
 
 class Mesh:

@@ -2,9 +2,6 @@ from datetime import datetime
 import numpy as np
 import pickle
 
-from FEMesh import *
-from Plotter import *
-
 class Solution:
     def __init__(self, femesh, dim):
         self.femesh = femesh

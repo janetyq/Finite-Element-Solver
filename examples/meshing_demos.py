@@ -1,18 +1,14 @@
-import sys
 import json
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button
 
-sys.path.append('..')
-from Mesh import *
-from Plotter import *
+from fem.mesh.mesh import Mesh
+from fem.plot.plotter import Plotter
+from fem.mesh.generation import create_rect_mesh, create_approx_mesh, RuppertsAlgorithm
+from fem.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
 
-from utils.meshing import *
-from utils.svg_pslg import *
-from utils.helper import *
-
-def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='../files/mesh.json'):
+def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='files/mesh.json'):
     mesh = create_rect_mesh(corners, resolution=resolution)
     mesh.save(save_file)
     return mesh
@@ -94,7 +90,7 @@ if __name__ == '__main__':
     # demo_mesh_plotting(mesh)
 
     # SVG to Mesh
-    curve = get_curve_from_svg('../files/california.svg')
+    curve = get_curve_from_svg('files/california.svg')
     
     curve_reduced = demo_douglas_peucker(curve)
     print(f"Original points: {len(curve)}, Final points: {len(curve_reduced)}")

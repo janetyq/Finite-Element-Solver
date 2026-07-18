@@ -2,15 +2,15 @@ import numpy as np
 from math import sin, cos, pi, e
 import matplotlib.pyplot as plt
 
-from utils.helper import *
-from utils.tet import *
-
-from BoundaryConditions import *
-from FEMesh import *
-from Plotter import *
-from Solver import *
-from TopologyOptimizer import *
-from EnergySolver import *
+from fem.numerics import bump_function
+from fem.mesh.femesh import FEMesh
+from fem.elements import LinearTriangleElement, LinearTetrahedralElement
+from fem.boundary import BoundaryConditions
+from fem.plot.plotter import Plotter
+from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
+from fem.solver import Solver, Equation
+from fem.topology import TopologyOptimizer
+from fem.energy_solver import EnergySolver
 
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
