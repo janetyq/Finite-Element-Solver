@@ -47,7 +47,7 @@ class LinearElement(Element):
     # TODO: haven't checked if these make sense for 1D, 3D
     def deformation_gradient(self, u_element):
         # F = I + grad_u = I + grad_phi^T @ u
-        return np.eye(N-1) + self.grad_phi.T @ u_element
+        return np.eye(self.N-1) + self.grad_phi.T @ u_element
 
     def calculate_dF_dx(self):
         # dF_dx = I x grad_phi^T, TODO: figure out kronecker product
