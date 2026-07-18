@@ -1,5 +1,6 @@
 import numpy as np
 from math import sin, cos, pi
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation 
 from matplotlib.colorbar import Colorbar
@@ -7,17 +8,6 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.tri import Triangulation
 import matplotlib.cm as cm
 from mpl_toolkits.mplot3d import Axes3D
-
-# FEM assembly
-def assemble_mass_matrix(N, dim):
-    N = len(self.mesh.vertices)
-    A = np.zeros((self.dim * N, self.dim * N))
-    for e_idx, element in enumerate(self.mesh.elements):
-        idxs = np.array([self.dim*element + i for i in range(self.dim)]).T.flatten()
-        element_matrix = calculate_element_matrix(e_idx)
-        # print(element_matrix, '\n')
-        A[np.ix_(idxs, idxs)] += element_matrix
-    return A
 
 # random useful functions
 def bump_function(vertices, center, mag=100, size=0.5):
@@ -221,12 +211,8 @@ def plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode='vertices')
                 ax.fill(vertices[:, 0], vertices[:, 1], color=color, alpha=0.2, label=label if first else None)
                 first = False
 
-def plot_arrows(ax, mesh, values):
-    element_vertices = np.mean(mesh.vertices[mesh.elements], axis=1)
-    ax.quiver(element_vertices[:, 0], element_vertices[:, 1], values[:, 0], values[:, 1], alpha=0.5, scale=10)
-
 def setup_colorbar(ax, vlim, label=None):
-    cmap = cm.get_cmap('viridis')  # Choose a colormap
+    cmap = matplotlib.colormaps['viridis']  # Choose a colormap
     norm = plt.Normalize(vmin=vlim[0], vmax=vlim[1])  # Normalize values between vmin and vmax
 
     # Create a scalar mappable for the colorbar

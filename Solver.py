@@ -17,7 +17,7 @@ class Equation:
             self.dim = dim
 
     def __copy__(self):
-        return self.__class__(self.name, self.parameters.copy()) # TODO: check if this works for list values
+        return self.__class__(self.name, self.parameters.copy(), dim=self.dim) # TODO: check if this works for list values
 
 class Solver:
     def __init__(self, femesh, equation, boundary_conditions=None):
