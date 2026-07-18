@@ -4,19 +4,19 @@ This finite element method (FEM) solver is capable of solving a variety of parti
 
 ## Installation
 
-The solver is a pip-installable package (`fem`).
+The project uses [uv](https://docs.astral.sh/uv/) for environment and dependency
+management. `uv sync` creates a project-local `.venv`, installs the `fem` package
+in editable mode, and pins exact versions in `uv.lock`.
 
-With pip (any virtual environment):
 ```bash
-pip install -e .            # core solver (numpy, scipy, matplotlib)
-pip install -e ".[viz3d]"   # + 3D tetrahedral meshing/rendering (pyvista, tetgen)
-pip install -e ".[dev]"     # + pytest for the test suite
+uv sync                 # core solver + dev tools (pytest)
+uv sync --extra viz3d   # + 3D tetrahedral meshing/rendering (pyvista, tetgen)
+uv sync --extra svg     # + SVG-outline meshing (svg.path)
 ```
 
-Or recreate the pinned conda environment:
+Prefer plain pip? It is a standard `pyproject.toml` package:
 ```bash
-conda env create -f environment.yml
-conda activate fem
+pip install -e ".[viz3d]"
 ```
 
 ## Quick Start
@@ -61,13 +61,12 @@ files/               # example meshes and SVG outlines
 ## Running Tests
 
 ```bash
-pip install -e ".[dev]"
-pytest
+uv run pytest
 ```
 
 Runnable demos live in `examples/` (run from the repo root), e.g.:
 ```bash
-python examples/solver_demos.py
+uv run python examples/solver_demos.py
 ```
 
 ## Details
