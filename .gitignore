@@ -1,5 +1,10 @@
 __pycache__/
+*.egg-info/
+build/
+dist/
 _*
+# ...but never ignore Python package markers (the _* rule matches __init__.py)
+!**/__init__.py
 temp*
 todo.txt
 test.py

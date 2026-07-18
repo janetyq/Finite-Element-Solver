@@ -6,9 +6,9 @@ of producing a plot for a human to eyeball.
 """
 import numpy as np
 
-from utils.helper import bump_function
-from BoundaryConditions import BoundaryConditions
-from Solver import Solver, Equation
+from fem.numerics import bump_function
+from fem.boundary import BoundaryConditions
+from fem.solver import Solver, Equation
 
 
 def test_heat_conserves_mean_temperature(make_unit_square):

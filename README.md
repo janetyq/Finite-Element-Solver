@@ -1,6 +1,74 @@
 # Finite Element Solver
 
-This finite element method (FEM) solver is capable of solving a variety of partial differential equations (PDEs), such as Poisson, heat, wave, and both linear and nonlinear elasticity equations. It supports both Dirichlet and Neumann boundary conditions and can be applied to simulate both 2D and 3D meshes. Interesting features include custom meshing algorithms, adaptive mesh refinement to enhance simulation accuracy and topology optimization for optimizing structural design. (note: this README is a bit behind the current state of the project, reach out for more details)
+This finite element method (FEM) solver is capable of solving a variety of partial differential equations (PDEs), such as Poisson, heat, wave, and both linear and nonlinear elasticity equations. It supports both Dirichlet and Neumann boundary conditions and can be applied to simulate both 2D and 3D meshes. Interesting features include custom meshing algorithms, adaptive mesh refinement to enhance simulation accuracy and topology optimization for optimizing structural design.
+
+## Installation
+
+The solver is a pip-installable package (`fem`).
+
+With pip (any virtual environment):
+```bash
+pip install -e .            # core solver (numpy, scipy, matplotlib)
+pip install -e ".[viz3d]"   # + 3D tetrahedral meshing/rendering (pyvista, tetgen)
+pip install -e ".[dev]"     # + pytest for the test suite
+```
+
+Or recreate the pinned conda environment:
+```bash
+conda env create -f environment.yml
+conda activate fem
+```
+
+## Quick Start
+
+```python
+from fem import FEMesh, BoundaryConditions, Solver, Equation, Plotter
+
+mesh = FEMesh.load("files/mesh_40x40.json")
+
+equation = Equation("poisson")
+bc = BoundaryConditions(mesh)
+bc.add("dirichlet", mesh.boundary_idxs, [0])
+bc.add_force(lambda point: [1])
+
+solution = Solver(mesh, equation, bc).solve()
+
+plotter = Plotter(title="Poisson")
+plotter.plot(mesh, solution.get_values("u"), mode="surface")
+plotter.show()
+```
+
+## Project Structure
+
+```
+fem/                 # the solver package
+├── mesh/            # Mesh, FEMesh, red-green refinement, mesh generation
+├── plot/            # Plotter, 2D drawing helpers, 3D tet rendering
+├── elements.py      # linear line/triangle/tetrahedral elements
+├── boundary.py      # Dirichlet / Neumann boundary conditions
+├── solver.py        # Equation + Solver (Poisson, heat, wave, elasticity)
+├── solution.py      # solution container
+├── energies.py, energy_solver.py   # nonlinear (hyperelastic) energy solver
+├── topology.py      # SIMP topology optimization
+├── geometry.py, materials.py, numerics.py   # math helpers
+├── quadrature.py    # quadrature rules
+└── svg.py           # SVG outline -> planar straight-line graph
+tests/               # pytest suite (unit, convergence, integration smoke)
+examples/            # runnable demo scripts
+files/               # example meshes and SVG outlines
+```
+
+## Running Tests
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+Runnable demos live in `examples/` (run from the repo root), e.g.:
+```bash
+python examples/solver_demos.py
+```
 
 ## Details
 This solver uses the Galerkin finite element method with linear basis functions on triangular meshes for 2D problems and tetrahedral meshes for 3D. It is designed to be modular, making it easy to add new PDEs, finite element types, or energy density functions.

@@ -1,6 +1,10 @@
-from utils.helper import *
+import numpy as np
 
-from Solver import *
+from fem.numerics import calculate_smoothing_matrix, color
+from fem.solver import Solver
+from fem.solution import Solution
+from fem.mesh.femesh import FEMesh
+from fem.plot.plotter import Plotter
 
 class TopologyOptimizer:
     '''

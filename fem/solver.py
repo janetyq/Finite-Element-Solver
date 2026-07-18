@@ -1,10 +1,10 @@
 import numpy as np
 from scipy.optimize import minimize
 
-from utils.refinement import *
-from BoundaryConditions import *
-from Mesh import *
-from Solution import *
+from fem.mesh.refinement import RefinementMesh
+from fem.boundary import BoundaryConditions
+from fem.solution import Solution
+from fem.materials import Enu_to_Lame
 
 class Equation:
     def __init__(self, name, parameters=None, dim=None):

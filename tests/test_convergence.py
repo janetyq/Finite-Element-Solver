@@ -17,10 +17,10 @@ which is O(h^2).
 import numpy as np
 import pytest
 
-from utils.meshing import create_rect_mesh
-from FEMesh import FEMesh
-from BoundaryConditions import BoundaryConditions
-from Solver import Solver, Equation
+from fem.mesh.generation import create_rect_mesh
+from fem.mesh.femesh import FEMesh
+from fem.boundary import BoundaryConditions
+from fem.solver import Solver, Equation
 
 
 def _exact(vertices):

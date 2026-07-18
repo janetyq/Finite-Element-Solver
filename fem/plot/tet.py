@@ -1,11 +1,8 @@
-import sys
-
 import tetgen
 import pyvista as pv
 import numpy as np
 
-sys.path.append('..')
-from Mesh import Mesh
+from fem.mesh.mesh import Mesh
 
 def find_boundary_faces(tetrahedrons):
     # This will store the faces and the number of times they appear

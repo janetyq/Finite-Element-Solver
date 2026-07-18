@@ -5,7 +5,17 @@ from matplotlib.colorbar import Colorbar
 from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
 
-from utils.helper import *
+from fem.plot.helpers import (
+    plot_mesh,
+    plot_boundary,
+    plot_highlight,
+    plot_arrows,
+    setup_colorbar,
+    plot_colored,
+    change_ax_to_ax3d,
+    plot_surface,
+    plot_bc,
+)
 
 class Plotter:
     def __init__(self, nrows=1, ncols=1, figsize=None, title=None):

@@ -1,7 +1,8 @@
+import numpy as np
 from scipy.optimize import minimize
 
-from Energies import *
-from Solution import *
+from fem.energies import LinearElasticEnergyDensity
+from fem.solution import Solution
 
 class EnergySolver:
     def __init__(self, femesh, equation, boundary_conditions, verbose=True):

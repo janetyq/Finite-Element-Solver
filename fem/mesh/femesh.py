@@ -1,6 +1,7 @@
-from Mesh import *
-from Plotter import *
-from Elements import *
+import numpy as np
+
+from fem.mesh.mesh import Mesh
+from fem.elements import LinearTriangleElement
 
 class FEMesh(Mesh):
     '''

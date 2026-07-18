@@ -1,13 +1,17 @@
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 from scipy.spatial import Delaunay
 
-sys.path.append('..')
-from Mesh import Mesh
-from Plotter import Plotter
-from utils.helper import *
+from fem.mesh.mesh import Mesh
+from fem.plot.plotter import Plotter
+from fem.geometry import (
+    calculate_polygon_area,
+    calculate_triangle_min_angle,
+    calculate_circumcenter,
+    get_boundary_from_vertices_elements,
+    point_in_polygon,
+)
 
 
 class RuppertsAlgorithm:

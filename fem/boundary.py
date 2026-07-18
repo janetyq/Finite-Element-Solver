@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from Plotter import *
+from fem.plot.plotter import Plotter
 
 # supports dirichlet, neumann, and mixed boundary conditions
 # add boundary conditions with list of indices and values at indices
