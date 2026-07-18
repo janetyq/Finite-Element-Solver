@@ -12,3 +12,5 @@ other/
 # ...but do track the real pytest suite (the *test* rule above would ignore it)
 !tests/
 !tests/**
+# keep caches out even under tests/ (re-ignore after the broad negation above)
+tests/**/__pycache__/
