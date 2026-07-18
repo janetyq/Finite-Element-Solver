@@ -18,7 +18,7 @@ class Solution:
     @classmethod
     def load(cls, filename):
         with open(filename, 'rb') as f:
-            return cls(pickle.load(f))
+            return pickle.load(f)
     
     def __copy__(self):
         values_copy = {k: v.copy() for k, v in self.values.items()}
