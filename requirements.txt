@@ -1,0 +1,17 @@
+# Pinned dependencies for the Finite Element Solver.
+# Versions captured from a verified working environment (Python 3.11).
+# Install with:  pip install -r requirements.txt
+
+# --- Core solver (required for all PDE solving) ---
+numpy==2.4.6
+scipy==1.17.1
+matplotlib==3.11.0
+
+# --- Optional: 3D tetrahedral meshing (utils/tet.py) ---
+# and SVG-outline meshing (utils/svg_pslg.py, utils/demos.py)
+pyvista==0.48.4
+tetgen==0.8.4
+svg.path==7.1
+
+# --- Testing ---
+pytest==9.1.1
