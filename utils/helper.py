@@ -1,5 +1,6 @@
 import numpy as np
 from math import sin, cos, pi
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation 
 from matplotlib.colorbar import Colorbar
@@ -211,7 +212,7 @@ def plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode='vertices')
                 first = False
 
 def setup_colorbar(ax, vlim, label=None):
-    cmap = cm.get_cmap('viridis')  # Choose a colormap
+    cmap = matplotlib.colormaps['viridis']  # Choose a colormap
     norm = plt.Normalize(vmin=vlim[0], vmax=vlim[1])  # Normalize values between vmin and vmax
 
     # Create a scalar mappable for the colorbar
