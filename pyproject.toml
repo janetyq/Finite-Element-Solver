@@ -21,7 +21,9 @@ dependencies = [
 viz3d = ["pyvista", "tetgen"]
 # SVG-outline meshing (fem.svg)
 svg = ["svg.path"]
-# Test / development tooling
+
+# Development tooling (installed by default with `uv sync`)
+[dependency-groups]
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]
