@@ -229,9 +229,6 @@ class RefinementMesh:
         plotting_mesh = Mesh(self.vertices, [triangle.vertex_idxs for triangle in plot_triangles], self.boundary)
         plotting_mesh.plot(ax=ax, linewidth=1, color='cyan')
 
-    def get_mesh(self):
-        return self.mesh
-
 if __name__ == '__main__':
     # MESH
     # MESH_FILE = '../shared_meshes/square20_mesh.pkl'
