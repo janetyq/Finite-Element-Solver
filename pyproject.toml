@@ -1,0 +1,7 @@
+# Tooling configuration only (not a distributable package yet).
+# The [tool.pytest.ini_options] table configures how pytest discovers/runs tests.
+
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so tests can `import FEMesh`, `import Solver`, etc.
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -8,3 +8,7 @@ ignore/
 other/
 *ignore*
 *test*
+
+# ...but do track the real pytest suite (the *test* rule above would ignore it)
+!tests/
+!tests/**
