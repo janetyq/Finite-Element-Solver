@@ -210,10 +210,6 @@ def plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode='vertices')
                 ax.fill(vertices[:, 0], vertices[:, 1], color=color, alpha=0.2, label=label if first else None)
                 first = False
 
-def plot_arrows(ax, mesh, values):
-    element_vertices = np.mean(mesh.vertices[mesh.elements], axis=1)
-    ax.quiver(element_vertices[:, 0], element_vertices[:, 1], values[:, 0], values[:, 1], alpha=0.5, scale=10)
-
 def setup_colorbar(ax, vlim, label=None):
     cmap = cm.get_cmap('viridis')  # Choose a colormap
     norm = plt.Normalize(vmin=vlim[0], vmax=vlim[1])  # Normalize values between vmin and vmax
