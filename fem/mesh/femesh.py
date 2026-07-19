@@ -87,10 +87,21 @@ class FEMesh(Mesh):
         squared_gradient_norm = np.einsum('ij,ij->i', u_gradient, u_gradient)
         return sum([self.element_objs[e_idx].volume * squared_gradient_norm[e_idx] for e_idx in range(len(self.elements))])
 
-    def calculate_energy(self, u, dudt):
-        dirichlet_energy = self.calculate_dirichlet_energy(u)
-        kinetic_energy = self.calculate_total_value(dudt**2)
-        return dirichlet_energy + kinetic_energy
+    def calculate_energy(self, u, dudt, c=1.0):
+        '''Total wave energy 1/2 * (c^2 u^T K u + dudt^T M dudt).
+
+        Two things make this the quantity Crank-Nicolson actually conserves, so
+        it can be trusted as an integrator diagnostic:
+
+        - the c^2 on the potential term, without which it is only conserved for c == 1;
+        - the consistent mass matrix in the kinetic term. `calculate_total_value`
+          would give the *lumped* approximation, and pairing a lumped kinetic term
+          with an exact potential term makes the total swing by ~20% as energy
+          sloshes between the two -- pure measurement artifact.
+        '''
+        potential_energy = c**2 * self.calculate_dirichlet_energy(u)
+        kinetic_energy = dudt @ self.M @ dudt
+        return 0.5 * (potential_energy + kinetic_energy)
 
     def get_edges_in_idxs(self, vertices_idxs, exclude_corners=False):
         in_edges = []

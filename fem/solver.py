@@ -111,19 +111,27 @@ class Solver:
         self.b = (self.femesh.M @ self.boundary_conditions.force_load.flatten()).flatten()
         self.b += (self.femesh.M_b @ self.boundary_conditions.neumann_load.flatten()).flatten()
 
-    def solve_linear_system(self, A, b, use_bc=True):
-        # solves Au=b, taking fixed vars and loads into account
+    def solve_linear_system(self, A, b, constraints=None):
+        '''Solve A x = b with the Dirichlet DOFs eliminated rather than penalised.
+
+        `constraints` is a (free, fixed, fixed_values) triple and defaults to the
+        solver's own boundary conditions. It is a parameter because the unknown
+        is not always one value per node: the wave solver's unknown is the
+        stacked block [u; du/dt], which needs its own DOF numbering.
+        '''
+        if constraints is None:
+            bc = self.boundary_conditions
+            constraints = (bc.free_idxs, bc.fixed_idxs, bc.fixed_values)
+        free, fixed, fixed_values = constraints
+        free = np.asarray(free, dtype=int)
+        fixed = np.asarray(fixed, dtype=int)
+
         x = np.zeros_like(b)
-        if use_bc:
-            free = self.boundary_conditions.free_idxs
-            fixed = self.boundary_conditions.fixed_idxs
-            x[fixed] = self.boundary_conditions.fixed_values
-            A_mod = A[np.ix_(free, free)]
-            b_mod = b[free] - A[np.ix_(free, fixed)] @ x[fixed]
-            x[free] = np.linalg.solve(A_mod, b_mod)
-            return x
-        else:
-            return np.linalg.solve(A, b)
+        x[fixed] = fixed_values
+        A_mod = A[np.ix_(free, free)]
+        b_mod = b[free] - A[np.ix_(free, fixed)] @ x[fixed]
+        x[free] = np.linalg.solve(A_mod, b_mod)
+        return x
 
     def solve_nonlinear_system(self, A, b, x0, tol=1e-6, max_iters=100):
         # newton solver
@@ -163,41 +171,64 @@ class Solver:
         self.solution.set_values("t_values", t_values)
         self.solution.set_values("u_values", u_values)
 
+    def _wave_block_constraints(self, N):
+        '''Lift the nodal Dirichlet conditions onto the wave solver's [u; du/dt] block.
+
+        Holding a node at a constant value g constrains two block DOFs, not one:
+        u = g at index v, and du/dt = 0 at index N + v. Time-varying Dirichlet
+        data would need a nonzero velocity there, hence the constant-in-time
+        assumption baked in below.
+        '''
+        bc = self.boundary_conditions
+        fixed = np.asarray(bc.fixed_idxs, dtype=int)
+        free = np.asarray(bc.free_idxs, dtype=int)
+        fixed_values = np.asarray(bc.fixed_values, dtype=float)
+
+        # An initial state that disagrees with the constraints is a modelling
+        # error: the solve would silently jump to satisfy them at the first step.
+        u_initial = np.asarray(self.equation.u_initial, dtype=float)
+        dudt_initial = np.asarray(self.equation.dudt_initial, dtype=float)
+        if not np.allclose(u_initial[fixed], fixed_values):
+            raise ValueError('u_initial disagrees with the Dirichlet values at fixed nodes')
+        if not np.allclose(dudt_initial[fixed], 0):
+            raise ValueError('dudt_initial must be zero at Dirichlet-fixed nodes')
+
+        block_free = np.concatenate([free, N + free])
+        block_fixed = np.concatenate([fixed, N + fixed])
+        block_values = np.concatenate([fixed_values, np.zeros(len(fixed))])
+        return block_free, block_fixed, block_values
+
     def solve_wave(self):
         logger.info('Solving wave equation...')  # M @ u" + K @ u = b
-        # The time-stepping below runs with use_bc=False, so Dirichlet
-        # constraints would be silently ignored. Fail loudly instead of
-        # returning a solution that doesn't satisfy them.
-        if self.boundary_conditions.dirichlet:
-            raise NotImplementedError('solve_wave does not honor Dirichlet boundary conditions yet')
         u, dudt = self.equation.u_initial, self.equation.dudt_initial
         c = self.equation.c
         dt, iters = self.equation.dt, self.equation.iters
-        
+        N = len(self.femesh.vertices)
+
         # Crank-Nicolson method - average of forward and backward Euler
         A_left = np.block([[self.femesh.M, -dt/2 * self.femesh.M],
                            [c**2 * dt/2 * self.femesh.K, self.femesh.M]])
         A_right = np.block([[self.femesh.M, dt/2 * self.femesh.M],
                             [-c**2 * dt/2 * self.femesh.K, self.femesh.M]])
-        # NOTE: np.roll(self.b, -1) rolls a *spatial* load vector as if it were a
-        # time series -- harmless while self.b is zero, but a latent bug the moment
-        # a real source term is added. See BACKLOG.md section 1.
-        b_right = np.block([np.zeros_like(self.b), dt/2 * (self.b + np.roll(self.b, -1))])
+        # The load row of Crank-Nicolson is dt/2 * (b_n + b_{n+1}). Nothing in the
+        # solver makes the load time-dependent, so b_n == b_{n+1} and the average
+        # collapses to dt * b. Reinstate the two-term form if loads ever vary in t.
+        b_right = np.block([np.zeros_like(self.b), dt * self.b])
 
-        N = len(self.femesh.vertices)
+        constraints = self._wave_block_constraints(N)
         x = np.block([u, dudt])
         t_values = [0]
         u_values = [x[:N]]
         dudt_values = [x[N:]]
-        total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1])
+        total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1], c=c)
         logger.debug('t = %.3f, total energy = %.3f', t_values[-1], total_energy)
 
         for i in range(iters):
-            x = self.solve_linear_system(A_left, A_right @ x + b_right, use_bc=False) # TODO: bc not supported for wave
+            x = self.solve_linear_system(A_left, A_right @ x + b_right, constraints=constraints)
             t_values.append(dt * (i+1))
             u_values.append(x[:N])
             dudt_values.append(x[N:])
-            total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1])
+            total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1], c=c)
             logger.debug('t = %.3f, total energy = %.3f', t_values[-1], total_energy)
 
         self.solution.set_values("t_values", t_values)

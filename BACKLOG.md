@@ -18,7 +18,6 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Scaling | Sparsify smoothing matrix / EnergySolver Hessian | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | O(n²) linear scans in refinement/meshing | 🟡 | [§2](#2-performance--scaling) |
 | Correctness | `adaptive_refinement` bug + inverted loop | 🔴 | [§1](#1-bugs--correctness) |
-| Correctness | Wave solver ignores Neumann/force; `np.roll` load bug | 🟡 | [§1](#1-bugs--correctness) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Time-integrator abstraction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -38,13 +37,6 @@ while len(self.femesh.elements) < max_triangles or max_iters == 0:
 is almost certainly meant to be `... and max_iters > 0`. The residual scaffolding it relies
 on is commented out, and the demo path in `examples/solver_demos.py` raises
 `NotImplementedError`, so the feature is currently non-functional.
-
-### 🟠 Wave solver doesn't honor Neumann/force BCs
-`fem/solver.py:solve_wave` time-steps with `use_bc=False`, and `b_right` uses
-`np.roll(self.b, -1)`, which rolls a *spatial* load vector by one index — a time-averaging
-idea applied to the wrong axis. It's harmless while `b == 0` (the demos have no forcing),
-but a correctness trap the moment someone adds a source term. (Dirichlet BCs now raise
-`NotImplementedError` here rather than being silently ignored.)
 
 ---
 
@@ -117,9 +109,12 @@ because it's inside a Newton loop.
 - 💡 **Time-integration abstraction.** Backward-Euler (heat) and Crank–Nicolson (wave) are
   hand-coded inline. A small `TimeIntegrator` interface (θ-method / generalized-α) would
   deduplicate and make it trivial to add new dynamics.
-- 💡 **Full BC support for the wave solver** (Neumann/force aren't honored), and a general
-  Robin BC path (the README mentions Robin conditions but `BoundaryConditions` only models
-  Dirichlet/Neumann explicitly).
+- 💡 **Robin BC path** — the README mentions Robin conditions but `BoundaryConditions` only
+  models Dirichlet/Neumann explicitly.
+- 💡 **Time-varying loads and Dirichlet data.** `self.b` is built once and assumed constant in
+  time; `solve_wave` notes where the Crank–Nicolson `b_n`/`b_{n+1}` average collapses because
+  of it, and `_wave_block_constraints` assumes Dirichlet values are constant (so `du/dt = 0`
+  at fixed nodes).
 
 **Engineering**
 - 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg`, `generation` (Rupperts/approx
