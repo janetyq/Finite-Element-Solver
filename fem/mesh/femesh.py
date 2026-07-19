@@ -37,7 +37,11 @@ class FEMesh(Mesh):
         self.K = self.assemble_matrix('stiffness', 'element', dim, **kwargs)
         if dim == 1:
             self.K_b = self.assemble_matrix('stiffness', 'boundary', dim, **kwargs)
-        # TODO: not assembling K_b for dim=2
+        else:
+            # Boundary stiffness is only used by the 1D scalar path; the dim>1
+            # (linear-elastic) solvers never touch K_b. Set None so the attribute
+            # always exists and misuse fails loudly instead of as AttributeError.
+            self.K_b = None
 
     def assemble_matrix(self, matrix_type_name, element_type_name, dim=1, **kwargs):
         # TODO: term "element" is overloaded here, and its a bit hacky

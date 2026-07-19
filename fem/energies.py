@@ -63,6 +63,13 @@ class LinearElasticEnergyDensity: # TODO: inheritance
     def calculate_dW_dS(self, S):
         return self.lamb * np.trace(S) * np.eye(2) + 2 * self.mu * S
 
+    def calculate_W_from_F(self, F):
+        return self.calculate_W_from_S(self.calculate_S_from_F(F))
+
+    def calculate_dW_dF(self, F):
+        S = self.calculate_S_from_F(F)
+        return np.einsum('ij,ijmn->mn', self.calculate_dW_dS(S), self.calculate_dS_dF(F))
+
     def calculate_d2W_dS2(self, S):
         d2W_dS2 = np.zeros((2, 2, 2, 2))
         for i in range(2):
@@ -88,4 +95,7 @@ class NeohookeanEnergyDensity:
         self.mu, self.lamb = Enu_to_Lame(self.E, self.nu)
 
     def set_grad_u(self, grad_u):
-        pass
+        raise NotImplementedError(
+            "NeohookeanEnergyDensity is not implemented yet; "
+            "use LinearElasticEnergyDensity for now."
+        )
