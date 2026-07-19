@@ -1,7 +1,10 @@
 import json
+import logging
 import numpy as np
 
 from fem.plot.plotter import Plotter, PlotMode
+
+logger = logging.getLogger(__name__)
 
 
 class Mesh:
@@ -40,7 +43,7 @@ class Mesh:
             elements = self.elements.tolist()
             boundary = self.boundary.tolist()
             json.dump({'vertices': vertices, 'elements': elements, 'boundary': boundary}, f)
-        print(f'Saved mesh to {path}')
+        logger.info('Saved mesh to %s', path)
 
     @classmethod
     def load(cls, path='test_mesh.json'):

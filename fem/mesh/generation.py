@@ -1,4 +1,6 @@
-﻿import numpy as np
+﻿import logging
+
+import numpy as np
 from scipy.spatial import Delaunay
 
 from fem.mesh.mesh import Mesh
@@ -10,6 +12,8 @@ from fem.geometry import (
     get_boundary_from_vertices_elements,
     point_in_polygon,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RuppertsAlgorithm:
@@ -68,7 +72,7 @@ class RuppertsAlgorithm:
             flag = False
             for triangle in self.triangulation.simplices:
                 area = calculate_polygon_area(self.vertices[triangle])
-                print(area)
+                logger.debug('triangle area %s', area)
                 if area > self.max_area:
                     circumcenter = calculate_circumcenter(self.vertices[triangle])
                     self.add_vertex(circumcenter)

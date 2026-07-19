@@ -1,8 +1,12 @@
+import logging
+
 import numpy as np
 
 from fem.energies import LinearElasticEnergyDensity
 from fem.solution import Solution
 from fem.solver import LinearElastic
+
+logger = logging.getLogger(__name__)
 
 class EnergySolver:
     def __init__(self, femesh, equation, boundary_conditions, verbose=True):
@@ -102,7 +106,7 @@ class EnergySolver:
     def solve(self, max_iters=100):
         u = np.zeros(len(self.femesh.vertices) * self.dim)
         u[self.fixed] = self.fixed_values
-        print("Initial energy:", self.energy(u))
+        logger.info("Initial energy: %s", self.energy(u))
         u = self.newton_solve(u)
         self.solution.set_values("u", u)
         return self.solution
@@ -110,13 +114,13 @@ class EnergySolver:
     def newton_solve(self, u, max_iters=100):
         for iter in range(max_iters):
             if self.verbose:
-                print(f"{iter} {self.energy(u)}")
+                logger.info("%d %s", iter, self.energy(u))
             gradient = self.energy_gradient(u)
             hessian = self.energy_hessian(u)
             try:
                 newton_step = np.linalg.solve(hessian, -gradient)
             except np.linalg.LinAlgError:
-                print("Singular hessian, adding regularization")
+                logger.warning("Singular hessian, adding regularization")
                 newton_step = np.linalg.solve(hessian + 1e-8 * np.eye(hessian.shape[0]), -gradient)
             if np.linalg.norm(newton_step) < 1e-6:
                 break

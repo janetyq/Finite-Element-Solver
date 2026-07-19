@@ -17,6 +17,8 @@ Common entry points are re-exported here, so typical use is:
 
 __version__ = "0.1.0"
 
+import logging
+
 from fem.mesh.mesh import Mesh
 from fem.mesh.femesh import FEMesh
 from fem.mesh.generation import create_rect_mesh, create_approx_mesh
@@ -39,6 +41,10 @@ from fem.solution import Solution
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
 from fem.plot.plotter import Plotter, PlotMode
+
+# Library-quiet by default: emit nothing unless the application configures a
+# handler (e.g. logging.basicConfig(level=logging.INFO)). Standard practice.
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
     "Mesh",
