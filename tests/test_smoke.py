@@ -8,17 +8,12 @@ that is the job of the other test modules.
 import numpy as np
 
 from fem.numerics import bump_function
-from fem.boundary import BoundaryConditions
+from fem.boundary import BoundaryConditions, BCType
+from fem.regions import on_plane
 from fem.solver import Solver, Wave, LinearElastic
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
 from fem.mesh.refinement import RefinementMesh
-
-
-def _left_right(femesh):
-    bidx = femesh.boundary_idxs
-    bx = femesh.vertices[bidx, 0]
-    return bidx[np.isclose(bx, bx.min())], bidx[np.isclose(bx, bx.max())]
 
 
 def test_wave_solver_runs(make_unit_square):
@@ -37,10 +32,9 @@ def test_wave_solver_runs(make_unit_square):
 
 def test_energy_solver_runs(make_unit_square):
     femesh = make_unit_square(8)
-    left, right = _left_right(femesh)
-    bc = BoundaryConditions(femesh)
-    bc.add("dirichlet", left, [0, 0])
-    bc.add("dirichlet", right, [0.1, 0])
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.1, 0])
 
     eq = LinearElastic(E=200, nu=0.4)
     solution = EnergySolver(femesh, eq, bc, verbose=False).solve()
@@ -49,16 +43,31 @@ def test_energy_solver_runs(make_unit_square):
 
 def test_topology_optimizer_runs(make_unit_square):
     femesh = make_unit_square(12)
-    left, _ = _left_right(femesh)
-    bc = BoundaryConditions(femesh)
-    bc.add("dirichlet", left, [0, 0])
-    bc.add_force(lambda p: np.array([0, -0.5]))
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
 
-    eq = LinearElastic(E=200, nu=0.4)
+    eq = LinearElastic(E=200, nu=0.4, source=[0, -0.5])
     topopt = TopologyOptimizer(femesh, eq, bc, iters=2, volume_frac=0.5)
     topopt.solve(plot=False)
     assert np.all(np.isfinite(topopt.rho))
     assert topopt.rho.min() >= 0.0
+
+
+def test_bc_plotting_runs(make_unit_square):
+    """plot_bc reads the spec through entries(), which resolves regions without
+    needing a dim; exercise it so a break surfaces here, not on a human's screen."""
+    import matplotlib.pyplot as plt
+
+    from fem.plot.helpers import plot_bc
+
+    femesh = make_unit_square(6)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
+
+    _fig, ax = plt.subplots()
+    plot_bc(ax, femesh, bc)
+    plt.close(_fig)
 
 
 def test_refinement_increases_element_count(make_unit_square):

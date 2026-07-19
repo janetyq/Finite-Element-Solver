@@ -24,14 +24,17 @@ pip install -e ".[viz3d]"
 ## Quick Start
 
 ```python
-from fem import FEMesh, BoundaryConditions, Solver, Poisson, Plotter
+from fem import FEMesh, BoundaryConditions, BCType, Solver, Poisson, Plotter
+from fem.regions import everywhere
 
 mesh = FEMesh.load("files/mesh_40x40.json")
 
-equation = Poisson()
-bc = BoundaryConditions(mesh)
-bc.add("dirichlet", mesh.boundary_idxs, [0])
-bc.add_force(lambda point: [1])
+# The source term f is data of the equation; the boundary conditions describe
+# only the boundary, and do so geometrically -- so the same `bc` is valid on any
+# mesh, including one produced by adaptive refinement.
+equation = Poisson(source=1)
+bc = BoundaryConditions()
+bc.add(BCType.DIRICHLET, everywhere(), 0)
 
 solution = Solver(mesh, equation, bc).solve()
 
@@ -47,7 +50,8 @@ fem/                 # the solver package
 ├── mesh/            # Mesh, FEMesh, red-green refinement, mesh generation
 ├── plot/            # Plotter, 2D drawing helpers, 3D tet rendering
 ├── elements.py      # linear line/triangle/tetrahedral elements
-├── boundary.py      # Dirichlet / Neumann boundary conditions
+├── boundary.py      # BoundaryConditions spec -> ResolvedBC for a given mesh
+├── regions.py       # position-based regions and fields (on_plane, in_box, ...)
 ├── solver.py        # Equation + Solver (Poisson, heat, wave, elasticity)
 ├── solution.py      # solution container
 ├── energies.py, energy_solver.py   # nonlinear (hyperelastic) energy solver

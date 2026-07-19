@@ -5,7 +5,8 @@ from math import e
 from fem.numerics import bump_function
 from fem.mesh.femesh import FEMesh
 from fem.elements import LinearTriangleElement, LinearTetrahedralElement
-from fem.boundary import BoundaryConditions
+from fem.boundary import BoundaryConditions, BCType
+from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
 from fem.solver import Solver, Projection, Poisson, Heat, Wave, LinearElastic
@@ -26,10 +27,8 @@ def test_l2_projection():
     def cool_f(point):
         x, y = point - np.array([0.5, 0.5])
         return [np.sin(40*(x**2+y**2))]
-    equation = Projection()
-    bc = BoundaryConditions(mesh)
-    bc.add_force(cool_f)
-    solver = Solver(mesh, equation, bc)
+    equation = Projection(source=cool_f)
+    solver = Solver(mesh, equation)
     solution = solver.solve()
 
     plotter = Plotter(title='L2 Projection')
@@ -37,15 +36,10 @@ def test_l2_projection():
     plotter.show()
 
 def test_poisson_equation():
-    w = np.max(mesh.vertices[:, 0])
-    [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
-
-    equation = Poisson()
-    bc = BoundaryConditions(mesh)
-    # bc.add('dirichlet', [idx for idx in mesh.boundary_idxs if idx not in right_idxs], [0])
-    # bc.add('neumann', right_idxs, [1])
-    bc.add('dirichlet', mesh.boundary_idxs, [0])
-    bc.add_force(lambda point: [1])
+    equation = Poisson(source=1)
+    bc = BoundaryConditions()
+    # bc.add(BCType.NEUMANN, on_plane(0, np.max(mesh.vertices[:, 0])), [1])
+    bc.add(BCType.DIRICHLET, everywhere(), 0)
 
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
@@ -95,13 +89,13 @@ def test_wave_equation(): # TODO: Wave energy not fully implemented
         plotter.show()
 
 def test_linear_elastic():
-    w, _h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
-    bc = BoundaryConditions(mesh)
-    left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
-    right_middle_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6 and 0.2 < mesh.vertices[v_idx][1] < 0.8]
-    bc.add('dirichlet', left_idxs, [0, 0])
-    bc.add('neumann', right_middle_idxs, [50, 0]) # stress
-    bc.plot()
+    w = np.max(mesh.vertices[:, 0])
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.NEUMANN,  # stress, on the middle band of the right edge
+           intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])),
+           [50, 0])
+    bc.plot(mesh)
 
     equation = LinearElastic(E=200, nu=0.4)
     solver = Solver(mesh, equation, bc)
@@ -116,15 +110,10 @@ def test_linear_elastic():
 
 
 def test_topology_optimization(iters=10):
-    def down_force(point):
-        return np.array([0, -0.5])
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
 
-    bc = BoundaryConditions(mesh)
-    left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
-    bc.add('dirichlet', left_idxs, [0, 0])
-    bc.add_force(down_force)
-
-    equation = LinearElastic(E=200, nu=0.4)
+    equation = LinearElastic(E=200, nu=0.4, source=[0, -0.5])
     topopt = TopologyOptimizer(mesh, equation, bc, iters=iters, volume_frac=0.5)
     solution = topopt.solve(plot=False)
     deformed_mesh = topopt._get_deformed_mesh()
@@ -149,10 +138,9 @@ def test_adaptive_refinement():
         r2 = x**2 + y**2
         return [4*a*a*(1-a*r2)*e**(-a*r2)] # TODO: list thing is awkward
 
-    equation = Poisson()
-    bc = BoundaryConditions(mesh)
-    bc.add_force(test_function)
-    bc.add("dirichlet", mesh.boundary_idxs, [0])
+    equation = Poisson(source=test_function)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0)
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
     u = solution.get_values('u')
@@ -193,14 +181,12 @@ def test_adaptive_refinement():
     # Plotter(mesh, options={'title': 'Final Mesh', 'show': False}).plot_mesh(mode='wireframe')
     # plt.show()
 
-def test_energy_solver(): # TODO: add support for force bc
-    w, _h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
+def test_energy_solver(): # displacement-driven: EnergySolver rejects a source term
+    w = np.max(mesh.vertices[:, 0])
     equation = LinearElastic(E=200, nu=0.4)
-    bc = BoundaryConditions(mesh)
-    left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
-    right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
-    bc.add('dirichlet', left_idxs, [0, 0])
-    bc.add('dirichlet', right_idxs, [0.5, 0])
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.DIRICHLET, on_plane(0, w), [0.5, 0])
 
     energy_solver = EnergySolver(mesh, equation, bc)
     solution = energy_solver.solve()

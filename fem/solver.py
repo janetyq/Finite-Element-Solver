@@ -5,6 +5,7 @@ import numpy as np
 from fem.mesh.refinement import RefinementMesh
 from fem.mesh.femesh import dof_indices
 from fem.boundary import BoundaryConditions
+from fem.regions import evaluate_field
 from fem.solution import Solution
 from fem.materials import Enu_to_Lame
 
@@ -17,8 +18,15 @@ class Equation:
     parameters / initial conditions, while the Solver owns *how* to solve it
     (the same equation, e.g. LinearElastic, may be handled by several solvers).
     `dim` is the number of DOFs per node: 1 for scalar PDEs, 2 for 2D elasticity.
+
+    `source` is the PDE's right-hand side f (a body force for elasticity), given
+    as a constant or a callable of position. It lives here rather than on
+    BoundaryConditions because it is data of the equation, not of the boundary.
     '''
     dim = 1
+
+    def __init__(self, source=None):
+        self.source = source
 
     def copy(self):
         # shallow copy that works regardless of subclass __init__ signature
@@ -28,7 +36,7 @@ class Equation:
 
 
 class Projection(Equation):
-    '''L2 projection of a source field onto the FE space (M u = b).'''
+    '''L2 projection of the source field onto the FE space (M u = b).'''
     dim = 1
 
 
@@ -41,7 +49,8 @@ class Heat(Equation):
     '''Transient heat equation, solved with backward Euler.'''
     dim = 1
 
-    def __init__(self, u_initial, dt, iters):
+    def __init__(self, u_initial, dt, iters, source=None):
+        super().__init__(source)
         self.u_initial = u_initial
         self.dt = dt
         self.iters = iters
@@ -51,7 +60,8 @@ class Wave(Equation):
     '''Wave equation, solved with Crank-Nicolson.'''
     dim = 1
 
-    def __init__(self, u_initial, dudt_initial, c, dt, iters):
+    def __init__(self, u_initial, dudt_initial, c, dt, iters, source=None):
+        super().__init__(source)
         self.u_initial = u_initial
         self.dudt_initial = dudt_initial
         self.c = c
@@ -64,7 +74,8 @@ class LinearElastic(Equation):
     (TopologyOptimizer sets a density-scaled modulus).'''
     dim = 2
 
-    def __init__(self, E, nu):
+    def __init__(self, E, nu, source=None):
+        super().__init__(source)
         self.E = E
         self.nu = nu
 
@@ -72,11 +83,19 @@ class Solver:
     def __init__(self, femesh, equation, boundary_conditions=None):
         self.femesh = femesh
         self.equation = equation
-        self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions(femesh)
+        self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions()
         self.dim = self.equation.dim
         self.solution = Solution(femesh, self.dim)
 
-        self.boundary_conditions.do(self.femesh.vertices.shape[0], dim=self.dim)
+        self._resolve_bc()
+
+    def _resolve_bc(self):
+        '''Bind the boundary-condition spec to the current mesh and dim.
+
+        Called again whenever the mesh changes (adaptive refinement), which is
+        the whole reason the spec is kept separate from its resolution.
+        '''
+        self.resolved_bc = self.boundary_conditions.resolve(self.femesh, self.dim)
 
     def solve(self):
         self.assemble_everything() # TODO: don't call this every time
@@ -108,8 +127,12 @@ class Solver:
         else:
             self.femesh.prepare_matrices(dim=self.dim)
 
-        self.b = (self.femesh.M @ self.boundary_conditions.force_load.flatten()).flatten()
-        self.b += (self.femesh.M_b @ self.boundary_conditions.neumann_load.flatten()).flatten()
+        # RHS: the equation's source term over the volume, plus the boundary
+        # traction over the boundary. A Robin condition would add its matrix
+        # term to the LHS here, via femesh.K_b / femesh.M_b.
+        source_load = evaluate_field(self.equation.source, self.femesh.vertices, self.dim)
+        self.b = (self.femesh.M @ source_load.flatten()).flatten()
+        self.b += (self.femesh.M_b @ self.resolved_bc.neumann_load.flatten()).flatten()
 
     def solve_linear_system(self, A, b, constraints=None):
         '''Solve A x = b with the Dirichlet DOFs eliminated rather than penalised.
@@ -120,7 +143,7 @@ class Solver:
         stacked block [u; du/dt], which needs its own DOF numbering.
         '''
         if constraints is None:
-            bc = self.boundary_conditions
+            bc = self.resolved_bc
             constraints = (bc.free_idxs, bc.fixed_idxs, bc.fixed_values)
         free, fixed, fixed_values = constraints
         free = np.asarray(free, dtype=int)
@@ -179,10 +202,8 @@ class Solver:
         data would need a nonzero velocity there, hence the constant-in-time
         assumption baked in below.
         '''
-        bc = self.boundary_conditions
-        fixed = np.asarray(bc.fixed_idxs, dtype=int)
-        free = np.asarray(bc.free_idxs, dtype=int)
-        fixed_values = np.asarray(bc.fixed_values, dtype=float)
+        bc = self.resolved_bc
+        fixed, free, fixed_values = bc.fixed_idxs, bc.free_idxs, bc.fixed_values
 
         # An initial state that disagrees with the constraints is a modelling
         # error: the solve would silently jump to satisfy them at the first step.
@@ -291,10 +312,9 @@ class Solver:
 
             refinement_mesh.refine_triangles([int(i) for i in refine_idxs])
             self.femesh = refinement_mesh.get_mesh()
-            # The refined mesh renumbers vertices, so every index-keyed thing
-            # hanging off the old one has to be rebuilt, not carried over.
-            self.boundary_conditions = self.boundary_conditions.for_mesh(self.femesh)
-            self.boundary_conditions.do(len(self.femesh.vertices), dim=self.dim)
+            # The refined mesh renumbers vertices, so anything index-keyed has to
+            # be rebuilt from its specification rather than carried over.
+            self._resolve_bc()
             self.solution = Solution(self.femesh, self.dim)
             self.solve()
 

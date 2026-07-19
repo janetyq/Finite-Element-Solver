@@ -17,7 +17,6 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify smoothing matrix / EnergySolver Hessian | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | O(n²) linear scans in refinement/meshing | 🟡 | [§2](#2-performance--scaling) |
-| Correctness | Position-based BC specs (blocks adaptive refinement) | 🟡 | [§1](#1-bugs--correctness) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Time-integrator abstraction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -28,19 +27,8 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 ## 1. Bugs & Correctness
 
-### 🟠 Boundary conditions are index-based, so they can't survive a remesh
-`BoundaryConditions` stores Dirichlet and Neumann data keyed by vertex *index*, but every
-remesher renumbers vertices (`RefinementMesh.update_mesh` rebuilds the index map). Carrying
-them over would silently relocate them to unrelated nodes, so `check_remeshable` refuses.
-A body force already avoids this — `add_force` takes a function of position and re-evaluates
-on any mesh; Dirichlet/Neumann need the same treatment (a predicate or region over
-coordinates, resolved against whichever mesh is current).
-
-This is the remaining blocker on closed-loop adaptive refinement: `Solver.adaptive_refinement`
-now drives the refine → rebuild → re-solve loop correctly and is tested, but it can only run
-for force-only problems until this lands. The other half is the error estimator
-([§3](#3-open-ended-suggestions--future-ideas)); with both, the `examples/solver_demos.py`
-demo can be un-gated.
+*(No open correctness bugs. Adaptive refinement is now closed-loop except for the error
+estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
 
 ---
 
@@ -114,12 +102,19 @@ because it's inside a Newton loop.
 - 💡 **Time-integration abstraction.** Backward-Euler (heat) and Crank–Nicolson (wave) are
   hand-coded inline. A small `TimeIntegrator` interface (θ-method / generalized-α) would
   deduplicate and make it trivial to add new dynamics.
-- 💡 **Robin BC path** — the README mentions Robin conditions but `BoundaryConditions` only
-  models Dirichlet/Neumann explicitly.
-- 💡 **Time-varying loads and Dirichlet data.** `self.b` is built once and assumed constant in
-  time; `solve_wave` notes where the Crank–Nicolson `b_n`/`b_{n+1}` average collapses because
-  of it, and `_wave_block_constraints` assumes Dirichlet values are constant (so `du/dt = 0`
-  at fixed nodes).
+- 💡 **Robin BC path.** `BCType.ROBIN` exists and `resolve` refuses it. A Robin condition adds
+  a term to the *system matrix* rather than the load, so the work is in
+  `Solver.assemble_everything`, using the already-assembled `femesh.K_b` / `femesh.M_b`
+  (`K_b` is currently built for `dim == 1` and otherwise unused).
+- 💡 **Time-varying loads and Dirichlet data.** `Equation.source` and the BC values are
+  functions of position only. `self.b` is built once and assumed constant in time;
+  `solve_wave` notes where the Crank–Nicolson `b_n`/`b_{n+1}` average collapses because of it,
+  and `_wave_block_constraints` assumes Dirichlet values are constant (so `du/dt = 0` at fixed
+  nodes). Adding a `t` argument to those callables is the natural extension.
+- 💡 **External work term for `EnergySolver`.** It minimizes the internal elastic energy only
+  and builds no load vector, so it currently rejects `Equation.source` outright. Adding the
+  external work term `-f · u` (and its gradient/Hessian contributions) would make it accept
+  forced problems, which is also a prerequisite for using it on the nonlinear roadmap.
 
 **Engineering**
 - 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg`, `generation` (Rupperts/approx

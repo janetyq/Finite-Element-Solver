@@ -19,7 +19,8 @@ import pytest
 
 from fem.mesh.generation import create_rect_mesh
 from fem.mesh.femesh import FEMesh
-from fem.boundary import BoundaryConditions
+from fem.boundary import BoundaryConditions, BCType
+from fem.regions import everywhere
 from fem.solver import Solver, Poisson
 
 
@@ -37,12 +38,11 @@ def _solve_poisson_mms(n):
     base = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     femesh = FEMesh(base.vertices, base.elements, base.boundary)
 
-    equation = Poisson()
-    bc = BoundaryConditions(femesh)
-    bc.add("dirichlet", femesh.boundary_idxs, [0])
-    bc.add_force(
-        lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]
+    equation = Poisson(
+        source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]
     )
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
 
     solver = Solver(femesh, equation, bc)
     solution = solver.solve()
