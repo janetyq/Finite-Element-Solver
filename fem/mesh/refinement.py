@@ -1,5 +1,4 @@
-import numpy as np
-import matplotlib.pyplot as plt
+﻿import numpy as np
 from fem.mesh.mesh import Mesh
 
 # TODO: very inefficient
@@ -228,31 +227,3 @@ class RefinementMesh:
             
         plotting_mesh = Mesh(self.vertices, [triangle.vertex_idxs for triangle in plot_triangles], self.boundary)
         plotting_mesh.plot(ax=ax, linewidth=1, color='cyan')
-
-if __name__ == '__main__':
-    # MESH
-    # MESH_FILE = '../shared_meshes/square20_mesh.pkl'
-    # mesh = Mesh.load(MESH_FILE)
-    # mesh.plot()
-    vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
-    elements = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]])
-    boundary = [[0, 1], [1, 2], [2, 3], [3, 0]]
-    mesh = Mesh(vertices, elements, boundary)
-    original_mesh = mesh.copy()
-
-    refinement_mesh = RefinementMesh(mesh)
-
-    import random
-    # refine_lists = [{4}, {16}]
-    for i in range(8):
-        refine_list = set(random.randint(0, len(mesh.elements)-1) for _ in range(5))
-        # refine_list = refine_lists[i]
-        print(refine_list)
-        refinement_mesh.refine_triangles(refine_list)
-        mesh = refinement_mesh.get_mesh()
-        # mesh.plot()
-
-    fig, ax = plt.subplots(1, 2)
-    original_mesh.plot(ax=ax[0], title='Original Mesh', show=False)
-    mesh.plot(ax=ax[1], title='Refined Mesh')
-    

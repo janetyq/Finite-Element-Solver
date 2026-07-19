@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.optimize import minimize
 
 from fem.mesh.refinement import RefinementMesh
 from fem.boundary import BoundaryConditions

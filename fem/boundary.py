@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from fem.plot.plotter import Plotter
 
 # supports dirichlet, neumann, and mixed boundary conditions

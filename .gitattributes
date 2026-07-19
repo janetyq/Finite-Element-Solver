@@ -1,0 +1,9 @@
+# Normalize all text files to LF in the repository and the working tree,
+# so Windows checkouts stop triggering "LF will be replaced by CRLF" warnings.
+* text=auto eol=lf
+
+# Binary assets (never touch line endings)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.mp4 binary

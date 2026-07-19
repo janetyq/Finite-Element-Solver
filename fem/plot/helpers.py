@@ -47,7 +47,7 @@ def plot_colored(ax, mesh, values, cbar_info=None):
         cbar_info = setup_colorbar(ax, (min(values), max(values)), None)
 
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
-    tripcolor = ax.tripcolor(triangulation, values, cmap=cbar_info[0], norm=cbar_info[1])
+    ax.tripcolor(triangulation, values, cmap=cbar_info[0], norm=cbar_info[1])
 
     # TODO: check contour
     # if contour > 0:
@@ -72,7 +72,7 @@ def plot_surface(ax, mesh, values):
     else:
         raise ValueError(f'Invalid values shape: {values.shape}')
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
-    surf = ax.plot_trisurf(triangulation, values, cmap='viridis')
+    ax.plot_trisurf(triangulation, values, cmap='viridis')
 
 
 def plot_arrows(ax, mesh, values):

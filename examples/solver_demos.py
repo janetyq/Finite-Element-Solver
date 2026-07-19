@@ -1,6 +1,5 @@
 import numpy as np
-from math import sin, cos, pi, e
-import matplotlib.pyplot as plt
+from math import e
 
 from fem.numerics import bump_function
 from fem.mesh.femesh import FEMesh
@@ -38,7 +37,7 @@ def test_l2_projection():
 
 def test_poisson_equation():
     w = np.max(mesh.vertices[:, 0])
-    right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
+    [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
 
     equation = Equation('poisson')
     bc = BoundaryConditions(mesh)
@@ -95,7 +94,7 @@ def test_wave_equation(): # TODO: Wave energy not fully implemented
         plotter.show()
 
 def test_linear_elastic():
-    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
+    w, _h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     bc = BoundaryConditions(mesh)
     left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
     right_middle_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6 and 0.2 < mesh.vertices[v_idx][1] < 0.8]
@@ -187,7 +186,7 @@ def test_adaptive_refinement():
     # plt.show()
 
 def test_energy_solver(): # TODO: add support for force bc
-    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
+    w, _h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
     bc = BoundaryConditions(mesh)
     left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
@@ -199,7 +198,7 @@ def test_energy_solver(): # TODO: add support for force bc
     solution = energy_solver.solve()
     vertices = mesh.vertices + solution.get_values('u').reshape(-1, 2)
     mesh_final = FEMesh(vertices, mesh.elements, mesh.boundary, element_type=LinearTriangleElement)
-    energy = solution.get_values('energy')
+    solution.get_values('energy')
     stresses = np.linalg.norm(solution.get_values('gradient').reshape(-1, 2), axis=1)
 
     plotter = Plotter(title='Energy Solver')
@@ -218,7 +217,7 @@ def test_3d():
     solver = Solver(mesh, equation)
     solution = solver.solve()
     u_values = solution.get_values('u_values')
-    t_values = solution.get_values('t_values')
+    solution.get_values('t_values')
 
     plot_tetmesh_animation(mesh, np.array(u_values), title='Heat Diffusion')
     print('done')

@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.optimize import minimize
 
 from fem.energies import LinearElasticEnergyDensity
 from fem.solution import Solution
@@ -115,7 +114,7 @@ class EnergySolver:
             hessian = self.energy_hessian(u)
             try:
                 newton_step = np.linalg.solve(hessian, -gradient)
-            except:
+            except np.linalg.LinAlgError:
                 print("Singular hessian, adding regularization")
                 newton_step = np.linalg.solve(hessian + 1e-8 * np.eye(hessian.shape[0]), -gradient)
             if np.linalg.norm(newton_step) < 1e-6:
