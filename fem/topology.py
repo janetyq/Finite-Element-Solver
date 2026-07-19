@@ -3,7 +3,7 @@ import numpy as np
 from fem.numerics import calculate_smoothing_matrix, color
 from fem.solver import Solver
 from fem.solution import Solution
-from fem.plot.plotter import Plotter
+from fem.plot.plotter import Plotter, PlotMode
 
 class TopologyOptimizer:
     '''
@@ -113,7 +113,7 @@ class TopologyOptimizer:
         deformed_mesh = self._get_deformed_mesh()
         compliance = solution.values['compliance'].sum()
         plotter = Plotter(title=f'Iteration {iter}, C={compliance:.4f}')
-        plotter.plot(deformed_mesh, self.rho, mode='colored')
+        plotter.plot(deformed_mesh, self.rho, mode=PlotMode.COLORED)
         plotter.show()
 
     def _get_deformed_mesh(self, iter_idx=-1):

@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 
 from fem.energies import NeohookeanEnergyDensity
-from fem.boundary import BoundaryConditions
+from fem.boundary import BoundaryConditions, BCType
+from fem.plot.plotter import PlotMode
 from fem.solver import Solver, Equation
 
 
@@ -57,3 +58,23 @@ def test_check_rejects_dirichlet_neumann_overlap(make_unit_square):
     bc.add("neumann", [node], [0])
     with pytest.raises(ValueError):
         bc.check()
+
+
+def test_bctype_accepts_enum_and_string_but_rejects_typo(make_unit_square):
+    """The BC type is a canonical enum, yet the matching string still resolves;
+    an unknown string is a typo and must raise."""
+    femesh = make_unit_square(6)
+    a, b = int(femesh.boundary_idxs[0]), int(femesh.boundary_idxs[1])
+
+    bc = BoundaryConditions(femesh)
+    bc.add(BCType.DIRICHLET, [a], [0])  # enum form
+    bc.add("neumann", [b], [0])         # string form still works
+    assert a in bc.dirichlet and b in bc.neumann
+    with pytest.raises(ValueError):
+        bc.add("dirchlet", [a], [0])    # typo
+
+
+def test_plotmode_rejects_typo():
+    assert PlotMode("surface") is PlotMode.SURFACE  # string resolves to the member
+    with pytest.raises(ValueError):
+        PlotMode("surfce")  # typo

@@ -5,7 +5,7 @@ from matplotlib.widgets import Slider
 
 from fem.plot.plotter import Plotter
 from fem.mesh.generation import create_rect_mesh, RuppertsAlgorithm
-from fem.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
+from fem.mesh.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
 
 def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='files/mesh.json'):
     mesh = create_rect_mesh(corners, resolution=resolution)
