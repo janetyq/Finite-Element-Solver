@@ -70,9 +70,10 @@ files/               # example meshes and SVG outlines
 uv run pytest
 ```
 
-Runnable demos live in `examples/` (run from the repo root), e.g.:
+Runnable demos live in `examples/` (run from the repo root) behind a small CLI:
 ```bash
-uv run python examples/solver_demos.py
+uv run python examples/cli.py list          # see every available demo
+uv run python examples/cli.py run poisson   # run one by name
 ```
 
 ## Details
