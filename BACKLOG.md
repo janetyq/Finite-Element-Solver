@@ -20,16 +20,11 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Correctness | Triangle-only `range(3)` edge/boundary extraction | 🟡 | [§1](#1-bugs--correctness) |
 | Correctness | `adaptive_refinement` bug + inverted loop | 🔴 | [§1](#1-bugs--correctness) |
 | Correctness | Wave solver ignores Neumann/force; `np.roll` load bug | 🟡 | [§1](#1-bugs--correctness) |
-| Correctness | 2D-only assertions/tensors in "general" paths | 🟡 | [§3](#3-architecture--maintainability) |
-| Design | `pickle` persistence → consolidate into `fem/io.py` | 🟡 | [§3](#3-architecture--maintainability) |
-| Nit | `BoundaryConditions.add()` silently overwrites duplicates | 🟢 | [§4](#4-smaller-nits) |
-| Nit | `solve_linear_elastic` redundant re-fetch/indexing | 🟢 | [§4](#4-smaller-nits) |
-| Nit | `oc_density` fragile bisection | 🟢 | [§4](#4-smaller-nits) |
-| Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§5](#5-open-ended-suggestions--future-ideas) |
-| Numerics | Higher-order (quadratic) elements | 🔴 | [§5](#5-open-ended-suggestions--future-ideas) |
-| Numerics | Time-integrator abstraction | 🟡 | [§5](#5-open-ended-suggestions--future-ideas) |
-| Numerics | A-posteriori error estimator | 🔴 | [§5](#5-open-ended-suggestions--future-ideas) |
-| Tooling | Coverage (`pytest-cov`), type hints, pre-commit, README refresh | 🟢–🟡 | [§5](#5-open-ended-suggestions--future-ideas) |
+| Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Time-integrator abstraction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | A-posteriori error estimator | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Tooling | Coverage (`pytest-cov`), type hints, pre-commit, README refresh | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
 
@@ -56,7 +51,8 @@ on is commented out, and the demo path in `examples/solver_demos.py` raises
 `fem/solver.py:solve_wave` time-steps with `use_bc=False`, and `b_right` uses
 `np.roll(self.b, -1)`, which rolls a *spatial* load vector by one index — a time-averaging
 idea applied to the wrong axis. It's harmless while `b == 0` (the demos have no forcing),
-but a correctness trap the moment someone adds a source term.
+but a correctness trap the moment someone adds a source term. (Dirichlet BCs now raise
+`NotImplementedError` here rather than being silently ignored.)
 
 ---
 
@@ -103,38 +99,7 @@ because it's inside a Newton loop.
 
 ---
 
-## 3. Architecture & Maintainability
-
-### 🟡 `pickle` for persistence
-`Solution.save/load` (`fem/solution.py`) uses `pickle`, which executes arbitrary code on
-load and is fragile across refactors (it stores the class path). For a research tool
-loading only your own files it's low-risk, but a plain `.npz`/JSON schema for the numeric
-arrays would be safer and more portable. `Mesh.save/load` (JSON) and this would sit well
-together in a single `fem/io.py`.
-
-### 🟡 Hardcoded 2D assumptions in "generalized" paths
-Some spots still assume 2D: `EnergySolver` asserts `dim == 2`, and
-`LinearElasticEnergyDensity` (`fem/energies.py`) is hardwired to `np.eye(2)` / `(2,2,2,2)`
-tensors. Worth an explicit "not yet N-D" boundary so the limitation is visible.
-
----
-
-## 4. Smaller Nits
-
-- `Solver.solve_linear_elastic` (`fem/solver.py`) re-fetches `element = self.femesh.elements[e_idx]`
-  on the first line of the loop even though it's already the loop variable, and indexes
-  `self.femesh.element_objs[e_idx]` three separate times — bind both to locals.
-- `BoundaryConditions.add()` (`fem/boundary.py`) silently overwrites a duplicate BC on the
-  same node of the same type (dict assignment, last write wins, no warning).
-- `oc_density` upper bound `hi = 1e15` with a `while (lo*(1+1e-15)) < hi` termination is a
-  fragile way to bisect; a fixed iteration count or relative tolerance on `hi-lo` is more
-  predictable.
-- The README's "Project Structure" and described capabilities have drifted from the code; a
-  refresh pass would help.
-
----
-
-## 5. Open-Ended Suggestions & Future Ideas
+## 3. Open-Ended Suggestions & Future Ideas
 
 **Numerics**
 - 💡 **Higher-order elements.** Already on the roadmap (quadratic basis). The `Element` class
@@ -156,6 +121,9 @@ tensors. Worth an explicit "not yet N-D" boundary so the limitation is visible.
   hyperelasticity via the existing `EnergySolver`/`Energies` machinery) all fit the current
   architecture well. Finishing `NeohookeanEnergyDensity` would immediately give a nonlinear
   material through the already-working Newton solver.
+- 💡 **N-D elasticity.** `LinearElasticEnergyDensity` and `EnergySolver` now reject non-2D
+  input explicitly instead of failing deep inside an einsum, but their tensors are still built
+  at fixed rank. Generalizing them over `dim` is the actual feature behind that guard.
 - 💡 **Time-integration abstraction.** Backward-Euler (heat) and Crank–Nicolson (wave) are
   hand-coded inline. A small `TimeIntegrator` interface (θ-method / generalized-α) would
   deduplicate and make it trivial to add new dynamics.
@@ -170,15 +138,19 @@ tensors. Worth an explicit "not yet N-D" boundary so the limitation is visible.
   `Equation`), plus `pyright`/`mypy` (gradual) — the surface most likely to be used by others
   (or future-you).
 - 💡 **pre-commit hooks** (ruff + whitespace) so the CI checks run locally before each commit.
+- 💡 **README refresh.** The "Project Structure" section and described capabilities have
+  drifted from the code.
 - 💡 **Benchmarks.** A tiny script timing assembly + solve vs. mesh size would make the impact
   of the sparse migration concrete and guard against future regressions.
+- 💡 **Mesh formats.** `fem/io.py` writes meshes as JSON; `.off`/`.obj` export would make them
+  loadable by standard tools.
 
 ---
 
 ## Suggested Priority Order
 
 1. **Sparse matrices + solver** (§2) — the highest-leverage single change for capability.
-2. **Quick nits** (§4) and the correctness bugs (§1) — cheap, and clear the deck.
-3. **Coverage + type hints** (§5) — deepen the safety net before the bigger numerics work.
+2. **The correctness bugs** (§1) — cheap relative to their blast radius, and they clear the deck.
+3. **Coverage + type hints** (§3) — deepen the safety net before the bigger numerics work.
 4. **Then the numerics roadmap** — quadrature → higher-order elements → time-integrator →
    adaptive refinement.

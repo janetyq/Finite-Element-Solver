@@ -18,7 +18,12 @@ class EnergySolver:
         self.boundary_conditions = boundary_conditions
         self.dim = self.equation.dim
         self.solution = Solution(femesh, self.dim)
-        assert self.dim == 2, "EnergySolver only supports 2D for now"
+        # Not an assert: this is a real capability boundary (the energy densities
+        # are 2D-only), so it must hold even under `python -O`.
+        if self.dim != 2:
+            raise NotImplementedError(
+                f'EnergySolver only supports 2D for now (got dim={self.dim})'
+            )
 
         self.boundary_conditions.do(self.femesh.vertices.shape[0], dim=self.dim)
         self.free = self.boundary_conditions.free_idxs
