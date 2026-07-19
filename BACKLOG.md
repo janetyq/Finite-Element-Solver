@@ -17,7 +17,6 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify smoothing matrix / EnergySolver Hessian | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | O(n²) linear scans in refinement/meshing | 🟡 | [§2](#2-performance--scaling) |
-| Correctness | Triangle-only `range(3)` edge/boundary extraction | 🟡 | [§1](#1-bugs--correctness) |
 | Correctness | `adaptive_refinement` bug + inverted loop | 🔴 | [§1](#1-bugs--correctness) |
 | Correctness | Wave solver ignores Neumann/force; `np.roll` load bug | 🟡 | [§1](#1-bugs--correctness) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -29,13 +28,6 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 ---
 
 ## 1. Bugs & Correctness
-
-### 🔴 Triangle-only edge extraction
-`Mesh._get_all_edges` (`fem/mesh/mesh.py`) loops `for i in range(3)`, so `edges` is only
-correct for 2D triangle meshes; for 1D line elements and 3D tets it produces wrong edges.
-Since the base `Mesh` is used for all dimensions, edge extraction should key off
-`self.elements.shape[1]` (or live in the element classes). `get_boundary_from_vertices_elements`
-in `fem/geometry.py` has the same triangle-only assumption.
 
 ### 🔴 `adaptive_refinement` has a bug and an inverted loop condition
 `fem/solver.py:Solver.adaptive_refinement` carries an explicit `# TODO: there's a bug
@@ -88,9 +80,7 @@ matrix would scale far better and is a near drop-in.
 `fem/mesh/refinement.py` is self-described as "very inefficient": `get_shared_triangle`,
 `get_triangle_idx`, and `get_point_idx` each do a full linear scan of all triangles/vertices,
 inside refinement loops. `get_point_idx` in particular scans every vertex to dedupe midpoints
-— an edge→midpoint-index dict would make it `O(1)`. Similarly
-`get_boundary_from_vertices_elements` (`fem/geometry.py`) is `O(edges × elements)`; a single
-pass counting edge occurrences in a dict is `O(elements)`.
+— an edge→midpoint-index dict would make it `O(1)`.
 
 ### 🟠 `EnergySolver` Hessian is dense and rebuilt each Newton step
 `fem/energy_solver.py:energy_hessian` allocates an `(n·dim, n·dim)` dense Hessian every

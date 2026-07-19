@@ -1,6 +1,9 @@
 """Geometric primitives: areas, volumes, point-in-polygon, circumcenters,
 triangle angles, and boundary extraction from a triangulation.
 """
+import itertools
+from collections import Counter
+
 import numpy as np
 
 
@@ -64,30 +67,17 @@ def calculate_triangle_min_angle(triangle):
     return np.min(angles) * 180 / np.pi
 
 
-def get_boundary_from_vertices_elements(vertices, elements):
-    edges = set()
-    boundary_edges = set()
+def get_boundary_from_vertices_elements(elements):
+    '''Boundary facets of a linear simplex mesh, as sorted vertex-index lists.
 
-    # Step 1: Convert elements to edges
-    for element in elements:
-        for i in range(3):  # Each element is a triangle (3 vertices)
-            edge = tuple(sorted([element[i], element[(i + 1) % 3]]))  # Edges are represented by sorted vertex indices
-            if edge in edges:
-                # If edge is already in set, it's an interior edge, remove it from edges
-                edges.remove(edge)
-            else:
-                # If edge is not in set, it's a new edge, add it to edges
-                edges.add(edge)
-
-    # Step 2: Identify boundary edges
-    for edge in edges:
-        count = 0
-        for element in elements:
-            if edge[0] in element and edge[1] in element:
-                count += 1
-        if count == 1:
-            boundary_edges.add(edge)
-
-    boundary_edges = [list(edge) for edge in boundary_edges]
-
-    return boundary_edges
+    A facet is the codimension-1 face of an element -- an edge of a triangle, a
+    face of a tet -- and it lies on the boundary exactly when it belongs to one
+    element instead of two. Counting occurrences in a single pass is O(elements);
+    the facets are unoriented, which is all the boundary mass matrix needs.
+    '''
+    facet_counts = Counter(
+        facet
+        for element in elements
+        for facet in itertools.combinations(sorted(element), len(element) - 1)
+    )
+    return [list(facet) for facet, count in facet_counts.items() if count == 1]
