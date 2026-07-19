@@ -17,7 +17,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify smoothing matrix / EnergySolver Hessian | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | O(n²) linear scans in refinement/meshing | 🟡 | [§2](#2-performance--scaling) |
-| Correctness | `adaptive_refinement` bug + inverted loop | 🔴 | [§1](#1-bugs--correctness) |
+| Correctness | Position-based BC specs (blocks adaptive refinement) | 🟡 | [§1](#1-bugs--correctness) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Time-integrator abstraction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -28,15 +28,19 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 ## 1. Bugs & Correctness
 
-### 🔴 `adaptive_refinement` has a bug and an inverted loop condition
-`fem/solver.py:Solver.adaptive_refinement` carries an explicit `# TODO: there's a bug
-somewhere`, and the guard
-```python
-while len(self.femesh.elements) < max_triangles or max_iters == 0:
-```
-is almost certainly meant to be `... and max_iters > 0`. The residual scaffolding it relies
-on is commented out, and the demo path in `examples/solver_demos.py` raises
-`NotImplementedError`, so the feature is currently non-functional.
+### 🟠 Boundary conditions are index-based, so they can't survive a remesh
+`BoundaryConditions` stores Dirichlet and Neumann data keyed by vertex *index*, but every
+remesher renumbers vertices (`RefinementMesh.update_mesh` rebuilds the index map). Carrying
+them over would silently relocate them to unrelated nodes, so `check_remeshable` refuses.
+A body force already avoids this — `add_force` takes a function of position and re-evaluates
+on any mesh; Dirichlet/Neumann need the same treatment (a predicate or region over
+coordinates, resolved against whichever mesh is current).
+
+This is the remaining blocker on closed-loop adaptive refinement: `Solver.adaptive_refinement`
+now drives the refine → rebuild → re-solve loop correctly and is tested, but it can only run
+for force-only problems until this lands. The other half is the error estimator
+([§3](#3-open-ended-suggestions--future-ideas)); with both, the `examples/solver_demos.py`
+demo can be un-gated.
 
 ---
 
@@ -96,7 +100,8 @@ because it's inside a Newton loop.
   preconditioner for the SPD systems (Poisson, elasticity) — where large 3D problems become
   tractable.
 - 💡 **A posteriori error estimator** so adaptive refinement is fully closed-loop — the
-  residual scaffolding is already sketched in `fem/solver.py`.
+  residual scaffolding is already sketched in `fem/solver.py`. `Solver.adaptive_refinement`
+  takes the estimator as a callable `(solver) -> per-element error`, so this drops straight in.
 
 **Features**
 - 💡 The README's roadmap (thermal expansion, transport, fluid mechanics, nonlinear

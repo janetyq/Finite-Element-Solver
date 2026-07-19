@@ -22,6 +22,7 @@ class BoundaryConditions:
         self.neumann = {}
         self.dirichlet = {}
         self.force = {}
+        self.load_func = None
 
     def add(self, bc_type, indices, values):
         bc_type = BCType(bc_type)  # accepts BCType or its value; unknown raises ValueError
@@ -40,8 +41,34 @@ class BoundaryConditions:
 
     def add_force(self, load_func):
         assert len(self.force) == 0, 'load already defined'
+        # Kept so the load can be re-evaluated on a remeshed domain; see for_mesh.
+        self.load_func = load_func
         for v_idx in range(len(self.mesh.vertices)):
             self.force[v_idx] = np.array(load_func(self.mesh.vertices[v_idx]))
+
+    def check_remeshable(self):
+        '''Raise unless these conditions can be carried onto a different mesh.
+
+        A body force is specified as a function of position, so it re-evaluates
+        on any mesh. Dirichlet and Neumann conditions are stored per vertex
+        *index*, and a remesher renumbers vertices -- carrying them over would
+        silently move them to unrelated nodes. Supporting that needs
+        position-based specs; see BACKLOG.md section 1.
+        '''
+        if self.dirichlet or self.neumann:
+            raise NotImplementedError(
+                'Dirichlet/Neumann conditions are index-based and cannot survive '
+                'remeshing, which renumbers vertices. Only a position-defined '
+                'body force (add_force) can be transferred today.'
+            )
+
+    def for_mesh(self, mesh):
+        '''These conditions, resolved against `mesh`.'''
+        self.check_remeshable()
+        new = BoundaryConditions(mesh)
+        if self.load_func is not None:
+            new.add_force(self.load_func)
+        return new
 
     def check(self):
         '''Validate boundary conditions, catching two otherwise-silent footguns:

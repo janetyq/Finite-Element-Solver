@@ -193,8 +193,10 @@ class RefinementMesh:
         self.boundary = np.vectorize(index_mapping.get)(self.boundary)
         self.boundary = [list(edge) for edge in self.boundary]
 
-        self.mesh = Mesh(self.vertices, self.elements, self.boundary)
-    
+        # with_topology, not Mesh(...): a refined FEMesh must come back an FEMesh,
+        # otherwise the caller loses element_objs / M / K on the next solve.
+        self.mesh = self.mesh.with_topology(self.vertices, self.elements, self.boundary)
+
     def get_mesh(self):
         return self.mesh
 
