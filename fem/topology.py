@@ -1,7 +1,7 @@
 import numpy as np
 
 from fem.numerics import calculate_smoothing_matrix, color
-from fem.solver import Solver
+from fem.solver import Solver, LinearElastic
 from fem.solution import Solution
 from fem.plot.plotter import Plotter, PlotMode
 
@@ -13,10 +13,10 @@ class TopologyOptimizer:
     for some equation and boundary conditions.
     '''
     def __init__(self, femesh, equation, boundary_conditions, iters=10, volume_frac=1.0, smoothing_radius=0.1):
-        assert equation.name == 'linear_elastic', \
-            'TopologyOptimizer only supports linear_elastic equations'
+        assert isinstance(equation, LinearElastic), \
+            'TopologyOptimizer only supports LinearElastic equations'
         self.femesh = femesh
-        self.orig_equation = equation.__copy__()
+        self.orig_equation = equation.copy()
         self.solver = Solver(femesh, equation, boundary_conditions)
         self.solution = Solution(femesh, self.orig_equation.dim)
 
@@ -30,7 +30,7 @@ class TopologyOptimizer:
 
     def set_rho(self, rho):
         self.rho = rho
-        self.solver.equation.parameters['E'] = self.rho**3 * self.orig_equation.parameters['E']
+        self.solver.equation.E = self.rho**3 * self.orig_equation.E
 
     def oc_density(self, sensitivity, volume_frac):
         # sensitivity is the gradient of the compliance with respect to the density

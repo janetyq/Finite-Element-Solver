@@ -24,11 +24,11 @@ pip install -e ".[viz3d]"
 ## Quick Start
 
 ```python
-from fem import FEMesh, BoundaryConditions, Solver, Equation, Plotter
+from fem import FEMesh, BoundaryConditions, Solver, Poisson, Plotter
 
 mesh = FEMesh.load("files/mesh_40x40.json")
 
-equation = Equation("poisson")
+equation = Poisson()
 bc = BoundaryConditions(mesh)
 bc.add("dirichlet", mesh.boundary_idxs, [0])
 bc.add_force(lambda point: [1])

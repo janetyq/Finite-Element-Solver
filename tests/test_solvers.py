@@ -8,7 +8,7 @@ import numpy as np
 
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions
-from fem.solver import Solver, Equation
+from fem.solver import Solver, Projection, Heat, LinearElastic
 
 
 def test_heat_conserves_mean_temperature(make_unit_square):
@@ -21,7 +21,7 @@ def test_heat_conserves_mean_temperature(make_unit_square):
     corner = femesh.vertices.max(axis=0)
     u0 = bump_function(femesh.vertices, corner, mag=50, size=0.3) + 300
 
-    eq = Equation("heat", {"u_initial": u0.copy(), "iters": 5, "dt": 0.01}, dim=1)
+    eq = Heat(u_initial=u0.copy(), iters=5, dt=0.01)
     solution = Solver(femesh, eq).solve()
 
     means = [femesh.calculate_mean_value(u) for u in solution.get_values("u_values")]
@@ -42,7 +42,7 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
 
     bc = BoundaryConditions(femesh)
     bc.add_force(linear_field)
-    solution = Solver(femesh, Equation("projection", dim=1), bc).solve()
+    solution = Solver(femesh, Projection(), bc).solve()
 
     u = solution.get_values("u")
     expected = np.array([linear_field(v)[0] for v in femesh.vertices])
@@ -67,7 +67,7 @@ def test_linear_elastic_stretches_under_tension(make_unit_square):
     bc.add("dirichlet", left, [0, 0])
     bc.add("neumann", right, [50, 0])  # +x traction
 
-    eq = Equation("linear_elastic", {"E": 200, "nu": 0.4}, dim=2)
+    eq = LinearElastic(E=200, nu=0.4)
     solution = Solver(femesh, eq, bc).solve()
 
     u = solution.get_values("u").reshape(-1, 2)

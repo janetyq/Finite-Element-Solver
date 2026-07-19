@@ -20,7 +20,7 @@ import pytest
 from fem.mesh.generation import create_rect_mesh
 from fem.mesh.femesh import FEMesh
 from fem.boundary import BoundaryConditions
-from fem.solver import Solver, Equation
+from fem.solver import Solver, Poisson
 
 
 def _exact(vertices):
@@ -37,7 +37,7 @@ def _solve_poisson_mms(n):
     base = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     femesh = FEMesh(base.vertices, base.elements, base.boundary)
 
-    equation = Equation("poisson", dim=1)
+    equation = Poisson()
     bc = BoundaryConditions(femesh)
     bc.add("dirichlet", femesh.boundary_idxs, [0])
     bc.add_force(

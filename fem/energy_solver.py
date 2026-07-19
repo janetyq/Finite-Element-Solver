@@ -2,10 +2,11 @@ import numpy as np
 
 from fem.energies import LinearElasticEnergyDensity
 from fem.solution import Solution
+from fem.solver import LinearElastic
 
 class EnergySolver:
     def __init__(self, femesh, equation, boundary_conditions, verbose=True):
-        assert equation.name == "linear_elastic", "EnergySolver only supports linear elastic equation"
+        assert isinstance(equation, LinearElastic), "EnergySolver only supports linear elastic equation"
         # note: does not exactly match linear elastic solve for larger deformations bc doesn't use small strain approx
 
         self.femesh = femesh
@@ -35,10 +36,10 @@ class EnergySolver:
         # check_hessian(self.energy_gradient, self.energy_hessian, len(self.femesh.vertices)*2)
 
     def _select_energy(self, equation):
-        if equation.name == "linear_elastic":
-            return LinearElasticEnergyDensity(equation.parameters['E'], equation.parameters['nu'])
+        if isinstance(equation, LinearElastic):
+            return LinearElasticEnergyDensity(equation.E, equation.nu)
         else:
-            raise ValueError(f"Unknown equation name: {equation.name}")
+            raise ValueError(f"Unsupported equation type: {type(equation).__name__}")
 
     def element_energy(self, e_idx, u_element):
         grad_u_element = self.femesh.element_objs[e_idx].calculate_gradient(u_element)
