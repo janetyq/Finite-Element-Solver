@@ -37,12 +37,22 @@ class BoundaryConditions:
             self.force[v_idx] = np.array(load_func(self.mesh.vertices[v_idx]))
 
     def check(self):
-        # TODO:
-        # check that max one BC per node
-        # check that BC defined only on boundary
-        pass
+        '''Validate boundary conditions, catching two otherwise-silent footguns:
+
+        1. Dirichlet/Neumann conditions must live on boundary vertices.
+        2. No vertex may carry both a Dirichlet and a Neumann condition (a fixed
+           node ignores its Neumann load, so the pairing is ambiguous).
+        '''
+        boundary = set(self.mesh.boundary_idxs)
+        interior = (set(self.dirichlet) | set(self.neumann)) - boundary
+        if interior:
+            raise ValueError(f'Boundary conditions on non-boundary vertices: {sorted(interior)}')
+        overlap = set(self.dirichlet) & set(self.neumann)
+        if overlap:
+            raise ValueError(f'Vertices carry both Dirichlet and Neumann conditions: {sorted(overlap)}')
 
     def do(self, N, dim):
+        self.check()
         # dirichlet boundary conditions
         self.fixed_idxs = [dim*v_idx + d  for v_idx in self.dirichlet.keys() for d in range(dim)]
         self.fixed_values = list(np.array(list(self.dirichlet.values())).flatten())

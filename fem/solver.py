@@ -115,6 +115,11 @@ class Solver:
 
     def solve_wave(self):
         print('Solving wave equation...') # M @ u" + K @ u = b
+        # The time-stepping below runs with use_bc=False, so Dirichlet
+        # constraints would be silently ignored. Fail loudly instead of
+        # returning a solution that doesn't satisfy them.
+        if self.boundary_conditions.dirichlet:
+            raise NotImplementedError('solve_wave does not honor Dirichlet boundary conditions yet')
         u, dudt = self.equation.parameters['u_initial'], self.equation.parameters['dudt_initial']
         c = self.equation.parameters['c']
         dt, iters = self.equation.parameters['dt'], self.equation.parameters['iters']
@@ -124,6 +129,9 @@ class Solver:
                            [c**2 * dt/2 * self.femesh.K, self.femesh.M]])
         A_right = np.block([[self.femesh.M, dt/2 * self.femesh.M],
                             [-c**2 * dt/2 * self.femesh.K, self.femesh.M]])
+        # NOTE: np.roll(self.b, -1) rolls a *spatial* load vector as if it were a
+        # time series -- harmless while self.b is zero, but a latent bug the moment
+        # a real source term is added. See IMPROVEMENTS.md #9.
         b_right = np.block([np.zeros_like(self.b), dt/2 * (self.b + np.roll(self.b, -1))])
 
         N = len(self.femesh.vertices)
