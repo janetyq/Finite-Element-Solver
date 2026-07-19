@@ -136,7 +136,7 @@ def create_rect_mesh(corners, resolution):
                 elements.append([get_index(i, j), get_index(i+1, j), get_index(i, j+1)])
                 elements.append([get_index(i+1, j), get_index(i+1, j+1), get_index(i, j+1)])
 
-    boundary = get_boundary_from_vertices_elements(vertices, elements)
+    boundary = get_boundary_from_vertices_elements(elements)
     mesh = Mesh(vertices, elements, boundary)
 
     return mesh
@@ -180,7 +180,7 @@ def create_approx_mesh(outline, approx_triangles=100):
     v_idx_map = {old: new for new, old in enumerate(used_v_idxs)}
     vertices = vertices[used_v_idxs]
     elements = [[v_idx_map[e_idx] for e_idx in element] for element in elements]
-    boundary = get_boundary_from_vertices_elements(vertices, elements)
+    boundary = get_boundary_from_vertices_elements(elements)
     mesh = Mesh(vertices, elements, boundary)
 
     plotter = Plotter(title='Approximate mesh')

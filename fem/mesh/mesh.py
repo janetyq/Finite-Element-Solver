@@ -1,3 +1,5 @@
+import itertools
+
 import numpy as np
 
 from fem.plot.plotter import Plotter, PlotMode
@@ -49,11 +51,24 @@ class Mesh:
         return Mesh(self.vertices.copy(), self.elements.copy(), self.boundary.copy())
 
     def _get_all_edges(self):
-        all_edges = set()
-        for element in self.elements:
-            for i in range(3):
-                edge = [element[i], element[(i+1)%3]]
-                all_edges.add(tuple(sorted(edge)))
-        all_edges = np.array(list(all_edges))
-        return all_edges
+        '''Every edge in the mesh, as sorted (v0, v1) index pairs.
+
+        For a linear simplex the edge set is exactly every pair of its nodes:
+        1 pair for a line, 3 for a triangle, 6 for a tet. That makes this
+        dimension-general without a per-shape table -- but it holds *only* for
+        linear simplices, hence the guard (quadratic elements carry midside
+        nodes, so pairing every node would invent edges that don't exist).
+        '''
+        n_nodes = self.elements.shape[1]
+        if n_nodes not in (2, 3, 4):
+            raise NotImplementedError(
+                f'edge extraction is only defined for linear simplices, '
+                f'got {n_nodes}-node elements'
+            )
+        all_edges = {
+            tuple(sorted(pair))
+            for element in self.elements
+            for pair in itertools.combinations(element, 2)
+        }
+        return np.array(sorted(all_edges))
 
