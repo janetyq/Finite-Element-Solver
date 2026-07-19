@@ -47,8 +47,19 @@ class Mesh:
     def __repr__(self):
         return f'Mesh(vertices={self.vertices}, elements={self.elements}, boundary={self.boundary})'
 
+    def with_topology(self, vertices, elements, boundary):
+        '''A new mesh of this same concrete type over the given topology.
+
+        Remeshers (refinement, coarsening) have to hand back something the caller
+        can keep using: an FEMesh must come back an FEMesh, carrying its element
+        type and assembled matrices, rather than silently degrading to a bare Mesh.
+        '''
+        return type(self)(vertices, elements, boundary)
+
     def copy(self):
-        return Mesh(self.vertices.copy(), self.elements.copy(), self.boundary.copy())
+        return self.with_topology(
+            self.vertices.copy(), self.elements.copy(), self.boundary.copy()
+        )
 
     def _get_all_edges(self):
         '''Every edge in the mesh, as sorted (v0, v1) index pairs.

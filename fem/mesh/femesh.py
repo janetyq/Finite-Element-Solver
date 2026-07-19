@@ -124,5 +124,7 @@ class FEMesh(Mesh):
                 in_boundary_idxs.append(v_idx)
         return in_boundary_idxs
 
-    def copy(self):
-        return FEMesh(self.vertices.copy(), self.elements.copy(), self.boundary.copy(), element_type=self.element_type)
+    def with_topology(self, vertices, elements, boundary):
+        # type(self)(...) would fall back to the default element type, which is
+        # wrong for anything but triangles -- carry ours across explicitly.
+        return type(self)(vertices, elements, boundary, element_type=self.element_type)

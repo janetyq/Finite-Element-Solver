@@ -163,7 +163,14 @@ def test_adaptive_refinement():
     plotter.plot(mesh, u_gradient, mode='arrows', title='Gradient', idx=(0, 1))
     plotter.show()
 
-    raise NotImplementedError('Adaptive refinement demo is not implemented') # TODO
+    # solver.adaptive_refinement now drives the loop correctly, but this demo is
+    # still blocked on two open pieces: a real a-posteriori error estimator to
+    # pass in, and position-based Dirichlet conditions (the ones added above are
+    # index-based, so they cannot survive the vertex renumbering a refinement
+    # does). See BACKLOG.md.
+    raise NotImplementedError(
+        'Adaptive refinement demo needs an error estimator and remeshable Dirichlet BCs'
+    )
 
     # solution_init = solver.solve()
     # solver.adaptive_refinement()

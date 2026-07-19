@@ -259,22 +259,46 @@ class Solver:
         self.solution.set_values("stress", np.linalg.norm(sigma_elements, axis=-1))
         self.solution.set_values("compliance", np.array(compliance_elements))
 
-    def adaptive_refinement(self, max_triangles=1000, max_iters=20):
-        # TODO: there's a bug somewhere
-        if 'element_residuals' not in self.solution.values:
-            raise ValueError('No element residuals found in solution')
-        refinement_mesh = RefinementMesh(self.femesh)
-        while len(self.femesh.elements) < max_triangles or max_iters == 0:
-            element_residuals = self.solution.values['element_residuals']
-            max_residual = max(element_residuals)
-            refine_idxs = []
-            for e_idx, residual in enumerate(element_residuals):
-                if residual > 0.9 * max_residual:
-                    refine_idxs.append(e_idx)
+    def adaptive_refinement(self, estimator, max_triangles=1000, max_iters=20,
+                            refine_fraction=0.9):
+        '''Refine where the error estimate is largest, re-solving on each new mesh.
 
-            refinement_mesh.refine_triangles(refine_idxs)
+        `estimator(solver) -> per-element error` is a parameter rather than a key
+        read out of `self.solution` because the estimate has to be recomputed
+        every round: once elements have been split, the previous array is both
+        stale and the wrong length, so indexing it selects unrelated elements.
+        That was the "bug somewhere" this method used to carry.
+
+        Elements whose estimate is within `refine_fraction` of the largest are
+        refined. Returns the solution on the final mesh.
+        '''
+        self.boundary_conditions.check_remeshable()
+
+        refinement_mesh = RefinementMesh(self.femesh)
+        for _ in range(max_iters):
+            if len(self.femesh.elements) >= max_triangles:
+                break
+
+            residuals = np.asarray(estimator(self), dtype=float)
+            if len(residuals) != len(self.femesh.elements):
+                raise ValueError(
+                    f'estimator returned {len(residuals)} values for '
+                    f'{len(self.femesh.elements)} elements'
+                )
+            refine_idxs = np.flatnonzero(residuals >= refine_fraction * residuals.max())
+            if len(refine_idxs) == 0:
+                break
+
+            refinement_mesh.refine_triangles([int(i) for i in refine_idxs])
             self.femesh = refinement_mesh.get_mesh()
-            max_iters -= 1
+            # The refined mesh renumbers vertices, so every index-keyed thing
+            # hanging off the old one has to be rebuilt, not carried over.
+            self.boundary_conditions = self.boundary_conditions.for_mesh(self.femesh)
+            self.boundary_conditions.do(len(self.femesh.vertices), dim=self.dim)
+            self.solution = Solution(self.femesh, self.dim)
+            self.solve()
+
+        return self.solution
 
     # # residuals
     # def calculate_residuals(self):
