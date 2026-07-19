@@ -181,7 +181,7 @@ class Solver:
                             [-c**2 * dt/2 * self.femesh.K, self.femesh.M]])
         # NOTE: np.roll(self.b, -1) rolls a *spatial* load vector as if it were a
         # time series -- harmless while self.b is zero, but a latent bug the moment
-        # a real source term is added. See IMPROVEMENTS.md #9.
+        # a real source term is added. See BACKLOG.md section 1.
         b_right = np.block([np.zeros_like(self.b), dt/2 * (self.b + np.roll(self.b, -1))])
 
         N = len(self.femesh.vertices)
@@ -212,13 +212,13 @@ class Solver:
         compliance_elements = []
 
         for e_idx, element in enumerate(self.femesh.elements):
-            element = self.femesh.elements[e_idx]
-            B = self.femesh.element_objs[e_idx].calculate_B()
-            D = self.femesh.element_objs[e_idx].calculate_D(self.mu[e_idx], self.lamb[e_idx])
+            element_obj = self.femesh.element_objs[e_idx]
+            B = element_obj.calculate_B()
+            D = element_obj.calculate_D(self.mu[e_idx], self.lamb[e_idx])
             u_element = u[dof_indices(element, self.dim)]
             eps = B @ u_element
             sigma = D @ eps
-            compliance = sigma @ eps * self.femesh.element_objs[e_idx].volume
+            compliance = sigma @ eps * element_obj.volume
             eps_elements.append(eps)
             sigma_elements.append(sigma)
             compliance_elements.append(compliance)

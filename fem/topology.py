@@ -36,10 +36,15 @@ class TopologyOptimizer:
         self.rho = rho
         self.solver.equation.E = self.rho**3 * self.orig_equation.E
 
-    def oc_density(self, sensitivity, volume_frac):
+    def oc_density(self, sensitivity, volume_frac, max_iters=100, tol=1e-8):
         # sensitivity is the gradient of the compliance with respect to the density
+        # Bisect on the Lagrange multiplier until the volume constraint is met.
+        # Bounded iterations + a relative tolerance on the bracket: the previous
+        # `while lo*(1+1e-15) < hi` never tightened while lo stayed at 0, so it
+        # only stopped once hi had halved all the way down to zero.
         lo, hi = 0.0, 1e15 # search interval
-        while (lo*(1+1e-15)) < hi:
+        rho_new = self.rho
+        for _ in range(max_iters):
             m = 0.5*(lo+hi)
             rho_new = self.rho * np.sqrt(sensitivity / m)
             rho_new = np.clip(rho_new, self.rho - 0.1, self.rho + 0.1) # change limit
@@ -49,6 +54,9 @@ class TopologyOptimizer:
                 hi = m
             else:
                 lo = m
+
+            if hi - lo <= tol * hi:
+                break
         return rho_new
 
     def solve(self, objective_name='min_compliance', objective_args=None, 

@@ -1,5 +1,4 @@
 import numpy as np
-import pickle
 
 class Solution:
     def __init__(self, femesh, dim):
@@ -8,21 +7,14 @@ class Solution:
         self.dim = dim
 
     def save(self, filename):
-        with open(filename, 'wb') as f:
-            pickle.dump(self, f)
+        from fem.io import save_solution
+        save_solution(self, filename)
 
     @classmethod
     def load(cls, filename):
-        with open(filename, 'rb') as f:
-            return pickle.load(f)
+        from fem.io import load_solution
+        return load_solution(filename)
     
-    def __copy__(self):
-        values_copy = {k: v.copy() for k, v in self.values.items()}
-        return self.__class__(self.femesh.copy(), values_copy)
-
-    def __reduce__(self):
-        return (self.__class__, (self.femesh, self.values))
-
     def get_values(self, name, iter_idx=None, mode=None):
         if name is None:
             return np.zeros(len(self.femesh.elements))

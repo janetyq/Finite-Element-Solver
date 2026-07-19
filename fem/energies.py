@@ -13,7 +13,14 @@ class LinearElasticEnergyDensity: # TODO: inheritance
     F: deformation gradient dx/dX (2, 2)
     S: strain tensor (2, 2)
     W: strain energy density (1)
+
+    2D only: every tensor below is built at a fixed rank (np.eye(2), (2,2,2,2),
+    (2,2,2,2,2,2)) rather than from a `dim` parameter. `set_grad_u` rejects
+    anything else so the limit surfaces as an explicit error rather than a
+    numpy broadcast failure deep in an einsum.
     '''
+    DIM = 2
+
     def __init__(self, E, nu):
         self.E = E
         self.nu = nu
@@ -21,6 +28,12 @@ class LinearElasticEnergyDensity: # TODO: inheritance
 
     # Calculate grad_u -> F, S, W, dS_dF, dW_dS, dW_dF
     def set_grad_u(self, grad_u):
+        expected = (self.DIM, self.DIM)
+        if np.shape(grad_u) != expected:
+            raise NotImplementedError(
+                f'LinearElasticEnergyDensity is {self.DIM}D-only: expected grad_u of '
+                f'shape {expected}, got {np.shape(grad_u)}'
+            )
         self.F = np.eye(2) + grad_u
         self.S = self.calculate_S_from_F(self.F)
         self.W = self.calculate_W_from_S(self.S)

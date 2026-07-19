@@ -1,7 +1,10 @@
+import logging
 from enum import Enum
 
 import numpy as np
 from fem.plot.plotter import Plotter, PlotMode
+
+logger = logging.getLogger(__name__)
 
 # supports dirichlet, neumann, and mixed boundary conditions
 # add boundary conditions with list of indices and values at indices
@@ -25,11 +28,15 @@ class BoundaryConditions:
         values = np.array(values)
         target = self.dirichlet if bc_type is BCType.DIRICHLET else self.neumann
         if len(indices) == len(values):
-            for v_idx, value in zip(indices, values):
-                target[v_idx] = value
-        else:
-            for v_idx in indices:  # for elastic problems: neumann value = stress
-                target[v_idx] = values
+            pairs = zip(indices, values)
+        else:  # for elastic problems: neumann value = stress, shared by all indices
+            pairs = ((v_idx, values) for v_idx in indices)
+        for v_idx, value in pairs:
+            # Last write wins (plain dict assignment). That's usually a mistake
+            # rather than intent, so say so instead of overwriting silently.
+            if v_idx in target:
+                logger.warning('Overwriting existing %s BC at vertex %s', bc_type.value, v_idx)
+            target[v_idx] = value
 
     def add_force(self, load_func):
         assert len(self.force) == 0, 'load already defined'
