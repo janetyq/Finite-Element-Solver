@@ -24,11 +24,20 @@ class EnergySolver:
             raise NotImplementedError(
                 f'EnergySolver only supports 2D for now (got dim={self.dim})'
             )
+        # This solver minimizes the internal elastic energy and never builds a
+        # load vector, so a source term would be accepted and then quietly
+        # ignored -- the answer would just be the unforced one.
+        if equation.source is not None:
+            raise NotImplementedError(
+                'EnergySolver does not support a source term yet: it minimizes the '
+                'internal energy only, with no external work term, so the source '
+                'would be silently dropped. Use Solver for forced problems.'
+            )
 
-        self.boundary_conditions.do(self.femesh.vertices.shape[0], dim=self.dim)
-        self.free = self.boundary_conditions.free_idxs
-        self.fixed = self.boundary_conditions.fixed_idxs
-        self.fixed_values = self.boundary_conditions.fixed_values
+        self.resolved_bc = self.boundary_conditions.resolve(femesh, self.dim)
+        self.free = self.resolved_bc.free_idxs
+        self.fixed = self.resolved_bc.fixed_idxs
+        self.fixed_values = self.resolved_bc.fixed_values
 
         self.energy_density = self._select_energy(equation)
 

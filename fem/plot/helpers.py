@@ -82,8 +82,14 @@ def plot_arrows(ax, mesh, values):
 
 
 def plot_bc(ax, mesh, bc):
+    from fem.boundary import BCType
+
     plot_mesh(ax, mesh)
-    for v_idx, value in bc.dirichlet.items():
-        ax.plot(mesh.vertices[v_idx][0], mesh.vertices[v_idx][1], 'ro')
-    for v_idx, value in bc.neumann.items():
-        ax.quiver(mesh.vertices[v_idx][0], mesh.vertices[v_idx][1], value[0], value[1])
+    # entries() resolves regions against this mesh without needing a dim, which
+    # is all plotting needs -- no DOF numbering involved.
+    for bc_type, idxs, values in bc.entries(mesh):
+        points = mesh.vertices[idxs]
+        if bc_type is BCType.DIRICHLET:
+            ax.plot(points[:, 0], points[:, 1], 'ro')
+        elif bc_type is BCType.NEUMANN:
+            ax.quiver(points[:, 0], points[:, 1], values[:, 0], values[:, 1])

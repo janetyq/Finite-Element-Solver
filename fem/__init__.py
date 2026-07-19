@@ -6,12 +6,15 @@ optimization.
 
 Common entry points are re-exported here, so typical use is:
 
-    from fem import FEMesh, BoundaryConditions, Solver, Poisson
+    from fem import FEMesh, BoundaryConditions, BCType, Solver, Poisson
+    from fem.regions import everywhere
 
     mesh = FEMesh.load("files/mesh_40x40.json")
-    equation = Poisson()
-    bc = BoundaryConditions(mesh)
-    ...
+    equation = Poisson(source=lambda p: 1.0)
+
+    bc = BoundaryConditions()                          # described geometrically,
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)        # so it holds on any mesh
+
     solution = Solver(mesh, equation, bc).solve()
 """
 
@@ -27,7 +30,15 @@ from fem.elements import (
     LinearTriangleElement,
     LinearTetrahedralElement,
 )
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, BCType, ResolvedBC
+from fem.regions import (
+    everywhere,
+    on_plane,
+    in_box,
+    intersect,
+    union,
+    at_indices,
+)
 from fem.solver import (
     Solver,
     Equation,
@@ -56,6 +67,13 @@ __all__ = [
     "LinearTetrahedralElement",
     "BoundaryConditions",
     "BCType",
+    "ResolvedBC",
+    "everywhere",
+    "on_plane",
+    "in_box",
+    "intersect",
+    "union",
+    "at_indices",
     "Solver",
     "Equation",
     "Projection",

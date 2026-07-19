@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 from fem.numerics import bump_function
-from fem.boundary import BoundaryConditions
+from fem.boundary import BoundaryConditions, BCType
+from fem.regions import everywhere, on_plane
 from fem.solver import Solver, Projection, Poisson, Heat, Wave, LinearElastic
 
 
@@ -41,9 +42,7 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
     def linear_field(p):
         return [2.0 * p[0] + 3.0 * p[1] - 1.0]
 
-    bc = BoundaryConditions(femesh)
-    bc.add_force(linear_field)
-    solution = Solver(femesh, Projection(), bc).solve()
+    solution = Solver(femesh, Projection(source=linear_field)).solve()
 
     u = solution.get_values("u")
     expected = np.array([linear_field(v)[0] for v in femesh.vertices])
@@ -53,8 +52,8 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
 def _pinned_square(make_unit_square, n=12):
     """Unit square with every boundary node pinned at u = 0."""
     femesh = make_unit_square(n)
-    bc = BoundaryConditions(femesh)
-    bc.add("dirichlet", femesh.boundary_idxs, np.zeros(len(femesh.boundary_idxs)))
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     return femesh, bc
 
 
@@ -67,15 +66,15 @@ def test_wave_holds_static_equilibrium_under_load(make_unit_square):
     index, so the equilibrium would be violated the moment b is nonzero.
     """
     femesh, bc = _pinned_square(make_unit_square)
-    bc.add_force(lambda p: [1.0])
+    source = 1.0
 
-    u_static = Solver(femesh, Poisson(), bc).solve().get_values("u")
+    u_static = Solver(femesh, Poisson(source=source), bc).solve().get_values("u")
     assert np.abs(u_static).max() > 0, "static solution is trivial; test proves nothing"
 
     eq = Wave(
         u_initial=u_static.copy(),
         dudt_initial=np.zeros(len(u_static)),
-        c=1, dt=0.01, iters=20,
+        c=1, dt=0.01, iters=20, source=source,
     )
     u_values = Solver(femesh, eq, bc).solve().get_values("u_values")
 
@@ -146,17 +145,17 @@ def test_linear_elastic_stretches_under_tension(make_unit_square):
     assembly, the Neumann load path, and Dirichlet handling together.
     """
     femesh = make_unit_square(20)
-    bidx = femesh.boundary_idxs
-    bx = femesh.vertices[bidx, 0]
-    left = bidx[np.isclose(bx, 0.0)]
-    right = bidx[np.isclose(bx, 1.0)]
 
-    bc = BoundaryConditions(femesh)
-    bc.add("dirichlet", left, [0, 0])
-    bc.add("neumann", right, [50, 0])  # +x traction
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])  # +x traction
 
     eq = LinearElastic(E=200, nu=0.4)
     solution = Solver(femesh, eq, bc).solve()
+
+    bidx = femesh.boundary_idxs
+    bx = femesh.vertices[bidx, 0]
+    left, right = bidx[np.isclose(bx, 0.0)], bidx[np.isclose(bx, 1.0)]
 
     u = solution.get_values("u").reshape(-1, 2)
     assert np.all(np.isfinite(u)), "displacement field has non-finite entries"
