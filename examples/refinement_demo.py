@@ -1,9 +1,9 @@
 """Demo: red-green adaptive mesh refinement.
 
 Refine random triangles of a small mesh several times, then plot the original
-vs. refined mesh. Run from the repo root:
+vs. refined mesh. Run via the shared CLI:
 
-    uv run python examples/refinement_demo.py
+    uv run python examples/cli.py run refinement
 """
 import random
 
@@ -13,8 +13,11 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RefinementMesh
 from fem.plot.plotter import Plotter
 
+from demo_registry import Demo
 
-def main():
+
+def demo_refinement():
+    """Run 8 rounds of random red-green refinement and plot original vs. refined mesh."""
     vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
     elements = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]])
     boundary = [[0, 1], [1, 2], [2, 3], [3, 0]]
@@ -30,8 +33,9 @@ def main():
     plotter = Plotter(1, 2, title="Red-Green Refinement")
     plotter.plot(original_mesh, mode="mesh", idx=(0, 0), title="Original")
     plotter.plot(mesh, mode="mesh", idx=(0, 1), title="Refined")
-    plotter.show()
+    return plotter
 
 
-if __name__ == "__main__":
-    main()
+DEMOS = [
+    Demo('refinement', demo_refinement, needs_mesh=False),
+]
