@@ -1,6 +1,5 @@
 import json
 import numpy as np
-from matplotlib.tri import Triangulation
 
 from fem.plot.plotter import Plotter
 

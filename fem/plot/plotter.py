@@ -1,9 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation 
-from matplotlib.colorbar import Colorbar
 from matplotlib.animation import FuncAnimation
-from mpl_toolkits.mplot3d import Axes3D
 
 from fem.plot.helpers import (
     plot_mesh,
@@ -20,7 +17,6 @@ from fem.plot.helpers import (
 class Plotter:
     def __init__(self, nrows=1, ncols=1, figsize=None, title=None):
         if figsize is None:
-            size = 5 if max(nrows, ncols) <= 5 else 4
             figsize = (5*ncols, 5*nrows)
         
         self.fig, self.axs = plt.subplots(nrows, ncols, figsize=figsize)

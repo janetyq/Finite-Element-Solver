@@ -69,7 +69,7 @@ def plot_tetmesh_animation(mesh, values_array, save_file='tetmesh_animation.gif'
     if title is not None:
         plotter.add_text(title, font_size=18, color='black', position='upper_edge')
     text = plotter.add_text("", font_size=12, color='black')
-    actor = plotter.add_mesh(tet_grid, scalars="v", clim=clim, cmap='bwr', flip_scalars=True, show_edges=True)
+    plotter.add_mesh(tet_grid, scalars="v", clim=clim, cmap='bwr', flip_scalars=True, show_edges=True)
 
     plotter.open_gif(save_file)
 

@@ -35,17 +35,17 @@ class TopologyOptimizer:
 
     def oc_density(self, sensitivity, volume_frac):
         # sensitivity is the gradient of the compliance with respect to the density
-        l, r = 0.0, 1e15 # search interval
-        while (l*(1+1e-15)) < r:
-            m = 0.5*(l+r)
+        lo, hi = 0.0, 1e15 # search interval
+        while (lo*(1+1e-15)) < hi:
+            m = 0.5*(lo+hi)
             rho_new = self.rho * np.sqrt(sensitivity / m)
             rho_new = np.clip(rho_new, self.rho - 0.1, self.rho + 0.1) # change limit
-            rho_new = np.clip(rho_new, 1e-6, 1) 
+            rho_new = np.clip(rho_new, 1e-6, 1)
 
             if self.solver.femesh.calculate_mean_value(rho_new) < volume_frac:
-                r = m
+                hi = m
             else:
-                l = m
+                lo = m
         return rho_new
 
     def solve(self, objective_name='min_compliance', objective_args=None, 
@@ -120,6 +120,6 @@ class TopologyOptimizer:
     def _get_deformed_mesh(self, iter_idx=-1): # TODO: duplicate
         try:
             u = self.solution.values['u_list'][iter_idx]
-        except:
+        except (KeyError, IndexError):
             u = self.solver.solution.values['u']
         return FEMesh(self.solver.femesh.vertices + u.reshape(-1, 2), self.solver.femesh.elements, self.solver.femesh.boundary)

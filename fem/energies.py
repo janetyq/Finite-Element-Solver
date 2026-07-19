@@ -53,11 +53,11 @@ class LinearElasticEnergyDensity: # TODO: inheritance
                 for m in range(2):
                     for n in range(2):
                         for k in range(2):
-                            for l in range(2):
-                                if j == n and k == m and i == l:
-                                    d2S_dF2[i, j, m, n, k, l] += 0.5
-                                if i == n and k == m and j == l:
-                                    d2S_dF2[i, j, m, n, k, l] += 0.5
+                            for q in range(2):
+                                if j == n and k == m and i == q:
+                                    d2S_dF2[i, j, m, n, k, q] += 0.5
+                                if i == n and k == m and j == q:
+                                    d2S_dF2[i, j, m, n, k, q] += 0.5
         return d2S_dF2
 
     def calculate_dW_dS(self, S):

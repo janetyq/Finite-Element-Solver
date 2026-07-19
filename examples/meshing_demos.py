@@ -1,11 +1,10 @@
 import json
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, Button
+from matplotlib.widgets import Slider
 
-from fem.mesh.mesh import Mesh
 from fem.plot.plotter import Plotter
-from fem.mesh.generation import create_rect_mesh, create_approx_mesh, RuppertsAlgorithm
+from fem.mesh.generation import create_rect_mesh, RuppertsAlgorithm
 from fem.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
 
 def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='files/mesh.json'):

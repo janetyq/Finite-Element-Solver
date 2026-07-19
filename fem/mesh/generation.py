@@ -1,6 +1,4 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider
+﻿import numpy as np
 from scipy.spatial import Delaunay
 
 from fem.mesh.mesh import Mesh
@@ -188,7 +186,3 @@ def create_approx_mesh(outline, approx_triangles=100):
     plotter.show()
 
     return mesh
-
-if __name__ == '__main__':
-    mesh = create_rect_mesh(corners=[[0, 0], [2, 1]], resolution=(60, 30))
-    mesh.save('../files/mesh_60x30.json')
