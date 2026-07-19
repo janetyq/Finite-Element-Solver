@@ -40,7 +40,7 @@ class LinearElement(Element):
         if dim == 1:
             return self.grad_phi @ self.grad_phi.T * self.volume
         # otherwise, the equation is linear elastic
-        _mu, _lamb, idx = kwargs['mu'], kwargs['lamb'], kwargs['idx']
+        idx = kwargs['idx']
         B, D = self.calculate_B(), self.calculate_D(kwargs['mu'][idx], kwargs['lamb'][idx])
         return B.T @ D @ B * self.volume
 

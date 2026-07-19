@@ -3,6 +3,17 @@ import numpy as np
 from fem.mesh.mesh import Mesh
 from fem.elements import LinearTriangleElement
 
+
+def dof_indices(element, dim):
+    '''Global DOF indices for an element's nodes, interleaved per node.
+
+    For node indices [n0, n1, ...] and `dim` DOFs per node, returns
+    [dim*n0, dim*n0+1, ..., dim*n1, dim*n1+1, ...].
+    '''
+    element = np.asarray(element)
+    return np.array([dim*element + i for i in range(dim)]).T.flatten()
+
+
 class FEMesh(Mesh):
     '''
     Built on top of Mesh class
@@ -44,7 +55,7 @@ class FEMesh(Mesh):
         N = len(self.vertices)
         A = np.zeros((dim * N, dim * N))
         for e_idx, element in enumerate(elements):
-            idxs = np.array([dim*element + i for i in range(dim)]).T.flatten()
+            idxs = dof_indices(element, dim)
             element_matrix = matrix_calculators[matrix_type_name](e_idx)
             A[np.ix_(idxs, idxs)] += element_matrix
         return A

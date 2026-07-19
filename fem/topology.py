@@ -3,7 +3,6 @@ import numpy as np
 from fem.numerics import calculate_smoothing_matrix, color
 from fem.solver import Solver
 from fem.solution import Solution
-from fem.mesh.femesh import FEMesh
 from fem.plot.plotter import Plotter
 
 class TopologyOptimizer:
@@ -117,9 +116,9 @@ class TopologyOptimizer:
         plotter.plot(deformed_mesh, self.rho, mode='colored')
         plotter.show()
 
-    def _get_deformed_mesh(self, iter_idx=-1): # TODO: duplicate
+    def _get_deformed_mesh(self, iter_idx=-1):
         try:
             u = self.solution.values['u_list'][iter_idx]
         except (KeyError, IndexError):
             u = self.solver.solution.values['u']
-        return FEMesh(self.solver.femesh.vertices + u.reshape(-1, 2), self.solver.femesh.elements, self.solver.femesh.boundary)
+        return self.solver.solution.get_deformed_mesh(u)
