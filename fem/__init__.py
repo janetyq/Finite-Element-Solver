@@ -25,12 +25,12 @@ from fem.elements import (
     LinearTriangleElement,
     LinearTetrahedralElement,
 )
-from fem.boundary import BoundaryConditions
+from fem.boundary import BoundaryConditions, BCType
 from fem.solver import Solver, Equation
 from fem.solution import Solution
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
-from fem.plot.plotter import Plotter
+from fem.plot.plotter import Plotter, PlotMode
 
 __all__ = [
     "Mesh",
@@ -41,10 +41,12 @@ __all__ = [
     "LinearTriangleElement",
     "LinearTetrahedralElement",
     "BoundaryConditions",
+    "BCType",
     "Solver",
     "Equation",
     "Solution",
     "EnergySolver",
     "TopologyOptimizer",
     "Plotter",
+    "PlotMode",
 ]

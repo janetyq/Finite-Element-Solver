@@ -1,8 +1,16 @@
+from enum import Enum
+
 import numpy as np
-from fem.plot.plotter import Plotter
+from fem.plot.plotter import Plotter, PlotMode
 
 # supports dirichlet, neumann, and mixed boundary conditions
 # add boundary conditions with list of indices and values at indices
+
+
+class BCType(Enum):
+    DIRICHLET = "dirichlet"
+    NEUMANN = "neumann"
+
 
 class BoundaryConditions:
     def __init__(self, mesh):
@@ -13,23 +21,15 @@ class BoundaryConditions:
         self.force = {}
 
     def add(self, bc_type, indices, values):
+        bc_type = BCType(bc_type)  # accepts BCType or its value; unknown raises ValueError
         values = np.array(values)
-        if bc_type == 'dirichlet':
-            if len(indices) == len(values):
-                for v_idx, value in zip(indices, values):
-                    self.dirichlet[v_idx] = value
-            else:
-                for v_idx in indices:
-                    self.dirichlet[v_idx] = values
-        elif bc_type == 'neumann':
-            if len(indices) == len(values):
-                for v_idx, value in zip(indices, values):
-                    self.neumann[v_idx] = value # TODO: check support for list of values
-            else:
-                for v_idx in indices: # for elastics problems: neumann value = stress
-                    self.neumann[v_idx] = values
+        target = self.dirichlet if bc_type is BCType.DIRICHLET else self.neumann
+        if len(indices) == len(values):
+            for v_idx, value in zip(indices, values):
+                target[v_idx] = value
         else:
-            raise ValueError(f'bc_type {bc_type} not recognized')
+            for v_idx in indices:  # for elastic problems: neumann value = stress
+                target[v_idx] = values
 
     def add_force(self, load_func):
         assert len(self.force) == 0, 'load already defined'
@@ -68,5 +68,5 @@ class BoundaryConditions:
 
     def plot(self):
         plotter = Plotter(title='Boundary conditions')
-        plotter.plot(self.mesh, bc=self, mode='bc')
+        plotter.plot(self.mesh, bc=self, mode=PlotMode.BC)
         plotter.show()

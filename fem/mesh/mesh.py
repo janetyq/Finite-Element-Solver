@@ -1,7 +1,7 @@
 import json
 import numpy as np
 
-from fem.plot.plotter import Plotter
+from fem.plot.plotter import Plotter, PlotMode
 
 
 class Mesh:
@@ -30,7 +30,7 @@ class Mesh:
 
     def plot(self):
         plotter = Plotter(title='Mesh plot')
-        plotter.plot(self, mode='mesh')
+        plotter.plot(self, mode=PlotMode.MESH)
         plotter.show()
 
     # TODO: Save and load to better formats - off, obj

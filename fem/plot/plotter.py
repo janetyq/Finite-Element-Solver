@@ -1,3 +1,5 @@
+from enum import Enum
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -14,6 +16,16 @@ from fem.plot.helpers import (
     plot_bc,
 )
 
+
+class PlotMode(Enum):
+    MESH = "mesh"
+    BOUNDARY = "boundary"
+    COLORED = "colored"
+    SURFACE = "surface"
+    ARROWS = "arrows"
+    BC = "bc"
+
+
 class Plotter:
     def __init__(self, nrows=1, ncols=1, figsize=None, title=None):
         if figsize is None:
@@ -29,7 +41,8 @@ class Plotter:
         self.cbar_infos = {}
 
     # function for plotting at a specific index
-    def plot(self, mesh, values=None, mode='mesh', idx=(0, 0), title=None, bc=None, clear=False, empty=False):
+    def plot(self, mesh, values=None, mode=PlotMode.MESH, idx=(0, 0), title=None, bc=None, clear=False, empty=False):
+        mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
         ax = self.axs[idx]
         if clear:
             ax.clear()
@@ -38,23 +51,21 @@ class Plotter:
             values = np.array(values)
 
         # TODO: check that values/bc are provided for intended mode
-        if mode == 'mesh':
+        if mode is PlotMode.MESH:
             plot_mesh(ax, mesh)
-        elif mode == 'boundary':
+        elif mode is PlotMode.BOUNDARY:
             plot_boundary(ax, mesh)
-        elif mode == 'colored':
+        elif mode is PlotMode.COLORED:
             cbar_info = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None))
             self.cbar_infos[idx] = cbar_info
-        elif mode == 'surface':
+        elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
             plot_surface(ax, mesh, values)
-        elif mode == 'arrows':
+        elif mode is PlotMode.ARROWS:
             plot_arrows(ax, mesh, values) # inside arrows, assert the correct shape
-        elif mode == 'bc':
+        elif mode is PlotMode.BC:
             plot_bc(ax, mesh, bc)
-        else:
-            raise ValueError(f'Invalid plot mode: {mode}')
 
         ax.set_title(title) # overrides any existing title
         if empty:
@@ -69,7 +80,7 @@ class Plotter:
 
 
     # Specialty plotting
-    def plot_animation(self, mesh, values, mode='colored', idx=(0, 0), titles=None, cbar_lims=(0, 1)):
+    def plot_animation(self, mesh, values, mode=PlotMode.COLORED, idx=(0, 0), titles=None, cbar_lims=(0, 1)):
         if titles is None:
             titles = [str(i) for i in range(len(values))]
 
