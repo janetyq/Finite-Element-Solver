@@ -54,9 +54,10 @@ class Solution:
     def reset(self):
         self.values = {}
 
-    def get_deformed_mesh(self):
+    def get_deformed_mesh(self, u=None):
+        if u is None:
+            u = self.get_values('u')
         femesh_deformed = self.femesh.copy()
-        u = self.get_values('u')
         femesh_deformed.vertices += u.reshape(-1, self.dim)
         return femesh_deformed
 

@@ -1,6 +1,7 @@
 import numpy as np
 
 from fem.mesh.refinement import RefinementMesh
+from fem.mesh.femesh import dof_indices
 from fem.boundary import BoundaryConditions
 from fem.solution import Solution
 from fem.materials import Enu_to_Lame
@@ -156,7 +157,7 @@ class Solver:
             element = self.femesh.elements[e_idx]
             B = self.femesh.element_objs[e_idx].calculate_B()
             D = self.femesh.element_objs[e_idx].calculate_D(self.mu[e_idx], self.lamb[e_idx])
-            u_element = u[np.array([self.dim*element + d for d in range(self.dim)]).T.flatten()]
+            u_element = u[dof_indices(element, self.dim)]
             eps = B @ u_element
             sigma = D @ eps
             compliance = sigma @ eps * self.femesh.element_objs[e_idx].volume

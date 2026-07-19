@@ -26,7 +26,7 @@ class EnergySolver:
         self.verbose = verbose
 
         # TODO: flat u + bc handling weird
-        
+
         # elt_idx = 10
         # check_gradient(lambda u: self.element_energy(elt_idx, u), lambda u: self.element_gradient(elt_idx, u), (3, 2))
         # check_hessian(lambda u: self.element_gradient(elt_idx, u), lambda u: self.element_hessian(elt_idx, u), (3, 2))
