@@ -7,17 +7,62 @@ from fem.solution import Solution
 from fem.materials import Enu_to_Lame
 
 class Equation:
-    def __init__(self, name, parameters=None, dim=None):
-        self.name = name
-        self.parameters = parameters
-        if dim is None:
-            self.dim = 2 if name == "linear_elastic" else 1
-            print(f"Warning: dim not provided, assuming dim={self.dim}")
-        else:
-            self.dim = dim
+    '''Base class for a PDE to solve.
 
-    def __copy__(self):
-        return self.__class__(self.name, self.parameters.copy(), dim=self.dim) # TODO: check if this works for list values
+    An Equation is typed data: it says *what* to solve and carries the physical
+    parameters / initial conditions, while the Solver owns *how* to solve it
+    (the same equation, e.g. LinearElastic, may be handled by several solvers).
+    `dim` is the number of DOFs per node: 1 for scalar PDEs, 2 for 2D elasticity.
+    '''
+    dim = 1
+
+    def copy(self):
+        # shallow copy that works regardless of subclass __init__ signature
+        new = self.__class__.__new__(self.__class__)
+        new.__dict__.update(self.__dict__)
+        return new
+
+
+class Projection(Equation):
+    '''L2 projection of a source field onto the FE space (M u = b).'''
+    dim = 1
+
+
+class Poisson(Equation):
+    '''Poisson equation (K u = b).'''
+    dim = 1
+
+
+class Heat(Equation):
+    '''Transient heat equation, solved with backward Euler.'''
+    dim = 1
+
+    def __init__(self, u_initial, dt, iters):
+        self.u_initial = u_initial
+        self.dt = dt
+        self.iters = iters
+
+
+class Wave(Equation):
+    '''Wave equation, solved with Crank-Nicolson.'''
+    dim = 1
+
+    def __init__(self, u_initial, dudt_initial, c, dt, iters):
+        self.u_initial = u_initial
+        self.dudt_initial = dudt_initial
+        self.c = c
+        self.dt = dt
+        self.iters = iters
+
+
+class LinearElastic(Equation):
+    '''Small-strain linear elasticity. E may be a scalar or a per-element array
+    (TopologyOptimizer sets a density-scaled modulus).'''
+    dim = 2
+
+    def __init__(self, E, nu):
+        self.E = E
+        self.nu = nu
 
 class Solver:
     def __init__(self, femesh, equation, boundary_conditions=None):
@@ -34,24 +79,25 @@ class Solver:
         self.solution.reset()
         
         equation_solvers = {
-            "projection": self.solve_projection,
-            "poisson": self.solve_poisson,
-            "heat": self.solve_heat,
-            "wave": self.solve_wave,
-            "linear_elastic": self.solve_linear_elastic,
+            Projection: self.solve_projection,
+            Poisson: self.solve_poisson,
+            Heat: self.solve_heat,
+            Wave: self.solve_wave,
+            LinearElastic: self.solve_linear_elastic,
         }
 
-        if self.equation.name not in equation_solvers:
-            raise ValueError(f"Unknown equation name: {self.equation.name}")
+        solver_fn = equation_solvers.get(type(self.equation))
+        if solver_fn is None:
+            raise ValueError(f"No solver for equation type: {type(self.equation).__name__}")
 
-        equation_solvers[self.equation.name]()
+        solver_fn()
 
         return self.solution
 
     def assemble_everything(self):
-        if self.equation.name == "linear_elastic":
-            E = np.full(len(self.femesh.elements), self.equation.parameters['E'])
-            nu = np.full(len(self.femesh.elements), self.equation.parameters['nu'])
+        if isinstance(self.equation, LinearElastic):
+            E = np.full(len(self.femesh.elements), self.equation.E)
+            nu = np.full(len(self.femesh.elements), self.equation.nu)
             mu, lamb = Enu_to_Lame(E, nu) 
             self.mu, self.lamb = mu, lamb
             self.femesh.prepare_matrices(dim=self.dim, mu=mu, lamb=lamb)
@@ -99,8 +145,8 @@ class Solver:
     def solve_heat(self):
         print('Solving heat equation...') # M @ u' + K @ u = b
         #  (M + K*dt) @ u_{n+1} = M @ u_n + b*dt, backwards Euler
-        u = self.equation.parameters['u_initial']
-        dt, iters = self.equation.parameters['dt'], self.equation.parameters['iters']
+        u = self.equation.u_initial
+        dt, iters = self.equation.dt, self.equation.iters
 
         t_values = [0]
         u_values = [u]
@@ -120,9 +166,9 @@ class Solver:
         # returning a solution that doesn't satisfy them.
         if self.boundary_conditions.dirichlet:
             raise NotImplementedError('solve_wave does not honor Dirichlet boundary conditions yet')
-        u, dudt = self.equation.parameters['u_initial'], self.equation.parameters['dudt_initial']
-        c = self.equation.parameters['c']
-        dt, iters = self.equation.parameters['dt'], self.equation.parameters['iters']
+        u, dudt = self.equation.u_initial, self.equation.dudt_initial
+        c = self.equation.c
+        dt, iters = self.equation.dt, self.equation.iters
         
         # Crank-Nicolson method - average of forward and backward Euler
         A_left = np.block([[self.femesh.M, -dt/2 * self.femesh.M],

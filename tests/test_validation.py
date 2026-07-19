@@ -9,7 +9,7 @@ import pytest
 from fem.energies import NeohookeanEnergyDensity
 from fem.boundary import BoundaryConditions, BCType
 from fem.plot.plotter import PlotMode
-from fem.solver import Solver, Equation
+from fem.solver import Solver, Wave
 
 
 def test_neohookean_is_gated():
@@ -27,12 +27,7 @@ def test_wave_rejects_dirichlet_bcs(make_unit_square):
     bc.add("dirichlet", [int(femesh.boundary_idxs[0])], [0])
 
     n = len(femesh.vertices)
-    eq = Equation(
-        "wave",
-        {"u_initial": np.zeros(n), "dudt_initial": np.zeros(n),
-         "c": 1, "dt": 0.02, "iters": 3},
-        dim=1,
-    )
+    eq = Wave(u_initial=np.zeros(n), dudt_initial=np.zeros(n), c=1, dt=0.02, iters=3)
     with pytest.raises(NotImplementedError):
         Solver(femesh, eq, bc).solve()
 

@@ -7,7 +7,7 @@ from fem.elements import LinearTriangleElement, LinearTetrahedralElement
 from fem.boundary import BoundaryConditions
 from fem.plot.plotter import Plotter
 from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
-from fem.solver import Solver, Equation
+from fem.solver import Solver, Projection, Poisson, Heat, Wave, LinearElastic
 from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
 
@@ -25,7 +25,7 @@ def test_l2_projection():
     def cool_f(point):
         x, y = point - np.array([0.5, 0.5])
         return [np.sin(40*(x**2+y**2))]
-    equation = Equation('projection')
+    equation = Projection()
     bc = BoundaryConditions(mesh)
     bc.add_force(cool_f)
     solver = Solver(mesh, equation, bc)
@@ -39,7 +39,7 @@ def test_poisson_equation():
     w = np.max(mesh.vertices[:, 0])
     [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
 
-    equation = Equation('poisson')
+    equation = Poisson()
     bc = BoundaryConditions(mesh)
     # bc.add('dirichlet', [idx for idx in mesh.boundary_idxs if idx not in right_idxs], [0])
     # bc.add('neumann', right_idxs, [1])
@@ -61,7 +61,7 @@ def test_heat_equation():
     heat_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.5*min(w, h)) + 300
     
-    equation = Equation('heat', {'u_initial': u_initial.copy(), 'iters': 5, 'dt': 0.01})
+    equation = Heat(u_initial=u_initial.copy(), iters=5, dt=0.01)
     solver = Solver(mesh, equation)
     solution = solver.solve()
     u_values = solution.get_values('u_values')
@@ -78,7 +78,7 @@ def test_wave_equation(): # TODO: Wave energy not fully implemented
     u_initial = bump_function(mesh.vertices, wave_center, size=0.25*min(w, h))
     dudt_initial = np.zeros(len(mesh.vertices))
     
-    equation = Equation('wave', {'u_initial': u_initial, 'dudt_initial': dudt_initial, 'c': 1, 'dt': 0.03, 'iters': 20})
+    equation = Wave(u_initial=u_initial, dudt_initial=dudt_initial, c=1, dt=0.03, iters=20)
     solver = Solver(mesh, equation)
     solution = solver.solve()
     u_values = solution.get_values('u_values')
@@ -102,7 +102,7 @@ def test_linear_elastic():
     bc.add('neumann', right_middle_idxs, [50, 0]) # stress
     bc.plot()
 
-    equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
+    equation = LinearElastic(E=200, nu=0.4)
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
     deformed_mesh = solution.get_deformed_mesh()
@@ -123,7 +123,7 @@ def test_topology_optimization(iters=10):
     bc.add('dirichlet', left_idxs, [0, 0])
     bc.add_force(down_force)
 
-    equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
+    equation = LinearElastic(E=200, nu=0.4)
     topopt = TopologyOptimizer(mesh, equation, bc, iters=iters, volume_frac=0.5)
     solution = topopt.solve(plot=False)
     deformed_mesh = topopt._get_deformed_mesh()
@@ -148,7 +148,7 @@ def test_adaptive_refinement():
         r2 = x**2 + y**2
         return [4*a*a*(1-a*r2)*e**(-a*r2)] # TODO: list thing is awkward
 
-    equation = Equation('poisson')
+    equation = Poisson()
     bc = BoundaryConditions(mesh)
     bc.add_force(test_function)
     bc.add("dirichlet", mesh.boundary_idxs, [0])
@@ -187,7 +187,7 @@ def test_adaptive_refinement():
 
 def test_energy_solver(): # TODO: add support for force bc
     w, _h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
-    equation = Equation('linear_elastic', {'E': 200, 'nu': 0.4})
+    equation = LinearElastic(E=200, nu=0.4)
     bc = BoundaryConditions(mesh)
     left_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] < 1e-6]
     right_idxs = [v_idx for v_idx in mesh.boundary_idxs if mesh.vertices[v_idx][0] > w-1e-6]
@@ -213,7 +213,7 @@ def test_3d():
     heat_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.3*w) + 300
 
-    equation = Equation('heat', {'u_initial': u_initial.copy(), 'dudt_initial': np.zeros_like(u_initial).copy(), 'c': 1, 'iters': 20, 'dt': 0.04})
+    equation = Heat(u_initial=u_initial.copy(), iters=20, dt=0.04)
     solver = Solver(mesh, equation)
     solution = solver.solve()
     u_values = solution.get_values('u_values')

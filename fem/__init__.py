@@ -6,10 +6,10 @@ optimization.
 
 Common entry points are re-exported here, so typical use is:
 
-    from fem import FEMesh, BoundaryConditions, Solver, Equation
+    from fem import FEMesh, BoundaryConditions, Solver, Poisson
 
     mesh = FEMesh.load("files/mesh_40x40.json")
-    equation = Equation("poisson")
+    equation = Poisson()
     bc = BoundaryConditions(mesh)
     ...
     solution = Solver(mesh, equation, bc).solve()
@@ -26,7 +26,15 @@ from fem.elements import (
     LinearTetrahedralElement,
 )
 from fem.boundary import BoundaryConditions, BCType
-from fem.solver import Solver, Equation
+from fem.solver import (
+    Solver,
+    Equation,
+    Projection,
+    Poisson,
+    Heat,
+    Wave,
+    LinearElastic,
+)
 from fem.solution import Solution
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
@@ -44,6 +52,11 @@ __all__ = [
     "BCType",
     "Solver",
     "Equation",
+    "Projection",
+    "Poisson",
+    "Heat",
+    "Wave",
+    "LinearElastic",
     "Solution",
     "EnergySolver",
     "TopologyOptimizer",
