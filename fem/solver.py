@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 
 from fem.mesh.refinement import RefinementMesh
@@ -5,6 +7,8 @@ from fem.mesh.femesh import dof_indices
 from fem.boundary import BoundaryConditions
 from fem.solution import Solution
 from fem.materials import Enu_to_Lame
+
+logger = logging.getLogger(__name__)
 
 class Equation:
     '''Base class for a PDE to solve.
@@ -125,7 +129,7 @@ class Solver:
         # newton solver
         x = x0.copy()
         for iter in range(max_iters):
-            print(f'iter {iter}')
+            logger.debug('newton iter %d', iter)
             dx = self.solve_linear_system(A(x), A(x) @ x - b(x))
             if np.linalg.norm(dx) < tol:
                 break
@@ -133,17 +137,17 @@ class Solver:
         return x
 
     def solve_projection(self):
-        print('Solving L2 projection...') # M @ u = b
+        logger.info('Solving L2 projection...')  # M @ u = b
         u = self.solve_linear_system(self.femesh.M, self.b)
         self.solution.set_values("u", u)
     
     def solve_poisson(self):
-        print('Solving Poisson equation...') # K @ u = b
+        logger.info('Solving Poisson equation...')  # K @ u = b
         u = self.solve_linear_system(self.femesh.K, self.b)
         self.solution.set_values("u", u)
 
     def solve_heat(self):
-        print('Solving heat equation...') # M @ u' + K @ u = b
+        logger.info('Solving heat equation...')  # M @ u' + K @ u = b
         #  (M + K*dt) @ u_{n+1} = M @ u_n + b*dt, backwards Euler
         u = self.equation.u_initial
         dt, iters = self.equation.dt, self.equation.iters
@@ -154,13 +158,13 @@ class Solver:
             u = self.solve_linear_system(self.femesh.M + self.femesh.K * dt, self.femesh.M @ u + self.b * dt)
             t_values.append(dt * (i+1))
             u_values.append(u.copy())
-            print(f't = {t_values[-1]:.3f}, mean temp = {self.femesh.calculate_mean_value(u_values[-1]):.3f}')
+            logger.debug('t = %.3f, mean temp = %.3f', t_values[-1], self.femesh.calculate_mean_value(u_values[-1]))
 
         self.solution.set_values("t_values", t_values)
         self.solution.set_values("u_values", u_values)
 
     def solve_wave(self):
-        print('Solving wave equation...') # M @ u" + K @ u = b
+        logger.info('Solving wave equation...')  # M @ u" + K @ u = b
         # The time-stepping below runs with use_bc=False, so Dirichlet
         # constraints would be silently ignored. Fail loudly instead of
         # returning a solution that doesn't satisfy them.
@@ -186,7 +190,7 @@ class Solver:
         u_values = [x[:N]]
         dudt_values = [x[N:]]
         total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1])
-        print(f't = {t_values[-1]:.3f}, total energy = {total_energy:.3f}')
+        logger.debug('t = %.3f, total energy = %.3f', t_values[-1], total_energy)
 
         for i in range(iters):
             x = self.solve_linear_system(A_left, A_right @ x + b_right, use_bc=False) # TODO: bc not supported for wave
@@ -194,7 +198,7 @@ class Solver:
             u_values.append(x[:N])
             dudt_values.append(x[N:])
             total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1])
-            print(f't = {t_values[-1]:.3f}, total energy = {total_energy:.3f}')
+            logger.debug('t = %.3f, total energy = %.3f', t_values[-1], total_energy)
 
         self.solution.set_values("t_values", t_values)
         self.solution.set_values("u_values", u_values)

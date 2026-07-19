@@ -27,8 +27,7 @@ class Solution:
         if name is None:
             return np.zeros(len(self.femesh.elements))
         elif name not in self.values:
-            print('--> contains:', self.values.keys())
-            raise ValueError(f'{name} not found in solution')
+            raise ValueError(f'{name} not found in solution (has: {list(self.values.keys())})')
         
         values = self.values[name][iter_idx] if iter_idx is not None else self.values[name]
         if mode is None:

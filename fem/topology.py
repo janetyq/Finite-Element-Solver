@@ -1,9 +1,13 @@
+import logging
+
 import numpy as np
 
-from fem.numerics import calculate_smoothing_matrix, color
+from fem.numerics import calculate_smoothing_matrix
 from fem.solver import Solver, LinearElastic
 from fem.solution import Solution
 from fem.plot.plotter import Plotter, PlotMode
+
+logger = logging.getLogger(__name__)
 
 class TopologyOptimizer:
     '''
@@ -104,10 +108,9 @@ class TopologyOptimizer:
     def _log_iteration(self, iter, solution):
         max_displacement = np.max(solution.values['u'], axis=0)
         compliance = solution.values['compliance'].sum()
-        print(f'\nIteration: {iter}')
-        print(f'{color.BOLD}Total compliance: {compliance:4f} {color.END}')
-        print(f'Max displacement {max_displacement}')
-        print(f'Volume fraction: {self.solver.femesh.calculate_mean_value(self.rho)}')
+        volume_fraction = self.solver.femesh.calculate_mean_value(self.rho)
+        logger.info('Iteration %d: total compliance = %.4f, max displacement = %s, volume fraction = %.4f',
+                    iter, compliance, max_displacement, volume_fraction)
 
     def _plot_iteration(self, iter, solution):
         deformed_mesh = self._get_deformed_mesh()

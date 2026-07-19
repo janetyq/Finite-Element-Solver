@@ -1,6 +1,10 @@
+import logging
+
 import numpy as np
 from fem.materials import Enu_to_Lame
 from fem.numerics import check_gradient
+
+logger = logging.getLogger(__name__)
 
 class LinearElasticEnergyDensity: # TODO: inheritance
     '''
@@ -86,7 +90,7 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         check_gradient(self.calculate_S_from_F, self.calculate_dS_dF, (2, 2))
         check_gradient(self.calculate_W_from_S, self.calculate_dW_dS, (2, 2))
         check_gradient(self.calculate_W_from_F, self.calculate_dW_dF, (2, 2))
-        print("Gradient checks completed")
+        logger.info("Gradient checks completed")
 
 class NeohookeanEnergyDensity:
     def __init__(self, E, nu):

@@ -1,10 +1,13 @@
 """Numerical utilities: source/field functions, the SIMP smoothing matrix,
 finite-difference gradient/Hessian checks, and small dev helpers (timer, color).
 """
+import logging
 from math import cos, pi
 
 import numpy as np
 import matplotlib.pyplot as plt
+
+logger = logging.getLogger(__name__)
 
 
 def bump_function(vertices, center, mag=100, size=0.5):
@@ -79,7 +82,7 @@ def timer(func):
         start = time.time()
         result = func(*args, **kwargs)
         end = time.time()
-        print(f'{func.__name__} took {end - start} seconds')
+        logger.info('%s took %s seconds', func.__name__, end - start)
         return result
     return wrapper
 

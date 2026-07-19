@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 from math import e
 
@@ -223,6 +224,7 @@ def test_3d():
     print('done')
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)  # show solver progress when running demos
     MESH_FILE = 'files/mesh_40x40.json'
     mesh = FEMesh.load(MESH_FILE)
     # mesh.plot()
