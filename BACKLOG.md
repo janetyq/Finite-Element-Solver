@@ -16,7 +16,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Scaling | Sparse matrices + solver — **highest leverage** | 🔴 | [§2](#2-performance--scaling) |
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify smoothing matrix / EnergySolver Hessian | 🟡 | [§2](#2-performance--scaling) |
-| Scaling | O(n²) linear scans in refinement/meshing | 🟡 | [§2](#2-performance--scaling) |
+| Scaling | O(n²) linear scans in meshing | 🟡 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Time-integrator abstraction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -60,12 +60,9 @@ distance matrix. For topology optimization at any real resolution this dominates
 spatial hash / KD-tree (`scipy.spatial.cKDTree.query_ball_point`) building a sparse weight
 matrix would scale far better and is a near drop-in.
 
-### 🟠 Refinement and meshing are `O(n²)` from linear scans
-`RedGreenRefiner` (`fem/mesh/refinement.py`) has `_find_shared_triangle`,
-`_find_triangle`, and `_find_vertex`, each a full linear scan inside refinement
-loops. `Mesh.edge_to_elements` now exists for O(1) edge→element lookups; wiring
-it into the refiner's internal state (which diverges from the mesh during a round)
-is the remaining work. An edge→midpoint-index dict would make `_find_vertex` O(1).
+### 🟠 Meshing generation has `O(n²)` linear scans
+`fem/mesh/generation.py` still has linear-scan bottlenecks in vertex deduplication
+and neighbour lookups during mesh construction.
 
 ### 🟠 `EnergySolver` Hessian is dense and rebuilt each Newton step
 `fem/energy_solver.py:energy_hessian` allocates an `(n·dim, n·dim)` dense Hessian every
