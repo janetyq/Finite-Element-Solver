@@ -12,9 +12,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from enum import Enum, auto
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 from fem.mesh.mesh import Mesh
 from fem.typing import Vertices
@@ -283,14 +286,14 @@ class RedGreenRefiner(Generic[_M]):
 
     def plot(
         self,
-        ax: object = None,
+        ax: Axes | None = None,
         title: str | None = None,
         edge: list[int] | None = None,
         main_idx: int | None = None,
         green_idx: int | None = None,
         red_idx: int | None = None,
         triangle_idxs: Sequence[int] | None = None,
-    ) -> object:
+    ) -> Axes:
         """Draw the refinement state for debugging."""
         from fem.plot.helpers import plot_mesh
         from fem.plot.plotter import Plotter

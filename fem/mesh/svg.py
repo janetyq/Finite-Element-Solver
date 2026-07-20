@@ -15,6 +15,8 @@ def read_svg_to_list_of_path_points(svg_file):
     # Iterate over all path elements
     for path in root.findall(".//{http://www.w3.org/2000/svg}path"):
         d = path.get("d")
+        if d is None:
+            continue
         svg_path = svg.path.parse_path(d)
         path_points = []
         for segment in svg_path:
