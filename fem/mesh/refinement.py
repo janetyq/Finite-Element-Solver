@@ -12,12 +12,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import Generic, TypeVar
 
 import numpy as np
-
-if TYPE_CHECKING:
-    from matplotlib.axes import Axes
 
 from fem.mesh.mesh import Edge, Mesh
 from fem.typing import Vertices
@@ -100,6 +97,19 @@ class RedGreenRefiner(Generic[_M]):
         self._tri_index_map: dict[int, int] = {
             idx: idx for idx in range(len(self._triangles))
         }
+
+    def leaf_classifications(self) -> list[str]:
+        """Return ``'red'`` or ``'green'`` for each leaf triangle.
+
+        The order matches the elements array of the most recently emitted mesh.
+        """
+        classifications: list[str] = []
+        for tri in self._triangles:
+            if tri.status is _Status.RED_CHILD:
+                classifications.append('red')
+            elif tri.status is _Status.GREEN_CHILD:
+                classifications.append('green')
+        return classifications
 
     def refine(self, element_idxs: Sequence[int]) -> _M:
         """Refine the given elements and return the updated mesh.
@@ -301,50 +311,3 @@ class RedGreenRefiner(Generic[_M]):
         )
         return self._source_mesh
 
-    # -- debug plotting -----------------------------------------------------
-
-    def plot(
-        self,
-        ax: Axes | None = None,
-        title: str | None = None,
-        edge: list[int] | None = None,
-        main_idx: int | None = None,
-        green_idx: int | None = None,
-        red_idx: int | None = None,
-        triangle_idxs: Sequence[int] | None = None,
-    ) -> Axes:
-        """Draw the refinement state for debugging."""
-        from fem.plot.helpers import plot_mesh
-        from fem.plot.plotter import Plotter
-
-        if ax is None:
-            ax = Plotter(title=title).get_ax()
-        plot_mesh(ax, self._source_mesh, linewidth=3)
-        if edge is not None:
-            edge_verts = self._vertices[edge]
-            ax.plot(edge_verts[:, 0], edge_verts[:, 1], linewidth=3, color='blue')
-        if main_idx is not None:
-            center = np.mean(self._vertices[self._triangles[main_idx].vertex_idxs], axis=0)
-            ax.scatter(center[0], center[1], color='blue')
-        if green_idx is not None:
-            center = np.mean(self._vertices[self._triangles[green_idx].vertex_idxs], axis=0)
-            ax.scatter(center[0], center[1], color='green')
-        if red_idx is not None:
-            center = np.mean(self._vertices[self._triangles[red_idx].vertex_idxs], axis=0)
-            ax.scatter(center[0], center[1], color='red')
-        if triangle_idxs is not None:
-            for idx in triangle_idxs:
-                center = np.mean(self._vertices[self._triangles[idx].vertex_idxs], axis=0)
-                ax.scatter(center[0], center[1], color='black')
-
-        leaf_tris = [
-            t for t in self._triangles
-            if t.status in (_Status.RED_CHILD, _Status.GREEN_CHILD)
-        ]
-        plotting_mesh = Mesh(
-            self._vertices,
-            [t.vertex_idxs for t in leaf_tris],
-            self._boundary,
-        )
-        plot_mesh(ax, plotting_mesh, color='cyan', linewidth=1)
-        return ax
