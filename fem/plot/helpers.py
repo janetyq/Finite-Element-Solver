@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+from matplotlib.colors import Normalize
 from matplotlib.tri import Triangulation
 
 
@@ -31,7 +32,7 @@ def plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode='vertices')
 
 def setup_colorbar(ax, vlim, label=None):
     cmap = matplotlib.colormaps['viridis']  # Choose a colormap
-    norm = plt.Normalize(vmin=vlim[0], vmax=vlim[1])  # Normalize values between vmin and vmax
+    norm = Normalize(vmin=vlim[0], vmax=vlim[1])  # Normalize values between vmin and vmax
 
     # Create a scalar mappable for the colorbar
     sm = cm.ScalarMappable(cmap=cmap, norm=norm)

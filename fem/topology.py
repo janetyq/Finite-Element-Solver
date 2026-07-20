@@ -1,10 +1,17 @@
 import logging
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from fem.boundary import BoundaryConditions
 from fem.numerics import calculate_smoothing_matrix
 from fem.solver import Solver, LinearElastic
 from fem.solution import Solution
+from fem.typing import ElementField
+
+if TYPE_CHECKING:
+    from fem.mesh.femesh import FEMesh
 
 logger = logging.getLogger(__name__)
 
@@ -15,27 +22,44 @@ class TopologyOptimizer:
     Creates a solver and iteratively updates density field to minimize some objective 
     for some equation and boundary conditions.
     '''
-    def __init__(self, femesh, equation, boundary_conditions, iters=10, volume_frac=1.0, smoothing_radius=0.1):
+    def __init__(
+        self,
+        femesh: 'FEMesh',
+        equation: LinearElastic,
+        boundary_conditions: BoundaryConditions,
+        iters: int = 10,
+        volume_frac: float = 1.0,
+        smoothing_radius: float = 0.1,
+    ) -> None:
         assert isinstance(equation, LinearElastic), \
             'TopologyOptimizer only supports LinearElastic equations'
         self.femesh = femesh
-        self.orig_equation = equation.copy()
+        # Narrowed once here: the assert above guarantees it, and every later use
+        # of E goes through this rather than the Solver's loosely-typed equation.
+        self.equation: LinearElastic = equation
+        self.orig_equation: LinearElastic = equation.copy()
         self.solver = Solver(femesh, equation, boundary_conditions)
         self.solution = Solution(femesh, self.orig_equation.dim)
 
         self.iters = iters
         self.volume_frac = volume_frac
 
-        self.rho = None
+        self.rho: ElementField
         self.set_rho(np.full(len(self.femesh.elements), self.volume_frac))
 
         self.smoothing_matrix = calculate_smoothing_matrix(self.femesh, r=smoothing_radius)
 
-    def set_rho(self, rho):
+    def set_rho(self, rho: ElementField) -> None:
         self.rho = rho
-        self.solver.equation.E = self.rho**3 * self.orig_equation.E
+        self.equation.E = self.rho**3 * self.orig_equation.E
 
-    def oc_density(self, sensitivity, volume_frac, max_iters=100, tol=1e-8):
+    def oc_density(
+        self,
+        sensitivity: ElementField,
+        volume_frac: float,
+        max_iters: int = 100,
+        tol: float = 1e-8,
+    ) -> ElementField:
         # sensitivity is the gradient of the compliance with respect to the density
         # Bisect on the Lagrange multiplier until the volume constraint is met.
         # Bounded iterations + a relative tolerance on the bracket: the previous
@@ -58,8 +82,14 @@ class TopologyOptimizer:
                 break
         return rho_new
 
-    def solve(self, objective_name='min_compliance', objective_args=None,
-                    optimization_method='oc', optimization_args=None, on_iteration=None):
+    def solve(
+        self,
+        objective_name: Literal['min_compliance', 'target_compliance'] = 'min_compliance',
+        objective_args: Sequence[Any] | None = None,
+        optimization_method: Literal['oc'] = 'oc',
+        optimization_args: Sequence[Any] | None = None,
+        on_iteration: Callable[[int, Solution], None] | None = None,
+    ) -> Solution:
 
         objective_func, gradient_func = self._select_objective(objective_name)
         optimization_func = self._select_optimization(optimization_method, optimization_args)
@@ -85,21 +115,21 @@ class TopologyOptimizer:
         self.solution = Solution.combine_solutions(solution_list)
         return self.solution
 
-    def compliance(self, args):
+    def compliance(self, args: Sequence[Any] | None) -> float:
         return self.solver.solution.values['compliance'].sum()
 
-    def compliance_gradient(self, args):
+    def compliance_gradient(self, args: Sequence[Any] | None) -> ElementField:
         return self.solver.solution.values['compliance'] * 3/self.rho
 
-    def target_compliance_objective(self, args):
+    def target_compliance_objective(self, args: Sequence[Any]) -> float:
         target = args[0]
         return (self.compliance() - target)**2
 
-    def target_compliance_gradient(self, args):
+    def target_compliance_gradient(self, args: Sequence[Any]) -> ElementField:
         target = args[0]
         return self.compliance_gradient() * 2 * (self.compliance() - target)
 
-    def _select_objective(self, objective_name):
+    def _select_objective(self, objective_name: str) -> tuple[Callable[..., float], Callable[..., ElementField]]:
         if objective_name == 'min_compliance':
             return self.compliance, self.compliance_gradient
         elif objective_name == 'target_compliance':
@@ -107,20 +137,20 @@ class TopologyOptimizer:
         else:
             raise ValueError(f'Invalid objective: {objective_name}')
 
-    def _select_optimization(self, optimization_method, optimization_args):
+    def _select_optimization(self, optimization_method: str, optimization_args: Sequence[Any] | None) -> Callable[[ElementField], ElementField]:
         if optimization_method == 'oc':
             return lambda gradient: self.oc_density(gradient, self.volume_frac)
         else:
             raise ValueError(f'Invalid optimization method: {optimization_method}')
 
-    def _log_iteration(self, iter, solution):
+    def _log_iteration(self, iter: int, solution: Solution) -> None:
         max_displacement = np.max(solution.values['u'], axis=0)
         compliance = solution.values['compliance'].sum()
         volume_fraction = self.solver.femesh.calculate_mean_value(self.rho)
         logger.info('Iteration %d: total compliance = %.4f, max displacement = %s, volume fraction = %.4f',
                     iter, compliance, max_displacement, volume_fraction)
 
-    def _get_deformed_mesh(self, iter_idx=-1):
+    def _get_deformed_mesh(self, iter_idx: int = -1) -> 'FEMesh':
         try:
             u = self.solution.values['u_list'][iter_idx]
         except (KeyError, IndexError):

@@ -1,5 +1,5 @@
-import tetgen
-import pyvista as pv
+import tetgen  # pyright: ignore[reportMissingImports]
+import pyvista as pv  # pyright: ignore[reportMissingImports]
 import numpy as np
 
 from fem.mesh.mesh import Mesh

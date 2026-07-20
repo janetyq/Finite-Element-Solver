@@ -1,6 +1,6 @@
 import numpy as np
 
-import svg.path
+import svg.path  # pyright: ignore[reportMissingImports]
 import xml.etree.ElementTree as ET
 
 def read_svg_to_list_of_path_points(svg_file):
