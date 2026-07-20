@@ -22,6 +22,7 @@ from fem.plot.helpers import (
     plot_colored,
     change_ax_to_ax3d,
     plot_surface,
+    plot_refinement,
     plot_bc,
 )
 
@@ -32,6 +33,7 @@ class PlotMode(Enum):
     COLORED = "colored"
     SURFACE = "surface"
     ARROWS = "arrows"
+    REFINEMENT = "refinement"
     BC = "bc"
 
 
@@ -88,6 +90,8 @@ class Plotter:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
             plot_surface(ax, mesh, values)
+        elif mode is PlotMode.REFINEMENT:
+            plot_refinement(ax, mesh, values)
         elif mode is PlotMode.ARROWS:
             plot_arrows(ax, mesh, values) # inside arrows, assert the correct shape
         elif mode is PlotMode.BC:
