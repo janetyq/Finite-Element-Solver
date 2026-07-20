@@ -46,7 +46,7 @@ def plot_tet(tet_grid, surface):
     plotter = pv.Plotter()
     plotter.add_mesh(subgrid, 'lightgrey', lighting=True, show_edges=True)
     plotter.add_mesh(surface, 'r', 'wireframe')
-    plotter.add_legend([[' Surface Mesh ', 'r'],
+    plotter.add_legend([[' Surface Mesh ', 'r'],  # pyright: ignore[reportArgumentType]
                         [' Tet Mesh ', 'black']])
     plotter.show()
 
