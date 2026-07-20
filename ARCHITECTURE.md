@@ -102,7 +102,59 @@ apart everywhere else. This is precisely why:
 - `FEMesh.prepare_matrices(dim=...)` has to be *re-run* to change components, rebuilding
   geometry-only quantities that never depended on `dim` at all.
 
-**A `FunctionSpace` owns this number, once:**
+### The fix: store a *kind*, derive the *count*
+
+The instinct is to move the number somewhere better. That is still wrong — the number should
+not be written down at all. It is a three-way split in which nobody stores the count:
+
+| Concept | Owner | Form it takes |
+|---|---|---|
+| What kind of value the unknown takes | `Equation` | a **rank** — `SCALAR` or `VECTOR`, not a number |
+| What the domain is | `Mesh` | `spatial_dim`, from `vertices.shape[1]` |
+| How many DOFs per node | *derived* | `rank.components_for(spatial_dim)` |
+
+The mathematical fact being encoded: elasticity's unknown is a *vector field on the domain*,
+so its component count is determined by the domain rather than chosen. A class constant cannot
+say that; a rank can.
+
+```python
+class FieldRank(Enum):
+    '''What kind of value the unknown field takes at each point.
+
+    Rank 0 is a scalar (temperature, potential), rank 1 a vector (displacement).
+    The component count follows from the rank and the domain, so storing the rank
+    rather than the count is what lets one Equation class describe both 2D and 3D
+    elasticity. A rank-2 (tensor) member belongs here if a mixed formulation ever
+    needs one; it is omitted until something does.
+    '''
+    SCALAR = 'scalar'
+    VECTOR = 'vector'
+
+    def components_for(self, spatial_dim: int) -> int:
+        return 1 if self is FieldRank.SCALAR else spatial_dim
+
+
+class Equation:
+    rank: ClassVar[FieldRank] = FieldRank.SCALAR   # Projection, Poisson, Heat, Wave inherit
+
+class LinearElastic(Equation):
+    rank: ClassVar[FieldRank] = FieldRank.VECTOR   # was: dim = 2
+```
+
+```python
+class Mesh:
+    @property
+    def spatial_dim(self) -> int:
+        '''Dimension of the space the nodes live in. Distinct from the element's
+        reference dimension (`N - 1`): a triangle mesh embedded in 3D has
+        spatial_dim 3 but reference dimension 2.'''
+        return self.vertices.shape[1]
+```
+
+**Where the derivation lives.** Before `FunctionSpace` exists, in `Solver.__init__` /
+`EnergySolver.__init__` — a one-line replacement for `self.dim = self.equation.dim`. After, in
+`FunctionSpace` construction. The change is coherent at both stages, which is why it can land
+first and independently:
 
 ```python
 V = FunctionSpace(mesh, element=P1Triangle, n_components=2)
@@ -111,9 +163,64 @@ V.dof_indices(e)    # element -> global DOFs
 V.spatial_dim       # from the mesh, distinct from n_components
 ```
 
-Everything else takes a `V` and stops carrying `dim`. `Equation` loses its `ClassVar`
-entirely; whether a PDE is scalar or vector becomes a property of the space you discretize it
-on, which is what it always was mathematically.
+`FunctionSpace` keeps taking `n_components` as an explicit low-level argument rather than an
+`Equation`; the rank-based derivation happens one layer up. That keeps the space usable for
+mixed formulations later without the equation taxonomy constraining it.
+
+**Most of the diff is a rename.** Every downstream `dim` parameter means components-per-node,
+so it should say so: `dof_indices(element, n_components)`, `evaluate_field(value, points,
+n_components)`, `ResolvedBC.n_components`, `Solution.n_components`. Once renamed the two
+meanings are no longer spellable the same way, which is the actual defect. `fem/typing.py`
+needs the same pass — its shape comments use `dim` for both (`(n_vertices, dim)` is spatial;
+`(n_vertices * dim,)` is components).
+
+### Evidence the framing is right
+
+`EnergySolver`'s 2D guard is currently **dead code**:
+
+```python
+self.dim = self.equation.dim      # LinearElastic.dim is a ClassVar == 2, always
+if self.dim != 2:                 # can never fire
+    raise NotImplementedError(f'EnergySolver only supports 2D for now (got dim={self.dim})')
+```
+
+It also asserts `isinstance(equation, LinearElastic)`, so `self.dim` is unconditionally 2.
+Hand it a tet mesh today and it sails past this guard into `LinearElasticEnergyDensity.
+set_grad_u`, which rejects the `(3, 2)` gradient — still loud, but several frames from the
+cause. Written against the right quantity the guard becomes live and correct:
+
+```python
+if femesh.spatial_dim != 2:   # the energy densities are built at fixed rank 2
+```
+
+The guard's author meant *spatial* dimension and only had `dim` available to say it with.
+
+### Limits of this change — three things it does not settle
+
+**1. It removes the blocker on 3D elasticity; it does not demonstrate 3D elasticity.**
+`LinearTetrahedralElement` already has both `calculate_B` and `calculate_D`, so the element
+side appears ready and the path may simply work once the component count is right. That is
+untested. Treat "3D elasticity works" as a claim requiring an MMS test, not a consequence.
+
+**2. Rank → count is wrong for two real cases**, neither currently in the repo:
+
+- *Surface meshes.* Triangles embedded in 3D would correctly derive 3 components — but
+  `LinearTriangleElement.calculate_B` builds a 3×6 matrix hardcoding 2. The derivation would
+  be right and the element wrong, so this needs the element work regardless.
+- *Systems.* A k-species reaction–diffusion problem has k components unrelated to spatial
+  dimension. `SCALAR`/`VECTOR` cannot express it; it needs an explicit-count variant. Adding
+  one now would be speculative, but it is the known edge of the taxonomy.
+
+**3. `rank` may not belong on `Equation` permanently.** Once physics moves into `Form`, an
+`ElasticityForm` arguably implies vector-valued already, making the rank redundant. Keeping it
+on `Equation` is right for the user-facing declaration and right for the interim; it is the
+piece of this proposal most likely to move later.
+
+Note also what this does **not** touch: `LinearElement.calculate_stiffness_matrix`'s
+`if dim == 1: <Laplacian> else: <elasticity>` branch. Fixing the count makes that branch's
+fragility sharper rather than better — it uses component count as a proxy for *which PDE this
+is*, and those genuinely diverge (1D elasticity would be `n_components == 1` and silently get
+the Laplacian). That needs the `Form` seam, and is a separate step.
 
 ---
 
@@ -350,21 +457,31 @@ The convergence test in `tests/test_convergence.py` is the safety net; each step
 leave it passing without modification.
 
 1. **Fix the broken paths** (`ARCHITECTURE_REVIEW.md` §1). Clears the deck; no design commitment.
-2. **Extract `FunctionSpace` from `FEMesh`.** Move `dof_indices`, element objects, and the
+2. **`FieldRank` + the `dim` → `n_components` rename** (§3). Three read sites plus a mechanical
+   rename; no new layers, no public API change (`Solver(mesh, Poisson(...), bc)` is unaffected).
+   Lands before `FunctionSpace` because it is smaller and independent, and it makes the
+   subsequent extraction obvious — once the count is derived, the thing that derives it wants
+   to be an object.
+3. **Extract `FunctionSpace` from `FEMesh`.** Move `dof_indices`, element objects, and the
    cached operators. Keep `FEMesh` as a thin deprecated shim initially so call sites migrate
    incrementally. This is the keystone — do it before anything else structural.
-3. **Extract `Form` + `Material`.** Move `calculate_D` off `Element` and unify with
+4. **Extract `Form` + `Material`.** Move `calculate_D` off `Element` and unify with
    `energies.py` under one constitutive interface. Assembly becomes `assemble(space, form)`,
-   and the `**kwargs` and `Literal` selectors disappear.
-4. **Introduce `DiscreteSystem`,** then migrate dense→sparse behind it. The backlog's
+   and the `**kwargs` and `Literal` selectors disappear. This is also what retires the
+   `if dim == 1` physics branch that (2) deliberately leaves alone.
+5. **Introduce `DiscreteSystem`,** then migrate dense→sparse behind it. The backlog's
    highest-leverage change becomes a one-layer edit rather than a cross-cutting one.
-5. **Extract `TimeIntegrator`;** move `dt`/`iters` off `Heat`/`Wave`. Breaking API change —
-   worth batching with (6).
-6. **Typed `Solution`,** together with the `io.py` rework they jointly require.
-7. **Uniform drivers:** `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
+6. **Extract `TimeIntegrator`;** move `dt`/`iters` off `Heat`/`Wave`. Breaking API change —
+   worth batching with (7).
+7. **Typed `Solution`,** together with the `io.py` rework they jointly require.
+8. **Uniform drivers:** `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
    problem factory rather than mutating an equation.
 
-Steps 2–4 are the load-bearing ones. Steps 1, 6, 7 are independent and can be done any time.
+Steps 3–5 are the load-bearing ones. Step 2 is the cheapest real improvement and a good first
+commit. Steps 1, 7, 8 are independent and can be done any time.
+
+A 3D-elasticity MMS test is the natural checkpoint after (2) — it is the first thing the
+current architecture cannot express, so it doubles as proof the change did what it claims.
 
 ---
 
