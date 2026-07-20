@@ -24,7 +24,7 @@ svg = ["svg.path"]
 
 # Development tooling (installed by default with `uv sync`)
 [dependency-groups]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "pyright"]
 
 [tool.ruff]
 line-length = 120
@@ -34,6 +34,17 @@ target-version = "py311"
 # Pyflakes (F) catches real problems (unused imports, undefined names); the
 # E4/E7/E9 subset covers import/statement/runtime errors without line-length noise.
 select = ["E4", "E7", "E9", "F"]
+
+[tool.pyright]
+include = ["fem"]
+pythonVersion = "3.11"
+# "basic" infers types for the unannotated internals rather than demanding
+# annotations everywhere, so the checker is useful while only the public API is
+# typed. Tighten toward "standard" as coverage grows.
+typeCheckingMode = "basic"
+# The optional extras (pyvista, tetgen, svg.path) and matplotlib ship partial or
+# no stubs; missing-import noise from them would drown out real findings.
+reportMissingTypeStubs = false
 
 [tool.setuptools.packages.find]
 include = ["fem*"]

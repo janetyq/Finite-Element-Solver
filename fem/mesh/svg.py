@@ -1,6 +1,6 @@
 import numpy as np
 
-import svg.path
+import svg.path  # pyright: ignore[reportMissingImports]
 import xml.etree.ElementTree as ET
 
 def read_svg_to_list_of_path_points(svg_file):
@@ -72,7 +72,9 @@ def douglas_peucker(points, epsilon):
             furthest_dist = dist
             furthest_p_idx = p_idx
     
-    if furthest_dist < epsilon:
+    # furthest_p_idx stays None when no interior point beat furthest_dist, which
+    # a collinear run does; the recursion below would slice with None+1.
+    if furthest_p_idx is None or furthest_dist < epsilon:
         return [start, end]
     else:
         return np.concatenate([douglas_peucker(points[:furthest_p_idx+1], epsilon)[:-1], douglas_peucker(points[furthest_p_idx:], epsilon)])

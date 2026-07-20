@@ -109,10 +109,20 @@ def save_solution(solution, path='solution.npz'):
 
 def load_solution(path='solution.npz'):
     '''Read a solution written by `save_solution`.'''
+    from fem.mesh.femesh import FEMesh
     from fem.solution import Solution
 
     with np.load(path) as data:
-        solution = Solution(_mesh_from_arrays(data), int(data[_DIM]))
+        # A Solution always comes from a solve, so its mesh is an FEMesh and that
+        # is what round-trips. A bare Mesh here means the file was hand-built,
+        # and the missing element_objs/M/K would only surface much later.
+        mesh = _mesh_from_arrays(data)
+        if not isinstance(mesh, FEMesh):
+            raise ValueError(
+                f'solution at {path} stores a {type(mesh).__name__}; a Solution is '
+                f'defined over an FEMesh'
+            )
+        solution = Solution(mesh, int(data[_DIM]))
         for key in data.files:
             if key.startswith(_VALUE_PREFIX):
                 solution.values[key[len(_VALUE_PREFIX):]] = data[key]

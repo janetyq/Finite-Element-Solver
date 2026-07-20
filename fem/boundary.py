@@ -13,10 +13,22 @@ when handed to a solver for a different equation.
 import logging
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from fem.regions import evaluate_field, is_mesh_bound
+from fem.typing import (
+    DofIndices,
+    FieldValue,
+    FloatArray,
+    Region,
+    VertexIndices,
+    VertexField,
+)
+
+if TYPE_CHECKING:
+    from fem.mesh.mesh import Mesh
 
 logger = logging.getLogger(__name__)
 
@@ -40,21 +52,21 @@ class ResolvedBC:
     '''
     n_vertices: int
     dim: int
-    fixed_idxs: np.ndarray      # DOF indices held by Dirichlet conditions
-    free_idxs: np.ndarray       # the complement
-    fixed_values: np.ndarray    # values at fixed_idxs, same order
-    neumann_load: np.ndarray    # (n_vertices, dim) traction field
-    dirichlet_vertices: np.ndarray
-    neumann_vertices: np.ndarray
+    fixed_idxs: DofIndices      # DOF indices held by Dirichlet conditions
+    free_idxs: DofIndices       # the complement
+    fixed_values: FloatArray    # values at fixed_idxs, same order
+    neumann_load: VertexField   # (n_vertices, dim) traction field
+    dirichlet_vertices: VertexIndices
+    neumann_vertices: VertexIndices
 
 
 class BoundaryConditions:
     '''A mesh-independent specification of the conditions on a domain boundary.'''
 
-    def __init__(self):
-        self.conditions = []  # (BCType, region, value)
+    def __init__(self) -> None:
+        self.conditions: list[tuple[BCType, Region, FieldValue]] = []
 
-    def add(self, bc_type, region, value):
+    def add(self, bc_type: BCType | str, region: Region, value: FieldValue) -> None:
         '''Apply `value` of type `bc_type` on `region`.
 
         `region` is a callable over point coordinates (see fem.regions); `value`
@@ -70,12 +82,12 @@ class BoundaryConditions:
             )
         self.conditions.append((bc_type, region, value))
 
-    def is_mesh_bound(self):
+    def is_mesh_bound(self) -> bool:
         '''Whether any condition is tied to one mesh's vertex numbering, and so
         cannot be carried across a remesh.'''
         return any(is_mesh_bound(region) for _, region, _ in self.conditions)
 
-    def check_remeshable(self):
+    def check_remeshable(self) -> None:
         if self.is_mesh_bound():
             raise NotImplementedError(
                 'this specification uses at_indices, which names vertices of one '
@@ -84,7 +96,7 @@ class BoundaryConditions:
                 'remeshable.'
             )
 
-    def select(self, mesh, region):
+    def select(self, mesh: 'Mesh', region: Region) -> VertexIndices:
         '''Boundary vertices of `mesh` inside `region`.
 
         Regions are evaluated over every vertex and then intersected with the
@@ -106,7 +118,7 @@ class BoundaryConditions:
             return selected
         return np.intersect1d(selected, boundary)
 
-    def entries(self, mesh):
+    def entries(self, mesh: 'Mesh') -> list[tuple[BCType, VertexIndices, FloatArray]]:
         '''[(bc_type, vertex_idxs, values), ...] resolved against `mesh`.
 
         Region resolution only -- no DOF numbering, so this needs no `dim` and is
@@ -121,10 +133,10 @@ class BoundaryConditions:
             out.append((bc_type, idxs, values))
         return out
 
-    def resolve(self, mesh, dim):
+    def resolve(self, mesh: 'Mesh', dim: int) -> ResolvedBC:
         '''Reduce this specification to a `ResolvedBC` for `mesh` at `dim` DOFs per node.'''
         n = len(mesh.vertices)
-        dirichlet = {}
+        dirichlet: dict[int, FloatArray] = {}
         neumann = np.zeros((n, dim))
         dirichlet_vertices, neumann_vertices = [], []
 

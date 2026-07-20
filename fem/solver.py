@@ -1,4 +1,6 @@
 import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING, ClassVar, TypeVar
 
 import numpy as np
 
@@ -8,6 +10,25 @@ from fem.boundary import BoundaryConditions
 from fem.regions import evaluate_field
 from fem.solution import Solution
 from fem.materials import Enu_to_Lame
+from fem.typing import (
+    DofIndices,
+    DofVector,
+    ElementField,
+    FieldValue,
+    FloatArray,
+    Matrix,
+    VertexField,
+)
+
+if TYPE_CHECKING:
+    from fem.mesh.femesh import FEMesh
+
+# (free_idxs, fixed_idxs, fixed_values) -- the DOF partition a solve works in.
+# Passed explicitly where the unknown is not one value per node, as in the wave
+# solver's stacked [u; du/dt] block.
+Constraints = tuple[DofIndices, DofIndices, FloatArray]
+
+EquationT = TypeVar('EquationT', bound='Equation')
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +44,12 @@ class Equation:
     as a constant or a callable of position. It lives here rather than on
     BoundaryConditions because it is data of the equation, not of the boundary.
     '''
-    dim = 1
+    dim: ClassVar[int] = 1
 
-    def __init__(self, source=None):
+    def __init__(self, source: FieldValue = None) -> None:
         self.source = source
 
-    def copy(self):
+    def copy(self: EquationT) -> EquationT:
         # shallow copy that works regardless of subclass __init__ signature
         new = self.__class__.__new__(self.__class__)
         new.__dict__.update(self.__dict__)
@@ -37,19 +58,25 @@ class Equation:
 
 class Projection(Equation):
     '''L2 projection of the source field onto the FE space (M u = b).'''
-    dim = 1
+    dim: ClassVar[int] = 1
 
 
 class Poisson(Equation):
     '''Poisson equation (K u = b).'''
-    dim = 1
+    dim: ClassVar[int] = 1
 
 
 class Heat(Equation):
     '''Transient heat equation, solved with backward Euler.'''
-    dim = 1
+    dim: ClassVar[int] = 1
 
-    def __init__(self, u_initial, dt, iters, source=None):
+    def __init__(
+        self,
+        u_initial: VertexField,
+        dt: float,
+        iters: int,
+        source: FieldValue = None,
+    ) -> None:
         super().__init__(source)
         self.u_initial = u_initial
         self.dt = dt
@@ -58,9 +85,17 @@ class Heat(Equation):
 
 class Wave(Equation):
     '''Wave equation, solved with Crank-Nicolson.'''
-    dim = 1
+    dim: ClassVar[int] = 1
 
-    def __init__(self, u_initial, dudt_initial, c, dt, iters, source=None):
+    def __init__(
+        self,
+        u_initial: VertexField,
+        dudt_initial: VertexField,
+        c: float,
+        dt: float,
+        iters: int,
+        source: FieldValue = None,
+    ) -> None:
         super().__init__(source)
         self.u_initial = u_initial
         self.dudt_initial = dudt_initial
@@ -72,15 +107,25 @@ class Wave(Equation):
 class LinearElastic(Equation):
     '''Small-strain linear elasticity. E may be a scalar or a per-element array
     (TopologyOptimizer sets a density-scaled modulus).'''
-    dim = 2
+    dim: ClassVar[int] = 2
 
-    def __init__(self, E, nu, source=None):
+    def __init__(
+        self,
+        E: float | ElementField,
+        nu: float,
+        source: FieldValue = None,
+    ) -> None:
         super().__init__(source)
         self.E = E
         self.nu = nu
 
 class Solver:
-    def __init__(self, femesh, equation, boundary_conditions=None):
+    def __init__(
+        self,
+        femesh: 'FEMesh',
+        equation: Equation,
+        boundary_conditions: BoundaryConditions | None = None,
+    ) -> None:
         self.femesh = femesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions()
@@ -89,7 +134,7 @@ class Solver:
 
         self._resolve_bc()
 
-    def _resolve_bc(self):
+    def _resolve_bc(self) -> None:
         '''Bind the boundary-condition spec to the current mesh and dim.
 
         Called again whenever the mesh changes (adaptive refinement), which is
@@ -97,7 +142,21 @@ class Solver:
         '''
         self.resolved_bc = self.boundary_conditions.resolve(self.femesh, self.dim)
 
-    def solve(self):
+    def _equation_as(self, kind: type[EquationT]) -> EquationT:
+        '''The equation, narrowed to the type the calling solver expects.
+
+        `solve` dispatches on the exact type, so this never fires in practice;
+        it states that invariant somewhere both a reader and a type checker can
+        see it, instead of each solve_* reaching for attributes that the
+        declared type does not have.
+        '''
+        if not isinstance(self.equation, kind):
+            raise TypeError(
+                f'{kind.__name__} solver called with {type(self.equation).__name__}'
+            )
+        return self.equation
+
+    def solve(self) -> Solution:
         self.assemble_everything() # TODO: don't call this every time
         self.solution.reset()
         
@@ -117,7 +176,7 @@ class Solver:
 
         return self.solution
 
-    def assemble_everything(self):
+    def assemble_everything(self) -> None:
         if isinstance(self.equation, LinearElastic):
             E = np.full(len(self.femesh.elements), self.equation.E)
             nu = np.full(len(self.femesh.elements), self.equation.nu)
@@ -134,7 +193,12 @@ class Solver:
         self.b = (self.femesh.M @ source_load.flatten()).flatten()
         self.b += (self.femesh.M_b @ self.resolved_bc.neumann_load.flatten()).flatten()
 
-    def solve_linear_system(self, A, b, constraints=None):
+    def solve_linear_system(
+        self,
+        A: Matrix,
+        b: DofVector,
+        constraints: Constraints | None = None,
+    ) -> DofVector:
         '''Solve A x = b with the Dirichlet DOFs eliminated rather than penalised.
 
         `constraints` is a (free, fixed, fixed_values) triple and defaults to the
@@ -156,7 +220,14 @@ class Solver:
         x[free] = np.linalg.solve(A_mod, b_mod)
         return x
 
-    def solve_nonlinear_system(self, A, b, x0, tol=1e-6, max_iters=100):
+    def solve_nonlinear_system(
+        self,
+        A: Callable[[DofVector], Matrix],
+        b: Callable[[DofVector], DofVector],
+        x0: DofVector,
+        tol: float = 1e-6,
+        max_iters: int = 100,
+    ) -> DofVector:
         # newton solver
         x = x0.copy()
         for iter in range(max_iters):
@@ -167,23 +238,24 @@ class Solver:
             x -= dx
         return x
 
-    def solve_projection(self):
+    def solve_projection(self) -> None:
         logger.info('Solving L2 projection...')  # M @ u = b
         u = self.solve_linear_system(self.femesh.M, self.b)
         self.solution.set_values("u", u)
     
-    def solve_poisson(self):
+    def solve_poisson(self) -> None:
         logger.info('Solving Poisson equation...')  # K @ u = b
         u = self.solve_linear_system(self.femesh.K, self.b)
         self.solution.set_values("u", u)
 
-    def solve_heat(self):
+    def solve_heat(self) -> None:
         logger.info('Solving heat equation...')  # M @ u' + K @ u = b
         #  (M + K*dt) @ u_{n+1} = M @ u_n + b*dt, backwards Euler
-        u = self.equation.u_initial
-        dt, iters = self.equation.dt, self.equation.iters
+        equation = self._equation_as(Heat)
+        u = equation.u_initial
+        dt, iters = equation.dt, equation.iters
 
-        t_values = [0]
+        t_values: list[float] = [0.0]
         u_values = [u]
         for i in range(iters):
             u = self.solve_linear_system(self.femesh.M + self.femesh.K * dt, self.femesh.M @ u + self.b * dt)
@@ -194,7 +266,7 @@ class Solver:
         self.solution.set_values("t_values", t_values)
         self.solution.set_values("u_values", u_values)
 
-    def _wave_block_constraints(self, N):
+    def _wave_block_constraints(self, N: int) -> Constraints:
         '''Lift the nodal Dirichlet conditions onto the wave solver's [u; du/dt] block.
 
         Holding a node at a constant value g constrains two block DOFs, not one:
@@ -207,8 +279,9 @@ class Solver:
 
         # An initial state that disagrees with the constraints is a modelling
         # error: the solve would silently jump to satisfy them at the first step.
-        u_initial = np.asarray(self.equation.u_initial, dtype=float)
-        dudt_initial = np.asarray(self.equation.dudt_initial, dtype=float)
+        equation = self._equation_as(Wave)
+        u_initial = np.asarray(equation.u_initial, dtype=float)
+        dudt_initial = np.asarray(equation.dudt_initial, dtype=float)
         if not np.allclose(u_initial[fixed], fixed_values):
             raise ValueError('u_initial disagrees with the Dirichlet values at fixed nodes')
         if not np.allclose(dudt_initial[fixed], 0):
@@ -219,11 +292,12 @@ class Solver:
         block_values = np.concatenate([fixed_values, np.zeros(len(fixed))])
         return block_free, block_fixed, block_values
 
-    def solve_wave(self):
+    def solve_wave(self) -> None:
         logger.info('Solving wave equation...')  # M @ u" + K @ u = b
-        u, dudt = self.equation.u_initial, self.equation.dudt_initial
-        c = self.equation.c
-        dt, iters = self.equation.dt, self.equation.iters
+        equation = self._equation_as(Wave)
+        u, dudt = equation.u_initial, equation.dudt_initial
+        c = equation.c
+        dt, iters = equation.dt, equation.iters
         N = len(self.femesh.vertices)
 
         # Crank-Nicolson method - average of forward and backward Euler
@@ -238,7 +312,7 @@ class Solver:
 
         constraints = self._wave_block_constraints(N)
         x = np.block([u, dudt])
-        t_values = [0]
+        t_values: list[float] = [0.0]
         u_values = [x[:N]]
         dudt_values = [x[N:]]
         total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1], c=c)
@@ -256,7 +330,7 @@ class Solver:
         self.solution.set_values("u_values", u_values)
         self.solution.set_values("dudt_values", dudt_values)
 
-    def solve_linear_elastic(self):
+    def solve_linear_elastic(self) -> None:
         u = self.solve_linear_system(self.femesh.K, self.b)
 
         eps_elements = []
@@ -280,8 +354,13 @@ class Solver:
         self.solution.set_values("stress", np.linalg.norm(sigma_elements, axis=-1))
         self.solution.set_values("compliance", np.array(compliance_elements))
 
-    def adaptive_refinement(self, estimator, max_triangles=1000, max_iters=20,
-                            refine_fraction=0.9):
+    def adaptive_refinement(
+        self,
+        estimator: Callable[['Solver'], ElementField],
+        max_triangles: int = 1000,
+        max_iters: int = 20,
+        refine_fraction: float = 0.9,
+    ) -> Solution:
         '''Refine where the error estimate is largest, re-solving on each new mesh.
 
         `estimator(solver) -> per-element error` is a parameter rather than a key

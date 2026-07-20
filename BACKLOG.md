@@ -21,7 +21,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Time-integrator abstraction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | A-posteriori error estimator | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Tooling | Coverage (`pytest-cov`), type hints, pre-commit, README refresh | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit, README refresh | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
 
@@ -119,9 +119,13 @@ because it's inside a Newton loop.
 **Engineering**
 - 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg`, `generation` (Rupperts/approx
   mesh), the 3D tet path, and adaptive refinement have no *correctness* tests.
-- 💡 **Type hints + docstrings on the public API** (`Solver`, `FEMesh`, `BoundaryConditions`,
-  `Equation`), plus `pyright`/`mypy` (gradual) — the surface most likely to be used by others
-  (or future-you).
+- 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
+  the prose half is still open. The biggest modules are the least documented — `solver.py`,
+  `mesh/refinement.py`, `mesh/generation.py`, `elements.py` and `topology.py` have no
+  module docstring, while the small helpers (`geometry`, `materials`, `quadrature`) do.
+- 💡 **Tighten pyright to `standard`.** It runs in `basic`, which infers types for the
+  unannotated internals rather than demanding annotations. Annotating the internals
+  (`refinement`, `generation`, `energies`, `plot`) would let the mode step up.
 - 💡 **pre-commit hooks** (ruff + whitespace) so the CI checks run locally before each commit.
 - 💡 **README refresh.** The "Project Structure" section and described capabilities have
   drifted from the code.
