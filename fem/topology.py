@@ -123,11 +123,11 @@ class TopologyOptimizer:
 
     def target_compliance_objective(self, args: Sequence[Any]) -> float:
         target = args[0]
-        return (self.compliance() - target)**2
+        return (self.compliance(args) - target)**2
 
     def target_compliance_gradient(self, args: Sequence[Any]) -> ElementField:
         target = args[0]
-        return self.compliance_gradient() * 2 * (self.compliance() - target)
+        return self.compliance_gradient(args) * 2 * (self.compliance(args) - target)
 
     def _select_objective(self, objective_name: str) -> tuple[Callable[..., float], Callable[..., ElementField]]:
         if objective_name == 'min_compliance':

@@ -47,16 +47,19 @@ class Solution:
             if len(values) == len(self.femesh.elements):
                 return values
             elif len(values) == len(self.femesh.vertices):
-                return self._convert_vertex_values_to_element_values(values)
+                return self.femesh.convert_vertex_values_to_element_values(values)
             else:
                 raise ValueError(f'Invalid values shape for mode {mode}')
         elif mode == 'vertex':
             if len(values) == len(self.femesh.vertices):
                 return values
             elif len(values) == len(self.femesh.elements):
-                return self._convert_element_values_to_vertex_values(values)
+                return self.femesh.convert_element_values_to_vertex_values(values)
             else:
                 raise ValueError(f'Invalid values shape for mode {mode}')
+        # Falling through returned None, which only failed later where the caller
+        # indexed it -- get_deformed_mesh reshaping a None being the usual way.
+        raise ValueError(f"unknown mode {mode!r}: expected 'element', 'vertex', or None")
 
     def set_values(self, name: str, value: Any) -> None:
         self.values[name] = value
@@ -65,10 +68,9 @@ class Solution:
         self.values = {}
 
     def get_deformed_mesh(self, u: FloatArray | None = None) -> 'FEMesh':
-        if u is None:
-            u = self.get_values('u')
+        displacement = self.get_values('u') if u is None else u
         femesh_deformed = self.femesh.copy()
-        femesh_deformed.vertices += u.reshape(-1, self.dim)
+        femesh_deformed.vertices += displacement.reshape(-1, self.dim)
         return femesh_deformed
 
     @classmethod
