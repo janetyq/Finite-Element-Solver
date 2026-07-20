@@ -45,6 +45,9 @@ is the only place the content lives — edit here.
   quiet via the `NullHandler` in `fem/__init__.py`. Applications configure handlers.
 - **Comments explain *why*.** Match the surrounding density and idiom; a comment that
   restates the code is noise.
+- **Don't justify your own changes in comments.** A comment defending why an edit was
+  made reads as noise to the next reader, who only sees the result. Rationale belongs in
+  the commit message. This applies to config and dotfiles too, not just Python.
 
 ## Respect existing intent
 

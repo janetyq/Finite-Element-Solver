@@ -1,22 +1,15 @@
+# Python build and tooling artifacts
 __pycache__/
 *.egg-info/
 build/
 dist/
 .venv/
-_*
-# ...but never ignore Python package markers (the _* rule matches __init__.py)
-!**/__init__.py
-temp*
-todo.txt
-test.py
-profile*
-ignore/
-other/
-*ignore*
-*test*
+.pytest_cache/
+.ruff_cache/
 
-# ...but do track the real pytest suite (the *test* rule above would ignore it)
-!tests/
-!tests/**
-# keep caches out even under tests/ (re-ignore after the broad negation above)
-tests/**/__pycache__/
+# Parked experiments and personal notes; put new scratch work here.
+attic/
+
+.claude/worktrees/
+
+# Generated demo output is ignored by results/.gitignore.
