@@ -31,7 +31,8 @@ def demo_refinement():
 
     plotter = Plotter(1, 2, title="Red-Green Refinement")
     plotter.plot(original_mesh, mode="mesh", idx=(0, 0), title="Original")
-    plotter.plot(mesh, mode="mesh", idx=(0, 1), title="Refined")
+    plotter.plot(mesh, values=refiner.leaf_classifications(), mode="refinement",
+                 idx=(0, 1), title="Refined (red / green)")
     return plotter
 
 

@@ -70,14 +70,17 @@ def test_target_compliance_objective_is_callable(make_unit_square):
     assert len(gradient([0.0])) == len(femesh.elements)
 
 
-def test_refinement_mesh_plot_draws(make_unit_square):
-    """RedGreenRefiner.plot passed ax/linewidth/color to Mesh.plot, which takes
-    no arguments since the Plotter decoupling."""
+def test_refinement_plot_draws(make_unit_square):
+    """plot_refinement colours red/green leaves on a refined mesh."""
+    from fem.plot.helpers import plot_refinement
+    from fem.plot.plotter import Plotter
+
     femesh = make_unit_square(4)
     refiner = RedGreenRefiner(femesh)
-    refiner.refine([0])
+    mesh = refiner.refine([0])
 
-    ax = refiner.plot(title='refinement')
+    ax = Plotter().get_ax()
+    plot_refinement(ax, mesh, refiner.leaf_classifications())
 
     assert ax.has_data()
 

@@ -83,6 +83,15 @@ def plot_arrows(ax, mesh, values):
     ax.quiver(element_vertices[:, 0], element_vertices[:, 1], values[:, 0], values[:, 1], alpha=0.5, scale=10)
 
 
+def plot_refinement(ax, mesh, classifications, linewidth=0.5):
+    """Draw a refined mesh with red/green triangle fills and a wireframe overlay."""
+    for e_idx, kind in enumerate(classifications):
+        verts = mesh.vertices[mesh.elements[e_idx]]
+        color = '#e06666' if kind == 'red' else '#93c47d'
+        ax.fill(verts[:, 0], verts[:, 1], color=color, alpha=0.45)
+    plot_mesh(ax, mesh, color='black', linewidth=linewidth)
+
+
 def plot_bc(ax, mesh, bc):
     from fem.boundary import BCType
 
