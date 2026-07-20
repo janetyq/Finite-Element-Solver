@@ -4,7 +4,6 @@ import numpy as np
 from scipy.spatial import Delaunay
 
 from fem.mesh.mesh import Mesh
-from fem.plot.plotter import Plotter, PlotMode
 from fem.geometry import (
     calculate_polygon_area,
     calculate_triangle_min_angle,
@@ -182,11 +181,5 @@ def create_approx_mesh(outline, approx_triangles=100):
     elements = [[v_idx_map[e_idx] for e_idx in element] for element in elements]
     boundary = get_boundary_from_vertices_elements(elements)
     mesh = Mesh(vertices, elements, boundary)
-
-    plotter = Plotter(title='Approximate mesh')
-    plotter.plot(mesh, mode=PlotMode.MESH)
-    ax = plotter.get_ax()
-    ax.plot(outline[:, 0], outline[:, 1], 'r-')
-    plotter.show()
 
     return mesh

@@ -5,7 +5,6 @@ import numpy as np
 from fem.numerics import calculate_smoothing_matrix
 from fem.solver import Solver, LinearElastic
 from fem.solution import Solution
-from fem.plot.plotter import Plotter, PlotMode
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +58,8 @@ class TopologyOptimizer:
                 break
         return rho_new
 
-    def solve(self, objective_name='min_compliance', objective_args=None, 
-                    optimization_method='oc', optimization_args=None, plot=False):
+    def solve(self, objective_name='min_compliance', objective_args=None,
+                    optimization_method='oc', optimization_args=None, on_iteration=None):
 
         objective_func, gradient_func = self._select_objective(objective_name)
         optimization_func = self._select_optimization(optimization_method, optimization_args)
@@ -72,10 +71,11 @@ class TopologyOptimizer:
             solution.set_values('rho', self.rho)
             solution_list.append(solution)
 
-            # log and plot
+            # log and, if the caller wants it, hand off to their own visualization --
+            # this class has no business knowing how (or whether) to plot itself.
             self._log_iteration(iter, solution)
-            if plot is True:
-                self._plot_iteration(iter, solution)
+            if on_iteration is not None:
+                on_iteration(iter, solution)
 
             # update rho
             smoothed_gradient = self.smoothing_matrix @ gradient_func(objective_args)
@@ -119,13 +119,6 @@ class TopologyOptimizer:
         volume_fraction = self.solver.femesh.calculate_mean_value(self.rho)
         logger.info('Iteration %d: total compliance = %.4f, max displacement = %s, volume fraction = %.4f',
                     iter, compliance, max_displacement, volume_fraction)
-
-    def _plot_iteration(self, iter, solution):
-        deformed_mesh = self._get_deformed_mesh()
-        compliance = solution.values['compliance'].sum()
-        plotter = Plotter(title=f'Iteration {iter}, C={compliance:.4f}')
-        plotter.plot(deformed_mesh, self.rho, mode=PlotMode.COLORED)
-        plotter.show()
 
     def _get_deformed_mesh(self, iter_idx=-1):
         try:

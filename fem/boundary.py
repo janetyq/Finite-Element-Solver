@@ -16,7 +16,6 @@ from enum import Enum
 
 import numpy as np
 
-from fem.plot.plotter import Plotter, PlotMode
 from fem.regions import evaluate_field, is_mesh_bound
 
 logger = logging.getLogger(__name__)
@@ -184,8 +183,3 @@ class BoundaryConditions:
             dirichlet_vertices=dirichlet_vertices,
             neumann_vertices=neumann_vertices,
         )
-
-    def plot(self, mesh):
-        plotter = Plotter(title='Boundary conditions')
-        plotter.plot(mesh, bc=self, mode=PlotMode.BC)
-        plotter.show()
