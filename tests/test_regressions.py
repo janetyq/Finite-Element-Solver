@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, BCType
-from fem.mesh.refinement import RefinementMesh
+from fem.mesh.refinement import RedGreenRefiner
 from fem.regions import on_plane
 from fem.solution import Solution
 from fem.solver import LinearElastic
@@ -71,13 +71,13 @@ def test_target_compliance_objective_is_callable(make_unit_square):
 
 
 def test_refinement_mesh_plot_draws(make_unit_square):
-    """RefinementMesh.plot passed ax/linewidth/color to Mesh.plot, which takes
+    """RedGreenRefiner.plot passed ax/linewidth/color to Mesh.plot, which takes
     no arguments since the Plotter decoupling."""
     femesh = make_unit_square(4)
-    refinement_mesh = RefinementMesh(femesh)
-    refinement_mesh.refine_triangles([0])
+    refiner = RedGreenRefiner(femesh)
+    refiner.refine([0])
 
-    ax = refinement_mesh.plot(title='refinement')
+    ax = refiner.plot(title='refinement')
 
     assert ax.has_data()
 

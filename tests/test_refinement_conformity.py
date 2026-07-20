@@ -10,8 +10,7 @@ from collections import Counter
 
 import numpy as np
 
-from fem.mesh.femesh import FEMesh
-from fem.mesh.refinement import RefinementMesh
+from fem.mesh.refinement import RedGreenRefiner
 
 
 def _edge_counts(mesh):
@@ -51,9 +50,8 @@ def _assert_no_orphan_vertices(mesh):
 
 def test_single_element_refinement_is_conforming(make_unit_square):
     femesh = make_unit_square(4)
-    refiner = RefinementMesh(femesh)
-    refiner.refine_triangles([0])
-    refined = refiner.get_mesh()
+    refiner = RedGreenRefiner(femesh)
+    refined = refiner.refine([0])
 
     _assert_conforming(refined)
     _assert_no_orphan_vertices(refined)
@@ -73,9 +71,8 @@ def test_adjacent_elements_refinement_is_conforming(make_unit_square):
         elems for elems in edge_to_elements.values() if len(elems) == 2
     )
 
-    refiner = RefinementMesh(femesh)
-    refiner.refine_triangles(adjacent_pair)
-    refined = refiner.get_mesh()
+    refiner = RedGreenRefiner(femesh)
+    refined = refiner.refine(adjacent_pair)
 
     _assert_conforming(refined)
     _assert_no_orphan_vertices(refined)
@@ -83,9 +80,8 @@ def test_adjacent_elements_refinement_is_conforming(make_unit_square):
 
 def test_all_elements_refinement_is_conforming(make_unit_square):
     femesh = make_unit_square(4)
-    refiner = RefinementMesh(femesh)
-    refiner.refine_triangles(list(range(len(femesh.elements))))
-    refined = refiner.get_mesh()
+    refiner = RedGreenRefiner(femesh)
+    refined = refiner.refine(list(range(len(femesh.elements))))
 
     _assert_conforming(refined)
     _assert_no_orphan_vertices(refined)
@@ -98,14 +94,12 @@ def test_all_elements_refinement_is_conforming(make_unit_square):
 def test_two_rounds_of_refinement_are_conforming(make_unit_square):
     """A second round exercises the green→red rollback path."""
     femesh = make_unit_square(4)
-    refiner = RefinementMesh(femesh)
+    refiner = RedGreenRefiner(femesh)
 
-    refiner.refine_triangles([0])
-    mesh_after_1 = refiner.get_mesh()
+    mesh_after_1 = refiner.refine([0])
     _assert_conforming(mesh_after_1)
 
-    refiner.refine_triangles([0, 1])
-    mesh_after_2 = refiner.get_mesh()
+    mesh_after_2 = refiner.refine([0, 1])
     _assert_conforming(mesh_after_2)
     _assert_no_orphan_vertices(mesh_after_2)
     assert len(mesh_after_2.elements) > len(mesh_after_1.elements)
@@ -115,15 +109,14 @@ def test_repeated_refinement_stays_conforming(make_unit_square):
     """Four rounds of refining random-ish elements: the mesh must stay
     conforming throughout, not just after the first round."""
     femesh = make_unit_square(6)
-    refiner = RefinementMesh(femesh)
+    refiner = RedGreenRefiner(femesh)
 
     rng = np.random.default_rng(42)
     mesh = femesh
     for _ in range(4):
         n = len(mesh.elements)
         targets = rng.choice(n, size=min(3, n), replace=False).tolist()
-        refiner.refine_triangles(targets)
-        mesh = refiner.get_mesh()
+        mesh = refiner.refine(targets)
         _assert_conforming(mesh)
 
     _assert_no_orphan_vertices(mesh)
@@ -137,9 +130,8 @@ def test_boundary_edges_are_subset_of_mesh_edges(make_unit_square):
     """Refinement splits boundary edges; the new edges must all appear in the
     element connectivity."""
     femesh = make_unit_square(4)
-    refiner = RefinementMesh(femesh)
-    refiner.refine_triangles([0, 1, 2])
-    refined = refiner.get_mesh()
+    refiner = RedGreenRefiner(femesh)
+    refined = refiner.refine([0, 1, 2])
 
     mesh_edges = {
         tuple(sorted(pair))

@@ -13,7 +13,7 @@ from fem.regions import on_plane
 from fem.solver import Solver, Wave, LinearElastic
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
-from fem.mesh.refinement import RefinementMesh
+from fem.mesh.refinement import RedGreenRefiner
 
 
 def test_wave_solver_runs(make_unit_square):
@@ -73,7 +73,6 @@ def test_bc_plotting_runs(make_unit_square):
 def test_refinement_increases_element_count(make_unit_square):
     femesh = make_unit_square(6)
     n_before = len(femesh.elements)
-    refiner = RefinementMesh(femesh)
-    refiner.refine_triangles([0, 1, 2])
-    refined = refiner.get_mesh()
+    refiner = RedGreenRefiner(femesh)
+    refined = refiner.refine([0, 1, 2])
     assert len(refined.elements) > n_before

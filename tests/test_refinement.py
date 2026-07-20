@@ -11,7 +11,7 @@ import pytest
 
 from fem.boundary import BoundaryConditions, BCType
 from fem.mesh.femesh import FEMesh
-from fem.mesh.refinement import RefinementMesh
+from fem.mesh.refinement import RedGreenRefiner
 from fem.regions import everywhere, at_indices
 from fem.solver import Solver, Projection, Poisson
 
@@ -26,12 +26,11 @@ def refine_near_centre(solver):
 
 
 def test_refined_mesh_is_still_an_femesh(make_unit_square):
-    """RefinementMesh built a bare Mesh, so the refined result silently lost
+    """The refiner once built a bare Mesh, so the refined result silently lost
     element_objs/M/K and blew up on the next solve."""
     femesh = make_unit_square(6)
-    refiner = RefinementMesh(femesh)
-    refiner.refine_triangles([0, 1, 2])
-    refined = refiner.get_mesh()
+    refiner = RedGreenRefiner(femesh)
+    refined = refiner.refine([0, 1, 2])
 
     assert isinstance(refined, FEMesh)
     assert refined.element_type is femesh.element_type

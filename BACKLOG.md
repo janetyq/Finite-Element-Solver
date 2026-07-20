@@ -61,10 +61,11 @@ spatial hash / KD-tree (`scipy.spatial.cKDTree.query_ball_point`) building a spa
 matrix would scale far better and is a near drop-in.
 
 ### 🟠 Refinement and meshing are `O(n²)` from linear scans
-`fem/mesh/refinement.py` is self-described as "very inefficient": `get_shared_triangle`,
-`get_triangle_idx`, and `get_point_idx` each do a full linear scan of all triangles/vertices,
-inside refinement loops. `get_point_idx` in particular scans every vertex to dedupe midpoints
-— an edge→midpoint-index dict would make it `O(1)`.
+`RedGreenRefiner` (`fem/mesh/refinement.py`) has `_find_shared_triangle`,
+`_find_triangle`, and `_find_vertex`, each a full linear scan inside refinement
+loops. `Mesh.edge_to_elements` now exists for O(1) edge→element lookups; wiring
+it into the refiner's internal state (which diverges from the mesh during a round)
+is the remaining work. An edge→midpoint-index dict would make `_find_vertex` O(1).
 
 ### 🟠 `EnergySolver` Hessian is dense and rebuilt each Newton step
 `fem/energy_solver.py:energy_hessian` allocates an `(n·dim, n·dim)` dense Hessian every

@@ -1,11 +1,14 @@
 import itertools
 from collections.abc import Sequence
+from functools import cached_property
 from typing import TypeVar, cast
 
 import numpy as np
 
 from fem.plot.plotter import Plotter, PlotMode
 from fem.typing import ElementField, Elements, IntArray, VertexField, Vertices
+
+Edge = tuple[int, int]
 
 MeshT = TypeVar('MeshT', bound='Mesh')
 
@@ -77,6 +80,30 @@ class Mesh:
         return self.with_topology(
             self.vertices.copy(), self.elements.copy(), self.boundary.copy()
         )
+
+    @cached_property
+    def edge_to_elements(self) -> dict[Edge, list[int]]:
+        '''Map each sorted edge to the indices of elements that contain it.
+
+        Interior edges map to exactly two elements; boundary edges to one.
+        '''
+        mapping: dict[Edge, list[int]] = {}
+        for e_idx, element in enumerate(self.elements):
+            for pair in itertools.combinations(sorted(element), 2):
+                edge: Edge = pair  # type: ignore[assignment]
+                mapping.setdefault(edge, []).append(e_idx)
+        return mapping
+
+    @cached_property
+    def element_neighbours(self) -> list[list[int]]:
+        '''For each element, the indices of elements sharing at least one edge.'''
+        neighbours: list[set[int]] = [set() for _ in range(len(self.elements))]
+        for elements in self.edge_to_elements.values():
+            if len(elements) == 2:
+                a, b = elements
+                neighbours[a].add(b)
+                neighbours[b].add(a)
+        return [sorted(s) for s in neighbours]
 
     def _get_all_edges(self) -> IntArray:
         '''Every edge in the mesh, as sorted (v0, v1) index pairs.
