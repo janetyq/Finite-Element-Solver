@@ -13,6 +13,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
+| Correctness | 3D tet `FEMesh` construction always raises (`calculate_polygon_area` is 2D-only) | 🟡 | [§1](#1-bugs--correctness) |
 | Scaling | Sparse matrices + solver — **highest leverage** | 🔴 | [§2](#2-performance--scaling) |
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify smoothing matrix / EnergySolver Hessian | 🟡 | [§2](#2-performance--scaling) |
@@ -27,8 +28,20 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 ## 1. Bugs & Correctness
 
-*(No open correctness bugs. Adaptive refinement is now closed-loop except for the error
-estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
+### 🔴 A 3D tet `FEMesh` can't actually be constructed
+`FEMesh.__init__` (`fem/mesh/femesh.py`) builds one boundary element per boundary
+face via `self.boundary_type = element_type.SUB_TYPE` — for
+`LinearTetrahedralElement`, that's `LinearTriangleElement`, whose `__init__`
+(`fem/elements.py`) calls `calculate_polygon_area(vertices)` to get `.volume`.
+`calculate_polygon_area` (`fem/geometry.py`) explicitly raises `NotImplementedError`
+for anything but 2D input — and a tet mesh's boundary faces are triangles with
+genuinely 3D coordinates, so `FEMesh(vertices, elements, boundary,
+element_type=LinearTetrahedralElement)` always raises. Discovered while verifying
+the Plotly migration: `examples/solver_demos.py::demo_3d` hits this on the very
+first `FEMesh(...)` call, before any plotting runs, so it has apparently never
+been exercised successfully — nothing catches it because it needs the optional
+`mesh3d` extra, which no test installs. Needs a `calculate_polygon_area` (or a
+separate area-of-a-planar-polygon-in-3D helper) that handles 3D coordinates.
 
 ---
 

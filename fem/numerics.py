@@ -5,7 +5,6 @@ import logging
 from math import cos, pi
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +24,8 @@ def calculate_smoothing_matrix(mesh, r):
 
 # Gradient checking - TODO: make faster
 def check_gradient(function, gradient, input_shape):
+    import matplotlib.pyplot as plt  # deferred: a dev-only diagnostic, not a core dependency
+
     u = np.random.random(input_shape)
     computed_gradient = gradient(u)
     eps_list = np.logspace(-10, 0, 20)
@@ -51,6 +52,8 @@ def check_gradient(function, gradient, input_shape):
 
 
 def check_hessian(gradient, hessian, input_shape):
+    import matplotlib.pyplot as plt  # deferred: a dev-only diagnostic, not a core dependency
+
     u = np.random.random(input_shape)
     computed_hessian = hessian(u)
     eps_list = np.logspace(-10, 0, 20)

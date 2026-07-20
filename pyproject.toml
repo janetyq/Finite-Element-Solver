@@ -13,14 +13,21 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "scipy",
-    "matplotlib",
+    "plotly",
+    "kaleido",
 ]
 
 [project.optional-dependencies]
-# 3D tetrahedral meshing / rendering (fem.mesh + fem.plot.tet)
-viz3d = ["pyvista", "tetgen"]
-# SVG-outline meshing (fem.mesh.svg)
-svg = ["svg.path"]
+# 3D tetrahedral mesh generation (fem.mesh.tetmesh). pyvista is here as tetgen's
+# data interchange format (PolyData/UnstructuredGrid in, out), not a rendering
+# dependency -- 3D meshes render through fem.plot like everything else, via
+# their boundary faces.
+mesh3d = ["pyvista", "tetgen"]
+# SVG-outline meshing (fem.mesh.svg). matplotlib rides along here rather than
+# as a core dependency: it backs the interactive Douglas-Peucker widget (hasn't
+# migrated to Plotly, see BACKLOG.md) and fem.numerics's check_gradient/
+# check_hessian dev diagnostics (deferred imports, only needed if re-enabled).
+svg = ["svg.path", "matplotlib"]
 
 # Development tooling (installed by default with `uv sync`)
 [dependency-groups]

@@ -7,6 +7,7 @@
 """
 import argparse
 import logging
+from pathlib import Path
 
 from fem.mesh.femesh import FEMesh
 
@@ -40,11 +41,13 @@ def _show_or_save(result, save_path):
             plotter.show()
         return
 
+    is_html = Path(save_path).suffix.lower() in ('.html', '.htm')
     for plotter in plotters:
-        if plotter.anims:
+        if plotter.anims and not is_html:
             raise NotImplementedError(
-                "Animation saving isn't implemented yet under the matplotlib backend "
-                "(see Plotter.save's TODO) - rerun without --save to view it interactively."
+                f'{save_path!r} would only capture one static frame of an animation - '
+                "save to a .html path instead (frames/slider/play all work there), "
+                "or rerun without --save to view it interactively."
             )
 
     if len(plotters) == 1:

@@ -7,6 +7,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
+import plotly.graph_objects as go
 
 from fem.plot.plotter import Plotter
 from fem.mesh.generation import create_rect_mesh, RuppertsAlgorithm
@@ -89,9 +90,18 @@ def demo_rupperts(curve, min_angle=20):
 
     plotter = Plotter(title='Triangulated mesh')
     plotter.plot(mesh, mode='mesh')
-    ax = plotter.get_ax()
-    for seg in rupperts.segments:
-        ax.plot(rupperts.vertices[seg, 0], rupperts.vertices[seg, 1], 'b-')
+
+    # The input PSLG's boundary segments, overlaid in blue -- there's no shared
+    # "ax" to draw onto under Plotly, so build the segment trace directly and
+    # add it via add_trace instead.
+    xs, ys, zs = [], [], []
+    for i, j in rupperts.segments:
+        xs += [rupperts.vertices[i, 0], rupperts.vertices[j, 0], None]
+        ys += [rupperts.vertices[i, 1], rupperts.vertices[j, 1], None]
+        zs += [0, 0, None]
+    boundary_trace = go.Scatter3d(x=xs, y=ys, z=zs, mode='lines', line=dict(color='blue', width=3),
+                                   showlegend=False, hoverinfo='skip')
+    plotter.add_trace(boundary_trace)
     return plotter
 
 def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE):
