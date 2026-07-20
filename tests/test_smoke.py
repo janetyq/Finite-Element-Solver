@@ -48,7 +48,7 @@ def test_topology_optimizer_runs(make_unit_square):
 
     eq = LinearElastic(E=200, nu=0.4, source=[0, -0.5])
     topopt = TopologyOptimizer(femesh, eq, bc, iters=2, volume_frac=0.5)
-    topopt.solve(plot=False)
+    topopt.solve()
     assert np.all(np.isfinite(topopt.rho))
     assert topopt.rho.min() >= 0.0
 
