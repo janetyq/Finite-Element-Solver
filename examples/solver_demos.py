@@ -12,7 +12,7 @@ from fem.elements import LinearTriangleElement, LinearTetrahedralElement
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
-from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
+from fem.mesh.tetmesh import create_rect_tetmesh
 from fem.solver import Solver, Projection, Poisson, Heat, Wave, LinearElastic
 from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
@@ -109,7 +109,6 @@ def demo_linear_elastic(mesh):
     bc.add(BCType.NEUMANN,  # stress, on the middle band of the right edge
            intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])),
            [50, 0])
-    bc.plot(mesh)
 
     equation = LinearElastic(E=200, nu=0.4)
     solver = Solver(mesh, equation, bc)
@@ -117,9 +116,10 @@ def demo_linear_elastic(mesh):
     deformed_mesh = solution.get_deformed_mesh()
     displacements = np.linalg.norm(solution.get_values('u').reshape(-1, 2), axis=1)
 
-    plotter = Plotter(1, 2, title='Linear Elasticity')
-    plotter.plot(deformed_mesh, solution.get_values('stress'), mode='colored', title='Stress', idx=(0, 0))
-    plotter.plot(mesh, displacements, mode='colored', title='Displacement', idx=(0, 1))
+    plotter = Plotter(1, 3, title='Linear Elasticity')
+    plotter.plot(mesh, bc=bc, mode='bc', title='Boundary Conditions', idx=(0, 0))
+    plotter.plot(deformed_mesh, solution.get_values('stress'), mode='colored', title='Stress', idx=(0, 1))
+    plotter.plot(mesh, displacements, mode='colored', title='Displacement', idx=(0, 2))
     return plotter
 
 def demo_topology_optimization(mesh, iters=10):
@@ -129,7 +129,7 @@ def demo_topology_optimization(mesh, iters=10):
 
     equation = LinearElastic(E=200, nu=0.4, source=[0, -0.5])
     topopt = TopologyOptimizer(mesh, equation, bc, iters=iters, volume_frac=0.5)
-    solution = topopt.solve(plot=False)
+    solution = topopt.solve()
     deformed_mesh = topopt._get_deformed_mesh()
 
     animation_plotter = Plotter(title='Topology Optimization')
@@ -165,13 +165,13 @@ def demo_adaptive_refinement(mesh):
     plotter.plot(mesh, u_gradient, mode='arrows', title='Gradient', idx=(0, 1))
     plotter.show()  # shown directly: this demo always raises below, so there's no return to show it via
 
-    # solver.adaptive_refinement now drives the loop correctly, but this demo is
-    # still blocked on two open pieces: a real a-posteriori error estimator to
-    # pass in, and position-based Dirichlet conditions (the ones added above are
-    # index-based, so they cannot survive the vertex renumbering a refinement
-    # does). See BACKLOG.md.
+    # solver.adaptive_refinement drives the loop correctly, and the Dirichlet
+    # condition above is already region-based (everywhere()), so it resolves
+    # fine against a refined mesh -- that used to be index-based and unable to
+    # survive remeshing, but the BC-region refactor fixed it. What's still
+    # missing is a real a-posteriori error estimator to pass in. See BACKLOG.md.
     raise NotImplementedError(
-        'Adaptive refinement demo needs an error estimator and remeshable Dirichlet BCs'
+        'Adaptive refinement demo needs an error estimator'
     )
 
     # solution_init = solver.solve()
@@ -215,8 +215,8 @@ def demo_energy_solver(mesh):  # displacement-driven: EnergySolver rejects a sou
     return plotter
 
 def demo_3d():
-    """Solve transient heat diffusion on a 3D tetrahedral mesh (renders via PyVista)."""
-    mesh = create_rect_tetmesh(x_lim=[0, 4], y_lim=[0, 1], z_lim=[0, 1], subdividisions=2, plot=False)
+    """Solve transient heat diffusion on a 3D tetrahedral mesh."""
+    mesh = create_rect_tetmesh(x_lim=[0, 4], y_lim=[0, 1], z_lim=[0, 1], subdividisions=2)
     mesh = FEMesh(mesh.vertices, mesh.elements, mesh.boundary, element_type=LinearTetrahedralElement)
 
     w = max(mesh.vertices.flatten()) - min(mesh.vertices.flatten())
@@ -227,9 +227,13 @@ def demo_3d():
     solver = Solver(mesh, equation)
     solution = solver.solve()
     u_values = solution.get_values('u_values')
-    solution.get_values('t_values')
+    t_values = solution.get_values('t_values')
 
-    plot_tetmesh_animation(mesh, np.array(u_values), title='Heat Diffusion')
+    # 'colored' mode, not 'surface': a real 3D mesh has no spare axis to turn
+    # the temperature field into a height, unlike the 2D demos above.
+    plotter = Plotter(title='Heat Diffusion (3D)')
+    plotter.plot_animation(mesh, u_values, mode='colored', titles=[f't={t}' for t in t_values])
+    return plotter
 
 
 DEMOS = [
@@ -242,5 +246,5 @@ DEMOS = [
     Demo('topology_optimization', demo_topology_optimization),
     Demo('adaptive_refinement', demo_adaptive_refinement, returns_plotter=False),
     Demo('energy_solver', demo_energy_solver),
-    Demo('3d', demo_3d, needs_mesh=False, returns_plotter=False),
+    Demo('3d', demo_3d, needs_mesh=False),
 ]

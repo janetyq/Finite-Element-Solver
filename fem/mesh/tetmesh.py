@@ -1,3 +1,7 @@
+"""3D tetrahedral mesh generation, via tetgen (pyvista is tetgen's data
+interchange format here, not a rendering dependency -- 3D meshes render through
+fem.plot like everything else, via their boundary faces).
+"""
 import tetgen
 import pyvista as pv
 import numpy as np
@@ -7,7 +11,7 @@ from fem.mesh.mesh import Mesh
 def find_boundary_faces(tetrahedrons):
     # This will store the faces and the number of times they appear
     face_count = {}
-    
+
     # Loop through each tetrahedron
     for tet in tetrahedrons:
         # Extract the four faces from the tetrahedron (combinations of 3 vertices)
@@ -17,73 +21,20 @@ def find_boundary_faces(tetrahedrons):
             tuple(sorted([tet[0], tet[2], tet[3]])),
             tuple(sorted([tet[1], tet[2], tet[3]]))
         ]
-        
+
         # Count each face's occurrence
         for face in faces:
             if face not in face_count:
                 face_count[face] = 0
             face_count[face] += 1
-    
+
     # Boundary faces are those that appear only once
     boundary_faces = [list(face) for face, count in face_count.items() if count == 1]
-    
+
     return np.array(boundary_faces)
 
 
-def plot_tet(tet_grid, surface):
-    # plots tetrahedral mesh cut midway with the surface mesh outline
-
-    # get cell centroids
-    cells = tet_grid.cells.reshape(-1, 5)[:, 1:]
-    cell_center = tet_grid.points[cells].mean(axis=1)
-
-    # extract cells below the midway
-    mask = cell_center[:, 2] < np.median(cell_center[:, 2])
-    cell_ind = mask.nonzero()[0]
-    subgrid = tet_grid.extract_cells(cell_ind)
-
-    # advanced plotting
-    plotter = pv.Plotter()
-    plotter.add_mesh(subgrid, 'lightgrey', lighting=True, show_edges=True)
-    plotter.add_mesh(surface, 'r', 'wireframe')
-    plotter.add_legend([[' Surface Mesh ', 'r'],
-                        [' Tet Mesh ', 'black']])
-    plotter.show()
-
-def plot_tetmesh(mesh):
-    tet_grid = mesh_to_grid(mesh)
-    tet_grid.plot(show_edges=True)
-
-def plot_tetmesh_values(mesh, values, clim=None):
-    tet_grid = mesh_to_grid(mesh)
-    if clim is None:
-        clim = [values.min(), values.max()]
-    tet_grid.plot(scalars=values, cmap='bwr', clim=clim, flip_scalars=True, show_edges=True)
-
-def plot_tetmesh_animation(mesh, values_array, save_file='tetmesh_animation.gif', title=None):
-    tet_grid = mesh_to_grid(mesh)
-    tet_grid['v'] = values_array[0]
-    plotter = pv.Plotter()
-    clim = [min(values_array.flatten()), max(values_array.flatten())]
-
-    if title is not None:
-        plotter.add_text(title, font_size=18, color='black', position='upper_edge')
-    text = plotter.add_text("", font_size=12, color='black')
-    plotter.add_mesh(tet_grid, scalars="v", clim=clim, cmap='bwr', flip_scalars=True, show_edges=True)
-
-    plotter.open_gif(save_file)
-
-    for i in range(len(values_array)):
-        text.SetText(0, f"Iter {i}")
-        tet_grid["v"] = values_array[i]
-        plotter.write_frame()
-    
-    for i in range(5):
-        plotter.write_frame()
-
-    plotter.show()
-
-def create_rect_tetmesh(x_lim, y_lim, z_lim, subdividisions=2, plot=True):
+def create_rect_tetmesh(x_lim, y_lim, z_lim, subdividisions=2):
     points = np.array([
         [0, 0, 0],
         [0, 0, 1],
@@ -123,9 +74,6 @@ def create_rect_tetmesh(x_lim, y_lim, z_lim, subdividisions=2, plot=True):
     tet = tetgen.TetGen(surface_mesh)
     tet.tetrahedralize(order=1, mindihedral=10, minratio=1.2)
     grid = tet.grid
-
-    if plot:
-        plot_tet(grid, surface_mesh)
 
     mesh = grid_to_mesh(grid)
     return mesh

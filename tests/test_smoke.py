@@ -56,7 +56,7 @@ def test_topology_optimizer_runs(make_unit_square):
 def test_bc_plotting_runs(make_unit_square):
     """plot_bc reads the spec through entries(), which resolves regions without
     needing a dim; exercise it so a break surfaces here, not on a human's screen."""
-    import matplotlib.pyplot as plt
+    import plotly.graph_objects as go
 
     from fem.plot.helpers import plot_bc
 
@@ -65,9 +65,10 @@ def test_bc_plotting_runs(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
 
-    _fig, ax = plt.subplots()
-    plot_bc(ax, femesh, bc)
-    plt.close(_fig)
+    traces = plot_bc(femesh, bc)
+    # mesh wireframe + one Dirichlet marker trace + one Neumann arrow trace
+    assert len(traces) == 3
+    assert all(isinstance(trace, go.Scatter3d) for trace in traces)
 
 
 def test_refinement_increases_element_count(make_unit_square):

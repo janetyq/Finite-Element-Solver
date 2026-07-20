@@ -12,13 +12,15 @@ in editable mode, and pins exact versions in `uv.lock`.
 
 ```bash
 uv sync                 # core solver + dev tools (pytest)
-uv sync --extra viz3d   # + 3D tetrahedral meshing/rendering (pyvista, tetgen)
-uv sync --extra svg     # + SVG-outline meshing (svg.path)
+uv sync --extra mesh3d  # + 3D tetrahedral mesh generation (pyvista, tetgen)
+uv sync --extra svg     # + SVG-outline meshing (svg.path) and matplotlib (the
+                        #   interactive Douglas-Peucker demo, and fem.numerics's
+                        #   gradient/Hessian check plots)
 ```
 
 Prefer plain pip? It is a standard `pyproject.toml` package:
 ```bash
-pip install -e ".[viz3d]"
+pip install -e ".[mesh3d]"
 ```
 
 ## Quick Start
@@ -47,8 +49,8 @@ plotter.show()
 
 ```
 fem/                 # the solver package
-├── mesh/            # Mesh, FEMesh, red-green refinement, mesh generation
-├── plot/            # Plotter, 2D drawing helpers, 3D tet rendering
+├── mesh/            # Mesh, FEMesh, red-green refinement, mesh generation, 3D tet meshing
+├── plot/            # Plotter and its Plotly trace-building helpers
 ├── elements.py      # linear line/triangle/tetrahedral elements
 ├── boundary.py      # BoundaryConditions spec -> ResolvedBC for a given mesh
 ├── regions.py       # position-based regions and fields (on_plane, in_box, ...)
