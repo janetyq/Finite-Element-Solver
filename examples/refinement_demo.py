@@ -10,7 +10,7 @@ import random
 import numpy as np
 
 from fem.mesh.mesh import Mesh
-from fem.mesh.refinement import RefinementMesh
+from fem.mesh.refinement import RedGreenRefiner
 from fem.plot.plotter import Plotter
 
 from demo_registry import Demo
@@ -24,11 +24,10 @@ def demo_refinement():
     mesh = Mesh(vertices, elements, boundary)
     original_mesh = mesh.copy()
 
-    refiner = RefinementMesh(mesh)
+    refiner = RedGreenRefiner(mesh)
     for _ in range(8):
         refine_list = set(random.randint(0, len(mesh.elements) - 1) for _ in range(5))
-        refiner.refine_triangles(refine_list)
-        mesh = refiner.get_mesh()
+        mesh = refiner.refine(refine_list)
 
     plotter = Plotter(1, 2, title="Red-Green Refinement")
     plotter.plot(original_mesh, mode="mesh", idx=(0, 0), title="Original")

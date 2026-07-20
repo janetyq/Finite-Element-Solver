@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, ClassVar, TypeVar
 
 import numpy as np
 
-from fem.mesh.refinement import RefinementMesh
+from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.femesh import dof_indices
 from fem.boundary import BoundaryConditions
 from fem.regions import evaluate_field
@@ -374,7 +374,7 @@ class Solver:
         '''
         self.boundary_conditions.check_remeshable()
 
-        refinement_mesh = RefinementMesh(self.femesh)
+        refiner = RedGreenRefiner(self.femesh)
         for _ in range(max_iters):
             if len(self.femesh.elements) >= max_triangles:
                 break
@@ -389,8 +389,7 @@ class Solver:
             if len(refine_idxs) == 0:
                 break
 
-            refinement_mesh.refine_triangles([int(i) for i in refine_idxs])
-            self.femesh = refinement_mesh.get_mesh()
+            self.femesh = refiner.refine([int(i) for i in refine_idxs])
             # The refined mesh renumbers vertices, so anything index-keyed has to
             # be rebuilt from its specification rather than carried over.
             self._resolve_bc()

@@ -1,244 +1,328 @@
-﻿import numpy as np
+"""Red-green triangle refinement.
+
+The session object (`RedGreenRefiner`) owns a parent/child tree that tracks how
+each triangle was produced.  This tree is what allows green-closure rollback:
+when a green child is later marked for refinement, its parent can be recovered
+and re-refined red, preserving mesh quality across successive rounds.
+
+The tree is private state -- callers see only ``refine(idxs) -> Mesh``.
+"""
+from __future__ import annotations
+
+import logging
+from collections.abc import Sequence
+from enum import Enum, auto
+from typing import Generic, TypeVar
+
+import numpy as np
+
 from fem.mesh.mesh import Mesh
+from fem.typing import Vertices
 
-# TODO: very inefficient
+logger = logging.getLogger(__name__)
 
-class Triangle:
-    def __init__(self, vertex_idxs, parent=None, status='red child'):
+_M = TypeVar('_M', bound=Mesh)
+
+
+class _Status(Enum):
+    RED_CHILD = auto()
+    RED_PARENT = auto()
+    GREEN_CHILD = auto()
+    GREEN_PARENT = auto()
+    GONE = auto()
+
+
+class _Triangle:
+    """A node in the red-green refinement tree."""
+
+    __slots__ = ('vertex_idxs', 'status', 'parent', 'children')
+
+    def __init__(
+        self,
+        vertex_idxs: list[int],
+        parent: _Triangle | None = None,
+        status: _Status = _Status.RED_CHILD,
+    ) -> None:
         self.vertex_idxs = vertex_idxs
         self.status = status
-        self.parent = parent        # ptr to triangle
-        self.children = []          # ptrs to triangles
+        self.parent = parent
+        self.children: list[_Triangle] = []
 
-    def __repr__(self):
-        return f'Triangle \n vertex_idxs: {self.vertex_idxs} \n  status: {self.status} \n  parent: {self.parent is not None} \n  children: {len(self.children)}'
+    def __repr__(self) -> str:
+        return (
+            f'_Triangle(verts={self.vertex_idxs}, status={self.status.name}, '
+            f'parent={self.parent is not None}, children={len(self.children)})'
+        )
 
-class RefinementMesh:
-    def __init__(self, mesh):
-        # use this to get mesh
-        self.mesh = mesh
 
-        # internal representation - do not use outside of this class
-        self.vertices = mesh.vertices
-        self.elements = mesh.elements
-        self.boundary = [list(edge) for edge in mesh.boundary]
-        self.triangles = [Triangle(element) for element in self.elements]
+class RedGreenRefiner(Generic[_M]):
+    """Persistent red-green refinement session over a triangle mesh.
 
-        self.triangle_index_map = {idx: idx for idx in range(len(self.triangles))}
+    Wraps a mesh and maintains an internal hierarchy so that successive calls
+    to `refine` can roll back green closures when needed.  The working arrays
+    are private copies -- the input mesh is never mutated.
+    """
 
-    def get_shared_triangle(self, edge, not_idxs=None):
-        for idx, triangle in enumerate(self.triangles):
-            if not_idxs is not None and idx in not_idxs:
-                continue
-            if triangle.status == 'gone':
-                continue
-            if edge[0] in triangle.vertex_idxs and edge[1] in triangle.vertex_idxs:
-                return idx
-    
-    def get_triangle_idx(self, triangle):
-        for idx, t in enumerate(self.triangles):
-            if t == triangle:
-                return idx
+    def __init__(self, mesh: _M) -> None:
+        n_nodes = mesh.elements.shape[1]
+        if n_nodes != 3:
+            raise NotImplementedError(
+                f'red-green refinement is defined for triangles (3-node elements), '
+                f'got {n_nodes}-node elements'
+            )
+        self._source_mesh: _M = mesh
+        self._vertices: Vertices = mesh.vertices.copy()
+        self._boundary: list[list[int]] = [list(edge) for edge in mesh.boundary]
+        self._triangles: list[_Triangle] = [
+            _Triangle(list(element)) for element in mesh.elements
+        ]
+        self._tri_index_map: dict[int, int] = {
+            idx: idx for idx in range(len(self._triangles))
+        }
 
-    def get_point_idx(self, point):
-        for idx, p in enumerate(self.vertices):
-            if (p == point).all():
-                return idx
+    def refine(self, element_idxs: Sequence[int]) -> _M:
+        """Refine the given elements and return the updated mesh.
 
-    def refine_triangles(self, refine_list):
-        '''
-        Refines triangles in refine_list
-        and updates self.mesh
-        '''
-        for e_idx in refine_list:
-            # print(self.triangles[triangle_idx].status)
-            self.refine(self.triangle_index_map[e_idx])
-        # self.plot(title=f'refined {triangle_idx}', triangle_idxs=refine_list)
-        
-        for triangle_idx in list(range(len(self.triangles)))[::-1]:
-            if self.triangles[triangle_idx].status == 'gone':
-                self.triangles.pop(triangle_idx)
-        
-        self.update_mesh()
+        ``element_idxs`` are indices into the most recently emitted mesh (or the
+        original mesh, on the first call).
+        """
+        for e_idx in element_idxs:
+            self._refine_single(self._tri_index_map[e_idx])
 
-    def refine(self, triangle_idx):
-        # print('refine', triangle_idx)
-        triangle = self.triangles[triangle_idx]
-        if triangle.status == 'red parent':
-            # already refined, do nothing
+        for tri_idx in reversed(range(len(self._triangles))):
+            if self._triangles[tri_idx].status is _Status.GONE:
+                self._triangles.pop(tri_idx)
+
+        return self._emit_mesh()
+
+    # -- internal: dispatch ----------------------------------------------
+
+    def _refine_single(self, tri_idx: int) -> None:
+        tri = self._triangles[tri_idx]
+        if tri.status is _Status.RED_PARENT:
             return
-        elif triangle.status == 'red child':
-            # refine as red
-            self.refine_red(triangle_idx)
-        elif triangle.status == 'green parent':
-            # if green, rollback to parent triangle and refine as red
-            parent_idx = self.rollback_green(triangle_idx)
-            self.refine_red(parent_idx)
-        elif triangle.status == 'green child':
-            parent_idx = self.rollback_green(triangle_idx)
-            self.refine_red(parent_idx)
-        elif triangle.status == 'gone':
+        elif tri.status is _Status.RED_CHILD:
+            self._refine_red(tri_idx)
+        elif tri.status in (_Status.GREEN_PARENT, _Status.GREEN_CHILD):
+            parent_idx = self._rollback_green(tri_idx)
+            self._refine_red(parent_idx)
+        elif tri.status is _Status.GONE:
             pass
-        else:
-            assert False, f'unknown triangle status {triangle.status}'
 
-    def update_boundary(self, edge, idx):
-        if edge in self.boundary:
-            self.boundary.remove(edge)
-            self.boundary.extend([[edge[0], idx], [idx, edge[1]]])
-        elif edge[::-1] in self.boundary:
-            self.boundary.remove(edge[::-1])
-            self.boundary.extend([[edge[1], idx], [idx, edge[0]]])
+    # -- internal: red / green / rollback --------------------------------
 
-    def refine_red(self, triangle_idx):
-        # print('refine red', triangle_idx)
-        triangle = self.triangles[triangle_idx]
-        new_point_idxs = []
+    def _refine_red(self, tri_idx: int) -> list[int]:
+        tri = self._triangles[tri_idx]
+        new_point_idxs: list[int] = []
         for i in range(3):
-            edge = [triangle.vertex_idxs[i], triangle.vertex_idxs[(i+1)%3]]
-            midpoint = (self.vertices[edge[0]] + self.vertices[edge[1]]) / 2
-            # if midpoint already exists, use that
-            idx = self.get_point_idx(midpoint)
+            edge = [tri.vertex_idxs[i], tri.vertex_idxs[(i + 1) % 3]]
+            midpoint = (self._vertices[edge[0]] + self._vertices[edge[1]]) / 2
+            idx = self._find_vertex(midpoint)
             if idx is None:
-                self.vertices = np.vstack((self.vertices, midpoint))
-                idx = len(self.vertices) - 1
+                self._vertices = np.vstack((self._vertices, midpoint))
+                idx = len(self._vertices) - 1
             new_point_idxs.append(idx)
+            self._update_boundary(edge, idx)
 
-            self.update_boundary(edge, idx)
+        new_tris = [
+            _Triangle(
+                [tri.vertex_idxs[0], new_point_idxs[0], new_point_idxs[2]],
+                parent=tri,
+            ),
+            _Triangle(
+                [tri.vertex_idxs[1], new_point_idxs[1], new_point_idxs[0]],
+                parent=tri,
+            ),
+            _Triangle(
+                [tri.vertex_idxs[2], new_point_idxs[2], new_point_idxs[1]],
+                parent=tri,
+            ),
+            _Triangle(
+                [new_point_idxs[0], new_point_idxs[1], new_point_idxs[2]],
+                parent=tri,
+            ),
+        ]
+        tri.children = new_tris
+        self._triangles.extend(new_tris)
+        tri.status = _Status.RED_PARENT
 
-        new_triangles = [Triangle([triangle.vertex_idxs[0], new_point_idxs[0], new_point_idxs[2]], parent=triangle, status='red child'),
-                        Triangle([triangle.vertex_idxs[1], new_point_idxs[1], new_point_idxs[0]], parent=triangle, status='red child'),
-                        Triangle([triangle.vertex_idxs[2], new_point_idxs[2], new_point_idxs[1]], parent=triangle, status='red child'),
-                        Triangle([new_point_idxs[0], new_point_idxs[1], new_point_idxs[2]], parent=triangle, status='red child')]
-        
-        triangle.children = new_triangles
-        self.triangles.extend(new_triangles)
-        triangle.status = 'red parent'
-        new_triangle_idxs = [len(self.triangles) - 4, len(self.triangles) - 3, len(self.triangles) - 2, len(self.triangles) - 1]
+        n = len(self._triangles)
+        new_tri_idxs = [n - 4, n - 3, n - 2, n - 1]
 
         for i in range(3):
-            edge = [triangle.vertex_idxs[i], triangle.vertex_idxs[(i+1)%3]]
-            shared_idx = self.get_shared_triangle(edge, not_idxs=[triangle_idx])
-            if shared_idx is not None:
-                shared_triangle = self.triangles[shared_idx]
-                if shared_triangle.status == 'red parent':
-                    # already refined, do nothing
-                    # self.plot(title=f'shared red parent', edge=edge, main_idx=triangle_idx, red_idx=shared_idx)
-                    continue
-                if shared_triangle.status == 'red child':
-                    # self.plot(title=f'shared red child', edge=edge, main_idx=triangle_idx, red_idx=shared_idx)
-                    self.refine_green(shared_idx, edge, new_point_idxs[i])
-                elif shared_triangle.status == 'green parent':
-                    # self.plot(title=f'shared green parent', edge=edge, main_idx=triangle_idx, green_idx=shared_idx)
-                    parent_idx = self.rollback_green(shared_idx)
-                    self.refine_red(parent_idx)
-                elif shared_triangle.status == 'green child':
-                    # self.plot(title=f'shared green CHILD', edge=edge, main_idx=triangle_idx, green_idx=shared_idx)
-                    parent_idx = self.rollback_green(shared_idx)
-                    new_red_triangle_idxs = self.refine_red(parent_idx)
-                    for new_idx in new_red_triangle_idxs:
-                        new_triangle = self.triangles[new_idx]
-                        if edge[0] in new_triangle.vertex_idxs and edge[1] in new_triangle.vertex_idxs:
-                            # self.plot(title=f'shared red CHILD', edge=edge, main_idx=triangle_idx, red_idx=new_idx)
-                            self.refine_green(new_idx, edge, new_point_idxs[i])
-                            break
+            edge = [tri.vertex_idxs[i], tri.vertex_idxs[(i + 1) % 3]]
+            shared_idx = self._find_shared_triangle(edge, exclude={tri_idx})
+            if shared_idx is None:
+                continue
+            shared = self._triangles[shared_idx]
+            if shared.status is _Status.RED_PARENT:
+                continue
+            elif shared.status is _Status.RED_CHILD:
+                self._refine_green(shared_idx, edge, new_point_idxs[i])
+            elif shared.status is _Status.GREEN_PARENT:
+                parent_idx = self._rollback_green(shared_idx)
+                self._refine_red(parent_idx)
+            elif shared.status is _Status.GREEN_CHILD:
+                parent_idx = self._rollback_green(shared_idx)
+                child_idxs = self._refine_red(parent_idx)
+                for new_idx in child_idxs:
+                    child = self._triangles[new_idx]
+                    if edge[0] in child.vertex_idxs and edge[1] in child.vertex_idxs:
+                        self._refine_green(new_idx, edge, new_point_idxs[i])
+                        break
 
-        return new_triangle_idxs
-    
-    def rollback_green(self, triangle_idx):
-        # print('rollback green', triangle_idx)
-        triangle = self.triangles[triangle_idx]
-        parent = triangle if len(triangle.children) != 0 else triangle.parent
+        return new_tri_idxs
 
-        parent_idx = self.get_triangle_idx(parent)
-        if parent_idx is None: # parent previously removed
-            self.triangles.append(parent)
-            parent_idx = len(self.triangles) - 1
-        parent.status = 'red parent'
+    def _rollback_green(self, tri_idx: int) -> int:
+        tri = self._triangles[tri_idx]
+        parent = tri if tri.children else tri.parent
+        assert parent is not None
+
+        parent_idx = self._find_triangle(parent)
+        if parent_idx is None:
+            self._triangles.append(parent)
+            parent_idx = len(self._triangles) - 1
+        parent.status = _Status.RED_PARENT
         for child in parent.children:
-            child.status = 'gone'
+            child.status = _Status.GONE
         parent.children = []
-
         return parent_idx
 
-    def refine_green(self, triangle_idx, edge, new_idx):
-        # print('refine green', triangle_idx)
-        triangle = self.triangles[triangle_idx]
-        triangle.status = 'green parent'
-        
-        opposite_vertex = [v for v in triangle.vertex_idxs if v not in edge][0]
-        green_triangle1 = Triangle([edge[0], opposite_vertex, new_idx], parent=triangle, status='green child')
-        green_triangle2 = Triangle([edge[1], opposite_vertex, new_idx], parent=triangle, status='green child')
-        triangle.children = [green_triangle1, green_triangle2]
-        self.triangles.extend([green_triangle1, green_triangle2])
+    def _refine_green(
+        self,
+        tri_idx: int,
+        edge: list[int],
+        mid_idx: int,
+    ) -> None:
+        tri = self._triangles[tri_idx]
+        tri.status = _Status.GREEN_PARENT
 
-        self.update_boundary(edge, new_idx)
+        opposite = [v for v in tri.vertex_idxs if v not in edge][0]
+        g1 = _Triangle(
+            [edge[0], opposite, mid_idx],
+            parent=tri,
+            status=_Status.GREEN_CHILD,
+        )
+        g2 = _Triangle(
+            [edge[1], opposite, mid_idx],
+            parent=tri,
+            status=_Status.GREEN_CHILD,
+        )
+        tri.children = [g1, g2]
+        self._triangles.extend([g1, g2])
+        self._update_boundary(edge, mid_idx)
 
-    def update_mesh(self):
-        # set mesh as vertices, elements
-        self.triangle_index_map = {}
-        elements = []
-        for triangle_idx, triangle in enumerate(self.triangles):
-            if triangle.status != 'red child' and triangle.status != 'green child':
+    # -- internal: lookups -----------------------------------------------
+
+    def _find_shared_triangle(
+        self,
+        edge: list[int],
+        exclude: set[int] | None = None,
+    ) -> int | None:
+        # TODO: replace with an edge→triangle index for O(1) lookup
+        for idx, tri in enumerate(self._triangles):
+            if exclude is not None and idx in exclude:
                 continue
-            elements.append(triangle.vertex_idxs)
-            self.triangle_index_map[len(elements) - 1] = triangle_idx
-        elements = np.array(elements)
+            if tri.status is _Status.GONE:
+                continue
+            if edge[0] in tri.vertex_idxs and edge[1] in tri.vertex_idxs:
+                return idx
+        return None
 
-        used_idxs = list(set(elements.flatten()))
-        index_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(used_idxs)}
-        
-        self.vertices = self.vertices[used_idxs]
-        self.elements = np.vectorize(index_mapping.get)(elements)
-        self.boundary = np.vectorize(index_mapping.get)(self.boundary)
-        self.boundary = [list(edge) for edge in self.boundary]
+    def _find_triangle(self, target: _Triangle) -> int | None:
+        for idx, tri in enumerate(self._triangles):
+            if tri is target:
+                return idx
+        return None
 
-        # with_topology, not Mesh(...): a refined FEMesh must come back an FEMesh,
-        # otherwise the caller loses element_objs / M / K on the next solve.
-        self.mesh = self.mesh.with_topology(self.vertices, self.elements, self.boundary)
+    def _find_vertex(self, point: Vertices) -> int | None:
+        # TODO: replace with an edge→midpoint dict for O(1) lookup
+        for idx, p in enumerate(self._vertices):
+            if (p == point).all():
+                return idx
+        return None
 
-    def get_mesh(self):
-        return self.mesh
+    # -- internal: boundary bookkeeping ----------------------------------
 
-    def plot(self, ax=None, title=None, edge=None, main_idx=None, green_idx=None, red_idx=None, triangle_idxs=None):
-        '''Draw the refinement state for debugging: the base mesh, the red/green
-        children in cyan, and whichever edge or triangles are under inspection.
+    def _update_boundary(self, edge: list[int], mid_idx: int) -> None:
+        if edge in self._boundary:
+            self._boundary.remove(edge)
+            self._boundary.extend([[edge[0], mid_idx], [mid_idx, edge[1]]])
+        elif edge[::-1] in self._boundary:
+            self._boundary.remove(edge[::-1])
+            self._boundary.extend([[edge[1], mid_idx], [mid_idx, edge[0]]])
 
-        Takes an Axes so successive refinement steps can be drawn side by side,
-        and draws through the plot helpers rather than Mesh.plot, which is a
-        no-argument convenience that shows a figure immediately.
-        '''
+    # -- internal: mesh emission -----------------------------------------
+
+    def _emit_mesh(self) -> _M:
+        """Build a new mesh from the current leaf triangles."""
+        self._tri_index_map = {}
+        elements: list[list[int]] = []
+        for tri_idx, tri in enumerate(self._triangles):
+            if tri.status not in (_Status.RED_CHILD, _Status.GREEN_CHILD):
+                continue
+            elements.append(tri.vertex_idxs)
+            self._tri_index_map[len(elements) - 1] = tri_idx
+        elements_arr = np.array(elements)
+
+        used_idxs = list(set(elements_arr.flatten()))
+        index_mapping = {old: new for new, old in enumerate(used_idxs)}
+
+        vertices = self._vertices[used_idxs]
+        remapped_elements = np.vectorize(index_mapping.get)(elements_arr)
+        remapped_boundary = np.vectorize(index_mapping.get)(self._boundary)
+        self._boundary = [list(edge) for edge in remapped_boundary]
+        self._vertices = vertices
+
+        self._source_mesh = self._source_mesh.with_topology(
+            vertices, remapped_elements, remapped_boundary,
+        )
+        return self._source_mesh
+
+    # -- debug plotting --------------------------------------------------
+
+    def plot(
+        self,
+        ax: object = None,
+        title: str | None = None,
+        edge: list[int] | None = None,
+        main_idx: int | None = None,
+        green_idx: int | None = None,
+        red_idx: int | None = None,
+        triangle_idxs: Sequence[int] | None = None,
+    ) -> object:
+        """Draw the refinement state for debugging."""
         from fem.plot.helpers import plot_mesh
         from fem.plot.plotter import Plotter
 
         if ax is None:
             ax = Plotter(title=title).get_ax()
-        plot_mesh(ax, self.mesh, linewidth=3)
+        plot_mesh(ax, self._source_mesh, linewidth=3)
         if edge is not None:
-            edge_vertices = self.vertices[edge]
-            ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], linewidth=3, color='blue')
+            edge_verts = self._vertices[edge]
+            ax.plot(edge_verts[:, 0], edge_verts[:, 1], linewidth=3, color='blue')
         if main_idx is not None:
-            main_triangle = self.triangles[main_idx]
-            main_center = np.mean(self.vertices[main_triangle.vertex_idxs], axis=0)
-            ax.scatter(main_center[0], main_center[1], color='blue')
+            center = np.mean(self._vertices[self._triangles[main_idx].vertex_idxs], axis=0)
+            ax.scatter(center[0], center[1], color='blue')
         if green_idx is not None:
-            green_triangle = self.triangles[green_idx]
-            green_center = np.mean(self.vertices[green_triangle.vertex_idxs], axis=0)
-            ax.scatter(green_center[0], green_center[1], color='green')
+            center = np.mean(self._vertices[self._triangles[green_idx].vertex_idxs], axis=0)
+            ax.scatter(center[0], center[1], color='green')
         if red_idx is not None:
-            red_triangle = self.triangles[red_idx]
-            red_center = np.mean(self.vertices[red_triangle.vertex_idxs], axis=0)
-            ax.scatter(red_center[0], red_center[1], color='red')
+            center = np.mean(self._vertices[self._triangles[red_idx].vertex_idxs], axis=0)
+            ax.scatter(center[0], center[1], color='red')
         if triangle_idxs is not None:
-            for triangle_idx in triangle_idxs:
-                triangle = self.triangles[triangle_idx]
-                center = np.mean(self.vertices[triangle.vertex_idxs], axis=0)
+            for idx in triangle_idxs:
+                center = np.mean(self._vertices[self._triangles[idx].vertex_idxs], axis=0)
                 ax.scatter(center[0], center[1], color='black')
-        plot_triangles = []
-        for triangle in self.triangles:
-            if triangle.status == 'red child' or triangle.status == 'green child':
-                plot_triangles.append(triangle)
-            
-        plotting_mesh = Mesh(self.vertices, [triangle.vertex_idxs for triangle in plot_triangles], self.boundary)
+
+        leaf_tris = [
+            t for t in self._triangles
+            if t.status in (_Status.RED_CHILD, _Status.GREEN_CHILD)
+        ]
+        plotting_mesh = Mesh(
+            self._vertices,
+            [t.vertex_idxs for t in leaf_tris],
+            self._boundary,
+        )
         plot_mesh(ax, plotting_mesh, color='cyan', linewidth=1)
         return ax
