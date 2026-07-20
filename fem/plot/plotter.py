@@ -47,7 +47,8 @@ class Plotter:
             figsize = (5*ncols, 5*nrows)
         
         self.fig, self.axs = plt.subplots(nrows, ncols, figsize=figsize)
-        self.fig.suptitle(title)
+        if title is not None:
+            self.fig.suptitle(title)
         if nrows == 1 and ncols == 1:
             self.axs = np.array([self.axs])
         self.axs = self.axs.reshape(nrows, ncols)

@@ -1,6 +1,6 @@
 import itertools
 from collections.abc import Sequence
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import numpy as np
 
@@ -52,7 +52,9 @@ class Mesh:
     @classmethod
     def load(cls: type[MeshT], path: str = 'test_mesh.json') -> MeshT:
         from fem.io import load_mesh
-        return load_mesh(path, cls=cls)
+        # load_mesh instantiates `cls` itself, but its signature can only promise
+        # a Mesh back.
+        return cast(MeshT, load_mesh(path, cls=cls))
 
     def __repr__(self) -> str:
         return f'Mesh(vertices={self.vertices}, elements={self.elements}, boundary={self.boundary})'

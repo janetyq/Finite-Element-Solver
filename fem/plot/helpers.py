@@ -39,7 +39,8 @@ def setup_colorbar(ax, vlim, label=None):
     sm.set_array([])  # Dummy data for colorbar
 
     cbar = plt.colorbar(sm, ax=ax)
-    cbar.set_label(label)
+    if label is not None:
+        cbar.set_label(label)
     return cmap, norm
 
 
