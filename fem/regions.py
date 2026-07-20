@@ -15,30 +15,38 @@ current, which is what lets it survive refinement. `at_indices` is the escape
 hatch for genuinely node-specific work; it marks itself mesh-bound so remeshers
 can refuse it instead of silently relocating it.
 """
+from collections.abc import Sequence
+
 import numpy as np
+
+from fem.typing import BoolArray, FieldValue, FloatArray, IntArray, Region, Vertices
 
 # Coordinates come from linspace/midpoint arithmetic, so exact boundary values
 # are representable; this only absorbs round-off, not genuine mesh spacing.
-DEFAULT_ATOL = 1e-9
+DEFAULT_ATOL: float = 1e-9
 
 
-def everywhere():
+def everywhere() -> Region:
     '''Every point. Combined with the boundary-only resolution, this means
     "the entire boundary" -- the most common Dirichlet region.'''
     return lambda points: np.ones(len(points), dtype=bool)
 
 
-def on_plane(axis, value, atol=DEFAULT_ATOL):
+def on_plane(axis: int, value: float, atol: float = DEFAULT_ATOL) -> Region:
     '''Points whose `axis` coordinate equals `value` (e.g. the left edge is
     on_plane(0, 0.0)).'''
     return lambda points: np.abs(points[:, axis] - value) <= atol
 
 
-def in_box(lower, upper, atol=DEFAULT_ATOL):
+def in_box(
+    lower: Sequence[float | None],
+    upper: Sequence[float | None],
+    atol: float = DEFAULT_ATOL,
+) -> Region:
     '''Points inside an axis-aligned box, inclusive. A `None` bound on either
     side leaves that direction unbounded, so a band in y is
     in_box([None, 0.2], [None, 0.8]).'''
-    def region(points):
+    def region(points: Vertices) -> BoolArray:
         mask = np.ones(len(points), dtype=bool)
         for axis, bound in enumerate(lower):
             if bound is not None:
@@ -50,9 +58,9 @@ def in_box(lower, upper, atol=DEFAULT_ATOL):
     return region
 
 
-def intersect(*regions):
+def intersect(*regions: Region) -> Region:
     '''Points in every one of `regions`.'''
-    def region(points):
+    def region(points: Vertices) -> BoolArray:
         mask = np.ones(len(points), dtype=bool)
         for r in regions:
             mask &= r(points)
@@ -60,9 +68,9 @@ def intersect(*regions):
     return _propagate_mesh_bound(region, regions)
 
 
-def union(*regions):
+def union(*regions: Region) -> Region:
     '''Points in any of `regions`.'''
-    def region(points):
+    def region(points: Vertices) -> BoolArray:
         mask = np.zeros(len(points), dtype=bool)
         for r in regions:
             mask |= r(points)
@@ -79,27 +87,29 @@ class at_indices:  # noqa: N801 - lowercase to read like the function helpers ab
     '''
     mesh_bound = True
 
-    def __init__(self, indices):
+    def __init__(self, indices: Sequence[int] | IntArray) -> None:
         self.indices = np.asarray(indices, dtype=int)
 
-    def __call__(self, points):
+    def __call__(self, points: Vertices) -> BoolArray:
         mask = np.zeros(len(points), dtype=bool)
         mask[self.indices] = True
         return mask
 
 
-def is_mesh_bound(region):
+def is_mesh_bound(region: Region) -> bool:
     '''Whether `region` is tied to one specific mesh's vertex numbering.'''
     return bool(getattr(region, 'mesh_bound', False))
 
 
-def _propagate_mesh_bound(combined, regions):
+def _propagate_mesh_bound(combined: Region, regions: tuple[Region, ...]) -> Region:
     if any(is_mesh_bound(r) for r in regions):
-        combined.mesh_bound = True
+        # Mirrors the getattr in is_mesh_bound: the flag rides on the callable
+        # itself, so a bare lambda can carry it without a wrapper type.
+        setattr(combined, 'mesh_bound', True)
     return combined
 
 
-def evaluate_field(value, points, dim):
+def evaluate_field(value: FieldValue, points: Vertices, dim: int) -> FloatArray:
     '''Normalize a constant or a callable-of-position into an (N, dim) array.
 
     A single rule -- "the value at a point" -- for both forms. The previous API

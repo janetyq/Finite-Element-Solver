@@ -200,8 +200,20 @@ class RefinementMesh:
     def get_mesh(self):
         return self.mesh
 
-    def plot(self, title=None, edge=None, main_idx=None, green_idx=None, red_idx=None, triangle_idxs=None):
-        ax = self.mesh.plot(title=title, show=False, linewidth=3)
+    def plot(self, ax=None, title=None, edge=None, main_idx=None, green_idx=None, red_idx=None, triangle_idxs=None):
+        '''Draw the refinement state for debugging: the base mesh, the red/green
+        children in cyan, and whichever edge or triangles are under inspection.
+
+        Takes an Axes so successive refinement steps can be drawn side by side,
+        and draws through the plot helpers rather than Mesh.plot, which is a
+        no-argument convenience that shows a figure immediately.
+        '''
+        from fem.plot.helpers import plot_mesh
+        from fem.plot.plotter import Plotter
+
+        if ax is None:
+            ax = Plotter(title=title).get_ax()
+        plot_mesh(ax, self.mesh, linewidth=3)
         if edge is not None:
             edge_vertices = self.vertices[edge]
             ax.plot(edge_vertices[:, 0], edge_vertices[:, 1], linewidth=3, color='blue')
@@ -228,4 +240,5 @@ class RefinementMesh:
                 plot_triangles.append(triangle)
             
         plotting_mesh = Mesh(self.vertices, [triangle.vertex_idxs for triangle in plot_triangles], self.boundary)
-        plotting_mesh.plot(ax=ax, linewidth=1, color='cyan')
+        plot_mesh(ax, plotting_mesh, color='cyan', linewidth=1)
+        return ax

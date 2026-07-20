@@ -1,9 +1,11 @@
 ﻿import logging
+from collections.abc import Sequence
 
 import numpy as np
 from scipy.spatial import Delaunay
 
 from fem.mesh.mesh import Mesh
+from fem.typing import FloatArray
 from fem.geometry import (
     calculate_polygon_area,
     calculate_triangle_min_angle,
@@ -116,7 +118,12 @@ class RuppertsAlgorithm:
         return new_segments
 
 # Simple meshing functions
-def create_rect_mesh(corners, resolution):
+def create_rect_mesh(
+    corners: Sequence[Sequence[float]] | FloatArray,
+    resolution: Sequence[int],
+) -> Mesh:
+    '''A structured triangulation of the axis-aligned rectangle spanned by
+    `corners` ((x0, y0), (x1, y1)), with `resolution` (nx, ny) nodes per axis.'''
     x_range = np.linspace(corners[0][0], corners[1][0], resolution[0])
     y_range = np.linspace(corners[0][1], corners[1][1], resolution[1])
 
@@ -140,7 +147,9 @@ def create_rect_mesh(corners, resolution):
 
     return mesh
 
-def create_approx_mesh(outline, approx_triangles=100):
+def create_approx_mesh(outline: FloatArray, approx_triangles: int = 100) -> Mesh:
+    '''A triangulation of the polygon `outline` ((n_points, 2) vertices, in
+    order) with roughly `approx_triangles` elements.'''
     dx = np.sqrt(2 * calculate_polygon_area(outline) / approx_triangles)
     x_min, x_max = np.min(outline[:, 0]), np.max(outline[:, 0])
     y_min, y_max = np.min(outline[:, 1]), np.max(outline[:, 1])

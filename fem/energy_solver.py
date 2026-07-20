@@ -1,15 +1,27 @@
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 
+from fem.boundary import BoundaryConditions
 from fem.energies import LinearElasticEnergyDensity
 from fem.solution import Solution
-from fem.solver import LinearElastic
+from fem.solver import Equation, LinearElastic
+from fem.typing import DofVector, FloatArray, Matrix
+
+if TYPE_CHECKING:
+    from fem.mesh.femesh import FEMesh
 
 logger = logging.getLogger(__name__)
 
 class EnergySolver:
-    def __init__(self, femesh, equation, boundary_conditions, verbose=True):
+    def __init__(
+        self,
+        femesh: 'FEMesh',
+        equation: LinearElastic,
+        boundary_conditions: BoundaryConditions,
+        verbose: bool = True,
+    ) -> None:
         assert isinstance(equation, LinearElastic), "EnergySolver only supports linear elastic equation"
         # note: does not exactly match linear elastic solve for larger deformations bc doesn't use small strain approx
 
@@ -53,18 +65,18 @@ class EnergySolver:
         # check_gradient(self.energy, self.energy_gradient, len(self.femesh.vertices)*2)
         # check_hessian(self.energy_gradient, self.energy_hessian, len(self.femesh.vertices)*2)
 
-    def _select_energy(self, equation):
+    def _select_energy(self, equation: Equation) -> LinearElasticEnergyDensity:
         if isinstance(equation, LinearElastic):
             return LinearElasticEnergyDensity(equation.E, equation.nu)
         else:
             raise ValueError(f"Unsupported equation type: {type(equation).__name__}")
 
-    def element_energy(self, e_idx, u_element):
+    def element_energy(self, e_idx: int, u_element: FloatArray) -> float:
         grad_u_element = self.femesh.element_objs[e_idx].calculate_gradient(u_element)
         self.energy_density.set_grad_u(grad_u_element)
         return self.energy_density.W
 
-    def element_gradient(self, e_idx, u_element):
+    def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
         grad_u_element = self.femesh.element_objs[e_idx].calculate_gradient(u_element)
         self.energy_density.set_grad_u(grad_u_element)
         dW_dF = self.energy_density.dW_dF
@@ -72,7 +84,7 @@ class EnergySolver:
         dW_dx = np.einsum('ij,ijmn->mn', dW_dF, dF_dx)
         return dW_dx
 
-    def element_hessian(self, e_idx, u_element):
+    def element_hessian(self, e_idx: int, u_element: FloatArray) -> FloatArray:
         # d2W_dx2 = dW_dS @ (d2S_dF2 @ dF_dx @ dF_dx) + d2W_dS2 @ (dS_dx @ dS_dx)
         grad_u_element = self.femesh.element_objs[e_idx].grad_phi.T @ u_element
         self.energy_density.set_grad_u(grad_u_element)
@@ -89,14 +101,14 @@ class EnergySolver:
         term2 = np.einsum('ijkl,ijmn->klmn', term2, dS_dx)
         return term1 + term2
 
-    def energy(self, u):
+    def energy(self, u: DofVector) -> float:
         u[self.fixed] = self.fixed_values
         total = 0
         for e_idx, element in enumerate(self.femesh.elements):
             total += self.element_energy(e_idx, u.reshape(-1, self.dim)[element]) * self.femesh.element_objs[e_idx].volume
         return total
 
-    def energy_gradient(self, u):
+    def energy_gradient(self, u: DofVector) -> DofVector:
         u[self.fixed] = self.fixed_values
         total_energy_gradient = np.zeros((len(self.femesh.vertices), self.dim))
         for e_idx, element in enumerate(self.femesh.elements):
@@ -105,7 +117,7 @@ class EnergySolver:
         total_energy_gradient[self.fixed] = 0
         return total_energy_gradient
 
-    def energy_hessian(self, u): #TODO: not implemented
+    def energy_hessian(self, u: DofVector) -> Matrix: #TODO: not implemented
         u[self.fixed] = self.fixed_values
         n = len(self.femesh.vertices)
         total_energy_hessian = np.zeros((n, self.dim, n, self.dim))
@@ -117,7 +129,7 @@ class EnergySolver:
         total_energy_hessian[:, self.fixed] = 0
         return total_energy_hessian
 
-    def solve(self, max_iters=100):
+    def solve(self, max_iters: int = 100) -> Solution:
         u = np.zeros(len(self.femesh.vertices) * self.dim)
         u[self.fixed] = self.fixed_values
         logger.info("Initial energy: %s", self.energy(u))
@@ -125,7 +137,7 @@ class EnergySolver:
         self.solution.set_values("u", u)
         return self.solution
 
-    def newton_solve(self, u, max_iters=100):
+    def newton_solve(self, u: DofVector, max_iters: int = 100) -> DofVector:
         for iter in range(max_iters):
             if self.verbose:
                 logger.info("%d %s", iter, self.energy(u))

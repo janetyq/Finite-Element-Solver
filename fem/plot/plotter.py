@@ -1,8 +1,17 @@
+from collections.abc import Sequence
 from enum import Enum
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 from matplotlib.animation import FuncAnimation
+
+from fem.typing import FloatArray
+
+if TYPE_CHECKING:
+    from fem.boundary import BoundaryConditions
+    from fem.mesh.mesh import Mesh
 
 from fem.plot.helpers import (
     plot_mesh,
@@ -27,12 +36,19 @@ class PlotMode(Enum):
 
 
 class Plotter:
-    def __init__(self, nrows=1, ncols=1, figsize=None, title=None):
+    def __init__(
+        self,
+        nrows: int = 1,
+        ncols: int = 1,
+        figsize: tuple[float, float] | None = None,
+        title: str | None = None,
+    ) -> None:
         if figsize is None:
             figsize = (5*ncols, 5*nrows)
         
         self.fig, self.axs = plt.subplots(nrows, ncols, figsize=figsize)
-        self.fig.suptitle(title)
+        if title is not None:
+            self.fig.suptitle(title)
         if nrows == 1 and ncols == 1:
             self.axs = np.array([self.axs])
         self.axs = self.axs.reshape(nrows, ncols)
@@ -41,7 +57,17 @@ class Plotter:
         self.cbar_infos = {}
 
     # function for plotting at a specific index
-    def plot(self, mesh, values=None, mode=PlotMode.MESH, idx=(0, 0), title=None, bc=None, clear=False, empty=False):
+    def plot(
+        self,
+        mesh: 'Mesh',
+        values: FloatArray | Sequence[float] | None = None,
+        mode: PlotMode | str = PlotMode.MESH,
+        idx: tuple[int, int] = (0, 0),
+        title: str | None = None,
+        bc: 'BoundaryConditions | None' = None,
+        clear: bool = False,
+        empty: bool = False,
+    ) -> None:
         mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
         ax = self.axs[idx]
         if clear:
@@ -71,7 +97,15 @@ class Plotter:
         if empty:
             ax.axis('off')
 
-    def plot_highlights(self, mesh, idxs_list, color_list, label_list, mode='vertices', idx=(0, 0)):
+    def plot_highlights(
+        self,
+        mesh: 'Mesh',
+        idxs_list: Sequence[Any],
+        color_list: Sequence[str],
+        label_list: Sequence[str],
+        mode: str = 'vertices',
+        idx: tuple[int, int] = (0, 0),
+    ) -> None:
         if not (len(idxs_list) == len(color_list) == len(label_list)):
             raise ValueError("idxs_list, color_list, and label_list must have the same length.")
 
@@ -80,23 +114,32 @@ class Plotter:
 
 
     # Specialty plotting
-    def plot_animation(self, mesh, values, mode=PlotMode.COLORED, idx=(0, 0), titles=None, cbar_lims=(0, 1)):
-        if titles is None:
-            titles = [str(i) for i in range(len(values))]
+    def plot_animation(
+        self,
+        mesh: 'Mesh',
+        values: Sequence[FloatArray],
+        mode: PlotMode | str = PlotMode.COLORED,
+        idx: tuple[int, int] = (0, 0),
+        titles: Sequence[str] | None = None,
+        cbar_lims: tuple[float, float] = (0, 1),
+    ) -> None:
+        # Bound to a local list so the nested `update` closure keeps the
+        # non-optional type; a narrowed parameter does not survive capture.
+        frame_titles = list(titles) if titles is not None else [str(i) for i in range(len(values))]
 
         # sets up colorbar for animation with desired limits
         self.cbar_infos[idx] = setup_colorbar(self.axs[idx], cbar_lims, label=None)
-        self.plot(mesh, values[0], mode=mode, idx=idx, title=titles[0])
+        self.plot(mesh, values[0], mode=mode, idx=idx, title=frame_titles[0])
 
-        def update(frame):
-            self.plot(mesh, values[frame], mode=mode, idx=idx, title=titles[frame], clear=True)
+        def update(frame: int) -> None:
+            self.plot(mesh, values[frame], mode=mode, idx=idx, title=frame_titles[frame], clear=True)
 
         self.anims[idx] = FuncAnimation(self.fig, update, frames=range(len(values)), blit=False, repeat=True)
 
-    def get_ax(self, idx=(0, 0)):
+    def get_ax(self, idx: tuple[int, int] = (0, 0)) -> Axes:
         return self.axs[idx]
 
-    def format_axs(self):
+    def format_axs(self) -> None:
         for ax in self.axs.ravel():
             ax.ticklabel_format(useOffset=False)
             ax.set_xlabel('x')
@@ -110,16 +153,16 @@ class Plotter:
             if any(ax.get_legend_handles_labels()[1]):
                 ax.legend()
 
-    def show(self):
+    def show(self) -> None:
         self.format_axs()
         plt.show()
 
-    def save(self, path):
+    def save(self, path: str) -> None:
         self.format_axs()
         plt.savefig(path)
 
         # TODO: animation saving not supported yet
 
-    def close(self):
+    def close(self) -> None:
         plt.close()
         
