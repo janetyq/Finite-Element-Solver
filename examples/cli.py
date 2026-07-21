@@ -8,7 +8,7 @@
 import argparse
 import logging
 
-from fem.mesh.femesh import FEMesh
+from fem.mesh.mesh import Mesh
 
 from demo_registry import Demo
 import meshing_demos
@@ -58,7 +58,7 @@ def _show_or_save(result, save_path):
 
 
 def run_demo(demo: Demo, mesh_file: str, save_path: str | None) -> None:
-    args = [FEMesh.load(mesh_file)] if demo.needs_mesh else []
+    args = [Mesh.load(mesh_file)] if demo.needs_mesh else []
     result = demo.func(*args)
 
     if demo.returns_plotter:

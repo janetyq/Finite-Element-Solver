@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 # keep them from colliding with the mesh/component-count metadata in the same archive.
 _VALUE_PREFIX = 'value.'
 _MESH_CLASS = '__mesh_class__'
-_MESH_ELEMENT_TYPE = '__mesh_element_type__'
 _MESH_VERTICES = '__mesh_vertices__'
 _MESH_ELEMENTS = '__mesh_elements__'
 _MESH_BOUNDARY = '__mesh_boundary__'
@@ -51,16 +50,13 @@ def save_mesh(mesh, path='test_mesh.json'):
     logger.info('Saved mesh to %s', path)
 
 
-def load_mesh(path='test_mesh.json', cls=None):
-    '''Read a mesh from JSON. `cls` selects the class to rebuild (default Mesh),
-    which is how `FEMesh.load` returns an FEMesh rather than a bare Mesh.'''
+def load_mesh(path='test_mesh.json'):
+    '''Read a mesh from JSON.'''
     from fem.mesh.mesh import Mesh
 
-    if cls is None:
-        cls = Mesh
     with open(path, 'r') as f:
         data = json.load(f)
-    return cls(data['vertices'], data['elements'], data['boundary'])
+    return Mesh(data['vertices'], data['elements'], data['boundary'])
 
 
 # --- solutions --------------------------------------------------------------
@@ -72,34 +68,25 @@ def _mesh_to_arrays(mesh):
         _MESH_BOUNDARY: np.asarray(mesh.boundary),
         _MESH_CLASS: np.array(type(mesh).__name__),
     }
-    element_type = getattr(mesh, 'element_type', None)  # FEMesh only
-    if element_type is not None:
-        arrays[_MESH_ELEMENT_TYPE] = np.array(element_type.__name__)
     return arrays
 
 
 def _mesh_from_arrays(data):
-    import fem.elements
-    from fem.mesh.femesh import FEMesh
     from fem.mesh.mesh import Mesh
 
     geometry = (data[_MESH_VERTICES], data[_MESH_ELEMENTS], data[_MESH_BOUNDARY])
     mesh_class = str(data[_MESH_CLASS])
-
-    if mesh_class == 'Mesh':
-        return Mesh(*geometry)
-    if mesh_class == 'FEMesh':
-        element_type_name = str(data[_MESH_ELEMENT_TYPE])
-        element_type = getattr(fem.elements, element_type_name, None)
-        if element_type is None:
-            raise ValueError(f'Unknown element type in saved solution: {element_type_name}')
-        return FEMesh(*geometry, element_type=element_type)
-    raise ValueError(f'Unknown mesh class in saved solution: {mesh_class}')
+    # 'FEMesh' still appears in archives written before the element data moved to
+    # FunctionSpace. Geometry is all that was ever stored, so those load as a Mesh
+    # and a solve rebuilds the rest.
+    if mesh_class not in ('Mesh', 'FEMesh'):
+        raise ValueError(f'Unknown mesh class in saved solution: {mesh_class}')
+    return Mesh(*geometry)
 
 
 def save_solution(solution, path='solution.npz'):
     '''Write a solution (values + mesh + component count) to a single npz archive.'''
-    arrays = _mesh_to_arrays(solution.femesh)
+    arrays = _mesh_to_arrays(solution.mesh)
     arrays[_N_COMPONENTS] = np.asarray(solution.n_components)
     for name, value in solution.values.items():
         arrays[_VALUE_PREFIX + name] = np.asarray(value)
@@ -111,19 +98,14 @@ def save_solution(solution, path='solution.npz'):
 
 def load_solution(path='solution.npz'):
     '''Read a solution written by `save_solution`.'''
-    from fem.mesh.femesh import FEMesh
     from fem.solution import Solution
 
     with np.load(path) as data:
-        # A Solution always comes from a solve, so its mesh is an FEMesh and that
-        # is what round-trips. A bare Mesh here means the file was hand-built,
-        # and the missing element_objs/M/K would only surface much later.
+        # A Solution is defined over geometry alone -- it reads vertices and
+        # elements and nothing else -- so whichever mesh class was stored is
+        # enough. Element geometry and operators belong to a FunctionSpace,
+        # which a solve builds for itself.
         mesh = _mesh_from_arrays(data)
-        if not isinstance(mesh, FEMesh):
-            raise ValueError(
-                f'solution at {path} stores a {type(mesh).__name__}; a Solution is '
-                f'defined over an FEMesh'
-            )
         solution = Solution(mesh, int(data[_N_COMPONENTS]))
         for key in data.files:
             if key.startswith(_VALUE_PREFIX):

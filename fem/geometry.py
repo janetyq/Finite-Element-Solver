@@ -13,8 +13,8 @@ def calculate_polygon_area(polygon):
         return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
     if polygon.shape[1] == 3 and len(polygon) == 3:
         # Half the cross-product magnitude. Needed for the triangular boundary
-        # facets of a tet mesh, so this gates FEMesh construction in 3D at all --
-        # not only the surface-mesh case.
+        # facets of a tet mesh, so this gates every 3D path -- not only the
+        # surface-mesh case.
         a, b = polygon[1] - polygon[0], polygon[2] - polygon[0]
         return 0.5 * float(np.linalg.norm(np.cross(a, b)))
     # A general planar polygon in 3D needs Newell's method to recover the normal;

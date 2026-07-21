@@ -24,10 +24,10 @@ pip install -e ".[viz3d]"
 ## Quick Start
 
 ```python
-from fem import FEMesh, BoundaryConditions, BCType, Solver, Poisson, Plotter
+from fem import Mesh, BoundaryConditions, BCType, Solver, Poisson, Plotter
 from fem.regions import everywhere
 
-mesh = FEMesh.load("files/mesh_40x40.json")
+mesh = Mesh.load("files/mesh_40x40.json")   # geometry only
 
 # The source term f is data of the equation; the boundary conditions describe
 # only the boundary, and do so geometrically -- so the same `bc` is valid on any
@@ -36,6 +36,8 @@ equation = Poisson(source=1)
 bc = BoundaryConditions()
 bc.add(BCType.DIRICHLET, everywhere(), 0)
 
+# Solver picks the element type off the connectivity and derives the DOFs per
+# node from the equation, so it builds its own FunctionSpace over the mesh.
 solution = Solver(mesh, equation, bc).solve()
 
 plotter = Plotter(title="Poisson")
@@ -47,17 +49,18 @@ plotter.show()
 
 ```
 fem/                 # the solver package
-├── mesh/            # Mesh, FEMesh, red-green refinement, mesh generation
+├── mesh/            # Mesh, red-green refinement, mesh generation
 ├── plot/            # Plotter, 2D drawing helpers, 3D tet rendering
 ├── elements.py      # linear line/triangle/tetrahedral elements
 ├── boundary.py      # BoundaryConditions spec -> ResolvedBC for a given mesh
 ├── regions.py       # position-based regions and fields (on_plane, in_box, ...)
+├── space.py         # FunctionSpace: DOF numbering, element geometry, operators
 ├── solver.py        # Equation + Solver (Poisson, heat, wave, elasticity)
 ├── solution.py      # solution container
 ├── energies.py, energy_solver.py   # nonlinear (hyperelastic) energy solver
 ├── topology.py      # SIMP topology optimization
 ├── geometry.py, materials.py, numerics.py   # math helpers
-├── quadrature.py    # quadrature rules
+├── quadrature.py    # quadrature rules (not yet wired into assembly)
 └── svg.py           # SVG outline -> planar straight-line graph
 tests/               # pytest suite (unit, convergence, integration smoke)
 examples/            # runnable demo scripts

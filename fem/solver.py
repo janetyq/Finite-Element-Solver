@@ -1,15 +1,16 @@
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeVar
+from typing import TypeVar
 
 import numpy as np
 
 from fem.mesh.refinement import RedGreenRefiner
-from fem.mesh.femesh import dof_indices
+from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
 from fem.fields import FieldShape, Scalar, Vector
 from fem.regions import evaluate_field
 from fem.solution import Solution
+from fem.space import FunctionSpace, dof_indices
 from fem.materials import Enu_to_Lame
 from fem.typing import (
     DofIndices,
@@ -20,9 +21,6 @@ from fem.typing import (
     Matrix,
     VertexField,
 )
-
-if TYPE_CHECKING:
-    from fem.mesh.femesh import FEMesh
 
 # (free_idxs, fixed_idxs, fixed_values) -- the DOF partition a solve works in.
 # Passed explicitly where the unknown is not one value per node, as in the wave
@@ -122,15 +120,19 @@ class LinearElastic(Equation):
 class Solver:
     def __init__(
         self,
-        femesh: 'FEMesh',
+        mesh: Mesh,
         equation: Equation,
         boundary_conditions: BoundaryConditions | None = None,
     ) -> None:
-        self.femesh = femesh
+        self.mesh = mesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions()
-        self.n_components = self.equation.field.components_for(femesh.spatial_dim)
-        self.solution = Solution(femesh, self.n_components)
+        # Derived, never passed: the component count follows from the equation's
+        # field and the mesh, so a space that disagrees with the equation it is
+        # solving is not constructible here.
+        self.n_components = self.equation.field.components_for(mesh.spatial_dim)
+        self.space = FunctionSpace(mesh, n_components=self.n_components)
+        self.solution = Solution(mesh, self.n_components)
 
         self._resolve_bc()
 
@@ -140,7 +142,7 @@ class Solver:
         Called again whenever the mesh changes (adaptive refinement), which is
         the whole reason the spec is kept separate from its resolution.
         '''
-        self.resolved_bc = self.boundary_conditions.resolve(self.femesh, self.n_components)
+        self.resolved_bc = self.boundary_conditions.resolve(self.mesh, self.n_components)
 
     def _equation_as(self, kind: type[EquationT]) -> EquationT:
         '''The equation, narrowed to the type the calling solver expects.
@@ -177,21 +179,37 @@ class Solver:
         return self.solution
 
     def assemble_everything(self) -> None:
+        # The mass matrices are geometry only, so the space caches them. Stiffness
+        # takes material data for the elastic case, so it is rebuilt here -- which
+        # is also why it cannot be a property of a material-free space.
+        self.M = self.space.mass_matrix
+        self.M_b = self.space.boundary_mass_matrix
         if isinstance(self.equation, LinearElastic):
-            E = np.full(len(self.femesh.elements), self.equation.E)
-            nu = np.full(len(self.femesh.elements), self.equation.nu)
-            mu, lamb = Enu_to_Lame(E, nu) 
+            E = np.full(len(self.mesh.elements), self.equation.E)
+            nu = np.full(len(self.mesh.elements), self.equation.nu)
+            mu, lamb = Enu_to_Lame(E, nu)
             self.mu, self.lamb = mu, lamb
-            self.femesh.prepare_matrices(n_components=self.n_components, mu=mu, lamb=lamb)
+            self.K = self.space.assemble_stiffness(mu=mu, lamb=lamb)
         else:
-            self.femesh.prepare_matrices(n_components=self.n_components)
+            self.K = self.space.assemble_stiffness()
 
         # RHS: the equation's source term over the volume, plus the boundary
         # traction over the boundary. A Robin condition would add its matrix
-        # term to the LHS here, via femesh.K_b / femesh.M_b.
-        source_load = evaluate_field(self.equation.source, self.femesh.vertices, self.n_components)
-        self.b = (self.femesh.M @ source_load.flatten()).flatten()
-        self.b += (self.femesh.M_b @ self.resolved_bc.neumann_load.flatten()).flatten()
+        # term to the LHS here, from a boundary stiffness the space would assemble.
+        source_load = evaluate_field(self.equation.source, self.mesh.vertices, self.n_components)
+        self.b = (self.M @ source_load.flatten()).flatten()
+        self.b += (self.M_b @ self.resolved_bc.neumann_load.flatten()).flatten()
+
+    def wave_energy(self, u: VertexField, dudt: VertexField, c: float) -> float:
+        '''Total wave energy 1/2 (c^2 u^T K u + dudt^T M dudt).
+
+        The quantity Crank-Nicolson actually conserves, so it is a usable
+        integrator diagnostic -- provided the potential term keeps its c^2 and
+        the kinetic term uses the consistent mass matrix. Pairing a lumped
+        kinetic term with an exact potential one makes the total swing by ~20%
+        as energy sloshes between them, which is pure measurement artifact.
+        '''
+        return float(0.5 * (c**2 * (u @ self.K @ u) + dudt @ self.M @ dudt))
 
     def solve_linear_system(
         self,
@@ -240,12 +258,12 @@ class Solver:
 
     def solve_projection(self) -> None:
         logger.info('Solving L2 projection...')  # M @ u = b
-        u = self.solve_linear_system(self.femesh.M, self.b)
+        u = self.solve_linear_system(self.M, self.b)
         self.solution.set_values("u", u)
     
     def solve_poisson(self) -> None:
         logger.info('Solving Poisson equation...')  # K @ u = b
-        u = self.solve_linear_system(self.femesh.K, self.b)
+        u = self.solve_linear_system(self.K, self.b)
         self.solution.set_values("u", u)
 
     def solve_heat(self) -> None:
@@ -258,10 +276,10 @@ class Solver:
         t_values: list[float] = [0.0]
         u_values = [u]
         for i in range(iters):
-            u = self.solve_linear_system(self.femesh.M + self.femesh.K * dt, self.femesh.M @ u + self.b * dt)
+            u = self.solve_linear_system(self.M + self.K * dt, self.M @ u + self.b * dt)
             t_values.append(dt * (i+1))
             u_values.append(u.copy())
-            logger.debug('t = %.3f, mean temp = %.3f', t_values[-1], self.femesh.calculate_mean_value(u_values[-1]))
+            logger.debug('t = %.3f, mean temp = %.3f', t_values[-1], self.space.mean_value(u_values[-1]))
 
         self.solution.set_values("t_values", t_values)
         self.solution.set_values("u_values", u_values)
@@ -298,13 +316,13 @@ class Solver:
         u, dudt = equation.u_initial, equation.dudt_initial
         c = equation.c
         dt, iters = equation.dt, equation.iters
-        N = len(self.femesh.vertices)
+        N = len(self.mesh.vertices)
 
         # Crank-Nicolson method - average of forward and backward Euler
-        A_left = np.block([[self.femesh.M, -dt/2 * self.femesh.M],
-                           [c**2 * dt/2 * self.femesh.K, self.femesh.M]])
-        A_right = np.block([[self.femesh.M, dt/2 * self.femesh.M],
-                            [-c**2 * dt/2 * self.femesh.K, self.femesh.M]])
+        A_left = np.block([[self.M, -dt/2 * self.M],
+                           [c**2 * dt/2 * self.K, self.M]])
+        A_right = np.block([[self.M, dt/2 * self.M],
+                            [-c**2 * dt/2 * self.K, self.M]])
         # The load row of Crank-Nicolson is dt/2 * (b_n + b_{n+1}). Nothing in the
         # solver makes the load time-dependent, so b_n == b_{n+1} and the average
         # collapses to dt * b. Reinstate the two-term form if loads ever vary in t.
@@ -315,7 +333,7 @@ class Solver:
         t_values: list[float] = [0.0]
         u_values = [x[:N]]
         dudt_values = [x[N:]]
-        total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1], c=c)
+        total_energy = self.wave_energy(u_values[-1], dudt_values[-1], c)
         logger.debug('t = %.3f, total energy = %.3f', t_values[-1], total_energy)
 
         for i in range(iters):
@@ -323,7 +341,7 @@ class Solver:
             t_values.append(dt * (i+1))
             u_values.append(x[:N])
             dudt_values.append(x[N:])
-            total_energy = self.femesh.calculate_energy(u_values[-1], dudt_values[-1], c=c)
+            total_energy = self.wave_energy(u_values[-1], dudt_values[-1], c)
             logger.debug('t = %.3f, total energy = %.3f', t_values[-1], total_energy)
 
         self.solution.set_values("t_values", t_values)
@@ -331,14 +349,14 @@ class Solver:
         self.solution.set_values("dudt_values", dudt_values)
 
     def solve_linear_elastic(self) -> None:
-        u = self.solve_linear_system(self.femesh.K, self.b)
+        u = self.solve_linear_system(self.K, self.b)
 
         eps_elements = []
         sigma_elements = []
         compliance_elements = []
 
-        for e_idx, element in enumerate(self.femesh.elements):
-            element_obj = self.femesh.element_objs[e_idx]
+        for e_idx, element in enumerate(self.mesh.elements):
+            element_obj = self.space.element_objs[e_idx]
             B = element_obj.calculate_B()
             D = element_obj.calculate_D(self.mu[e_idx], self.lamb[e_idx])
             u_element = u[dof_indices(element, self.n_components)]
@@ -374,26 +392,29 @@ class Solver:
         '''
         self.boundary_conditions.check_remeshable()
 
-        refiner = RedGreenRefiner(self.femesh)
+        refiner = RedGreenRefiner(self.mesh)
         for _ in range(max_iters):
-            if len(self.femesh.elements) >= max_triangles:
+            if len(self.mesh.elements) >= max_triangles:
                 break
 
             residuals = np.asarray(estimator(self), dtype=float)
-            if len(residuals) != len(self.femesh.elements):
+            if len(residuals) != len(self.mesh.elements):
                 raise ValueError(
                     f'estimator returned {len(residuals)} values for '
-                    f'{len(self.femesh.elements)} elements'
+                    f'{len(self.mesh.elements)} elements'
                 )
             refine_idxs = np.flatnonzero(residuals >= refine_fraction * residuals.max())
             if len(refine_idxs) == 0:
                 break
 
-            self.femesh = refiner.refine([int(i) for i in refine_idxs])
+            self.mesh = refiner.refine([int(i) for i in refine_idxs])
             # The refined mesh renumbers vertices, so anything index-keyed has to
-            # be rebuilt from its specification rather than carried over.
+            # be rebuilt from its specification rather than carried over. The
+            # space owns cached operators sized to the old mesh, so it is
+            # replaced rather than refreshed.
+            self.space = FunctionSpace(self.mesh, n_components=self.n_components)
             self._resolve_bc()
-            self.solution = Solution(self.femesh, self.n_components)
+            self.solution = Solution(self.mesh, self.n_components)
             self.solve()
 
         return self.solution
@@ -420,8 +441,8 @@ class Solver:
     #     # Apriori error ||e|| <= C * h^2 * ||f"||
     #     if apriori:
     #         # compute apriori residual
-    #         residuals = np.zeros(len(self.femesh.elements))
-    #         for e_idx, element in enumerate(self.femesh.elements):
+    #         residuals = np.zeros(len(self.mesh.elements))
+    #         for e_idx, element in enumerate(self.mesh.elements):
     #             residuals[e_idx] = 0 # placeholder
     #         self.solution.set_values("apriori_residual", residuals)
     #     else:

@@ -19,33 +19,33 @@ from fem.topology import TopologyOptimizer
 def test_get_values_converts_vertex_field_to_element_field(make_unit_square):
     """get_values(mode=...) called self._convert_*, which never existed -- the
     conversions live on the mesh, without the underscore."""
-    femesh = make_unit_square(6)
-    solution = Solution(femesh, n_components=1)
-    solution.set_values('u', np.ones(len(femesh.vertices)))
+    mesh = make_unit_square(6)
+    solution = Solution(mesh, n_components=1)
+    solution.set_values('u', np.ones(len(mesh.vertices)))
 
     element_values = solution.get_values('u', mode='element')
 
-    assert len(element_values) == len(femesh.elements)
+    assert len(element_values) == len(mesh.elements)
     assert np.allclose(element_values, 1.0)
 
 
 def test_get_values_converts_element_field_to_vertex_field(make_unit_square):
-    femesh = make_unit_square(6)
-    solution = Solution(femesh, n_components=1)
-    solution.set_values('rho', np.ones(len(femesh.elements)))
+    mesh = make_unit_square(6)
+    solution = Solution(mesh, n_components=1)
+    solution.set_values('rho', np.ones(len(mesh.elements)))
 
     vertex_values = solution.get_values('rho', mode='vertex')
 
-    assert len(vertex_values) == len(femesh.vertices)
+    assert len(vertex_values) == len(mesh.vertices)
     assert np.allclose(vertex_values, 1.0)
 
 
 def test_get_values_rejects_an_unknown_mode(make_unit_square):
     """An unrecognised mode fell out of the if/elif chain as None, which only
     failed wherever the caller went on to index it."""
-    femesh = make_unit_square(4)
-    solution = Solution(femesh, n_components=1)
-    solution.set_values('u', np.ones(len(femesh.vertices)))
+    mesh = make_unit_square(4)
+    solution = Solution(mesh, n_components=1)
+    solution.set_values('u', np.ones(len(mesh.vertices)))
 
     with pytest.raises(ValueError, match='unknown mode'):
         solution.get_values('u', mode='nodal')
@@ -54,20 +54,20 @@ def test_get_values_rejects_an_unknown_mode(make_unit_square):
 def test_target_compliance_objective_is_callable(make_unit_square):
     """target_compliance_objective/gradient called self.compliance() with no
     argument, so selecting the objective was a guaranteed TypeError."""
-    femesh = make_unit_square(5)
+    mesh = make_unit_square(5)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [0.0, -1.0])
 
     optimizer = TopologyOptimizer(
-        femesh, LinearElastic(E=1.0, nu=0.3), bc, iters=1, volume_frac=0.5
+        mesh, LinearElastic(E=1.0, nu=0.3), bc, iters=1, volume_frac=0.5
     )
     optimizer.solver.solve()
 
     objective, gradient = optimizer._select_objective('target_compliance')
 
     assert np.isfinite(objective([0.0]))
-    assert len(gradient([0.0])) == len(femesh.elements)
+    assert len(gradient([0.0])) == len(mesh.elements)
 
 
 def test_refinement_plot_draws(make_unit_square):
@@ -75,8 +75,8 @@ def test_refinement_plot_draws(make_unit_square):
     from fem.plot.helpers import plot_refinement
     from fem.plot.plotter import Plotter
 
-    femesh = make_unit_square(4)
-    refiner = RedGreenRefiner(femesh)
+    mesh = make_unit_square(4)
+    refiner = RedGreenRefiner(mesh)
     mesh = refiner.refine([0])
 
     ax = Plotter().get_ax()

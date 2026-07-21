@@ -11,19 +11,17 @@ matplotlib.use("Agg")
 import pytest
 
 from fem.mesh.generation import create_rect_mesh
-from fem.mesh.femesh import FEMesh
 
 
 @pytest.fixture
 def make_unit_square():
-    """Factory fixture: build a fresh FEMesh on the unit square [0,1]^2.
+    """Factory fixture: build a fresh Mesh on the unit square [0,1]^2.
 
     Returns a callable so each test can pick its own resolution, e.g.
-    ``femesh = make_unit_square(20)``. A fresh mesh per call avoids solver
-    state (assembled matrices, n_components) bleeding between tests.
+    ``mesh = make_unit_square(20)``. Geometry only -- a solver builds its own
+    FunctionSpace, so there is no assembled state to bleed between tests.
     """
     def _make(n=20):
-        base = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-        return FEMesh(base.vertices, base.elements, base.boundary)
+        return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
     return _make

@@ -41,7 +41,7 @@ VertexField: TypeAlias = FloatArray
 ElementField: TypeAlias = FloatArray
 
 # (n_vertices * n_components,) the flat unknown a solve works in, ordered so that
-# node v component d lives at index n_components*v + d. `fem.mesh.femesh.dof_indices` builds
+# node v component d lives at index n_components*v + d. `fem.space.dof_indices` builds
 # these from element node indices.
 DofVector: TypeAlias = FloatArray
 

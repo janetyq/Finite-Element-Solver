@@ -26,9 +26,7 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, BCType
-from fem.elements import LinearTetrahedralElement
 from fem.materials import Enu_to_Lame
-from fem.mesh.femesh import FEMesh
 from fem.mesh.generation import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere
 from fem.solver import Solver, LinearElastic
@@ -46,11 +44,12 @@ def _observed_orders(data):
     ]
 
 
-def _l2_error(femesh, u_h, u_exact):
-    # ||e||_L2^2 = e^T M e. M is the vector mass matrix -- the scalar one repeated
-    # per component -- so this is the true vector L2 norm, not just component 0.
+def _l2_error(space, u_h, u_exact):
+    # ||e||_L2^2 = e^T M e, with M the space's vector mass matrix -- the scalar
+    # one repeated per component -- so this is the true vector L2 norm, not just
+    # component 0.
     error = (u_h.reshape(u_exact.shape) - u_exact).flatten()
-    return float(np.sqrt(error @ femesh.M @ error))
+    return float(np.sqrt(error @ space.mass_matrix @ error))
 
 
 # --------------------------------------------------------------------------
@@ -58,8 +57,7 @@ def _l2_error(femesh, u_h, u_exact):
 # --------------------------------------------------------------------------
 
 def _solve_2d(n):
-    base = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    femesh = FEMesh(base.vertices, base.elements, base.boundary)
+    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
     def source(p):
         x, y = p
@@ -70,11 +68,12 @@ def _solve_2d(n):
 
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0])
-    solution = Solver(femesh, LinearElastic(E=E, nu=NU, source=source), bc).solve()
+    solver = Solver(mesh, LinearElastic(E=E, nu=NU, source=source), bc)
+    solution = solver.solve()
 
-    exact = np.zeros((len(femesh.vertices), 2))
-    exact[:, 0] = np.sin(PI * femesh.vertices[:, 0]) * np.sin(PI * femesh.vertices[:, 1])
-    return 1.0 / (n - 1), _l2_error(femesh, solution.get_values('u'), exact)
+    exact = np.zeros((len(mesh.vertices), 2))
+    exact[:, 0] = np.sin(PI * mesh.vertices[:, 0]) * np.sin(PI * mesh.vertices[:, 1])
+    return 1.0 / (n - 1), _l2_error(solver.space, solution.get_values('u'), exact)
 
 
 @pytest.fixture(scope='module')
@@ -99,11 +98,8 @@ def test_2d_second_order(convergence_2d):
 # --------------------------------------------------------------------------
 
 def _solve_3d(n):
-    base = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
-    femesh = FEMesh(
-        base.vertices, base.elements, base.boundary,
-        element_type=LinearTetrahedralElement,
-    )
+    # No element type to state: Solver reads it off the connectivity.
+    mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
 
     def source(p):
         x, y, z = p
@@ -115,12 +111,13 @@ def _solve_3d(n):
 
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0, 0.0])
-    solution = Solver(femesh, LinearElastic(E=E, nu=NU, source=source), bc).solve()
+    solver = Solver(mesh, LinearElastic(E=E, nu=NU, source=source), bc)
+    solution = solver.solve()
 
-    v = femesh.vertices
+    v = mesh.vertices
     exact = np.zeros((len(v), 3))
     exact[:, 0] = np.sin(PI * v[:, 0]) * np.sin(PI * v[:, 1]) * np.sin(PI * v[:, 2])
-    return 1.0 / (n - 1), _l2_error(femesh, solution.get_values('u'), exact)
+    return 1.0 / (n - 1), _l2_error(solver.space, solution.get_values('u'), exact)
 
 
 @pytest.fixture(scope='module')
