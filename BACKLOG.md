@@ -94,9 +94,11 @@ because it's inside a Newton loop.
   hyperelasticity via the existing `EnergySolver`/`Energies` machinery) all fit the current
   architecture well. Finishing `NeohookeanEnergyDensity` would immediately give a nonlinear
   material through the already-working Newton solver.
-- 💡 **N-D elasticity.** `LinearElasticEnergyDensity` and `EnergySolver` now reject non-2D
-  input explicitly instead of failing deep inside an einsum, but their tensors are still built
-  at fixed rank. Generalizing them over `dim` is the actual feature behind that guard.
+- 💡 **N-D elasticity in `EnergySolver`.** The linear path is done: `Solver` + `LinearElastic`
+  now solves 3D elasticity on a tet mesh, with an MMS convergence test in
+  `tests/test_convergence_elasticity.py`. `EnergySolver` still refuses anything but 2D,
+  because `LinearElasticEnergyDensity` builds its tensors at fixed rank 2 — generalizing
+  those is the remaining work behind that guard.
 - 💡 **Time-integration abstraction.** Backward-Euler (heat) and Crank–Nicolson (wave) are
   hand-coded inline. A small `TimeIntegrator` interface (θ-method / generalized-α) would
   deduplicate and make it trivial to add new dynamics.
@@ -116,7 +118,10 @@ because it's inside a Newton loop.
 
 **Engineering**
 - 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg`, `generation` (Rupperts/approx
-  mesh), the 3D tet path, and adaptive refinement have no *correctness* tests.
+  mesh), and adaptive refinement have no *correctness* tests. The 3D tet path now has one,
+  but only up to h = 1/10: the dense solve caps resolution short of the asymptotic regime,
+  so the 3D assertion is "order climbs toward 2" rather than "order is 2". Worth tightening
+  to the 2D band once sparse matrices make finer meshes affordable.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
   the prose half is still open. The biggest modules are the least documented — `solver.py`,
   `mesh/refinement.py`, `mesh/generation.py`, `elements.py` and `topology.py` have no

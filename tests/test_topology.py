@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from fem.geometry import get_boundary_from_vertices_elements
+from fem.mesh.generation import create_box_mesh
 from fem.mesh.mesh import Mesh
 
 
@@ -90,3 +91,39 @@ def test_boundary_of_rect_mesh_is_the_perimeter(make_unit_square):
     on_perimeter = np.isclose(femesh.vertices, 0) | np.isclose(femesh.vertices, 1)
     assert on_perimeter[femesh.boundary_idxs].any(axis=1).all()
     assert len(femesh.boundary) == 4 * (6 - 1)
+
+
+# --- box mesh generator ---
+
+@pytest.mark.parametrize('n', [2, 3, 5])
+def test_box_mesh_tiles_the_cube_exactly(n):
+    """Kuhn's decomposition gives 6 tets per cell, and they must partition the
+    cube: element volumes summing to 1 catches a mis-numbered corner, which
+    would otherwise produce overlapping or inverted tets."""
+    from fem.elements import LinearTetrahedralElement
+
+    mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
+    assert len(mesh.vertices) == n**3
+    assert len(mesh.elements) == 6 * (n - 1)**3
+
+    volume = sum(
+        LinearTetrahedralElement(mesh.vertices[element]).volume
+        for element in mesh.elements
+    )
+    assert volume == pytest.approx(1.0)
+
+
+def test_box_mesh_boundary_is_the_cube_surface():
+    """Every boundary vertex lies on a face of the cube and every interior one
+    does not -- i.e. the cells agree on their shared diagonals. A non-conforming
+    tiling would leave interior faces unmatched and pull them into the boundary.
+    """
+    n = 4
+    mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
+    on_face = np.isclose(mesh.vertices, 0) | np.isclose(mesh.vertices, 1)
+
+    boundary_idxs = set(int(i) for i in mesh.boundary_idxs)
+    assert on_face[mesh.boundary_idxs].any(axis=1).all()
+    interior = set(range(len(mesh.vertices))) - boundary_idxs
+    assert len(interior) == (n - 2)**3
+    assert not on_face[sorted(interior)].any()
