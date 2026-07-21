@@ -4,6 +4,7 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions
 from fem.energies import StVenantKirchhoffEnergyDensity
+from fem.forms import EnergyForm
 from fem.mesh.mesh import Mesh
 from fem.solution import Solution
 from fem.solver import Equation, LinearElastic
@@ -58,6 +59,7 @@ class EnergySolver:
         self.fixed_values = self.resolved_bc.fixed_values
 
         self.energy_density = self._select_energy(equation)
+        self.form = EnergyForm(self.energy_density)
 
         # other options, TODO: inheritance to hide these options
         self.verbose = verbose
@@ -77,69 +79,40 @@ class EnergySolver:
         else:
             raise ValueError(f"Unsupported equation type: {type(equation).__name__}")
 
+    # Per-element quantities delegate to the EnergyForm, which owns the tensor
+    # assembly. Kept as methods (rather than inlined at the call sites) so the
+    # parked gradient/hessian checks in __init__ still have something to point at.
     def element_energy(self, e_idx: int, u_element: FloatArray) -> float:
-        grad_u_element = self.space.element_gradient(e_idx, u_element)
-        self.energy_density.set_grad_u(grad_u_element)
-        return self.energy_density.W
+        return self.form.element_energy(self.space.element_objs[e_idx], u_element)
 
     def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
-        grad_u_element = self.space.element_gradient(e_idx, u_element)
-        self.energy_density.set_grad_u(grad_u_element)
-        dW_dF = self.energy_density.dW_dF
-        dF_dx = self.space.element_dF_dx(e_idx)
-        dW_dx = np.einsum('ij,ijmn->mn', dW_dF, dF_dx)
-        return dW_dx
+        return self.form.element_residual(self.space.element_objs[e_idx], u_element)
 
     def element_hessian(self, e_idx: int, u_element: FloatArray) -> FloatArray:
-        # d2W_dx2 = dW_dS @ (d2S_dF2 @ dF_dx @ dF_dx) + d2W_dS2 @ (dS_dx @ dS_dx)
-        grad_u_element = self.space.element_gradient(e_idx, u_element)
-        self.energy_density.set_grad_u(grad_u_element)
-        d2W_dS2 = self.energy_density.d2W_dS2
-        d2S_dF2 = self.energy_density.d2S_dF2
-        dW_dS = self.energy_density.dW_dS
-        dS_dF = self.energy_density.dS_dF
-        dF_dx = self.space.element_dF_dx(e_idx)
-        dS_dx = np.einsum('klij,ijmn->klmn', dS_dF, dF_dx)
-        term1 = np.einsum('abcdij,ijmn->abcdmn', d2S_dF2, dF_dx)
-        term1 = np.einsum('abijcd,ijmn->abcdmn', term1, dF_dx)
-        term1 = np.einsum('ij...,ij...->...', dW_dS, term1)
-        term2 = np.einsum('klij,ijmn->klmn', d2W_dS2, dS_dx)
-        term2 = np.einsum('ijkl,ijmn->klmn', term2, dS_dx)
-        return term1 + term2
+        return self.form.element_tangent(self.space.element_objs[e_idx], u_element)
 
     def energy(self, u: DofVector) -> float:
         u[self.fixed] = self.fixed_values
-        total = 0
-        for e_idx, element in enumerate(self.mesh.elements):
-            total += self.element_energy(e_idx, u.reshape(-1, self.n_components)[element]) * self.space.element_volumes[e_idx]
-        return total
+        return self.space.total_energy(self.form, u)
 
     def energy_gradient(self, u: DofVector) -> DofVector:
         u[self.fixed] = self.fixed_values
-        total_energy_gradient = np.zeros((len(self.mesh.vertices), self.n_components))
-        for e_idx, element in enumerate(self.mesh.elements):
-            total_energy_gradient[element] += self.element_gradient(e_idx, u.reshape(-1, self.n_components)[element]) * self.space.element_volumes[e_idx]
-        total_energy_gradient = total_energy_gradient.flatten()
-        total_energy_gradient[self.fixed] = 0
-        return total_energy_gradient
+        gradient = self.space.assemble_residual(self.form, u)
+        gradient[self.fixed] = 0
+        return gradient
 
-    def energy_hessian(self, u: DofVector) -> Matrix: #TODO: not implemented
+    def energy_hessian(self, u: DofVector) -> Matrix:
         u[self.fixed] = self.fixed_values
-        n = len(self.mesh.vertices)
-        total_energy_hessian = np.zeros((n, self.n_components, n, self.n_components))
-        for e_idx, element in enumerate(self.mesh.elements):
-            ix = np.ix_(element, range(self.n_components), element, range(self.n_components))
-            total_energy_hessian[ix] += self.element_hessian(e_idx, u.reshape(-1, self.n_components)[element]) * self.space.element_volumes[e_idx]
-        total_energy_hessian = total_energy_hessian.reshape(n*self.n_components, n*self.n_components)
+        hessian = self.space.assemble_tangent(self.form, u)
         # Eliminate the constrained DOFs: zero their coupling, then put 1 on the
         # diagonal. Without the diagonal the matrix is exactly singular (rank
         # n_free, not n_dofs), so every Newton step raised LinAlgError and fell
-        # through to the 1e-8 regularization below -- which perturbs the free
-        # block too, capping accuracy around 1e-8 for no reason.
-        total_energy_hessian[self.fixed, :] = 0
-        total_energy_hessian[:, self.fixed] = 0
-        total_energy_hessian[self.fixed, self.fixed] = 1
-        return total_energy_hessian
+        # through to the 1e-8 regularization -- which perturbs the free block too,
+        # capping accuracy around 1e-8 for no reason.
+        hessian[self.fixed, :] = 0
+        hessian[:, self.fixed] = 0
+        hessian[self.fixed, self.fixed] = 1
+        return hessian
 
     def solve(self, max_iters: int = 100) -> Solution:
         u = np.zeros(len(self.mesh.vertices) * self.n_components)

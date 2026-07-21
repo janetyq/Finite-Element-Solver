@@ -33,9 +33,17 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import Form, MassForm
+from fem.forms import EnergyForm, Form, MassForm
 from fem.mesh.mesh import Mesh
-from fem.typing import DofIndices, Elements, FloatArray, IntArray, Matrix, VertexField
+from fem.typing import (
+    DofIndices,
+    DofVector,
+    Elements,
+    FloatArray,
+    IntArray,
+    Matrix,
+    VertexField,
+)
 
 
 def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndices:
@@ -140,10 +148,6 @@ class FunctionSpace:
         '''Gradient of a field over one element, from its nodal values.'''
         return self.element_objs[e_idx].calculate_gradient(u_element)
 
-    def element_dF_dx(self, e_idx: int) -> FloatArray:
-        '''d(deformation gradient)/d(nodal position) for one element.'''
-        return self.element_objs[e_idx].dF_dx
-
     # -- integrals ----------------------------------------------------------
 
     @property
@@ -202,6 +206,46 @@ class FunctionSpace:
             elements,
             lambda idx: form.element_matrix(element_objs[idx], idx),
         )
+
+    # -- nonlinear assembly -------------------------------------------------
+    #
+    # The bilinear `assemble` above scatters a state-independent matrix. An
+    # EnergyForm's element quantities depend on the current displacement, so these
+    # take `u` and evaluate the form at each element's slice of it. The tangent
+    # reuses the same scatter loop as `assemble`; the residual is a vector scatter
+    # and the energy a scalar reduction. Constraints stay with the caller
+    # (EnergySolver's Newton loop), exactly as boundary conditions stay with the
+    # caller for the bilinear path.
+
+    def total_energy(self, form: EnergyForm, u: DofVector) -> float:
+        '''Sum an EnergyForm's element energies at state `u`.'''
+        u_nodal = u.reshape(-1, self.n_components)
+        return sum(
+            form.element_energy(self.element_objs[e_idx], u_nodal[element])
+            for e_idx, element in enumerate(self.mesh.elements)
+        )
+
+    def assemble_residual(self, form: EnergyForm, u: DofVector) -> DofVector:
+        '''Scatter an EnergyForm's element residuals at state `u` into a vector.'''
+        u_nodal = u.reshape(-1, self.n_components)
+        r = np.zeros(self.n_dofs)
+        for e_idx, element in enumerate(self.mesh.elements):
+            contribution = form.element_residual(self.element_objs[e_idx], u_nodal[element])
+            r[self.dof_indices(element)] += contribution.flatten()
+        return r
+
+    def assemble_tangent(self, form: EnergyForm, u: DofVector) -> Matrix:
+        '''Scatter an EnergyForm's element tangents at state `u` into a matrix.'''
+        u_nodal = u.reshape(-1, self.n_components)
+
+        def element_matrix(e_idx: int) -> Matrix:
+            tangent = form.element_tangent(
+                self.element_objs[e_idx], u_nodal[self.mesh.elements[e_idx]]
+            )
+            k = self.element_type.N * self.n_components
+            return tangent.reshape(k, k)
+
+        return self._assemble(self.mesh.elements, element_matrix)
 
     def _assemble(
         self,

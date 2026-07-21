@@ -29,6 +29,7 @@ from fem.regions import on_plane
 from fem.solver import Solver, LinearElastic
 from fem.energy_solver import EnergySolver
 from fem.energies import SmallStrainEnergyDensity, StVenantKirchhoffEnergyDensity
+from fem.forms import EnergyForm
 
 
 def test_hooke_matrix_is_the_second_derivative_of_the_small_strain_energy():
@@ -81,10 +82,11 @@ def _energy_solver(mesh, bc, density_cls):
     """An EnergySolver whose strain energy density is `density_cls`.
 
     `_select_energy` maps `LinearElastic` to St-VK and has no knob for the
-    strain measure, so the test sets the density after construction.
+    strain measure, so the test swaps in its own energy form after construction.
     """
     solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
     solver.energy_density = density_cls(200, 0.4)
+    solver.form = EnergyForm(solver.energy_density)
     return solver
 
 
@@ -189,11 +191,7 @@ def test_green_lagrange_is_frame_indifferent(make_unit_square):
     solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
 
     def total_energy(density, u_nodal):
-        solver.energy_density = density
-        return sum(
-            solver.element_energy(e_idx, u_nodal[element]) * solver.space.element_volumes[e_idx]
-            for e_idx, element in enumerate(mesh.elements)
-        )
+        return solver.space.total_energy(EnergyForm(density), u_nodal.flatten())
 
     def rotation_field(theta):
         c, s = np.cos(theta), np.sin(theta)
