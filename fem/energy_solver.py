@@ -131,8 +131,14 @@ class EnergySolver:
             ix = np.ix_(element, range(self.n_components), element, range(self.n_components))
             total_energy_hessian[ix] += self.element_hessian(e_idx, u.reshape(-1, self.n_components)[element]) * self.space.element_volumes[e_idx]
         total_energy_hessian = total_energy_hessian.reshape(n*self.n_components, n*self.n_components)
+        # Eliminate the constrained DOFs: zero their coupling, then put 1 on the
+        # diagonal. Without the diagonal the matrix is exactly singular (rank
+        # n_free, not n_dofs), so every Newton step raised LinAlgError and fell
+        # through to the 1e-8 regularization below -- which perturbs the free
+        # block too, capping accuracy around 1e-8 for no reason.
         total_energy_hessian[self.fixed, :] = 0
         total_energy_hessian[:, self.fixed] = 0
+        total_energy_hessian[self.fixed, self.fixed] = 1
         return total_energy_hessian
 
     def solve(self, max_iters: int = 100) -> Solution:
