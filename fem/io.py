@@ -5,7 +5,7 @@ that knows the on-disk formats:
 
 - Meshes: JSON. Small, portable, human-readable.
 - Solutions: a single ``.npz`` archive holding the value arrays alongside the
-  mesh geometry and ``dim`` needed to rebuild the object.
+  mesh geometry and ``n_components`` needed to rebuild the object.
 
 Solutions deliberately avoid ``pickle``. Pickle executes arbitrary code on load
 and is fragile across refactors, since it stores the class path -- moving or
@@ -26,14 +26,16 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # npz key namespacing: solution values are user-named, so they get a prefix to
-# keep them from colliding with the mesh/dim metadata stored in the same archive.
+# keep them from colliding with the mesh/component-count metadata in the same archive.
 _VALUE_PREFIX = 'value.'
 _MESH_CLASS = '__mesh_class__'
 _MESH_ELEMENT_TYPE = '__mesh_element_type__'
 _MESH_VERTICES = '__mesh_vertices__'
 _MESH_ELEMENTS = '__mesh_elements__'
 _MESH_BOUNDARY = '__mesh_boundary__'
-_DIM = '__dim__'
+# The on-disk key keeps its original spelling: renaming the Python name is free,
+# renaming the archive key would strand every .npz already written.
+_N_COMPONENTS = '__dim__'
 
 
 # --- meshes -----------------------------------------------------------------
@@ -96,9 +98,9 @@ def _mesh_from_arrays(data):
 
 
 def save_solution(solution, path='solution.npz'):
-    '''Write a solution (values + mesh + dim) to a single npz archive.'''
+    '''Write a solution (values + mesh + component count) to a single npz archive.'''
     arrays = _mesh_to_arrays(solution.femesh)
-    arrays[_DIM] = np.asarray(solution.dim)
+    arrays[_N_COMPONENTS] = np.asarray(solution.n_components)
     for name, value in solution.values.items():
         arrays[_VALUE_PREFIX + name] = np.asarray(value)
     # Pass a handle rather than the path so numpy doesn't append its own .npz.
@@ -122,7 +124,7 @@ def load_solution(path='solution.npz'):
                 f'solution at {path} stores a {type(mesh).__name__}; a Solution is '
                 f'defined over an FEMesh'
             )
-        solution = Solution(mesh, int(data[_DIM]))
+        solution = Solution(mesh, int(data[_N_COMPONENTS]))
         for key in data.files:
             if key.startswith(_VALUE_PREFIX):
                 solution.values[key[len(_VALUE_PREFIX):]] = data[key]

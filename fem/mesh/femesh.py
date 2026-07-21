@@ -17,14 +17,14 @@ from fem.typing import (
 )
 
 
-def dof_indices(element: IntArray | Sequence[int], dim: int) -> DofIndices:
+def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndices:
     '''Global DOF indices for an element's nodes, interleaved per node.
 
-    For node indices [n0, n1, ...] and `dim` DOFs per node, returns
-    [dim*n0, dim*n0+1, ..., dim*n1, dim*n1+1, ...].
+    For node indices [n0, n1, ...] and `n_components` DOFs per node, returns
+    [n_components*n0, n_components*n0+1, ..., n_components*n1, n_components*n1+1, ...].
     '''
     element = np.asarray(element)
-    return np.array([dim*element + i for i in range(dim)]).T.flatten()
+    return np.array([n_components*element + i for i in range(n_components)]).T.flatten()
 
 
 class FEMesh(Mesh):
@@ -56,16 +56,16 @@ class FEMesh(Mesh):
 
         self.prepare_matrices()
 
-    def prepare_matrices(self, dim: int = 1, **kwargs: Any) -> None:
-        # Can be called to reprepare matrices for different dim
-        self.dim = dim
-        self.M = self.assemble_matrix('mass', 'element', dim, **kwargs)
-        self.M_b = self.assemble_matrix('mass', 'boundary', dim, **kwargs)
-        self.K = self.assemble_matrix('stiffness', 'element', dim, **kwargs)
-        if dim == 1:
-            self.K_b = self.assemble_matrix('stiffness', 'boundary', dim, **kwargs)
+    def prepare_matrices(self, n_components: int = 1, **kwargs: Any) -> None:
+        # Can be called to reprepare matrices for a different component count
+        self.n_components = n_components
+        self.M = self.assemble_matrix('mass', 'element', n_components, **kwargs)
+        self.M_b = self.assemble_matrix('mass', 'boundary', n_components, **kwargs)
+        self.K = self.assemble_matrix('stiffness', 'element', n_components, **kwargs)
+        if n_components == 1:
+            self.K_b = self.assemble_matrix('stiffness', 'boundary', n_components, **kwargs)
         else:
-            # Boundary stiffness is only used by the 1D scalar path; the dim>1
+            # Boundary stiffness is only used by the 1D scalar path; the n_components>1
             # (linear-elastic) solvers never touch K_b. Set None so the attribute
             # always exists and misuse fails loudly instead of as AttributeError.
             self.K_b = None
@@ -74,7 +74,7 @@ class FEMesh(Mesh):
         self,
         matrix_type_name: Literal['mass', 'stiffness'],
         element_type_name: Literal['element', 'boundary'],
-        dim: int = 1,
+        n_components: int = 1,
         **kwargs: Any,
     ) -> Matrix:
         # TODO: term "element" is overloaded here, and its a bit hacky
@@ -85,14 +85,14 @@ class FEMesh(Mesh):
             elements, element_objs = self.boundary, self.boundary_objs
 
         matrix_calculators = {
-            'mass': lambda e_idx: element_objs[e_idx].calculate_mass_matrix(dim, idx=e_idx, **kwargs),
-            'stiffness': lambda e_idx: element_objs[e_idx].calculate_stiffness_matrix(dim, idx=e_idx, **kwargs),
+            'mass': lambda e_idx: element_objs[e_idx].calculate_mass_matrix(n_components, idx=e_idx, **kwargs),
+            'stiffness': lambda e_idx: element_objs[e_idx].calculate_stiffness_matrix(n_components, idx=e_idx, **kwargs),
         }
 
         N = len(self.vertices)
-        A = np.zeros((dim * N, dim * N))
+        A = np.zeros((n_components * N, n_components * N))
         for e_idx, element in enumerate(elements):
-            idxs = dof_indices(element, dim)
+            idxs = dof_indices(element, n_components)
             element_matrix = matrix_calculators[matrix_type_name](e_idx)
             A[np.ix_(idxs, idxs)] += element_matrix
         return A

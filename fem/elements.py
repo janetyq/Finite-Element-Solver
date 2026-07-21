@@ -20,6 +20,18 @@ class Element:
     def __init__(self, vertices: Vertices) -> None:
         self.vertices = vertices
 
+    @property
+    def reference_dim(self) -> int:
+        '''Dimension of the element itself: 1 for a line, 2 for a triangle, 3 for a tet.
+
+        Equals `N - 1` for a simplex, which is what the arithmetic below spells
+        out longhand. Distinct from `Mesh.spatial_dim`: a triangle embedded in 3D
+        has reference_dim 2 and spatial_dim 3. They coincide only when the element
+        fills its ambient space, so code using one to mean the other happens to
+        work for planar triangle and tet meshes and nowhere else.
+        '''
+        return self.N - 1
+
 
 class LinearElement(Element):
     '''
@@ -40,14 +52,14 @@ class LinearElement(Element):
 
         self.dF_dx: FloatArray = self.calculate_dF_dx()
 
-    def calculate_mass_matrix(self, dim: int, **kwargs: Any) -> Matrix:
-        M = np.zeros((dim*self.N, dim*self.N))
-        M[::dim, ::dim] = 1
-        M += np.eye(dim*self.N)
+    def calculate_mass_matrix(self, n_components: int, **kwargs: Any) -> Matrix:
+        M = np.zeros((n_components*self.N, n_components*self.N))
+        M[::n_components, ::n_components] = 1
+        M += np.eye(n_components*self.N)
         return 1/(self.N*(self.N+1)) * self.volume * M
 
-    def calculate_stiffness_matrix(self, dim: int, **kwargs: Any) -> Matrix:
-        if dim == 1:
+    def calculate_stiffness_matrix(self, n_components: int, **kwargs: Any) -> Matrix:
+        if n_components == 1:
             return self.grad_phi @ self.grad_phi.T * self.volume
         # otherwise, the equation is linear elastic
         idx = kwargs['idx']
