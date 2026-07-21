@@ -109,9 +109,9 @@ make them substitutable and let the optimizer accept either.
 
 ### 🟡 The load vector is a linear form in disguise
 
-The stiffness side is now clean — `Form` owns the bilinear integrand `a(u,v)`, `Material`
-owns the constitutive matrix, and `FunctionSpace.assemble_stiffness` takes a form. The
-right-hand side has no equivalent. `Solver.assemble_everything` builds it as:
+The matrix side is now clean — every bilinear form `a(u,v)` (mass, stiffness, boundary mass)
+is a `Form`, `Material` owns the constitutive matrix, and `FunctionSpace.assemble` is one loop.
+The right-hand side has no equivalent. `Solver.assemble_everything` builds it as:
 
 ```python
 self.b = (self.M @ source_load.flatten()).flatten()

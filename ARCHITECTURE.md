@@ -87,18 +87,21 @@ deliberately.
 `Mesh` is geometry: vertices, elements, boundary, topology queries. `FunctionSpace` has a
 mesh and owns the discretization — element geometry, DOF numbering, cached operators. Two
 spaces can share one domain, which is the property that made the split necessary.
-`assemble_stiffness` now takes a `Form` rather than an untyped material bag, so the space
-forwards nothing it cannot interpret.
+`assemble` takes a `Form` rather than an untyped material bag, so the space forwards nothing
+it cannot interpret.
 
 `Mesh` should still lose `plot`, which is the last core → plot dependency (review §2).
 
 ### `Form` / `Material` — placed, not yet unified
 
-The constitutive law is off the element. `Form` owns the integrand (`LaplacianForm`,
-`LinearElasticForm`), `Material` owns `D`, and the strain-displacement matrix `B` sits in
-`fem/forms.py` next to the form that contracts it against `D`. Every element matrix now has
-the shape `Gᵀ C G · volume`, where `G` is geometric (`grad_phi` or `B`) and `C` is material
-(identity or `D`) — which is exactly what let `Element` drop to pure geometry.
+The constitutive law is off the element. `Form` owns every bilinear integrand the linear
+solvers assemble — `MassForm` (`∫u·v`), `LaplacianForm` and `LinearElasticForm` (the
+`Gᵀ C G · volume` stiffness family, `G` geometric and `C` material) — and `FunctionSpace.assemble`
+is a single scatter loop that no longer knows what it is scattering. `Material` owns `D`, and
+the strain-displacement matrix `B` sits in `fem/forms.py` next to the form that contracts it
+against `D`. That split is what let `Element` drop to pure geometry. The only assembly left
+outside a `Form` is `EnergySolver`'s nonlinear energy path, which is a different method, not a
+bilinear form.
 
 What is *not* yet done is unifying the two constitutive representations. There is **one**
 energy density `W(ε) = ½λ(tr ε)² + μ tr(εᵀε)`, shared verbatim: `energies.py`'s
@@ -293,9 +296,9 @@ The convergence tests in `tests/test_convergence.py` and
 passing without modification.
 
 1. **Extract `Form` + `Material`.** *Done.* `Form` owns the integrand, `Material` owns `D`,
-   `Element` is pure geometry, and `FunctionSpace.assemble_stiffness` takes a `Form` instead of
-   an untyped material bag. Two follow-ons remain from the ideal end state, both smaller and
-   independently landable:
+   `Element` is pure geometry, and `FunctionSpace.assemble` takes a `Form` instead of an
+   untyped material bag — mass, stiffness, and boundary mass all through it. Two follow-ons
+   remain from the ideal end state, both smaller and independently landable:
    - **1a. Derive `D` from `W`.** `Material` holds `D` built from Lamé parameters; the energy
      `W` in `energies.py` already implies it as `∂²W/∂ε²`. Computing it from `W` deletes the
      duplication but needs a Voigt↔full-tensor bridge, so it is isolated and guarded by the
