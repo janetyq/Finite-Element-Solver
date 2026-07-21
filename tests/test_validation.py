@@ -9,6 +9,8 @@ import pytest
 from fem.energies import NeohookeanEnergyDensity
 from fem.energy_solver import EnergySolver
 from fem.boundary import BoundaryConditions, BCType
+from fem.elements import LinearTetrahedralElement
+from fem.mesh.femesh import FEMesh
 from fem.solver import LinearElastic
 from fem.regions import everywhere, on_plane, at_indices
 from fem.plot.plotter import PlotMode
@@ -135,6 +137,28 @@ def test_energy_solver_rejects_a_source_term(make_unit_square):
 
     # ...and without one it still constructs.
     EnergySolver(femesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+
+
+def test_energy_solver_rejects_a_3d_mesh():
+    """The energy densities are built at fixed rank 2, so a tet mesh must be
+    refused up front.
+
+    The guard used to read `self.dim != 2`, which is components-per-node and is
+    unconditionally 2 for LinearElastic -- so it never fired, and a tet mesh got
+    as far as set_grad_u rejecting its (3, 2) gradient, several frames from the
+    cause.
+    """
+    femesh = FEMesh(
+        vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        elements=[[0, 1, 2, 3]],
+        boundary=[[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
+        element_type=LinearTetrahedralElement,
+    )
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(2, 0.0), [0, 0, 0])
+
+    with pytest.raises(NotImplementedError, match='spatial_dim=3'):
+        EnergySolver(femesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
 
 
 def test_robin_is_gated(make_unit_square):

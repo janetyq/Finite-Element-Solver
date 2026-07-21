@@ -32,9 +32,14 @@ class EnergySolver:
         self.solution = Solution(femesh, self.dim)
         # Not an assert: this is a real capability boundary (the energy densities
         # are 2D-only), so it must hold even under `python -O`.
-        if self.dim != 2:
+        #
+        # Checked against the mesh, not self.dim: LinearElastic.dim is a ClassVar
+        # of 2, so the old `self.dim != 2` could never fire and a tet mesh reached
+        # LinearElasticEnergyDensity.set_grad_u before failing on its (3, 2) gradient.
+        if femesh.spatial_dim != 2:
             raise NotImplementedError(
-                f'EnergySolver only supports 2D for now (got dim={self.dim})'
+                f'EnergySolver only supports 2D for now '
+                f'(got a mesh with spatial_dim={femesh.spatial_dim})'
             )
         # This solver minimizes the internal elastic energy and never builds a
         # load vector, so a source term would be accepted and then quietly
