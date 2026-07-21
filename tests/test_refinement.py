@@ -19,8 +19,8 @@ from fem.solver import Solver, Projection, Poisson
 def refine_near_centre(solver):
     """Estimator stand-in: 'error' is largest at the centre of the domain."""
     centroids = np.array([
-        solver.femesh.vertices[element].mean(axis=0)
-        for element in solver.femesh.elements
+        solver.mesh.vertices[element].mean(axis=0)
+        for element in solver.mesh.elements
     ])
     return 1.0 / (0.05 + np.linalg.norm(centroids - 0.5, axis=1))
 
@@ -52,11 +52,11 @@ def test_adaptive_refinement_grows_mesh_and_resolves(make_unit_square):
     n_before = len(femesh.elements)
     solution = solver.adaptive_refinement(refine_near_centre, max_triangles=400, max_iters=3)
 
-    assert len(solver.femesh.elements) > n_before, "mesh never grew"
+    assert len(solver.mesh.elements) > n_before, "mesh never grew"
     # The solution must belong to the *final* mesh, not the one we started on.
     u = solution.get_values("u")
-    assert solution.femesh is solver.femesh
-    assert len(u) == len(solver.femesh.vertices)
+    assert solution.mesh is solver.mesh
+    assert len(u) == len(solver.mesh.vertices)
     assert np.all(np.isfinite(u))
 
 
@@ -71,7 +71,7 @@ def test_adaptive_refinement_respects_max_triangles(make_unit_square):
     solver.adaptive_refinement(refine_near_centre, max_triangles=cap, max_iters=50)
     # One round may overshoot the cap; the point is that it stops, not that it
     # lands exactly on it.
-    assert len(solver.femesh.elements) < 400
+    assert len(solver.mesh.elements) < 400
 
 
 def test_adaptive_refinement_respects_max_iters(make_unit_square):
@@ -80,10 +80,10 @@ def test_adaptive_refinement_respects_max_iters(make_unit_square):
     solver.solve()
 
     solver.adaptive_refinement(refine_near_centre, max_triangles=10**6, max_iters=1)
-    after_one = len(solver.femesh.elements)
+    after_one = len(solver.mesh.elements)
 
     solver.adaptive_refinement(refine_near_centre, max_triangles=10**6, max_iters=1)
-    assert len(solver.femesh.elements) > after_one, "max_iters=1 did no work"
+    assert len(solver.mesh.elements) > after_one, "max_iters=1 did no work"
 
 
 def test_adaptive_refinement_carries_geometric_dirichlet_bcs(make_unit_square):
@@ -99,7 +99,7 @@ def test_adaptive_refinement_carries_geometric_dirichlet_bcs(make_unit_square):
     n_before = len(femesh.vertices)
     solution = solver.adaptive_refinement(refine_near_centre, max_triangles=400, max_iters=3)
 
-    final = solver.femesh
+    final = solver.mesh
     assert len(final.vertices) > n_before, "mesh never grew"
     u = solution.get_values("u")
     # Every boundary node of the *refined* mesh is pinned, including the new ones.
@@ -128,7 +128,7 @@ def test_adaptive_refinement_rejects_mismatched_estimator(make_unit_square):
     solver.solve()
 
     with pytest.raises(ValueError):
-        solver.adaptive_refinement(lambda s: np.ones(len(s.femesh.elements) + 1))
+        solver.adaptive_refinement(lambda s: np.ones(len(s.mesh.elements) + 1))
 
 
 def test_bc_spec_is_reusable_across_meshes(make_unit_square):

@@ -55,10 +55,10 @@ def test_solution_round_trip_preserves_values_mesh_and_dim(make_unit_square, tmp
     assert set(loaded.values) == {"u", "compliance"}
     assert np.allclose(loaded.get_values("u"), solution.get_values("u"))
     assert np.allclose(loaded.get_values("compliance"), solution.get_values("compliance"))
-    assert type(loaded.femesh) is FEMesh
-    assert loaded.femesh.element_type is LinearTriangleElement
-    assert np.allclose(loaded.femesh.vertices, femesh.vertices)
-    assert np.array_equal(loaded.femesh.elements, femesh.elements)
+    assert type(loaded.mesh) is FEMesh
+    assert loaded.mesh.element_type is LinearTriangleElement
+    assert np.allclose(loaded.mesh.vertices, femesh.vertices)
+    assert np.array_equal(loaded.mesh.elements, femesh.elements)
 
 
 def test_solution_round_trip_after_solve(make_unit_square, tmp_path):
@@ -73,8 +73,9 @@ def test_solution_round_trip_after_solve(make_unit_square, tmp_path):
 
     assert np.allclose(loaded.get_values("t_values"), solution.get_values("t_values"))
     assert np.allclose(loaded.get_values("u_values"), solution.get_values("u_values"))
-    # The deformed-mesh path needs a working femesh, not just the raw arrays.
-    assert len(loaded.femesh.element_objs) == len(femesh.element_objs)
+    # Geometry round-trips; a solve rebuilds element data into its own space.
+    assert np.allclose(loaded.mesh.vertices, femesh.vertices)
+    assert np.array_equal(loaded.mesh.elements, femesh.elements)
 
 
 def test_solution_load_does_not_unpickle(make_unit_square, tmp_path):

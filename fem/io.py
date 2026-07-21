@@ -99,7 +99,7 @@ def _mesh_from_arrays(data):
 
 def save_solution(solution, path='solution.npz'):
     '''Write a solution (values + mesh + component count) to a single npz archive.'''
-    arrays = _mesh_to_arrays(solution.femesh)
+    arrays = _mesh_to_arrays(solution.mesh)
     arrays[_N_COMPONENTS] = np.asarray(solution.n_components)
     for name, value in solution.values.items():
         arrays[_VALUE_PREFIX + name] = np.asarray(value)
@@ -111,19 +111,14 @@ def save_solution(solution, path='solution.npz'):
 
 def load_solution(path='solution.npz'):
     '''Read a solution written by `save_solution`.'''
-    from fem.mesh.femesh import FEMesh
     from fem.solution import Solution
 
     with np.load(path) as data:
-        # A Solution always comes from a solve, so its mesh is an FEMesh and that
-        # is what round-trips. A bare Mesh here means the file was hand-built,
-        # and the missing element_objs/M/K would only surface much later.
+        # A Solution is defined over geometry alone -- it reads vertices and
+        # elements and nothing else -- so whichever mesh class was stored is
+        # enough. Element geometry and operators belong to a FunctionSpace,
+        # which a solve builds for itself.
         mesh = _mesh_from_arrays(data)
-        if not isinstance(mesh, FEMesh):
-            raise ValueError(
-                f'solution at {path} stores a {type(mesh).__name__}; a Solution is '
-                f'defined over an FEMesh'
-            )
         solution = Solution(mesh, int(data[_N_COMPONENTS]))
         for key in data.files:
             if key.startswith(_VALUE_PREFIX):

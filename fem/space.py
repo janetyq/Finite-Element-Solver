@@ -26,7 +26,12 @@ from typing import Any, Callable
 
 import numpy as np
 
-from fem.elements import LinearElement, LinearTriangleElement
+from fem.elements import (
+    LinearElement,
+    LinearLineElement,
+    LinearTetrahedralElement,
+    LinearTriangleElement,
+)
 from fem.mesh.mesh import Mesh
 from fem.typing import DofIndices, Elements, IntArray, Matrix
 
@@ -41,15 +46,38 @@ def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndi
     return np.array([n_components*element + i for i in range(n_components)]).T.flatten()
 
 
+_SIMPLEX_ELEMENTS: dict[int, type[LinearElement]] = {
+    2: LinearLineElement,
+    3: LinearTriangleElement,
+    4: LinearTetrahedralElement,
+}
+
+
+def element_type_for(mesh: Mesh) -> type[LinearElement]:
+    '''The linear element matching the mesh's node count.
+
+    Unambiguous rather than a guess: `Mesh` rejects anything but linear simplices,
+    so a 3-node element *is* a triangle and a 4-node element *is* a tet. Callers
+    therefore no longer have to restate what the connectivity already says.
+    '''
+    n_nodes = mesh.elements.shape[1]
+    if n_nodes not in _SIMPLEX_ELEMENTS:
+        raise NotImplementedError(
+            f'no linear element for {n_nodes}-node elements'
+        )
+    return _SIMPLEX_ELEMENTS[n_nodes]
+
+
 class FunctionSpace:
     '''P1 finite element space over `mesh`, with `n_components` DOFs per node.'''
 
     def __init__(
         self,
         mesh: Mesh,
-        element_type: type[LinearElement] = LinearTriangleElement,
+        element_type: type[LinearElement] | None = None,
         n_components: int = 1,
     ) -> None:
+        element_type = element_type if element_type is not None else element_type_for(mesh)
         if element_type.SUB_TYPE is None:
             # Only reachable for line elements, whose facets would be points --
             # the 1D path the SUB_TYPE TODO tracks. Raising here beats a

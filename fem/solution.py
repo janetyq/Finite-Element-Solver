@@ -5,7 +5,7 @@ import numpy as np
 from fem.typing import FloatArray
 
 if TYPE_CHECKING:
-    from fem.mesh.femesh import FEMesh
+    from fem.mesh.mesh import Mesh
 
 # Which discretization a caller wants values on. `Solution` stores whatever the
 # solver produced and converts on request.
@@ -13,8 +13,8 @@ ValueMode = Literal['element', 'vertex']
 
 
 class Solution:
-    def __init__(self, femesh: 'FEMesh', n_components: int) -> None:
-        self.femesh = femesh
+    def __init__(self, mesh: 'Mesh', n_components: int) -> None:
+        self.mesh = mesh
         # Heterogeneous by design: "u" is a DofVector, "t_values" a list of
         # floats, "u_values" a list of arrays per timestep.
         self.values: dict[str, Any] = {}
@@ -36,7 +36,7 @@ class Solution:
         mode: ValueMode | None = None,
     ) -> Any:
         if name is None:
-            return np.zeros(len(self.femesh.elements))
+            return np.zeros(len(self.mesh.elements))
         elif name not in self.values:
             raise ValueError(f'{name} not found in solution (has: {list(self.values.keys())})')
         
@@ -44,17 +44,17 @@ class Solution:
         if mode is None:
             return values
         elif mode == 'element':
-            if len(values) == len(self.femesh.elements):
+            if len(values) == len(self.mesh.elements):
                 return values
-            elif len(values) == len(self.femesh.vertices):
-                return self.femesh.convert_vertex_values_to_element_values(values)
+            elif len(values) == len(self.mesh.vertices):
+                return self.mesh.convert_vertex_values_to_element_values(values)
             else:
                 raise ValueError(f'Invalid values shape for mode {mode}')
         elif mode == 'vertex':
-            if len(values) == len(self.femesh.vertices):
+            if len(values) == len(self.mesh.vertices):
                 return values
-            elif len(values) == len(self.femesh.elements):
-                return self.femesh.convert_element_values_to_vertex_values(values)
+            elif len(values) == len(self.mesh.elements):
+                return self.mesh.convert_element_values_to_vertex_values(values)
             else:
                 raise ValueError(f'Invalid values shape for mode {mode}')
         # Falling through returned None, which only failed later where the caller
@@ -67,15 +67,15 @@ class Solution:
     def reset(self) -> None:
         self.values = {}
 
-    def get_deformed_mesh(self, u: FloatArray | None = None) -> 'FEMesh':
+    def get_deformed_mesh(self, u: FloatArray | None = None) -> 'Mesh':
         displacement = self.get_values('u') if u is None else u
-        femesh_deformed = self.femesh.copy()
-        femesh_deformed.vertices += displacement.reshape(-1, self.n_components)
-        return femesh_deformed
+        mesh_deformed = self.mesh.copy()
+        mesh_deformed.vertices += displacement.reshape(-1, self.n_components)
+        return mesh_deformed
 
     @classmethod
     def combine_solutions(cls, solution_list: list['Solution']) -> 'Solution':
-        combined_solution = Solution(solution_list[0].femesh, 2) # TODO: bit weird
+        combined_solution = Solution(solution_list[0].mesh, 2) # TODO: bit weird
         for name in solution_list[0].values.keys():
             combined_solution.values[name + '_list'] = np.array([s.get_values(name) for s in solution_list])
         return combined_solution

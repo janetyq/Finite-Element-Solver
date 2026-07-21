@@ -12,6 +12,7 @@ from fem.typing import ElementField
 
 if TYPE_CHECKING:
     from fem.mesh.femesh import FEMesh
+    from fem.mesh.mesh import Mesh
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ class TopologyOptimizer:
             rho_new = np.clip(rho_new, self.rho - 0.1, self.rho + 0.1) # change limit
             rho_new = np.clip(rho_new, 1e-6, 1)
 
-            if self.solver.femesh.calculate_mean_value(rho_new) < volume_frac:
+            if self.femesh.calculate_mean_value(rho_new) < volume_frac:
                 hi = m
             else:
                 lo = m
@@ -146,11 +147,11 @@ class TopologyOptimizer:
     def _log_iteration(self, iter: int, solution: Solution) -> None:
         max_displacement = np.max(solution.values['u'], axis=0)
         compliance = solution.values['compliance'].sum()
-        volume_fraction = self.solver.femesh.calculate_mean_value(self.rho)
+        volume_fraction = self.femesh.calculate_mean_value(self.rho)
         logger.info('Iteration %d: total compliance = %.4f, max displacement = %s, volume fraction = %.4f',
                     iter, compliance, max_displacement, volume_fraction)
 
-    def _get_deformed_mesh(self, iter_idx: int = -1) -> 'FEMesh':
+    def _get_deformed_mesh(self, iter_idx: int = -1) -> 'Mesh':
         try:
             u = self.solution.values['u_list'][iter_idx]
         except (KeyError, IndexError):
