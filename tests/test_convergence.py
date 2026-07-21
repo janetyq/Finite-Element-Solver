@@ -18,7 +18,6 @@ import numpy as np
 import pytest
 
 from fem.mesh.generation import create_rect_mesh
-from fem.mesh.femesh import FEMesh
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere
 from fem.solver import Solver, Poisson
@@ -35,8 +34,7 @@ def _solve_poisson_mms(n):
     Returns (h, l2_error) where h is the grid spacing and l2_error is the
     discrete L2 norm of (u_h - u_exact), computed with the mass matrix.
     """
-    base = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    femesh = FEMesh(base.vertices, base.elements, base.boundary)
+    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
     equation = Poisson(
         source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]
@@ -44,13 +42,13 @@ def _solve_poisson_mms(n):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
 
-    solver = Solver(femesh, equation, bc)
+    solver = Solver(mesh, equation, bc)
     solution = solver.solve()
     u_h = solution.get_values("u")
 
-    error = u_h - _exact(femesh.vertices)
-    # ||e||_L2^2 = e^T M e  (M is the assembled n_components=1 mass matrix)
-    l2_error = np.sqrt(error @ femesh.M @ error)
+    error = u_h - _exact(mesh.vertices)
+    # ||e||_L2^2 = e^T M e, with M the space's mass matrix
+    l2_error = np.sqrt(error @ solver.space.mass_matrix @ error)
     h = 1.0 / (n - 1)
     return h, l2_error
 

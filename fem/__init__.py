@@ -6,10 +6,10 @@ optimization.
 
 Common entry points are re-exported here, so typical use is:
 
-    from fem import FEMesh, BoundaryConditions, BCType, Solver, Poisson
+    from fem import Mesh, BoundaryConditions, BCType, Solver, Poisson
     from fem.regions import everywhere
 
-    mesh = FEMesh.load("files/mesh_40x40.json")
+    mesh = Mesh.load("files/mesh_40x40.json")
     equation = Poisson(source=lambda p: 1.0)
 
     bc = BoundaryConditions()                          # described geometrically,
@@ -23,7 +23,7 @@ __version__ = "0.1.0"
 import logging
 
 from fem.mesh.mesh import Mesh
-from fem.mesh.femesh import FEMesh
+from fem.space import FunctionSpace
 from fem.mesh.generation import create_rect_mesh, create_approx_mesh
 from fem.elements import (
     LinearLineElement,
@@ -59,7 +59,7 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
     "Mesh",
-    "FEMesh",
+    "FunctionSpace",
     "create_rect_mesh",
     "create_approx_mesh",
     "LinearLineElement",

@@ -7,8 +7,6 @@ import numpy as np
 from math import e
 
 from fem.numerics import bump_function
-from fem.mesh.femesh import FEMesh
-from fem.elements import LinearTriangleElement, LinearTetrahedralElement
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
@@ -52,7 +50,7 @@ def demo_poisson_equation(mesh):
 
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    gradient = mesh.calculate_gradient(solution.get_values('u'))
+    gradient = solver.space.gradient(solution.get_values('u'))
 
     plotter = Plotter(1, 3, title='Poisson Equation')
     plotter.plot(mesh, solution.get_values('u'), mode='surface', title='Solution', idx=(0, 0))
@@ -158,7 +156,7 @@ def demo_adaptive_refinement(mesh):
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
     u = solution.get_values('u')
-    u_gradient = mesh.calculate_gradient(u)
+    u_gradient = solver.space.gradient(u)
 
     plotter = Plotter(1, 2, title='Adaptive Refinement')
     plotter.plot(mesh, u, mode='surface', title='Poisson Solution', idx=(0, 0))
@@ -206,7 +204,7 @@ def demo_energy_solver(mesh):  # displacement-driven: EnergySolver rejects a sou
     energy_solver = EnergySolver(mesh, equation, bc)
     solution = energy_solver.solve()
     vertices = mesh.vertices + solution.get_values('u').reshape(-1, 2)
-    mesh_final = FEMesh(vertices, mesh.elements, mesh.boundary, element_type=LinearTriangleElement)
+    mesh_final = mesh.with_topology(vertices, mesh.elements, mesh.boundary)
     solution.get_values('energy')
     stresses = np.linalg.norm(solution.get_values('gradient').reshape(-1, 2), axis=1)
 
@@ -217,7 +215,6 @@ def demo_energy_solver(mesh):  # displacement-driven: EnergySolver rejects a sou
 def demo_3d():
     """Solve transient heat diffusion on a 3D tetrahedral mesh (renders via PyVista)."""
     mesh = create_rect_tetmesh(x_lim=[0, 4], y_lim=[0, 1], z_lim=[0, 1], subdividisions=2, plot=False)
-    mesh = FEMesh(mesh.vertices, mesh.elements, mesh.boundary, element_type=LinearTetrahedralElement)
 
     w = max(mesh.vertices.flatten()) - min(mesh.vertices.flatten())
     heat_center = np.max(mesh.vertices, axis=0)

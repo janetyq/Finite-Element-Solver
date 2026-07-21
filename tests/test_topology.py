@@ -87,10 +87,10 @@ def test_boundary_of_two_tets_drops_shared_face():
 def test_boundary_of_rect_mesh_is_the_perimeter(make_unit_square):
     """End-to-end on the real generator: every boundary vertex sits on the
     perimeter of the unit square, and none of the interior ones do."""
-    femesh = make_unit_square(6)
-    on_perimeter = np.isclose(femesh.vertices, 0) | np.isclose(femesh.vertices, 1)
-    assert on_perimeter[femesh.boundary_idxs].any(axis=1).all()
-    assert len(femesh.boundary) == 4 * (6 - 1)
+    mesh = make_unit_square(6)
+    on_perimeter = np.isclose(mesh.vertices, 0) | np.isclose(mesh.vertices, 1)
+    assert on_perimeter[mesh.boundary_idxs].any(axis=1).all()
+    assert len(mesh.boundary) == 4 * (6 - 1)
 
 
 # --- box mesh generator ---
