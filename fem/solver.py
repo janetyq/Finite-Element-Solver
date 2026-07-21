@@ -1,12 +1,13 @@
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, ClassVar, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
 
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.femesh import dof_indices
 from fem.boundary import BoundaryConditions
+from fem.fields import FieldShape, Scalar, Vector
 from fem.regions import evaluate_field
 from fem.solution import Solution
 from fem.materials import Enu_to_Lame
@@ -38,13 +39,16 @@ class Equation:
     An Equation is typed data: it says *what* to solve and carries the physical
     parameters / initial conditions, while the Solver owns *how* to solve it
     (the same equation, e.g. LinearElastic, may be handled by several solvers).
-    `dim` is the number of DOFs per node: 1 for scalar PDEs, 2 for 2D elasticity.
+
+    `field` says what kind of value the unknown takes; the DOFs per node follow
+    from it and the mesh, so no subclass writes the count down. Not a ClassVar:
+    a system of k equations would carry its count as constructor data.
 
     `source` is the PDE's right-hand side f (a body force for elasticity), given
     as a constant or a callable of position. It lives here rather than on
     BoundaryConditions because it is data of the equation, not of the boundary.
     '''
-    dim: ClassVar[int] = 1
+    field: FieldShape = Scalar()
 
     def __init__(self, source: FieldValue = None) -> None:
         self.source = source
@@ -58,17 +62,14 @@ class Equation:
 
 class Projection(Equation):
     '''L2 projection of the source field onto the FE space (M u = b).'''
-    dim: ClassVar[int] = 1
 
 
 class Poisson(Equation):
     '''Poisson equation (K u = b).'''
-    dim: ClassVar[int] = 1
 
 
 class Heat(Equation):
     '''Transient heat equation, solved with backward Euler.'''
-    dim: ClassVar[int] = 1
 
     def __init__(
         self,
@@ -85,7 +86,6 @@ class Heat(Equation):
 
 class Wave(Equation):
     '''Wave equation, solved with Crank-Nicolson.'''
-    dim: ClassVar[int] = 1
 
     def __init__(
         self,
@@ -107,7 +107,7 @@ class Wave(Equation):
 class LinearElastic(Equation):
     '''Small-strain linear elasticity. E may be a scalar or a per-element array
     (TopologyOptimizer sets a density-scaled modulus).'''
-    dim: ClassVar[int] = 2
+    field: FieldShape = Vector()
 
     def __init__(
         self,
@@ -129,7 +129,7 @@ class Solver:
         self.femesh = femesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions()
-        self.dim = self.equation.dim
+        self.dim = self.equation.field.components_for(femesh.spatial_dim)
         self.solution = Solution(femesh, self.dim)
 
         self._resolve_bc()

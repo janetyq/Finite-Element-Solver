@@ -39,7 +39,7 @@ class TopologyOptimizer:
         self.equation: LinearElastic = equation
         self.orig_equation: LinearElastic = equation.copy()
         self.solver = Solver(femesh, equation, boundary_conditions)
-        self.solution = Solution(femesh, self.orig_equation.dim)
+        self.solution = Solution(femesh, self.solver.dim)
 
         self.iters = iters
         self.volume_frac = volume_frac

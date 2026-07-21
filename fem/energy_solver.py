@@ -28,7 +28,7 @@ class EnergySolver:
         self.femesh = femesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions
-        self.dim = self.equation.dim
+        self.dim = self.equation.field.components_for(femesh.spatial_dim)
         self.solution = Solution(femesh, self.dim)
         # Not an assert: this is a real capability boundary (the energy densities
         # are 2D-only), so it must hold even under `python -O`.
