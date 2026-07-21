@@ -1,7 +1,6 @@
 import itertools
 from collections.abc import Sequence
 from functools import cached_property
-from typing import TypeVar, cast
 
 import numpy as np
 
@@ -9,9 +8,6 @@ from fem.plot.plotter import Plotter, PlotMode
 from fem.typing import ElementField, Elements, IntArray, VertexField, Vertices
 
 Edge = tuple[int, int]
-
-MeshT = TypeVar('MeshT', bound='Mesh')
-
 
 class Mesh:
     def __init__(
@@ -64,30 +60,27 @@ class Mesh:
         save_mesh(self, path)
 
     @classmethod
-    def load(cls: type[MeshT], path: str = 'test_mesh.json') -> MeshT:
+    def load(cls, path: str = 'test_mesh.json') -> 'Mesh':
         from fem.io import load_mesh
-        # load_mesh instantiates `cls` itself, but its signature can only promise
-        # a Mesh back.
-        return cast(MeshT, load_mesh(path, cls=cls))
+        return load_mesh(path)
 
     def __repr__(self) -> str:
         return f'Mesh(vertices={self.vertices}, elements={self.elements}, boundary={self.boundary})'
 
     def with_topology(
-        self: MeshT,
+        self,
         vertices: Vertices,
         elements: Elements,
         boundary: Elements,
-    ) -> MeshT:
-        '''A new mesh of this same concrete type over the given topology.
+    ) -> 'Mesh':
+        '''A new mesh over the given topology.
 
-        Remeshers (refinement, coarsening) have to hand back something the caller
-        can keep using, so a subclass must come back as itself rather than
-        silently degrading to a bare Mesh.
+        The seam remeshers build through, so that refinement and coarsening name
+        what they are doing rather than reaching for the constructor.
         '''
-        return type(self)(vertices, elements, boundary)
+        return Mesh(vertices, elements, boundary)
 
-    def copy(self: MeshT) -> MeshT:
+    def copy(self) -> 'Mesh':
         return self.with_topology(
             self.vertices.copy(), self.elements.copy(), self.boundary.copy()
         )

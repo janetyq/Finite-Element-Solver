@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from enum import Enum, auto
-from typing import Generic, TypeVar
 
 import numpy as np
 
@@ -20,9 +19,6 @@ from fem.mesh.mesh import Edge, Mesh
 from fem.typing import Vertices
 
 logger = logging.getLogger(__name__)
-
-_M = TypeVar('_M', bound=Mesh)
-
 
 class _Status(Enum):
     RED_CHILD = auto()
@@ -65,7 +61,7 @@ def _tri_edges(tri: _Triangle) -> list[Edge]:
     return [_edge_key(v[0], v[1]), _edge_key(v[1], v[2]), _edge_key(v[0], v[2])]
 
 
-class RedGreenRefiner(Generic[_M]):
+class RedGreenRefiner:
     """Persistent red-green refinement session over a triangle mesh.
 
     Wraps a mesh and maintains an internal hierarchy so that successive calls
@@ -77,14 +73,14 @@ class RedGreenRefiner(Generic[_M]):
     removed, so every index structure stays valid across rounds.
     """
 
-    def __init__(self, mesh: _M) -> None:
+    def __init__(self, mesh: Mesh) -> None:
         n_nodes = mesh.elements.shape[1]
         if n_nodes != 3:
             raise NotImplementedError(
                 f'red-green refinement is defined for triangles (3-node elements), '
                 f'got {n_nodes}-node elements'
             )
-        self._source_mesh: _M = mesh
+        self._source_mesh: Mesh = mesh
         self._vertices: Vertices = mesh.vertices.copy()
         self._boundary: list[list[int]] = [list(edge) for edge in mesh.boundary]
 
@@ -111,7 +107,7 @@ class RedGreenRefiner(Generic[_M]):
                 classifications.append('green')
         return classifications
 
-    def refine(self, element_idxs: Sequence[int]) -> _M:
+    def refine(self, element_idxs: Sequence[int]) -> Mesh:
         """Refine the given elements and return the updated mesh.
 
         ``element_idxs`` are indices into the most recently emitted mesh (or the
@@ -283,7 +279,7 @@ class RedGreenRefiner(Generic[_M]):
 
     # -- internal: mesh emission --------------------------------------------
 
-    def _emit_mesh(self) -> _M:
+    def _emit_mesh(self) -> Mesh:
         """Build a new mesh from the current leaf triangles.
 
         Compaction (vertex renumbering) is applied only to the output mesh.

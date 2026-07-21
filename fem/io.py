@@ -50,16 +50,13 @@ def save_mesh(mesh, path='test_mesh.json'):
     logger.info('Saved mesh to %s', path)
 
 
-def load_mesh(path='test_mesh.json', cls=None):
-    '''Read a mesh from JSON. `cls` selects the class to rebuild (default Mesh),
-    so a Mesh subclass comes back as itself rather than as a bare Mesh.'''
+def load_mesh(path='test_mesh.json'):
+    '''Read a mesh from JSON.'''
     from fem.mesh.mesh import Mesh
 
-    if cls is None:
-        cls = Mesh
     with open(path, 'r') as f:
         data = json.load(f)
-    return cls(data['vertices'], data['elements'], data['boundary'])
+    return Mesh(data['vertices'], data['elements'], data['boundary'])
 
 
 # --- solutions --------------------------------------------------------------
