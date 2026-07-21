@@ -9,6 +9,10 @@ discretization is not a kind of geometry, it is a pairing of geometry with an
 element choice and a component count. Two spaces can therefore share one domain
 -- P1 and P2, scalar and vector -- over a single copy of the geometry.
 
+P1 is the piecewise-linear space: one DOF per vertex, linear over each element
+and continuous across element boundaries. P2 adds edge-midpoint nodes for
+quadratic interpolation. Only P1 is implemented here.
+
 `n_components` is taken as an explicit low-level argument rather than an
 `Equation`, so a mixed formulation can build spaces the equation taxonomy has no
 name for. Deriving it from `Equation.field` happens one layer up, in the solver.
