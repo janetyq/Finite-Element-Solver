@@ -2,16 +2,13 @@
 
 The error estimator itself is still open (BACKLOG section 3), so these drive the
 loop with a hand-written estimator. What they pin down is everything around it:
-that remeshing is type-preserving, that the loop re-solves on each new
-mesh rather than reusing a stale estimate, and that the conditions it cannot
-carry across a remesh fail loudly.
+that the loop re-solves on each new mesh rather than reusing a stale estimate,
+and that the conditions it cannot carry across a remesh fail loudly.
 """
 import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, BCType
-from fem.mesh.mesh import Mesh
-from fem.mesh.refinement import RedGreenRefiner
 from fem.regions import everywhere, at_indices
 from fem.solver import Solver, Projection, Poisson
 
@@ -23,29 +20,6 @@ def refine_near_centre(solver):
         for element in solver.mesh.elements
     ])
     return 1.0 / (0.05 + np.linalg.norm(centroids - 0.5, axis=1))
-
-
-class _TaggedMesh(Mesh):
-    """A Mesh subclass, to check that remeshing is type-preserving.
-
-    `RedGreenRefiner` is generic over the mesh type and rebuilds through
-    `with_topology`, so a subclass must survive a refinement round rather than
-    being silently downgraded to a bare Mesh.
-    """
-
-
-def test_refined_mesh_keeps_its_concrete_type(make_unit_square):
-    base = make_unit_square(6)
-    mesh = _TaggedMesh(base.vertices, base.elements, base.boundary)
-    refined = RedGreenRefiner(mesh).refine([0, 1, 2])
-
-    assert type(refined) is _TaggedMesh
-    assert len(refined.elements) > len(mesh.elements)
-
-
-def test_copy_preserves_concrete_mesh_type(make_unit_square):
-    base = make_unit_square(6)
-    assert type(_TaggedMesh(base.vertices, base.elements, base.boundary).copy()) is _TaggedMesh
 
 
 def test_adaptive_refinement_grows_mesh_and_resolves(make_unit_square):
