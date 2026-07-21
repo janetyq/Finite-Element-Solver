@@ -12,12 +12,10 @@ The package solves elasticity twice, along two independent axes:
 (Green-Lagrange, energy). Because they sit on the diagonal, switching solver
 also switches physics, and neither difference can be observed alone.
 
-`_SmallStrain` below is the missing off-diagonal cell -- Green-Lagrange's
-linearization, dropped into the energy machinery -- and it exists only here.
-It has no production use: (small strain, energy) computes exactly what (small
-strain, direct) does with more work. Its whole value is that holding the method
-fixed while changing only the strain measure, and vice versa, makes each axis
-observable on its own. That turns the two comments which used to carry this
+`SmallStrainEnergyDensity` (`fem/energies.py`) is the missing off-diagonal cell
+-- Green-Lagrange's linearization dropped into the energy machinery. Holding the
+method fixed while changing only the strain measure, and vice versa, makes each
+axis observable on its own. That turns the two comments which used to carry this
 knowledge -- "does not exactly match linear elastic solve for larger
 deformations" and "not the linear approx ... so iterative solver does not
 converge in 1 iteration" -- into executable claims.
@@ -28,32 +26,7 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.regions import on_plane
 from fem.solver import Solver, LinearElastic
 from fem.energy_solver import EnergySolver
-from fem.energies import StVenantKirchhoffEnergyDensity
-
-
-class _SmallStrain(StVenantKirchhoffEnergyDensity):
-    """Green-Lagrange with the quadratic term dropped: eps = 1/2 (F + F^T) - I.
-
-    Same energy W and same Lame parameters as the parent -- only the strain
-    measure changes, which is the whole point. dS/dF is then constant and
-    d2S/dF2 vanishes, so the energy is quadratic in u and its Hessian is the
-    same K that `Solver` assembles.
-    """
-
-    def calculate_S_from_F(self, F):
-        return 0.5 * (F + F.T) - np.eye(2)
-
-    def calculate_dS_dF(self, F):
-        dS_dF = np.zeros((2, 2, 2, 2))
-        for i in range(2):
-            for j in range(2):
-                for m in range(2):
-                    for n in range(2):
-                        dS_dF[i, j, m, n] = 0.5 * ((i == m) * (j == n) + (j == m) * (i == n))
-        return dS_dF
-
-    def calculate_d2S_dF2(self, F):
-        return np.zeros((2, 2, 2, 2, 2, 2))
+from fem.energies import SmallStrainEnergyDensity, StVenantKirchhoffEnergyDensity
 
 
 def _stretched_square(make_unit_square, stretch=0.1, n=8):
@@ -73,8 +46,8 @@ def _stretched_square(make_unit_square, stretch=0.1, n=8):
 def _energy_solver(mesh, bc, density_cls):
     """An EnergySolver whose strain energy density is `density_cls`.
 
-    The class is chosen by `_select_energy`, which only knows the production
-    St-VK density, so the test injects its own after construction.
+    `_select_energy` maps `LinearElastic` to St-VK and has no knob for the
+    strain measure, so the test sets the density after construction.
     """
     solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
     solver.energy_density = density_cls(200, 0.4)
@@ -121,7 +94,7 @@ def test_small_strain_energy_equals_direct_solve(make_unit_square):
     mesh, bc = _stretched_square(make_unit_square)
 
     u_direct = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().get_values("u").flatten()
-    u_energy = _one_newton_step(_energy_solver(mesh, bc, _SmallStrain))
+    u_energy = _one_newton_step(_energy_solver(mesh, bc, SmallStrainEnergyDensity))
 
     np.testing.assert_allclose(u_energy, u_direct, atol=1e-12)
 
@@ -151,7 +124,7 @@ def test_models_agree_to_second_order_in_strain(make_unit_square):
     gaps = []
     for stretch in (0.08, 0.04, 0.02, 0.01):
         mesh, bc = _stretched_square(make_unit_square, stretch=stretch)
-        u_small = _energy_solver(mesh, bc, _SmallStrain).solve().get_values("u")
+        u_small = _energy_solver(mesh, bc, SmallStrainEnergyDensity).solve().get_values("u")
         u_stvk = _energy_solver(mesh, bc, StVenantKirchhoffEnergyDensity).solve().get_values("u")
         gaps.append(np.linalg.norm(u_small - u_stvk))
 
@@ -197,7 +170,7 @@ def test_green_lagrange_is_frame_indifferent(make_unit_square):
     for theta in (0.4, 0.2, 0.1):
         u = rotation_field(theta)
         stvk = total_energy(StVenantKirchhoffEnergyDensity(200, 0.4), u)
-        small = total_energy(_SmallStrain(200, 0.4), u)
+        small = total_energy(SmallStrainEnergyDensity(200, 0.4), u)
         assert stvk < 1e-18, f"Green-Lagrange stored {stvk:.2e} under a rigid rotation"
         assert small > 1e-6, f"small strain should read a spurious {theta} rotation as strain"
         small_energies.append(small)

@@ -295,8 +295,9 @@ passing without modification.
    `BᵀDB` assembles once. `FunctionSpace._assemble` is already the right loop, so this
    parameterises it by an integrand rather than adding a layer. Retires the `**kwargs` and the
    `if n_components == 1` physics branch. The kinematics (strain measure) is a second, smaller
-   axis — kept in the tests for now, promoted to a type only if a second production consumer
-   appears. The keystone.
+   axis — `SmallStrainEnergyDensity` and `StVenantKirchhoffEnergyDensity` are its two members
+   today; `Form` is where selecting between them becomes an equation-level choice rather than a
+   test-only injection. The keystone.
 2. **Introduce `DiscreteSystem`,** then migrate dense→sparse behind it. The backlog's
    highest-leverage change becomes a one-layer edit rather than a cross-cutting one.
 3. **Typed `Solution`,** together with the `io.py` rework they jointly require.

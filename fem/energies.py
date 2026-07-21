@@ -117,6 +117,40 @@ class StVenantKirchhoffEnergyDensity: # TODO: inheritance
         check_gradient(self.calculate_W_from_F, self.calculate_dW_dF, (2, 2))
         logger.info("Gradient checks completed")
 
+
+class SmallStrainEnergyDensity(StVenantKirchhoffEnergyDensity):
+    '''Linear (infinitesimal-strain) elasticity: St-VK with eps = 1/2 (F + F^T) - I.
+
+    Green-Lagrange's linearization -- the same energy W and Lame parameters as
+    the parent, dropping only the quadratic grad_u^T grad_u term. The strain is
+    then affine in F, so dS/dF is constant and d2S/dF2 vanishes: the energy is
+    quadratic in u, its Hessian is the constant K that `Solver` assembles, and
+    Newton converges in one step from any start.
+
+    This is the same physics `Solver` solves by direct assembly. Minimizing it
+    is therefore the slower route to that answer -- its value is as the second,
+    independent derivation `Solver` is checked against, and as the small-strain
+    member of the strain-measure axis (see tests/test_elasticity_models.py). It
+    trades frame indifference for that constant Hessian: a rigid rotation reads
+    as a spurious strain, which is exactly why the nonlinear parent exists.
+    '''
+
+    def calculate_S_from_F(self, F):
+        return 0.5 * (F + F.T) - np.eye(2)
+
+    def calculate_dS_dF(self, F):
+        dS_dF = np.zeros((2, 2, 2, 2))
+        for i in range(2):
+            for j in range(2):
+                for m in range(2):
+                    for n in range(2):
+                        dS_dF[i, j, m, n] = 0.5 * ((i == m) * (j == n) + (j == m) * (i == n))
+        return dS_dF
+
+    def calculate_d2S_dF2(self, F):
+        return np.zeros((2, 2, 2, 2, 2, 2))
+
+
 class NeohookeanEnergyDensity:
     def __init__(self, E, nu):
         self.E = E
