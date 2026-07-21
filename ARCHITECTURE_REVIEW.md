@@ -40,7 +40,7 @@ string plus a positional-args tuple resolved through `_select_*`.
 - `check_gradient` / `check_hessian` (`fem/numerics.py:27,53`) both end in `plt.show()`,
   so they block. They are dev tools that cannot be called from a test, and they pull
   `matplotlib` into a top-level import of a core module. Their only live caller is
-  `LinearElasticEnergyDensity.check_gradients` (`fem/energies.py:102`), itself uncalled;
+  `StVenantKirchhoffEnergyDensity.check_gradients` (`fem/energies.py:102`), itself uncalled;
   the `EnergySolver` uses are the parked commented-out blocks at `energy_solver.py:62-66`.
 
 ---

@@ -6,13 +6,24 @@ from fem.numerics import check_gradient
 
 logger = logging.getLogger(__name__)
 
-class LinearElasticEnergyDensity: # TODO: inheritance
+class StVenantKirchhoffEnergyDensity: # TODO: inheritance
     '''
-    Strain energy density on 2D triangular elements
+    St Venant-Kirchhoff strain energy density on 2D triangular elements
 
     F: deformation gradient dx/dX (2, 2)
     S: strain tensor (2, 2)
     W: strain energy density (1)
+
+    Not linear elasticity, despite pairing the same W with the same Lame
+    parameters. The strain measure here is Green-Lagrange, S = 1/2 (F^T F - I),
+    which keeps the quadratic grad_u^T grad_u term that infinitesimal strain
+    theory drops. That makes the model *geometrically* nonlinear: it is frame
+    indifferent (a rigid rotation produces no strain, where small strain
+    produces a spurious ~theta^2/2 compression) at the cost of a Newton solve.
+
+    Small strain is its linearization, so the two agree to O(||grad_u||^2) --
+    see tests/test_elasticity_models.py, which pins both halves of that
+    statement.
 
     2D only: every tensor below is built at a fixed rank (np.eye(2), (2,2,2,2),
     (2,2,2,2,2,2)) rather than from a `n_components` parameter. `set_grad_u` rejects
@@ -31,7 +42,7 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         expected = (self.DIM, self.DIM)
         if np.shape(grad_u) != expected:
             raise NotImplementedError(
-                f'LinearElasticEnergyDensity is {self.DIM}D-only: expected grad_u of '
+                f'StVenantKirchhoffEnergyDensity is {self.DIM}D-only: expected grad_u of '
                 f'shape {expected}, got {np.shape(grad_u)}'
             )
         self.F = np.eye(2) + grad_u
@@ -44,8 +55,9 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         self.d2W_dS2 = self.calculate_d2W_dS2(self.S)
     
     def calculate_S_from_F(self, F):
-        # note: this is not the linear approx of infinitesimal strain theory,
-        #       so iterative solver does not converge in 1 iteration
+        # Green-Lagrange. The quadratic term is what makes this nonlinear in u,
+        # so Newton takes several iterations rather than the single step a
+        # quadratic energy would need.
         return 0.5 * (F.T @ F - np.eye(2))
 
     def calculate_W_from_S(self, S):
@@ -105,6 +117,40 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         check_gradient(self.calculate_W_from_F, self.calculate_dW_dF, (2, 2))
         logger.info("Gradient checks completed")
 
+
+class SmallStrainEnergyDensity(StVenantKirchhoffEnergyDensity):
+    '''Linear (infinitesimal-strain) elasticity: St-VK with eps = 1/2 (F + F^T) - I.
+
+    Green-Lagrange's linearization -- the same energy W and Lame parameters as
+    the parent, dropping only the quadratic grad_u^T grad_u term. The strain is
+    then affine in F, so dS/dF is constant and d2S/dF2 vanishes: the energy is
+    quadratic in u, its Hessian is the constant K that `Solver` assembles, and
+    Newton converges in one step from any start.
+
+    This is the same physics `Solver` solves by direct assembly. Minimizing it
+    is therefore the slower route to that answer -- its value is as the second,
+    independent derivation `Solver` is checked against, and as the small-strain
+    member of the strain-measure axis (see tests/test_elasticity_models.py). It
+    trades frame indifference for that constant Hessian: a rigid rotation reads
+    as a spurious strain, which is exactly why the nonlinear parent exists.
+    '''
+
+    def calculate_S_from_F(self, F):
+        return 0.5 * (F + F.T) - np.eye(2)
+
+    def calculate_dS_dF(self, F):
+        dS_dF = np.zeros((2, 2, 2, 2))
+        for i in range(2):
+            for j in range(2):
+                for m in range(2):
+                    for n in range(2):
+                        dS_dF[i, j, m, n] = 0.5 * ((i == m) * (j == n) + (j == m) * (i == n))
+        return dS_dF
+
+    def calculate_d2S_dF2(self, F):
+        return np.zeros((2, 2, 2, 2, 2, 2))
+
+
 class NeohookeanEnergyDensity:
     def __init__(self, E, nu):
         self.E = E
@@ -114,5 +160,5 @@ class NeohookeanEnergyDensity:
     def set_grad_u(self, grad_u):
         raise NotImplementedError(
             "NeohookeanEnergyDensity is not implemented yet; "
-            "use LinearElasticEnergyDensity for now."
+            "use StVenantKirchhoffEnergyDensity for now."
         )
