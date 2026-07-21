@@ -99,7 +99,7 @@ it, but it is the same defect, and it is the `Form` seam — see below.
 geometry, and it lives on the element only because the element was in scope. Meanwhile:
 
 - `fem/materials.py` holds `Enu_to_Lame` and nothing else (16 lines)
-- `fem/energies.py` holds `LinearElasticEnergyDensity` — an *independent second*
+- `fem/energies.py` holds `StVenantKirchhoffEnergyDensity` — an *independent second*
   representation of the same material, used only by `EnergySolver`
 
 So linear elasticity is currently modelled twice, in two files, with no shared abstraction —

@@ -97,7 +97,7 @@ because it's inside a Newton loop.
 - 💡 **N-D elasticity in `EnergySolver`.** The linear path is done: `Solver` + `LinearElastic`
   now solves 3D elasticity on a tet mesh, with an MMS convergence test in
   `tests/test_convergence_elasticity.py`. `EnergySolver` still refuses anything but 2D,
-  because `LinearElasticEnergyDensity` builds its tensors at fixed rank 2 — generalizing
+  because `StVenantKirchhoffEnergyDensity` builds its tensors at fixed rank 2 — generalizing
   those is the remaining work behind that guard.
 - 💡 **Time-integration abstraction.** Backward-Euler (heat) and Crank–Nicolson (wave) are
   hand-coded inline. A small `TimeIntegrator` interface (θ-method / generalized-α) would

@@ -6,13 +6,24 @@ from fem.numerics import check_gradient
 
 logger = logging.getLogger(__name__)
 
-class LinearElasticEnergyDensity: # TODO: inheritance
+class StVenantKirchhoffEnergyDensity: # TODO: inheritance
     '''
-    Strain energy density on 2D triangular elements
+    St Venant-Kirchhoff strain energy density on 2D triangular elements
 
     F: deformation gradient dx/dX (2, 2)
     S: strain tensor (2, 2)
     W: strain energy density (1)
+
+    Not linear elasticity, despite pairing the same W with the same Lame
+    parameters. The strain measure here is Green-Lagrange, S = 1/2 (F^T F - I),
+    which keeps the quadratic grad_u^T grad_u term that infinitesimal strain
+    theory drops. That makes the model *geometrically* nonlinear: it is frame
+    indifferent (a rigid rotation produces no strain, where small strain
+    produces a spurious ~theta^2/2 compression) at the cost of a Newton solve.
+
+    Small strain is its linearization, so the two agree to O(||grad_u||^2) --
+    see tests/test_elasticity_models.py, which pins both halves of that
+    statement.
 
     2D only: every tensor below is built at a fixed rank (np.eye(2), (2,2,2,2),
     (2,2,2,2,2,2)) rather than from a `n_components` parameter. `set_grad_u` rejects
@@ -31,7 +42,7 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         expected = (self.DIM, self.DIM)
         if np.shape(grad_u) != expected:
             raise NotImplementedError(
-                f'LinearElasticEnergyDensity is {self.DIM}D-only: expected grad_u of '
+                f'StVenantKirchhoffEnergyDensity is {self.DIM}D-only: expected grad_u of '
                 f'shape {expected}, got {np.shape(grad_u)}'
             )
         self.F = np.eye(2) + grad_u
@@ -44,8 +55,9 @@ class LinearElasticEnergyDensity: # TODO: inheritance
         self.d2W_dS2 = self.calculate_d2W_dS2(self.S)
     
     def calculate_S_from_F(self, F):
-        # note: this is not the linear approx of infinitesimal strain theory,
-        #       so iterative solver does not converge in 1 iteration
+        # Green-Lagrange. The quadratic term is what makes this nonlinear in u,
+        # so Newton takes several iterations rather than the single step a
+        # quadratic energy would need.
         return 0.5 * (F.T @ F - np.eye(2))
 
     def calculate_W_from_S(self, S):
@@ -114,5 +126,5 @@ class NeohookeanEnergyDensity:
     def set_grad_u(self, grad_u):
         raise NotImplementedError(
             "NeohookeanEnergyDensity is not implemented yet; "
-            "use LinearElasticEnergyDensity for now."
+            "use StVenantKirchhoffEnergyDensity for now."
         )
