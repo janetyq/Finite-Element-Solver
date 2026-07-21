@@ -14,7 +14,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import LaplacianForm, LinearElasticForm, strain_displacement
+from fem.forms import LaplacianForm, LinearElasticForm, MassForm, strain_displacement
 from fem.materials import LinearElasticMaterial
 
 # Reference simplices: the unit right triangle and tet, and a unit line.
@@ -34,6 +34,24 @@ def test_laplacian_matches_analytic_unit_triangle():
 def test_laplacian_matches_analytic_unit_line():
     expected = np.array([[1.0, -1.0], [-1.0, 1.0]])
     np.testing.assert_allclose(LaplacianForm().element_matrix(LINE, 0), expected)
+
+
+def test_mass_form_scalar_matches_consistent_mass():
+    """The scalar mass form is the element's consistent P1 mass matrix, and it
+    integrates a unit field to the element volume (its row sum)."""
+    M = MassForm().element_matrix(TRI, 0)
+    np.testing.assert_allclose(M, TRI.calculate_mass_matrix())
+    np.testing.assert_allclose(M.sum(), TRI.volume)
+
+
+@pytest.mark.parametrize("element", [TRI, TET])
+def test_mass_form_replicates_scalar_per_component(element):
+    """A k-component mass form is the scalar mass matrix Kronecker the identity."""
+    scalar = MassForm(1).element_matrix(element, 0)
+    k = element.reference_dim
+    np.testing.assert_allclose(
+        MassForm(k).element_matrix(element, 0), np.kron(scalar, np.eye(k))
+    )
 
 
 @pytest.mark.parametrize("element", [TRI, TET, LINE])

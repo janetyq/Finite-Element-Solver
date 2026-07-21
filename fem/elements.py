@@ -52,15 +52,14 @@ class LinearElement(Element):
 
         self.dF_dx: FloatArray = self.calculate_dF_dx()
 
-    def calculate_mass_matrix(self, n_components: int) -> Matrix:
-        '''Consistent P1 mass matrix, `volume * (1 + delta_ij) / (N (N+1))`.
+    def calculate_mass_matrix(self) -> Matrix:
+        '''Consistent scalar P1 mass matrix, `volume * (1 + delta_ij) / (N (N+1))`.
 
-        A vector unknown repeats the scalar matrix once per component, which is
-        the Kronecker product with the identity: DOFs are interleaved per node,
-        so entry (n*a + d, n*b + e) is M[a, b] when d == e and zero otherwise.
+        The `∫ phi_i phi_j` integral, which is pure geometry -- one value per node
+        pair. A vector field replicates it per component; that is `MassForm`'s job,
+        the same way the stiffness forms build their operators from `grad_phi`.
         '''
-        M = (np.ones((self.N, self.N)) + np.eye(self.N)) * self.volume / (self.N * (self.N + 1))
-        return np.kron(M, np.eye(n_components)).astype(np.float64)
+        return (np.ones((self.N, self.N)) + np.eye(self.N)) * self.volume / (self.N * (self.N + 1))
 
     # TODO: haven't checked if these make sense for 1D, 3D
     def deformation_gradient(self, u_element: FloatArray) -> FloatArray:

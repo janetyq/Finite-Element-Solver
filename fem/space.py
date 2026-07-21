@@ -33,7 +33,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import Form
+from fem.forms import Form, MassForm
 from fem.mesh.mesh import Mesh
 from fem.typing import DofIndices, Elements, FloatArray, IntArray, Matrix, VertexField
 
@@ -179,30 +179,28 @@ class FunctionSpace:
     @cached_property
     def mass_matrix(self) -> Matrix:
         '''The consistent mass matrix. Depends only on geometry, so it caches.'''
-        return self._assemble(
-            self.mesh.elements,
-            lambda e_idx: self.element_objs[e_idx].calculate_mass_matrix(self.n_components),
-        )
+        return self.assemble(MassForm(self.n_components))
 
     @cached_property
     def boundary_mass_matrix(self) -> Matrix:
         '''Mass matrix over boundary facets, for integrating tractions.'''
-        return self._assemble(
-            self.mesh.boundary,
-            lambda f_idx: self.boundary_objs[f_idx].calculate_mass_matrix(self.n_components),
-        )
+        return self.assemble(MassForm(self.n_components), boundary=True)
 
-    def assemble_stiffness(self, form: Form) -> Matrix:
-        '''The stiffness matrix for `form`, which is *not* cached.
+    def assemble(self, form: Form, boundary: bool = False) -> Matrix:
+        '''Scatter `form`'s element matrices into a global matrix.
 
-        Unlike the mass matrix it depends on the form's material data, so it is
-        rebuilt when that changes (a topology-optimization iteration rescales the
-        modulus, for instance). The space owns the loop; the form owns the
-        integrand, so the space stays free of any physics branch.
+        The space owns the loop; the form owns the integrand, so the space stays
+        free of any physics. `boundary=True` integrates over the boundary facets
+        instead of the volume elements -- the same scatter, a different mesh of
+        elements. Not cached: a form may carry material data that changes (a
+        topology-optimization iteration rescales the modulus). The geometry-only
+        results the callers *want* cached, the mass matrices, cache themselves.
         '''
+        elements = self.mesh.boundary if boundary else self.mesh.elements
+        element_objs = self.boundary_objs if boundary else self.element_objs
         return self._assemble(
-            self.mesh.elements,
-            lambda e_idx: form.element_matrix(self.element_objs[e_idx], e_idx),
+            elements,
+            lambda idx: form.element_matrix(element_objs[idx], idx),
         )
 
     def _assemble(

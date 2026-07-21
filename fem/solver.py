@@ -187,9 +187,9 @@ class Solver:
         self.M_b = self.space.boundary_mass_matrix
         if isinstance(self.equation, LinearElastic):
             self.material = LinearElasticMaterial(self.equation.E, self.equation.nu)
-            self.K = self.space.assemble_stiffness(LinearElasticForm(self.material))
+            self.K = self.space.assemble(LinearElasticForm(self.material))
         else:
-            self.K = self.space.assemble_stiffness(LaplacianForm())
+            self.K = self.space.assemble(LaplacianForm())
 
         # RHS: the equation's source term over the volume, plus the boundary
         # traction over the boundary. A Robin condition would add its matrix

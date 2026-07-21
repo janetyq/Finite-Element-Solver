@@ -1,9 +1,11 @@
 """Bilinear forms: the integrand a finite-element assembly scatters.
 
-A `Form` is the assembly-ready view of an equation's left-hand side, the way
+A `Form` is the assembly-ready view of a bilinear form `a(u, v)`, the way
 `ResolvedBC` is the assembly-ready view of a `BoundaryConditions`. It answers one
 question -- "what is the element matrix for element `e_idx`?" -- and
-`FunctionSpace.assemble_stiffness` scatters the results into the global matrix.
+`FunctionSpace.assemble` scatters the results into the global matrix. Every
+matrix the linear solvers assemble -- mass, stiffness, boundary mass -- is a
+`Form`, so nothing reaches into element internals with an ad-hoc loop.
 
 Every element matrix here has the shape `Gᵀ C G · volume`, where G is a
 gradient-like operator built from the element's shape-function gradients and C is
@@ -65,6 +67,23 @@ class Form(Protocol):
     def element_matrix(self, element: LinearElement, e_idx: int) -> Matrix:
         '''The dense element stiffness for `element`, index `e_idx` in the mesh.'''
         ...
+
+
+@dataclass(frozen=True)
+class MassForm:
+    '''The mass form ∫ u·v -- the consistent P1 mass matrix.
+
+    The scalar `∫ phi_i phi_j` is element geometry; a k-component field repeats it
+    once per component, which is the Kronecker product with the k×k identity: DOFs
+    are interleaved per node, so entry (k*a + d, k*b + e) is the scalar M[a, b]
+    when d == e and zero otherwise. Used both as an operator (the mass terms of
+    the time-steppers) and as a system matrix (an L2 projection solves M u = b).
+    '''
+    n_components: int = 1
+
+    def element_matrix(self, element: LinearElement, e_idx: int) -> Matrix:
+        M = np.kron(element.calculate_mass_matrix(), np.eye(self.n_components))
+        return M.astype(np.float64)
 
 
 @dataclass(frozen=True)
