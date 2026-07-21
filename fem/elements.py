@@ -1,4 +1,4 @@
-from typing import Any, ClassVar
+from typing import ClassVar
 
 import numpy as np
 
@@ -52,7 +52,7 @@ class LinearElement(Element):
 
         self.dF_dx: FloatArray = self.calculate_dF_dx()
 
-    def calculate_mass_matrix(self, n_components: int, **kwargs: Any) -> Matrix:
+    def calculate_mass_matrix(self, n_components: int) -> Matrix:
         '''Consistent P1 mass matrix, `volume * (1 + delta_ij) / (N (N+1))`.
 
         A vector unknown repeats the scalar matrix once per component, which is
@@ -61,30 +61,6 @@ class LinearElement(Element):
         '''
         M = (np.ones((self.N, self.N)) + np.eye(self.N)) * self.volume / (self.N * (self.N + 1))
         return np.kron(M, np.eye(n_components)).astype(np.float64)
-
-    def calculate_stiffness_matrix(self, n_components: int, **kwargs: Any) -> Matrix:
-        if n_components == 1:
-            return self.grad_phi @ self.grad_phi.T * self.volume
-        # otherwise, the equation is linear elastic
-        idx = kwargs['idx']
-        B, D = self.calculate_B(), self.calculate_D(kwargs['mu'][idx], kwargs['lamb'][idx])
-        return B.T @ D @ B * self.volume
-
-    def calculate_B(self) -> FloatArray:
-        '''Strain-displacement matrix, mapping nodal DOFs to element strain.
-
-        Only the area/volume elements define one: there is no 1D elasticity path
-        yet, so a line element reaching here is a bug rather than a missing case.
-        '''
-        raise NotImplementedError(
-            f'{type(self).__name__} defines no strain-displacement matrix'
-        )
-
-    def calculate_D(self, mu: float, lamb: float) -> Matrix:
-        '''Constitutive matrix relating strain to stress, in Lame parameters.'''
-        raise NotImplementedError(
-            f'{type(self).__name__} defines no constitutive matrix'
-        )
 
     # TODO: haven't checked if these make sense for 1D, 3D
     def deformation_gradient(self, u_element: FloatArray) -> FloatArray:
@@ -136,19 +112,6 @@ class LinearTriangleElement(LinearElement): # TODO: perhaps put quadrature in he
         super().__init__(vertices)
         # d2F_dx2 = 0
 
-    def calculate_B(self) -> FloatArray:
-        b, c = self.grad_phi.T
-        return np.array([[b[0],   0 , b[1],   0 , b[2],   0 ],
-                         [  0 , c[0],   0 , c[1],   0 , c[2]],
-                         [c[0], b[0], c[1], b[1], c[2], b[2]]])
-    
-    def calculate_D(self, mu: float, lamb: float) -> Matrix:
-        return np.array([
-            [2*mu + lamb, lamb, 0],
-            [lamb, 2*mu + lamb, 0],
-            [0, 0, mu]
-        ])
-
 
 class LinearTetrahedralElement(LinearElement):
     '''
@@ -160,25 +123,4 @@ class LinearTetrahedralElement(LinearElement):
     def __init__(self, vertices: Vertices) -> None:
         self.volume = calculate_tetrahedron_volume(vertices)
         super().__init__(vertices)
-
-    def calculate_B(self) -> FloatArray:
-        a, b, c = self.grad_phi.T
-        return np.array([
-            [a[0], 0, 0, a[1], 0, 0, a[2], 0, 0, a[3], 0, 0],
-            [0, b[0], 0, 0, b[1], 0, 0, b[2], 0, 0, b[3], 0],
-            [0, 0, c[0], 0, 0, c[1], 0, 0, c[2], 0, 0, c[3]],
-            [b[0], a[0], 0, b[1], a[1], 0, b[2], a[2], 0, b[3], a[3], 0],
-            [0, c[0], b[0], 0, c[1], b[1], 0, c[2], b[2], 0, c[3], b[3]],
-            [c[0], 0, a[0], c[1], 0, a[1], c[2], 0, a[2], c[3], 0, a[3]]
-        ])
-    
-    def calculate_D(self, mu: float, lamb: float) -> Matrix:
-        return np.array([
-            [2*mu + lamb, lamb, lamb, 0, 0, 0],
-            [lamb, 2*mu + lamb, lamb, 0, 0, 0],
-            [lamb, lamb, 2*mu + lamb, 0, 0, 0],
-            [0, 0, 0, mu, 0, 0],
-            [0, 0, 0, 0, mu, 0],
-            [0, 0, 0, 0, 0, mu]
-        ])
 
