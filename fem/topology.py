@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -10,9 +10,7 @@ from fem.solver import Solver, LinearElastic
 from fem.solution import Solution
 from fem.typing import ElementField
 
-if TYPE_CHECKING:
-    from fem.mesh.femesh import FEMesh
-    from fem.mesh.mesh import Mesh
+from fem.mesh.mesh import Mesh
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +23,7 @@ class TopologyOptimizer:
     '''
     def __init__(
         self,
-        femesh: 'FEMesh',
+        mesh: Mesh,
         equation: LinearElastic,
         boundary_conditions: BoundaryConditions,
         iters: int = 10,
@@ -34,21 +32,26 @@ class TopologyOptimizer:
     ) -> None:
         assert isinstance(equation, LinearElastic), \
             'TopologyOptimizer only supports LinearElastic equations'
-        self.femesh = femesh
+        self.mesh = mesh
         # Narrowed once here: the assert above guarantees it, and every later use
         # of E goes through this rather than the Solver's loosely-typed equation.
         self.equation: LinearElastic = equation
         self.orig_equation: LinearElastic = equation.copy()
-        self.solver = Solver(femesh, equation, boundary_conditions)
-        self.solution = Solution(femesh, self.solver.n_components)
+        self.solver = Solver(mesh, equation, boundary_conditions)
+        self.solution = Solution(mesh, self.solver.n_components)
 
         self.iters = iters
         self.volume_frac = volume_frac
 
         self.rho: ElementField
-        self.set_rho(np.full(len(self.femesh.elements), self.volume_frac))
+        self.set_rho(np.full(len(self.mesh.elements), self.volume_frac))
 
-        self.smoothing_matrix = calculate_smoothing_matrix(self.femesh, r=smoothing_radius)
+        self.smoothing_matrix = calculate_smoothing_matrix(self.mesh, r=smoothing_radius)
+
+    def _volume_fraction(self, rho: ElementField) -> float:
+        '''Volume-weighted mean of a per-element field.'''
+        volumes = self.solver.space.element_volumes
+        return float((volumes * rho).sum() / volumes.sum())
 
     def set_rho(self, rho: ElementField) -> None:
         self.rho = rho
@@ -74,7 +77,7 @@ class TopologyOptimizer:
             rho_new = np.clip(rho_new, self.rho - 0.1, self.rho + 0.1) # change limit
             rho_new = np.clip(rho_new, 1e-6, 1)
 
-            if self.femesh.calculate_mean_value(rho_new) < volume_frac:
+            if self._volume_fraction(rho_new) < volume_frac:
                 hi = m
             else:
                 lo = m
@@ -147,7 +150,7 @@ class TopologyOptimizer:
     def _log_iteration(self, iter: int, solution: Solution) -> None:
         max_displacement = np.max(solution.values['u'], axis=0)
         compliance = solution.values['compliance'].sum()
-        volume_fraction = self.femesh.calculate_mean_value(self.rho)
+        volume_fraction = self._volume_fraction(self.rho)
         logger.info('Iteration %d: total compliance = %.4f, max displacement = %s, volume fraction = %.4f',
                     iter, compliance, max_displacement, volume_fraction)
 

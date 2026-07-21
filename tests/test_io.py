@@ -8,7 +8,6 @@ falls back to pickle.
 import numpy as np
 import pytest
 
-from fem.elements import LinearTriangleElement
 from fem.io import load_mesh, save_mesh, save_solution
 from fem.mesh.femesh import FEMesh
 from fem.mesh.mesh import Mesh
@@ -55,8 +54,7 @@ def test_solution_round_trip_preserves_values_mesh_and_dim(make_unit_square, tmp
     assert set(loaded.values) == {"u", "compliance"}
     assert np.allclose(loaded.get_values("u"), solution.get_values("u"))
     assert np.allclose(loaded.get_values("compliance"), solution.get_values("compliance"))
-    assert type(loaded.mesh) is FEMesh
-    assert loaded.mesh.element_type is LinearTriangleElement
+    assert type(loaded.mesh) is Mesh
     assert np.allclose(loaded.mesh.vertices, femesh.vertices)
     assert np.array_equal(loaded.mesh.elements, femesh.elements)
 

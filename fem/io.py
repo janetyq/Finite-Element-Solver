@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 # keep them from colliding with the mesh/component-count metadata in the same archive.
 _VALUE_PREFIX = 'value.'
 _MESH_CLASS = '__mesh_class__'
-_MESH_ELEMENT_TYPE = '__mesh_element_type__'
 _MESH_VERTICES = '__mesh_vertices__'
 _MESH_ELEMENTS = '__mesh_elements__'
 _MESH_BOUNDARY = '__mesh_boundary__'
@@ -72,29 +71,20 @@ def _mesh_to_arrays(mesh):
         _MESH_BOUNDARY: np.asarray(mesh.boundary),
         _MESH_CLASS: np.array(type(mesh).__name__),
     }
-    element_type = getattr(mesh, 'element_type', None)  # FEMesh only
-    if element_type is not None:
-        arrays[_MESH_ELEMENT_TYPE] = np.array(element_type.__name__)
     return arrays
 
 
 def _mesh_from_arrays(data):
-    import fem.elements
-    from fem.mesh.femesh import FEMesh
     from fem.mesh.mesh import Mesh
 
     geometry = (data[_MESH_VERTICES], data[_MESH_ELEMENTS], data[_MESH_BOUNDARY])
     mesh_class = str(data[_MESH_CLASS])
-
-    if mesh_class == 'Mesh':
-        return Mesh(*geometry)
-    if mesh_class == 'FEMesh':
-        element_type_name = str(data[_MESH_ELEMENT_TYPE])
-        element_type = getattr(fem.elements, element_type_name, None)
-        if element_type is None:
-            raise ValueError(f'Unknown element type in saved solution: {element_type_name}')
-        return FEMesh(*geometry, element_type=element_type)
-    raise ValueError(f'Unknown mesh class in saved solution: {mesh_class}')
+    # 'FEMesh' still appears in archives written before the element data moved to
+    # FunctionSpace. Geometry is all that was ever stored, so those load as a Mesh
+    # and a solve rebuilds the rest.
+    if mesh_class not in ('Mesh', 'FEMesh'):
+        raise ValueError(f'Unknown mesh class in saved solution: {mesh_class}')
+    return Mesh(*geometry)
 
 
 def save_solution(solution, path='solution.npz'):
