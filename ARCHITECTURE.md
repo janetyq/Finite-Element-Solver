@@ -99,15 +99,22 @@ it, but it is the same defect, and it is the `Form` seam — see below.
 geometry, and it lives on the element only because the element was in scope. Meanwhile:
 
 - `fem/materials.py` holds `Enu_to_Lame` and nothing else (16 lines)
-- `fem/energies.py` holds `StVenantKirchhoffEnergyDensity` — an *independent second*
-  representation of the same material, used only by `EnergySolver`
+- `fem/energies.py` holds `StVenantKirchhoffEnergyDensity`, used only by `EnergySolver`
 
-So linear elasticity is currently modelled twice, in two files, with no shared abstraction —
-and **the two do not agree**: `energies.py` uses the Green–Lagrange strain
-`S = ½(FᵀF − I)`, while `elements.py` uses the small-strain `B`/`D` form. `EnergySolver`'s
-header comment acknowledges the discrepancy. That is a legitimate modelling choice (one is
-geometrically nonlinear), but it should be *expressed* as one, by two named material models
-under a common interface, not by two unrelated classes in different layers.
+It is tempting to call these two *representations of the same material*, but that is not
+quite it, and the distinction is what points at the fix. There is **one** energy density
+`W(ε) = ½λ(tr ε)² + μ tr(εᵀε)`, shared verbatim: `energies.py`'s `calculate_W_from_S` and the
+`½εᵀDε` implied by `calculate_D` are the same function. `D` is simply `∂²W/∂ε²` transcribed by
+hand into a matrix — a *precomputed derivative* of the energy in the other file, duplicated
+across the element subclasses and disconnected from its source. The only real difference
+between the two solver paths is the **strain measure** fed to that one `W`: `energies.py` uses
+Green–Lagrange `S = ½(FᵀF − I)` (geometrically nonlinear — St-VK), `elements.py` the
+small-strain linearization `ε = ½(∇u + ∇uᵀ)`. `tests/test_elasticity_models.py` now pins how
+those two relate (agreement to O(‖∇u‖²), frame indifference, one-step equivalence).
+
+So the decomposition is not "two materials" but **material** (the energy `W`) × **kinematics**
+(the strain measure). `D` should be *derived* from `W`, not declared alongside it, and `Element`
+should hold neither.
 
 Second issue: **elements are stateful and per-instance**. `FunctionSpace` builds one object
 per element, each caching `vertices`, `volume`, `grad_phi`, and `dF_dx` — a rank-4 tensor
@@ -281,10 +288,15 @@ The convergence tests in `tests/test_convergence.py` and
 `tests/test_convergence_elasticity.py` are the safety net; each step below should leave them
 passing without modification.
 
-1. **Extract `Form` + `Material`.** Move `calculate_D` off `Element` and unify with
-   `energies.py` under one constitutive interface. `FunctionSpace._assemble` is already the
-   right loop, so this parameterises it by an integrand rather than adding a layer. Retires
-   the `**kwargs` and the `if n_components == 1` physics branch. The keystone.
+1. **Extract `Form` + `Material`.** `Material` owns the energy `W` and its derivatives;
+   `D` becomes `∂²W/∂ε²` derived from it, so `calculate_D` is deleted from every element and
+   `Element` keeps only geometry. `Form` pairs a `Material` with the space and produces the
+   operator — the linear case being where `W` is quadratic, so the Hessian is constant and
+   `BᵀDB` assembles once. `FunctionSpace._assemble` is already the right loop, so this
+   parameterises it by an integrand rather than adding a layer. Retires the `**kwargs` and the
+   `if n_components == 1` physics branch. The kinematics (strain measure) is a second, smaller
+   axis — kept in the tests for now, promoted to a type only if a second production consumer
+   appears. The keystone.
 2. **Introduce `DiscreteSystem`,** then migrate dense→sparse behind it. The backlog's
    highest-leverage change becomes a one-layer edit rather than a cross-cutting one.
 3. **Typed `Solution`,** together with the `io.py` rework they jointly require.
