@@ -13,12 +13,12 @@ ValueMode = Literal['element', 'vertex']
 
 
 class Solution:
-    def __init__(self, femesh: 'FEMesh', dim: int) -> None:
+    def __init__(self, femesh: 'FEMesh', n_components: int) -> None:
         self.femesh = femesh
         # Heterogeneous by design: "u" is a DofVector, "t_values" a list of
         # floats, "u_values" a list of arrays per timestep.
         self.values: dict[str, Any] = {}
-        self.dim = dim
+        self.n_components = n_components
 
     def save(self, filename: str) -> None:
         from fem.io import save_solution
@@ -70,7 +70,7 @@ class Solution:
     def get_deformed_mesh(self, u: FloatArray | None = None) -> 'FEMesh':
         displacement = self.get_values('u') if u is None else u
         femesh_deformed = self.femesh.copy()
-        femesh_deformed.vertices += displacement.reshape(-1, self.dim)
+        femesh_deformed.vertices += displacement.reshape(-1, self.n_components)
         return femesh_deformed
 
     @classmethod

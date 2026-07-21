@@ -228,8 +228,26 @@ the Laplacian). That needs the `Form` seam, and is a separate step.
 ### `Mesh` / `FEMesh` — geometry, discretization, assembly, and wave physics
 
 `FEMesh` inherits geometry and adds: element objects, the DOF map, four assembled operators,
-and a set of `calculate_*` metrics. Two problems beyond the mutability already covered in the
-review:
+and a set of `calculate_*` metrics. Three problems beyond the mutability already covered in
+the review:
+
+**Inheritance encodes the wrong relationship.** `class FEMesh(Mesh)` asserts *an FEMesh is a
+Mesh with extras*. But a discretization is not a kind of geometry — it is a **pairing** of
+geometry with an element choice and a component count. Two spaces can share one domain (P1
+and P2, scalar and vector); one space cannot *be* a domain. The cost is that every consumer
+wanting geometry is handed assembly:
+
+- `adaptive_refinement` assembles twice per round and discards one. `refiner.refine()` returns
+  an `FEMesh` via `with_topology`, whose `__init__` eagerly calls `prepare_matrices()`; the
+  following `solve()` then rebuilds all four operators at the right component count.
+- `Solution.get_deformed_mesh` re-assembles to draw a picture. It does `femesh.copy()` — four
+  dense N×N matrices — then shifts the vertices. The copy's `element_objs`, caching `volume`
+  and `grad_phi` from the *undeformed* vertices, now describe geometry that no longer exists.
+  Harmless while it is only plotted; wrong the moment anything computes on it.
+
+Under composition, refinement operates on `space.mesh` and returns a plain `Mesh`; a
+`FunctionSpace` is built only when a solve actually needs one. Both costs disappear rather
+than getting fixed.
 
 **Assembly does not belong on the mesh.** A mesh is a domain; assembly is a function of
 (space, form, quadrature). Putting `assemble_matrix` on `FEMesh` is why the material

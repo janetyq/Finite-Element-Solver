@@ -49,7 +49,7 @@ def _solve_poisson_mms(n):
     u_h = solution.get_values("u")
 
     error = u_h - _exact(femesh.vertices)
-    # ||e||_L2^2 = e^T M e  (M is the assembled dim=1 mass matrix)
+    # ||e||_L2^2 = e^T M e  (M is the assembled n_components=1 mass matrix)
     l2_error = np.sqrt(error @ femesh.M @ error)
     h = 1.0 / (n - 1)
     return h, l2_error

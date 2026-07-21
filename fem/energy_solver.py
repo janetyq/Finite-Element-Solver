@@ -28,13 +28,20 @@ class EnergySolver:
         self.femesh = femesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions
-        self.dim = self.equation.dim
-        self.solution = Solution(femesh, self.dim)
+        self.n_components = self.equation.field.components_for(femesh.spatial_dim)
+        self.solution = Solution(femesh, self.n_components)
         # Not an assert: this is a real capability boundary (the energy densities
         # are 2D-only), so it must hold even under `python -O`.
-        if self.dim != 2:
+        #
+        # Checked against the mesh, not the component count: those are different
+        # quantities and only the mesh knows this one. The guard used to compare the
+        # component count against 2, which for LinearElastic is unconditionally 2, so
+        # it never fired -- a tet mesh reached LinearElasticEnergyDensity.set_grad_u
+        # and failed there on its (3, 2) gradient instead.
+        if femesh.spatial_dim != 2:
             raise NotImplementedError(
-                f'EnergySolver only supports 2D for now (got dim={self.dim})'
+                f'EnergySolver only supports 2D for now '
+                f'(got a mesh with spatial_dim={femesh.spatial_dim})'
             )
         # This solver minimizes the internal elastic energy and never builds a
         # load vector, so a source term would be accepted and then quietly
@@ -46,7 +53,7 @@ class EnergySolver:
                 'would be silently dropped. Use Solver for forced problems.'
             )
 
-        self.resolved_bc = self.boundary_conditions.resolve(femesh, self.dim)
+        self.resolved_bc = self.boundary_conditions.resolve(femesh, self.n_components)
         self.free = self.resolved_bc.free_idxs
         self.fixed = self.resolved_bc.fixed_idxs
         self.fixed_values = self.resolved_bc.fixed_values
@@ -105,14 +112,14 @@ class EnergySolver:
         u[self.fixed] = self.fixed_values
         total = 0
         for e_idx, element in enumerate(self.femesh.elements):
-            total += self.element_energy(e_idx, u.reshape(-1, self.dim)[element]) * self.femesh.element_objs[e_idx].volume
+            total += self.element_energy(e_idx, u.reshape(-1, self.n_components)[element]) * self.femesh.element_objs[e_idx].volume
         return total
 
     def energy_gradient(self, u: DofVector) -> DofVector:
         u[self.fixed] = self.fixed_values
-        total_energy_gradient = np.zeros((len(self.femesh.vertices), self.dim))
+        total_energy_gradient = np.zeros((len(self.femesh.vertices), self.n_components))
         for e_idx, element in enumerate(self.femesh.elements):
-            total_energy_gradient[element] += self.element_gradient(e_idx, u.reshape(-1, self.dim)[element]) * self.femesh.element_objs[e_idx].volume
+            total_energy_gradient[element] += self.element_gradient(e_idx, u.reshape(-1, self.n_components)[element]) * self.femesh.element_objs[e_idx].volume
         total_energy_gradient = total_energy_gradient.flatten()
         total_energy_gradient[self.fixed] = 0
         return total_energy_gradient
@@ -120,17 +127,17 @@ class EnergySolver:
     def energy_hessian(self, u: DofVector) -> Matrix: #TODO: not implemented
         u[self.fixed] = self.fixed_values
         n = len(self.femesh.vertices)
-        total_energy_hessian = np.zeros((n, self.dim, n, self.dim))
+        total_energy_hessian = np.zeros((n, self.n_components, n, self.n_components))
         for e_idx, element in enumerate(self.femesh.elements):
-            ix = np.ix_(element, range(self.dim), element, range(self.dim))
-            total_energy_hessian[ix] += self.element_hessian(e_idx, u.reshape(-1, self.dim)[element]) * self.femesh.element_objs[e_idx].volume
-        total_energy_hessian = total_energy_hessian.reshape(n*self.dim, n*self.dim)
+            ix = np.ix_(element, range(self.n_components), element, range(self.n_components))
+            total_energy_hessian[ix] += self.element_hessian(e_idx, u.reshape(-1, self.n_components)[element]) * self.femesh.element_objs[e_idx].volume
+        total_energy_hessian = total_energy_hessian.reshape(n*self.n_components, n*self.n_components)
         total_energy_hessian[self.fixed, :] = 0
         total_energy_hessian[:, self.fixed] = 0
         return total_energy_hessian
 
     def solve(self, max_iters: int = 100) -> Solution:
-        u = np.zeros(len(self.femesh.vertices) * self.dim)
+        u = np.zeros(len(self.femesh.vertices) * self.n_components)
         u[self.fixed] = self.fixed_values
         logger.info("Initial energy: %s", self.energy(u))
         u = self.newton_solve(u)

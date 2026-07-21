@@ -11,8 +11,18 @@ def calculate_polygon_area(polygon):
     if polygon.shape[1] == 2:
         x, y = polygon.T
         return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
-    else:
-        raise NotImplementedError('Polygon area not supported for 3D')
+    if polygon.shape[1] == 3 and len(polygon) == 3:
+        # Half the cross-product magnitude. Needed for the triangular boundary
+        # facets of a tet mesh, so this gates FEMesh construction in 3D at all --
+        # not only the surface-mesh case.
+        a, b = polygon[1] - polygon[0], polygon[2] - polygon[0]
+        return 0.5 * float(np.linalg.norm(np.cross(a, b)))
+    # A general planar polygon in 3D needs Newell's method to recover the normal;
+    # nothing asks for one yet, so refuse rather than return a wrong number.
+    raise NotImplementedError(
+        f'polygon area is defined for 2D polygons and 3D triangles, '
+        f'got {len(polygon)} points in {polygon.shape[1]}D'
+    )
 
 
 def calculate_tetrahedron_volume(tetrahedron): # TODO: similar for triangle?

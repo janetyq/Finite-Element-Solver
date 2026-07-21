@@ -1,13 +1,13 @@
 """Position-based regions and fields: specifications written against coordinates
 rather than vertex indices.
 
-A *region* is any callable mapping an (N, dim) array of point coordinates to an
+A *region* is any callable mapping an (N, spatial_dim) array of point coordinates to an
 (N,) boolean mask, so a bare lambda qualifies. The helpers below just name the
 cases that kept recurring and own the coordinate tolerance, which was previously
 an ad-hoc `< 1e-6` re-derived at every call site.
 
 A *field* is a value that may be either a constant or a callable of position;
-`evaluate_field` normalizes both into a (N, dim) array.
+`evaluate_field` normalizes both into a (N, n_components) array.
 
 Both are deliberately mesh-independent, and that is the point: a boundary
 condition described this way can be resolved afresh against whatever mesh is
@@ -109,8 +109,8 @@ def _propagate_mesh_bound(combined: Region, regions: tuple[Region, ...]) -> Regi
     return combined
 
 
-def evaluate_field(value: FieldValue, points: Vertices, dim: int) -> FloatArray:
-    '''Normalize a constant or a callable-of-position into an (N, dim) array.
+def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
+    '''Normalize a constant or a callable-of-position into an (N, n_components) array.
 
     A single rule -- "the value at a point" -- for both forms. The previous API
     chose between "one value per index" and "one value shared by all indices" by
@@ -119,7 +119,7 @@ def evaluate_field(value: FieldValue, points: Vertices, dim: int) -> FloatArray:
     exactly two nodes.
     '''
     if value is None:
-        return np.zeros((len(points), dim))
+        return np.zeros((len(points), n_components))
 
     if callable(value):
         values = np.array([np.atleast_1d(np.asarray(value(p), dtype=float)) for p in points])
@@ -127,9 +127,9 @@ def evaluate_field(value: FieldValue, points: Vertices, dim: int) -> FloatArray:
         single = np.atleast_1d(np.asarray(value, dtype=float))
         values = np.tile(single, (len(points), 1))
 
-    if values.shape != (len(points), dim):
+    if values.shape != (len(points), n_components):
         raise ValueError(
-            f'field must give {dim} component(s) per point, got shape {values.shape} '
+            f'field must give {n_components} component(s) per point, got shape {values.shape} '
             f'for {len(points)} point(s)'
         )
     return values

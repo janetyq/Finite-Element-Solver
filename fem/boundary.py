@@ -1,13 +1,13 @@
 """Boundary conditions, specified against geometry and resolved against a mesh.
 
 The split here is the whole design. A `BoundaryConditions` is a *specification*:
-mesh-independent, dim-independent, describing what the user means ("the left edge
+mesh-independent and discretization-independent, describing what the user means ("the left edge
 is pinned"). A `ResolvedBC` is what a solver needs: concrete DOF indices and load
 vectors for one particular mesh and one particular number of DOFs per node.
 
 Keeping the specification is what lets a condition survive remeshing -- resolve
 it again against the new mesh -- and keeping the resolution immutable and
-per-`dim` is what stops one shared BC object from silently reconfiguring itself
+per-component-count is what stops one shared BC object from silently reconfiguring itself
 when handed to a solver for a different equation.
 """
 import logging
@@ -48,14 +48,14 @@ class BCType(Enum):
 class ResolvedBC:
     '''Boundary conditions reduced to what a solver indexes into.
 
-    Frozen and built per (mesh, dim) so it cannot drift out of step with either.
+    Frozen and built per (mesh, n_components) so it cannot drift out of step with either.
     '''
     n_vertices: int
-    dim: int
+    n_components: int
     fixed_idxs: DofIndices      # DOF indices held by Dirichlet conditions
     free_idxs: DofIndices       # the complement
     fixed_values: FloatArray    # values at fixed_idxs, same order
-    neumann_load: VertexField   # (n_vertices, dim) traction field
+    neumann_load: VertexField   # (n_vertices, n_components) traction field
     dirichlet_vertices: VertexIndices
     neumann_vertices: VertexIndices
 
@@ -121,7 +121,7 @@ class BoundaryConditions:
     def entries(self, mesh: 'Mesh') -> list[tuple[BCType, VertexIndices, FloatArray]]:
         '''[(bc_type, vertex_idxs, values), ...] resolved against `mesh`.
 
-        Region resolution only -- no DOF numbering, so this needs no `dim` and is
+        Region resolution only -- no DOF numbering, so this needs no `n_components` and is
         what inspection and plotting use.
         '''
         out = []
@@ -133,11 +133,11 @@ class BoundaryConditions:
             out.append((bc_type, idxs, values))
         return out
 
-    def resolve(self, mesh: 'Mesh', dim: int) -> ResolvedBC:
-        '''Reduce this specification to a `ResolvedBC` for `mesh` at `dim` DOFs per node.'''
+    def resolve(self, mesh: 'Mesh', n_components: int) -> ResolvedBC:
+        '''Reduce this specification to a `ResolvedBC` for `mesh` at `n_components` DOFs per node.'''
         n = len(mesh.vertices)
         dirichlet: dict[int, FloatArray] = {}
-        neumann = np.zeros((n, dim))
+        neumann = np.zeros((n, n_components))
         dirichlet_vertices, neumann_vertices = [], []
 
         for bc_type, region, value in self.conditions:
@@ -149,7 +149,7 @@ class BoundaryConditions:
                 )
 
             idxs = self.select(mesh, region)
-            values = evaluate_field(value, mesh.vertices[idxs], dim)
+            values = evaluate_field(value, mesh.vertices[idxs], n_components)
 
             if bc_type is BCType.DIRICHLET:
                 for v_idx, v in zip(idxs, values):
@@ -178,16 +178,16 @@ class BoundaryConditions:
             )
 
         fixed_idxs = np.array(
-            [dim*v + d for v in sorted(dirichlet) for d in range(dim)], dtype=int
+            [n_components*v + d for v in sorted(dirichlet) for d in range(n_components)], dtype=int
         )
         fixed_values = np.array(
-            [dirichlet[v][d] for v in sorted(dirichlet) for d in range(dim)], dtype=float
+            [dirichlet[v][d] for v in sorted(dirichlet) for d in range(n_components)], dtype=float
         )
-        free_idxs = np.setdiff1d(np.arange(n * dim), fixed_idxs)
+        free_idxs = np.setdiff1d(np.arange(n * n_components), fixed_idxs)
 
         return ResolvedBC(
             n_vertices=n,
-            dim=dim,
+            n_components=n_components,
             fixed_idxs=fixed_idxs,
             free_idxs=free_idxs,
             fixed_values=fixed_values,

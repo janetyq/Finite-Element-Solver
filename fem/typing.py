@@ -24,24 +24,24 @@ FloatArray: TypeAlias = npt.NDArray[np.float64]
 IntArray: TypeAlias = npt.NDArray[np.integer[Any]]
 BoolArray: TypeAlias = npt.NDArray[np.bool_]
 
-# (dim,) coordinates of a single point.
+# (spatial_dim,) coordinates of a single point.
 Point: TypeAlias = FloatArray
 
-# (n_vertices, dim) node coordinates.
+# (n_vertices, spatial_dim) node coordinates.
 Vertices: TypeAlias = FloatArray
 
 # (n_elements, n_nodes) vertex indices per element; (n_boundary, n_nodes) for a
 # boundary facet array.
 Elements: TypeAlias = IntArray
 
-# (n_vertices,) for a scalar PDE, or (n_vertices, dim) for a vector one.
+# (n_vertices,) for a scalar PDE, or (n_vertices, n_components) for a vector one.
 VertexField: TypeAlias = FloatArray
 
 # (n_elements,) one value per element -- stress, density, an error estimate.
 ElementField: TypeAlias = FloatArray
 
-# (n_vertices * dim,) the flat unknown a solve works in, ordered so that node v
-# component d lives at index dim*v + d. `fem.mesh.femesh.dof_indices` builds
+# (n_vertices * n_components,) the flat unknown a solve works in, ordered so that
+# node v component d lives at index n_components*v + d. `fem.mesh.femesh.dof_indices` builds
 # these from element node indices.
 DofVector: TypeAlias = FloatArray
 
@@ -49,18 +49,18 @@ DofVector: TypeAlias = FloatArray
 DofIndices: TypeAlias = IntArray
 
 # (n_vertices,) indices into the vertex array. Distinct from DofIndices: equal
-# only when dim == 1.
+# only when n_components == 1.
 VertexIndices: TypeAlias = IntArray
 
 # (n, n) dense system matrix -- mass, stiffness, or a Crank-Nicolson block.
 Matrix: TypeAlias = FloatArray
 
-# A region: (n_vertices, dim) coordinates -> (n_vertices,) membership mask.
+# A region: (n_vertices, spatial_dim) coordinates -> (n_vertices,) membership mask.
 # Any callable of that shape qualifies; `fem.regions` names the recurring cases.
 Region: TypeAlias = Callable[[Vertices], BoolArray]
 
 # A field value: a constant, a per-component constant, or a function of position.
-# `fem.regions.evaluate_field` normalizes all three to (n_points, dim).
+# `fem.regions.evaluate_field` normalizes all three to (n_points, n_components).
 FieldValue: TypeAlias = Union[
     float,
     Sequence[float],
