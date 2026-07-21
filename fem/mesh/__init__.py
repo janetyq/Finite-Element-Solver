@@ -1,1 +1,1 @@
-"""Mesh data structures and generation: Mesh, FEMesh, refinement, and meshing algorithms."""
+"""Mesh data structures and generation: Mesh, refinement, and meshing algorithms."""

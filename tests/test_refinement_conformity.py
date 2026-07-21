@@ -49,8 +49,8 @@ def _assert_no_orphan_vertices(mesh):
 # ---------------------------------------------------------------------------
 
 def test_single_element_refinement_is_conforming(make_unit_square):
-    femesh = make_unit_square(4)
-    refiner = RedGreenRefiner(femesh)
+    mesh = make_unit_square(4)
+    refiner = RedGreenRefiner(mesh)
     refined = refiner.refine([0])
 
     _assert_conforming(refined)
@@ -60,10 +60,10 @@ def test_single_element_refinement_is_conforming(make_unit_square):
 def test_adjacent_elements_refinement_is_conforming(make_unit_square):
     """Refining two elements that share an edge is the classic green-closure
     trigger — both insert a midpoint on the shared edge."""
-    femesh = make_unit_square(4)
+    mesh = make_unit_square(4)
 
     edge_to_elements: dict[tuple[int, int], list[int]] = {}
-    for e_idx, element in enumerate(femesh.elements):
+    for e_idx, element in enumerate(mesh.elements):
         for pair in itertools.combinations(sorted(element), 2):
             edge_to_elements.setdefault(pair, []).append(e_idx)
 
@@ -71,7 +71,7 @@ def test_adjacent_elements_refinement_is_conforming(make_unit_square):
         elems for elems in edge_to_elements.values() if len(elems) == 2
     )
 
-    refiner = RedGreenRefiner(femesh)
+    refiner = RedGreenRefiner(mesh)
     refined = refiner.refine(adjacent_pair)
 
     _assert_conforming(refined)
@@ -79,9 +79,9 @@ def test_adjacent_elements_refinement_is_conforming(make_unit_square):
 
 
 def test_all_elements_refinement_is_conforming(make_unit_square):
-    femesh = make_unit_square(4)
-    refiner = RedGreenRefiner(femesh)
-    refined = refiner.refine(list(range(len(femesh.elements))))
+    mesh = make_unit_square(4)
+    refiner = RedGreenRefiner(mesh)
+    refined = refiner.refine(list(range(len(mesh.elements))))
 
     _assert_conforming(refined)
     _assert_no_orphan_vertices(refined)
@@ -93,8 +93,8 @@ def test_all_elements_refinement_is_conforming(make_unit_square):
 
 def test_two_rounds_of_refinement_are_conforming(make_unit_square):
     """A second round exercises the green→red rollback path."""
-    femesh = make_unit_square(4)
-    refiner = RedGreenRefiner(femesh)
+    mesh = make_unit_square(4)
+    refiner = RedGreenRefiner(mesh)
 
     mesh_after_1 = refiner.refine([0])
     _assert_conforming(mesh_after_1)
@@ -108,11 +108,11 @@ def test_two_rounds_of_refinement_are_conforming(make_unit_square):
 def test_repeated_refinement_stays_conforming(make_unit_square):
     """Four rounds of refining random-ish elements: the mesh must stay
     conforming throughout, not just after the first round."""
-    femesh = make_unit_square(6)
-    refiner = RedGreenRefiner(femesh)
+    mesh = make_unit_square(6)
+    refiner = RedGreenRefiner(mesh)
 
     rng = np.random.default_rng(42)
-    mesh = femesh
+    mesh = mesh
     for _ in range(4):
         n = len(mesh.elements)
         targets = rng.choice(n, size=min(3, n), replace=False).tolist()
@@ -129,8 +129,8 @@ def test_repeated_refinement_stays_conforming(make_unit_square):
 def test_boundary_edges_are_subset_of_mesh_edges(make_unit_square):
     """Refinement splits boundary edges; the new edges must all appear in the
     element connectivity."""
-    femesh = make_unit_square(4)
-    refiner = RedGreenRefiner(femesh)
+    mesh = make_unit_square(4)
+    refiner = RedGreenRefiner(mesh)
     refined = refiner.refine([0, 1, 2])
 
     mesh_edges = {

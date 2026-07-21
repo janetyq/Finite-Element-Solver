@@ -35,7 +35,7 @@ estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
 ## 2. Performance & Scaling
 
 ### 🟠 Everything is dense — this is the single biggest limiter
-`FEMesh.assemble_matrix` (`fem/mesh/femesh.py`) builds `A = np.zeros((dim*N, dim*N))` and
+`FunctionSpace._assemble` (`fem/space.py`) builds `A = np.zeros((n_dofs, n_dofs))` and
 solves via `np.linalg.solve` (`fem/solver.py:solve_linear_system`). FEM matrices are
 extremely sparse (each row has a handful of nonzeros), so this is `O(N²)` memory and
 `O(N³)` solve time. On the 40×40 meshes in the tests that's fine; it will fall over well
@@ -104,8 +104,8 @@ because it's inside a Newton loop.
   deduplicate and make it trivial to add new dynamics.
 - 💡 **Robin BC path.** `BCType.ROBIN` exists and `resolve` refuses it. A Robin condition adds
   a term to the *system matrix* rather than the load, so the work is in
-  `Solver.assemble_everything`, using the already-assembled `femesh.K_b` / `femesh.M_b`
-  (`K_b` is currently built for `dim == 1` and otherwise unused).
+  `Solver.assemble_everything`, from a boundary stiffness `FunctionSpace` would
+  assemble alongside its `boundary_mass_matrix`.
 - 💡 **Time-varying loads and Dirichlet data.** `Equation.source` and the BC values are
   functions of position only. `self.b` is built once and assumed constant in time;
   `solve_wave` notes where the Crank–Nicolson `b_n`/`b_{n+1}` average collapses because of it,
@@ -122,6 +122,13 @@ because it's inside a Newton loop.
   but only up to h = 1/10: the dense solve caps resolution short of the asymptotic regime,
   so the 3D assertion is "order climbs toward 2" rather than "order is 2". Worth tightening
   to the 2D band once sparse matrices make finer meshes affordable.
+- 💡 **The CLI demos have rotted.** Five of fifteen fail, each against an API that
+  moved out from under them: `linear_elastic` calls `BoundaryConditions.plot`,
+  `topology_optimization` passes `solve(plot=...)`, `energy_solver` reads a
+  `'energy'` value `EnergySolver` has never set, `3d` needs an uninstalled
+  `imageio`, and `adaptive_refinement` is gated behind a deliberate
+  `NotImplementedError`. `rupperts` runs but takes over two minutes. Nothing in
+  CI exercises them, and they are the only thing exercising the plot layer.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
   the prose half is still open. The biggest modules are the least documented — `solver.py`,
   `mesh/refinement.py`, `mesh/generation.py`, `elements.py` and `topology.py` have no

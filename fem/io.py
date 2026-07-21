@@ -52,7 +52,7 @@ def save_mesh(mesh, path='test_mesh.json'):
 
 def load_mesh(path='test_mesh.json', cls=None):
     '''Read a mesh from JSON. `cls` selects the class to rebuild (default Mesh),
-    which is how `FEMesh.load` returns an FEMesh rather than a bare Mesh.'''
+    so a Mesh subclass comes back as itself rather than as a bare Mesh.'''
     from fem.mesh.mesh import Mesh
 
     if cls is None:

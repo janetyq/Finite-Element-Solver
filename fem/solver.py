@@ -200,16 +200,7 @@ class Solver:
         self.b = (self.M @ source_load.flatten()).flatten()
         self.b += (self.M_b @ self.resolved_bc.neumann_load.flatten()).flatten()
 
-    def _mean_value(self, u: VertexField) -> float:
-        '''Volume-weighted mean of a nodal field, for progress logging.
-
-        `M @ u` sums to the exact integral of a P1 field and `M` sums to the
-        domain volume, so this is the mesh's `calculate_mean_value` without
-        needing the mesh to own an integrator.
-        '''
-        return float((self.M @ u).sum() / self.M.sum())
-
-    def _wave_energy(self, u: VertexField, dudt: VertexField, c: float) -> float:
+    def wave_energy(self, u: VertexField, dudt: VertexField, c: float) -> float:
         '''Total wave energy 1/2 (c^2 u^T K u + dudt^T M dudt).
 
         The quantity Crank-Nicolson actually conserves, so it is a usable
@@ -288,7 +279,7 @@ class Solver:
             u = self.solve_linear_system(self.M + self.K * dt, self.M @ u + self.b * dt)
             t_values.append(dt * (i+1))
             u_values.append(u.copy())
-            logger.debug('t = %.3f, mean temp = %.3f', t_values[-1], self._mean_value(u_values[-1]))
+            logger.debug('t = %.3f, mean temp = %.3f', t_values[-1], self.space.mean_value(u_values[-1]))
 
         self.solution.set_values("t_values", t_values)
         self.solution.set_values("u_values", u_values)
@@ -342,7 +333,7 @@ class Solver:
         t_values: list[float] = [0.0]
         u_values = [x[:N]]
         dudt_values = [x[N:]]
-        total_energy = self._wave_energy(u_values[-1], dudt_values[-1], c)
+        total_energy = self.wave_energy(u_values[-1], dudt_values[-1], c)
         logger.debug('t = %.3f, total energy = %.3f', t_values[-1], total_energy)
 
         for i in range(iters):
@@ -350,7 +341,7 @@ class Solver:
             t_values.append(dt * (i+1))
             u_values.append(x[:N])
             dudt_values.append(x[N:])
-            total_energy = self._wave_energy(u_values[-1], dudt_values[-1], c)
+            total_energy = self.wave_energy(u_values[-1], dudt_values[-1], c)
             logger.debug('t = %.3f, total energy = %.3f', t_values[-1], total_energy)
 
         self.solution.set_values("t_values", t_values)

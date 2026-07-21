@@ -2,15 +2,12 @@
 
 In FEM notation a problem reads "find u in V_h such that a(u, v) = L(v) for all
 v in V_h". The package has an object for the domain (`Mesh`) and objects for the
-physics (`Equation`, the assembly routines), but none for V_h -- so `FEMesh`
-answers V_h's questions by accident, being the only object that knows both the
-element type and the DOF numbering.
+physics (`Equation`, the assembly routines), but no object for V_h.
 
-`FunctionSpace` is that missing object. It **has** a mesh rather than being one:
-a discretization is not a kind of geometry, it is a pairing of geometry with an
-element choice and a component count. Two spaces can share one domain -- P1 and
-P2, scalar and vector -- which is exactly what `FEMesh` cannot represent, since
-`prepare_matrices` rebuilds its operators in place and the last caller wins.
+`FunctionSpace` is that object. It **has** a mesh rather than being one: a
+discretization is not a kind of geometry, it is a pairing of geometry with an
+element choice and a component count. Two spaces can therefore share one domain
+-- P1 and P2, scalar and vector -- over a single copy of the geometry.
 
 `n_components` is taken as an explicit low-level argument rather than an
 `Equation`, so a mixed formulation can build spaces the equation taxonomy has no
@@ -141,6 +138,26 @@ class FunctionSpace:
     def element_dF_dx(self, e_idx: int) -> FloatArray:
         '''d(deformation gradient)/d(nodal position) for one element.'''
         return self.element_objs[e_idx].dF_dx
+
+    # -- integrals ----------------------------------------------------------
+
+    @property
+    def total_volume(self) -> float:
+        return float(self.element_volumes.sum())
+
+    def integrate(self, u: VertexField) -> float:
+        '''Integral of a nodal field over the domain.
+
+        `M @ u` sums to exactly the integral of a P1 field, so no separate
+        quadrature is needed. Nodal fields only -- the old mesh-level version
+        guessed between nodal and per-element data by comparing lengths, which
+        picks wrong whenever n_elements == n_vertices.
+        '''
+        return float((self.mass_matrix @ u).sum())
+
+    def mean_value(self, u: VertexField) -> float:
+        '''Volume-weighted mean of a nodal field.'''
+        return self.integrate(u) / self.total_volume
 
     def gradient(self, u: VertexField) -> FloatArray:
         '''(n_elements, spatial_dim) gradient of a nodal field, one value per element.

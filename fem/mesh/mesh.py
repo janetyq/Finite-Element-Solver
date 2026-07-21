@@ -82,8 +82,8 @@ class Mesh:
         '''A new mesh of this same concrete type over the given topology.
 
         Remeshers (refinement, coarsening) have to hand back something the caller
-        can keep using: an FEMesh must come back an FEMesh, carrying its element
-        type and assembled matrices, rather than silently degrading to a bare Mesh.
+        can keep using, so a subclass must come back as itself rather than
+        silently degrading to a bare Mesh.
         '''
         return type(self)(vertices, elements, boundary)
 

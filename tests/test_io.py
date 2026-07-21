@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 
 from fem.io import load_mesh, save_mesh, save_solution
-from fem.mesh.femesh import FEMesh
 from fem.mesh.mesh import Mesh
 from fem.numerics import bump_function
 from fem.solution import Solution
@@ -18,33 +17,33 @@ from fem.solver import Heat, Solver
 
 def test_mesh_json_round_trip(make_unit_square, tmp_path):
     """Geometry survives a JSON save/load unchanged."""
-    femesh = make_unit_square(6)
+    mesh = make_unit_square(6)
     path = tmp_path / "mesh.json"
 
-    save_mesh(femesh, path)
+    save_mesh(mesh, path)
     loaded = load_mesh(path)
 
-    assert np.allclose(loaded.vertices, femesh.vertices)
-    assert np.array_equal(loaded.elements, femesh.elements)
-    assert np.array_equal(loaded.boundary, femesh.boundary)
+    assert np.allclose(loaded.vertices, mesh.vertices)
+    assert np.array_equal(loaded.elements, mesh.elements)
+    assert np.array_equal(loaded.boundary, mesh.boundary)
 
 
 def test_mesh_load_rebuilds_the_requested_class(make_unit_square, tmp_path):
-    """`cls` controls the reconstructed type, so FEMesh.load returns an FEMesh."""
-    femesh = make_unit_square(6)
+    """`cls` controls the reconstructed type."""
+    mesh = make_unit_square(6)
     path = tmp_path / "mesh.json"
-    femesh.save(path)
+    mesh.save(path)
 
     assert type(load_mesh(path)) is Mesh
-    assert type(FEMesh.load(path)) is FEMesh
+    assert type(Mesh.load(path)) is Mesh
 
 
 def test_solution_round_trip_preserves_values_mesh_and_dim(make_unit_square, tmp_path):
     """A hand-built solution comes back with identical values, geometry and component count."""
-    femesh = make_unit_square(6)
-    solution = Solution(femesh, n_components=2)
-    solution.set_values("u", np.arange(len(femesh.vertices) * 2, dtype=float))
-    solution.set_values("compliance", np.linspace(0, 1, len(femesh.elements)))
+    mesh = make_unit_square(6)
+    solution = Solution(mesh, n_components=2)
+    solution.set_values("u", np.arange(len(mesh.vertices) * 2, dtype=float))
+    solution.set_values("compliance", np.linspace(0, 1, len(mesh.elements)))
     path = tmp_path / "solution.npz"
 
     solution.save(path)
@@ -55,15 +54,15 @@ def test_solution_round_trip_preserves_values_mesh_and_dim(make_unit_square, tmp
     assert np.allclose(loaded.get_values("u"), solution.get_values("u"))
     assert np.allclose(loaded.get_values("compliance"), solution.get_values("compliance"))
     assert type(loaded.mesh) is Mesh
-    assert np.allclose(loaded.mesh.vertices, femesh.vertices)
-    assert np.array_equal(loaded.mesh.elements, femesh.elements)
+    assert np.allclose(loaded.mesh.vertices, mesh.vertices)
+    assert np.array_equal(loaded.mesh.elements, mesh.elements)
 
 
 def test_solution_round_trip_after_solve(make_unit_square, tmp_path):
     """Per-timestep values (a list of arrays) stack and reload intact."""
-    femesh = make_unit_square(8)
-    u0 = bump_function(femesh.vertices, femesh.vertices.max(axis=0), mag=50, size=0.3) + 300
-    solution = Solver(femesh, Heat(u_initial=u0.copy(), iters=3, dt=0.01)).solve()
+    mesh = make_unit_square(8)
+    u0 = bump_function(mesh.vertices, mesh.vertices.max(axis=0), mag=50, size=0.3) + 300
+    solution = Solver(mesh, Heat(u_initial=u0.copy(), iters=3, dt=0.01)).solve()
     path = tmp_path / "heat.npz"
 
     solution.save(path)
@@ -72,16 +71,16 @@ def test_solution_round_trip_after_solve(make_unit_square, tmp_path):
     assert np.allclose(loaded.get_values("t_values"), solution.get_values("t_values"))
     assert np.allclose(loaded.get_values("u_values"), solution.get_values("u_values"))
     # Geometry round-trips; a solve rebuilds element data into its own space.
-    assert np.allclose(loaded.mesh.vertices, femesh.vertices)
-    assert np.array_equal(loaded.mesh.elements, femesh.elements)
+    assert np.allclose(loaded.mesh.vertices, mesh.vertices)
+    assert np.array_equal(loaded.mesh.elements, mesh.elements)
 
 
 def test_solution_load_does_not_unpickle(make_unit_square, tmp_path):
     """The archive must be readable with allow_pickle=False -- that is the whole
     point of moving off pickle, so pin it rather than trusting the default."""
-    femesh = make_unit_square(6)
-    solution = Solution(femesh, n_components=1)
-    solution.set_values("u", np.zeros(len(femesh.vertices)))
+    mesh = make_unit_square(6)
+    solution = Solution(mesh, n_components=1)
+    solution.set_values("u", np.zeros(len(mesh.vertices)))
     path = tmp_path / "solution.npz"
     solution.save(path)
 

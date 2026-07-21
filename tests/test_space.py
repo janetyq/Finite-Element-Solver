@@ -1,31 +1,15 @@
-"""Tests for FunctionSpace.
-
-The equivalence tests are the important ones: they pin FunctionSpace's operators
-to the FEMesh operators they will replace, so the migration that follows can be
-checked against something rather than eyeballed.
-"""
+"""Tests for FunctionSpace."""
 import numpy as np
 import pytest
 
 from fem.elements import LinearLineElement, LinearTetrahedralElement
-from fem.materials import Enu_to_Lame
-from fem.mesh.femesh import FEMesh
 from fem.mesh.generation import create_box_mesh, create_rect_mesh
-from fem.space import FunctionSpace, dof_indices
+from fem.space import FunctionSpace
 
 
 @pytest.fixture
 def unit_square():
     return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
-
-
-def _material(mesh, n_components):
-    '''Per-element Lame parameters, or nothing for a scalar space.'''
-    if n_components == 1:
-        return {}
-    n = len(mesh.elements)
-    mu, lamb = Enu_to_Lame(np.full(n, 200.0), np.full(n, 0.3))
-    return {'mu': mu, 'lamb': lamb}
 
 
 # --- numbering and sizing ---
@@ -51,55 +35,16 @@ def test_spatial_dim_is_not_n_components(unit_square):
     assert scalar_on_tets.n_components == 1
 
 
-# --- equivalence with the FEMesh operators it replaces ---
-
-@pytest.mark.parametrize('n_components', [1, 2])
-def test_mass_matrix_matches_femesh(unit_square, n_components):
-    femesh = FEMesh(unit_square.vertices, unit_square.elements, unit_square.boundary)
-    # prepare_matrices assembles stiffness too, so the vector case has to be
-    # handed material data just to obtain a mass matrix that does not use it.
-    # The split into a cached mass_matrix and an explicit assemble_stiffness is
-    # what removes that coupling.
-    femesh.prepare_matrices(n_components=n_components, **_material(unit_square, n_components))
-    space = FunctionSpace(unit_square, n_components=n_components)
-
-    assert np.allclose(space.mass_matrix, femesh.M)
-    assert np.allclose(space.boundary_mass_matrix, femesh.M_b)
-
-
-def test_scalar_stiffness_matches_femesh(unit_square):
-    femesh = FEMesh(unit_square.vertices, unit_square.elements, unit_square.boundary)
-    femesh.prepare_matrices(n_components=1)
-    space = FunctionSpace(unit_square, n_components=1)
-
-    assert np.allclose(space.assemble_stiffness(), femesh.K)
-
-
-def test_elastic_stiffness_matches_femesh(unit_square):
-    material = _material(unit_square, n_components=2)
-    femesh = FEMesh(unit_square.vertices, unit_square.elements, unit_square.boundary)
-    femesh.prepare_matrices(n_components=2, **material)
-    space = FunctionSpace(unit_square, n_components=2)
-
-    assert np.allclose(space.assemble_stiffness(**material), femesh.K)
-
-
-def test_dof_indices_free_function_is_the_same_numbering(unit_square):
-    space = FunctionSpace(unit_square, n_components=3)
-    assert np.array_equal(space.dof_indices([1, 4]), dof_indices([1, 4], 3))
-
-
-# --- the property FEMesh cannot provide ---
+# --- the property that motivated the split ---
 
 def test_two_spaces_share_one_mesh_without_interfering(unit_square):
-    """The motivating case. FEMesh.prepare_matrices rebuilds operators in place,
-    so a second solver at a different component count silently corrupts the
-    first. Separate spaces have separate operators over the same geometry."""
+    """Two discretizations of one domain must not share mutable operator state,
+    which is what forces the space to be a separate object from the mesh."""
     scalar = FunctionSpace(unit_square, n_components=1)
     vector = FunctionSpace(unit_square, n_components=2)
 
     scalar_mass = scalar.mass_matrix.copy()
-    _ = vector.mass_matrix  # would overwrite, under the old model
+    _ = vector.mass_matrix
 
     assert scalar.mass_matrix.shape == (len(unit_square.vertices),) * 2
     assert vector.mass_matrix.shape == (2 * len(unit_square.vertices),) * 2
