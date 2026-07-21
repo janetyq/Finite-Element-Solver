@@ -46,6 +46,22 @@ class TestPolygonArea:
         triangle = np.array([[0, 0], [1, 0], [0, 1]]) + np.array([5.0, -3.0])
         assert calculate_polygon_area(triangle) == pytest.approx(0.5)
 
+    def test_triangle_in_3d(self):
+        # Same triangle as test_unit_triangle, embedded in the z = 0 plane.
+        triangle = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]])
+        assert calculate_polygon_area(triangle) == pytest.approx(0.5)
+
+    def test_tilted_triangle_in_3d(self):
+        # Legs of length 1 and sqrt(2), meeting at a right angle.
+        triangle = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 1]])
+        assert calculate_polygon_area(triangle) == pytest.approx(0.5 * np.sqrt(2))
+
+    def test_general_3d_polygon_is_refused(self):
+        # Needs Newell's method; refuse rather than return a wrong number.
+        quad = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]])
+        with pytest.raises(NotImplementedError):
+            calculate_polygon_area(quad)
+
 
 class TestTetrahedronVolume:
     def test_unit_tetrahedron(self):
