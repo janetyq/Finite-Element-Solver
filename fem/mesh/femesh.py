@@ -5,8 +5,8 @@ import numpy as np
 
 from fem.mesh.mesh import Mesh
 from fem.elements import LinearElement, LinearTriangleElement
+from fem.space import dof_indices
 from fem.typing import (
-    DofIndices,
     ElementField,
     Elements,
     FloatArray,
@@ -16,15 +16,9 @@ from fem.typing import (
     Vertices,
 )
 
-
-def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndices:
-    '''Global DOF indices for an element's nodes, interleaved per node.
-
-    For node indices [n0, n1, ...] and `n_components` DOFs per node, returns
-    [n_components*n0, n_components*n0+1, ..., n_components*n1, n_components*n1+1, ...].
-    '''
-    element = np.asarray(element)
-    return np.array([n_components*element + i for i in range(n_components)]).T.flatten()
+# Re-exported: `dof_indices` is the FunctionSpace's numbering, and callers still
+# import it from here. Retired along with the rest of FEMesh.
+__all__ = ['FEMesh', 'dof_indices']
 
 
 class FEMesh(Mesh):
