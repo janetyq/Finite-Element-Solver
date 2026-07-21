@@ -33,7 +33,7 @@ from fem.elements import (
     LinearTriangleElement,
 )
 from fem.mesh.mesh import Mesh
-from fem.typing import DofIndices, Elements, IntArray, Matrix
+from fem.typing import DofIndices, Elements, FloatArray, IntArray, Matrix, VertexField
 
 
 def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndices:
@@ -124,6 +124,33 @@ class FunctionSpace:
     @cached_property
     def boundary_objs(self) -> list[LinearElement]:
         return [self.boundary_type(self.mesh.vertices[f]) for f in self.mesh.boundary]
+
+    # Per-element geometry is reached through these rather than through
+    # `element_objs`, so that replacing the per-element objects with batched
+    # `(n_elements, ...)` arrays stays a change inside this class.
+
+    @cached_property
+    def element_volumes(self) -> FloatArray:
+        '''(n_elements,) element measure -- length, area, or volume.'''
+        return np.array([e.volume for e in self.element_objs])
+
+    def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
+        '''Gradient of a field over one element, from its nodal values.'''
+        return self.element_objs[e_idx].calculate_gradient(u_element)
+
+    def element_dF_dx(self, e_idx: int) -> FloatArray:
+        '''d(deformation gradient)/d(nodal position) for one element.'''
+        return self.element_objs[e_idx].dF_dx
+
+    def gradient(self, u: VertexField) -> FloatArray:
+        '''(n_elements, spatial_dim) gradient of a nodal field, one value per element.
+
+        Constant per element for P1, which is why it is an element field.
+        '''
+        return np.array([
+            self.element_gradient(e_idx, u[element])
+            for e_idx, element in enumerate(self.mesh.elements)
+        ])
 
     # -- operators ----------------------------------------------------------
 
