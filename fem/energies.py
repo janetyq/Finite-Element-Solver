@@ -15,7 +15,7 @@ class LinearElasticEnergyDensity: # TODO: inheritance
     W: strain energy density (1)
 
     2D only: every tensor below is built at a fixed rank (np.eye(2), (2,2,2,2),
-    (2,2,2,2,2,2)) rather than from a `dim` parameter. `set_grad_u` rejects
+    (2,2,2,2,2,2)) rather than from a `n_components` parameter. `set_grad_u` rejects
     anything else so the limit surfaces as an explicit error rather than a
     numpy broadcast failure deep in an einsum.
     '''

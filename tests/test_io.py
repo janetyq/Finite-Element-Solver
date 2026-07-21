@@ -2,7 +2,7 @@
 
 Meshes go to JSON, solutions to a pickle-free npz archive. The point of these
 tests is that a save/load cycle preserves everything a caller depends on --
-value arrays, mesh geometry, mesh class and dim -- and that the load path never
+value arrays, mesh geometry, mesh class and n_components -- and that the load path never
 falls back to pickle.
 """
 import numpy as np
@@ -41,9 +41,9 @@ def test_mesh_load_rebuilds_the_requested_class(make_unit_square, tmp_path):
 
 
 def test_solution_round_trip_preserves_values_mesh_and_dim(make_unit_square, tmp_path):
-    """A hand-built solution comes back with identical values, geometry and dim."""
+    """A hand-built solution comes back with identical values, geometry and component count."""
     femesh = make_unit_square(6)
-    solution = Solution(femesh, dim=2)
+    solution = Solution(femesh, n_components=2)
     solution.set_values("u", np.arange(len(femesh.vertices) * 2, dtype=float))
     solution.set_values("compliance", np.linspace(0, 1, len(femesh.elements)))
     path = tmp_path / "solution.npz"
@@ -51,7 +51,7 @@ def test_solution_round_trip_preserves_values_mesh_and_dim(make_unit_square, tmp
     solution.save(path)
     loaded = Solution.load(path)
 
-    assert loaded.dim == 2
+    assert loaded.n_components == 2
     assert set(loaded.values) == {"u", "compliance"}
     assert np.allclose(loaded.get_values("u"), solution.get_values("u"))
     assert np.allclose(loaded.get_values("compliance"), solution.get_values("compliance"))
@@ -81,7 +81,7 @@ def test_solution_load_does_not_unpickle(make_unit_square, tmp_path):
     """The archive must be readable with allow_pickle=False -- that is the whole
     point of moving off pickle, so pin it rather than trusting the default."""
     femesh = make_unit_square(6)
-    solution = Solution(femesh, dim=1)
+    solution = Solution(femesh, n_components=1)
     solution.set_values("u", np.zeros(len(femesh.vertices)))
     path = tmp_path / "solution.npz"
     solution.save(path)
@@ -93,7 +93,7 @@ def test_solution_load_does_not_unpickle(make_unit_square, tmp_path):
 def test_saving_a_ragged_value_fails_loudly(make_unit_square, tmp_path):
     """Ragged values can't be stored without object arrays (which would mean
     pickle), so they must raise at save time rather than silently degrade."""
-    solution = Solution(make_unit_square(6), dim=1)
+    solution = Solution(make_unit_square(6), n_components=1)
     solution.set_values("ragged", [np.zeros(3), np.zeros(5)])
 
     with pytest.raises(ValueError):

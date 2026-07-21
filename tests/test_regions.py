@@ -69,35 +69,35 @@ def test_mesh_boundness_propagates_through_composition():
 # --- fields ---
 
 def test_constant_field_is_broadcast_to_every_point():
-    values = evaluate_field([2.0, 3.0], POINTS, dim=2)
+    values = evaluate_field([2.0, 3.0], POINTS, n_components=2)
     assert values.shape == (5, 2)
     assert np.allclose(values, [2.0, 3.0])
 
 
 def test_scalar_constant_works_for_dim_one():
-    assert np.allclose(evaluate_field(1.5, POINTS, dim=1), 1.5)
+    assert np.allclose(evaluate_field(1.5, POINTS, n_components=1), 1.5)
 
 
 def test_callable_field_is_evaluated_per_point():
-    values = evaluate_field(lambda p: [p[0] + p[1]], POINTS, dim=1)
+    values = evaluate_field(lambda p: [p[0] + p[1]], POINTS, n_components=1)
     assert np.allclose(values.ravel(), POINTS.sum(axis=1))
 
 
 def test_none_is_zero():
-    assert np.allclose(evaluate_field(None, POINTS, dim=2), 0.0)
+    assert np.allclose(evaluate_field(None, POINTS, n_components=2), 0.0)
 
 
 def test_wrong_width_raises_rather_than_being_guessed():
     """The old API inferred meaning from a length coincidence; a mismatch must
     simply be an error."""
     with pytest.raises(ValueError):
-        evaluate_field([1.0, 2.0, 3.0], POINTS, dim=2)
+        evaluate_field([1.0, 2.0, 3.0], POINTS, n_components=2)
 
 
 def test_field_width_is_independent_of_point_count():
     """Regression for the length-coincidence bug: a 2-component value on exactly
     2 points must still mean 'both components at both points'."""
     two_points = POINTS[:2]
-    values = evaluate_field([7.0, 9.0], two_points, dim=2)
+    values = evaluate_field([7.0, 9.0], two_points, n_components=2)
     assert values.shape == (2, 2)
     assert np.allclose(values, [7.0, 9.0])

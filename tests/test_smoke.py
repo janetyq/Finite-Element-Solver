@@ -55,7 +55,7 @@ def test_topology_optimizer_runs(make_unit_square):
 
 def test_bc_plotting_runs(make_unit_square):
     """plot_bc reads the spec through entries(), which resolves regions without
-    needing a dim; exercise it so a break surfaces here, not on a human's screen."""
+    needing a component count; exercise it so a break surfaces here, not on a human's screen."""
     import matplotlib.pyplot as plt
 
     from fem.plot.helpers import plot_bc

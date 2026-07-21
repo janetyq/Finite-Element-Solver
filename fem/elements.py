@@ -52,14 +52,14 @@ class LinearElement(Element):
 
         self.dF_dx: FloatArray = self.calculate_dF_dx()
 
-    def calculate_mass_matrix(self, dim: int, **kwargs: Any) -> Matrix:
-        M = np.zeros((dim*self.N, dim*self.N))
-        M[::dim, ::dim] = 1
-        M += np.eye(dim*self.N)
+    def calculate_mass_matrix(self, n_components: int, **kwargs: Any) -> Matrix:
+        M = np.zeros((n_components*self.N, n_components*self.N))
+        M[::n_components, ::n_components] = 1
+        M += np.eye(n_components*self.N)
         return 1/(self.N*(self.N+1)) * self.volume * M
 
-    def calculate_stiffness_matrix(self, dim: int, **kwargs: Any) -> Matrix:
-        if dim == 1:
+    def calculate_stiffness_matrix(self, n_components: int, **kwargs: Any) -> Matrix:
+        if n_components == 1:
             return self.grad_phi @ self.grad_phi.T * self.volume
         # otherwise, the equation is linear elastic
         idx = kwargs['idx']

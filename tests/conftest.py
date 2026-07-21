@@ -20,7 +20,7 @@ def make_unit_square():
 
     Returns a callable so each test can pick its own resolution, e.g.
     ``femesh = make_unit_square(20)``. A fresh mesh per call avoids solver
-    state (assembled matrices, dim) bleeding between tests.
+    state (assembled matrices, n_components) bleeding between tests.
     """
     def _make(n=20):
         base = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))

@@ -137,5 +137,5 @@ def test_bc_spec_is_reusable_across_meshes(make_unit_square):
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
 
     coarse, fine = make_unit_square(4), make_unit_square(9)
-    assert len(bc.resolve(coarse, dim=1).fixed_idxs) == len(coarse.boundary_idxs)
-    assert len(bc.resolve(fine, dim=1).fixed_idxs) == len(fine.boundary_idxs)
+    assert len(bc.resolve(coarse, n_components=1).fixed_idxs) == len(coarse.boundary_idxs)
+    assert len(bc.resolve(fine, n_components=1).fixed_idxs) == len(fine.boundary_idxs)

@@ -129,18 +129,18 @@ class Solver:
         self.femesh = femesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions()
-        self.dim = self.equation.field.components_for(femesh.spatial_dim)
-        self.solution = Solution(femesh, self.dim)
+        self.n_components = self.equation.field.components_for(femesh.spatial_dim)
+        self.solution = Solution(femesh, self.n_components)
 
         self._resolve_bc()
 
     def _resolve_bc(self) -> None:
-        '''Bind the boundary-condition spec to the current mesh and dim.
+        '''Bind the boundary-condition spec to the current mesh and component count.
 
         Called again whenever the mesh changes (adaptive refinement), which is
         the whole reason the spec is kept separate from its resolution.
         '''
-        self.resolved_bc = self.boundary_conditions.resolve(self.femesh, self.dim)
+        self.resolved_bc = self.boundary_conditions.resolve(self.femesh, self.n_components)
 
     def _equation_as(self, kind: type[EquationT]) -> EquationT:
         '''The equation, narrowed to the type the calling solver expects.
@@ -182,14 +182,14 @@ class Solver:
             nu = np.full(len(self.femesh.elements), self.equation.nu)
             mu, lamb = Enu_to_Lame(E, nu) 
             self.mu, self.lamb = mu, lamb
-            self.femesh.prepare_matrices(dim=self.dim, mu=mu, lamb=lamb)
+            self.femesh.prepare_matrices(n_components=self.n_components, mu=mu, lamb=lamb)
         else:
-            self.femesh.prepare_matrices(dim=self.dim)
+            self.femesh.prepare_matrices(n_components=self.n_components)
 
         # RHS: the equation's source term over the volume, plus the boundary
         # traction over the boundary. A Robin condition would add its matrix
         # term to the LHS here, via femesh.K_b / femesh.M_b.
-        source_load = evaluate_field(self.equation.source, self.femesh.vertices, self.dim)
+        source_load = evaluate_field(self.equation.source, self.femesh.vertices, self.n_components)
         self.b = (self.femesh.M @ source_load.flatten()).flatten()
         self.b += (self.femesh.M_b @ self.resolved_bc.neumann_load.flatten()).flatten()
 
@@ -341,7 +341,7 @@ class Solver:
             element_obj = self.femesh.element_objs[e_idx]
             B = element_obj.calculate_B()
             D = element_obj.calculate_D(self.mu[e_idx], self.lamb[e_idx])
-            u_element = u[dof_indices(element, self.dim)]
+            u_element = u[dof_indices(element, self.n_components)]
             eps = B @ u_element
             sigma = D @ eps
             compliance = sigma @ eps * element_obj.volume
@@ -393,7 +393,7 @@ class Solver:
             # The refined mesh renumbers vertices, so anything index-keyed has to
             # be rebuilt from its specification rather than carried over.
             self._resolve_bc()
-            self.solution = Solution(self.femesh, self.dim)
+            self.solution = Solution(self.femesh, self.n_components)
             self.solve()
 
         return self.solution

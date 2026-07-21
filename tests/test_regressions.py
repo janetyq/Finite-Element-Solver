@@ -20,7 +20,7 @@ def test_get_values_converts_vertex_field_to_element_field(make_unit_square):
     """get_values(mode=...) called self._convert_*, which never existed -- the
     conversions live on the mesh, without the underscore."""
     femesh = make_unit_square(6)
-    solution = Solution(femesh, dim=1)
+    solution = Solution(femesh, n_components=1)
     solution.set_values('u', np.ones(len(femesh.vertices)))
 
     element_values = solution.get_values('u', mode='element')
@@ -31,7 +31,7 @@ def test_get_values_converts_vertex_field_to_element_field(make_unit_square):
 
 def test_get_values_converts_element_field_to_vertex_field(make_unit_square):
     femesh = make_unit_square(6)
-    solution = Solution(femesh, dim=1)
+    solution = Solution(femesh, n_components=1)
     solution.set_values('rho', np.ones(len(femesh.elements)))
 
     vertex_values = solution.get_values('rho', mode='vertex')
@@ -44,7 +44,7 @@ def test_get_values_rejects_an_unknown_mode(make_unit_square):
     """An unrecognised mode fell out of the if/elif chain as None, which only
     failed wherever the caller went on to index it."""
     femesh = make_unit_square(4)
-    solution = Solution(femesh, dim=1)
+    solution = Solution(femesh, n_components=1)
     solution.set_values('u', np.ones(len(femesh.vertices)))
 
     with pytest.raises(ValueError, match='unknown mode'):

@@ -33,7 +33,7 @@ def test_named_interior_vertex_is_rejected(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, at_indices([interior]), 0)
     with pytest.raises(ValueError):
-        bc.resolve(femesh, dim=1)
+        bc.resolve(femesh, n_components=1)
 
 
 def test_geometric_region_never_selects_interior_vertices(make_unit_square):
@@ -46,7 +46,7 @@ def test_geometric_region_never_selects_interior_vertices(make_unit_square):
     interior_on_plane = np.isclose(femesh.vertices[:, 0], 0.5).sum() - 2
     assert interior_on_plane > 0, "region does not actually cross the interior"
 
-    fixed = bc.resolve(femesh, dim=1).fixed_idxs
+    fixed = bc.resolve(femesh, n_components=1).fixed_idxs
     assert len(fixed) == 2  # only where the line meets the boundary
     assert set(fixed) <= set(int(i) for i in femesh.boundary_idxs)
 
@@ -58,7 +58,7 @@ def test_dirichlet_neumann_overlap_is_rejected(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0)
     bc.add(BCType.NEUMANN, on_plane(0, 0.0), 0)
     with pytest.raises(ValueError):
-        bc.resolve(femesh, dim=1)
+        bc.resolve(femesh, n_components=1)
 
 
 def test_conflicting_dirichlet_values_are_rejected(make_unit_square):
@@ -69,7 +69,7 @@ def test_conflicting_dirichlet_values_are_rejected(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)   # left edge
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), 1.0)   # bottom edge; corner disagrees
     with pytest.raises(ValueError):
-        bc.resolve(femesh, dim=1)
+        bc.resolve(femesh, n_components=1)
 
 
 def test_agreeing_overlapping_regions_are_fine(make_unit_square):
@@ -77,7 +77,7 @@ def test_agreeing_overlapping_regions_are_fine(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), 0.0)
-    resolved = bc.resolve(femesh, dim=1)
+    resolved = bc.resolve(femesh, n_components=1)
     assert len(resolved.fixed_idxs) == len(set(resolved.fixed_idxs))
 
 
@@ -87,9 +87,9 @@ def test_value_shape_is_checked_not_guessed(make_unit_square):
     mesh resolution. A wrong-width value must now simply raise."""
     femesh = make_unit_square(4)
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])  # 3 components for dim=2
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])  # 3 components for n_components=2
     with pytest.raises(ValueError):
-        bc.resolve(femesh, dim=2)
+        bc.resolve(femesh, n_components=2)
 
 
 def test_two_node_edge_pins_both_dofs(make_unit_square):
@@ -100,7 +100,7 @@ def test_two_node_edge_pins_both_dofs(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
 
-    resolved = bc.resolve(femesh, dim=2)
+    resolved = bc.resolve(femesh, n_components=2)
     assert len(resolved.fixed_idxs) == 4  # 2 nodes x 2 components
     assert len(resolved.fixed_values) == 4
 
@@ -143,10 +143,9 @@ def test_energy_solver_rejects_a_3d_mesh():
     """The energy densities are built at fixed rank 2, so a tet mesh must be
     refused up front.
 
-    The guard used to read `self.dim != 2`, which is components-per-node and is
-    unconditionally 2 for LinearElastic -- so it never fired, and a tet mesh got
-    as far as set_grad_u rejecting its (3, 2) gradient, several frames from the
-    cause.
+    The guard used to compare the component count against 2. That is unconditionally
+    2 for LinearElastic, so it never fired, and a tet mesh got as far as set_grad_u
+    rejecting its (3, 2) gradient -- several frames from the cause.
     """
     femesh = FEMesh(
         vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
@@ -167,7 +166,7 @@ def test_robin_is_gated(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.ROBIN, everywhere(), 0)
     with pytest.raises(NotImplementedError):
-        bc.resolve(femesh, dim=1)
+        bc.resolve(femesh, n_components=1)
 
 
 def test_plotmode_rejects_typo():

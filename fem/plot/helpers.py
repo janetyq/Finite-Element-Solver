@@ -96,7 +96,7 @@ def plot_bc(ax, mesh, bc):
     from fem.boundary import BCType
 
     plot_mesh(ax, mesh)
-    # entries() resolves regions against this mesh without needing a dim, which
+    # entries() resolves regions against this mesh without needing a component count, which
     # is all plotting needs -- no DOF numbering involved.
     for bc_type, idxs, values in bc.entries(mesh):
         points = mesh.vertices[idxs]
