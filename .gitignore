@@ -10,6 +10,9 @@ dist/
 # Parked experiments and personal notes; put new scratch work here.
 attic/
 
+# Working plan for the in-flight refactor; kept on disk, not in the tree.
+REFACTOR_PLAN.md
+
 .claude/worktrees/
 
 # Generated demo output is ignored by results/.gitignore.
