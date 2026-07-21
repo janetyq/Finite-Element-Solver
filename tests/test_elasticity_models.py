@@ -2,26 +2,58 @@
 
 The package solves elasticity twice, along two independent axes:
 
-    strain measure   Green-Lagrange  E = 1/2 (F^T F - I)     exact
+    strain measure   Green-Lagrange  S = 1/2 (F^T F - I)       exact
                      small strain    eps = 1/2 (grad u + grad u^T)
 
-    method           direct assembly  K u = b, one linear solve
+    method           direct assembly      K u = b, one linear solve
                      energy minimization  Newton on grad(Pi) = 0
 
 `Solver` occupies (small strain, direct); `EnergySolver` occupies
 (Green-Lagrange, energy). Because they sit on the diagonal, switching solver
-also switches physics, and neither difference can be observed alone. These tests
-pin both relationships so the two comments that used to carry this knowledge --
-"does not exactly match linear elastic solve for larger deformations" and "not
-the linear approx ... so iterative solver does not converge in 1 iteration" --
-are executable claims instead of prose.
+also switches physics, and neither difference can be observed alone.
+
+`_SmallStrain` below is the missing off-diagonal cell -- Green-Lagrange's
+linearization, dropped into the energy machinery -- and it exists only here.
+It has no production use: (small strain, energy) computes exactly what (small
+strain, direct) does with more work. Its whole value is that holding the method
+fixed while changing only the strain measure, and vice versa, makes each axis
+observable on its own. That turns the two comments which used to carry this
+knowledge -- "does not exactly match linear elastic solve for larger
+deformations" and "not the linear approx ... so iterative solver does not
+converge in 1 iteration" -- into executable claims.
 """
 import numpy as np
 
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import on_plane
-from fem.solver import LinearElastic
+from fem.solver import Solver, LinearElastic
 from fem.energy_solver import EnergySolver
+from fem.energies import StVenantKirchhoffEnergyDensity
+
+
+class _SmallStrain(StVenantKirchhoffEnergyDensity):
+    """Green-Lagrange with the quadratic term dropped: eps = 1/2 (F + F^T) - I.
+
+    Same energy W and same Lame parameters as the parent -- only the strain
+    measure changes, which is the whole point. dS/dF is then constant and
+    d2S/dF2 vanishes, so the energy is quadratic in u and its Hessian is the
+    same K that `Solver` assembles.
+    """
+
+    def calculate_S_from_F(self, F):
+        return 0.5 * (F + F.T) - np.eye(2)
+
+    def calculate_dS_dF(self, F):
+        dS_dF = np.zeros((2, 2, 2, 2))
+        for i in range(2):
+            for j in range(2):
+                for m in range(2):
+                    for n in range(2):
+                        dS_dF[i, j, m, n] = 0.5 * ((i == m) * (j == n) + (j == m) * (i == n))
+        return dS_dF
+
+    def calculate_d2S_dF2(self, F):
+        return np.zeros((2, 2, 2, 2, 2, 2))
 
 
 def _stretched_square(make_unit_square, stretch=0.1, n=8):
@@ -36,6 +68,25 @@ def _stretched_square(make_unit_square, stretch=0.1, n=8):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [stretch, 0])
     return mesh, bc
+
+
+def _energy_solver(mesh, bc, density_cls):
+    """An EnergySolver whose strain energy density is `density_cls`.
+
+    The class is chosen by `_select_energy`, which only knows the production
+    St-VK density, so the test injects its own after construction.
+    """
+    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+    solver.energy_density = density_cls(200, 0.4)
+    return solver
+
+
+def _one_newton_step(solver):
+    """Displacement after a single Newton step from the zero initial guess."""
+    u = np.zeros(len(solver.mesh.vertices) * solver.n_components)
+    u[solver.fixed] = solver.fixed_values
+    step = np.linalg.solve(solver.energy_hessian(u), -solver.energy_gradient(u))
+    return u + step
 
 
 def test_energy_solver_matches_recorded_solution(make_unit_square):
@@ -55,3 +106,104 @@ def test_energy_solver_matches_recorded_solution(make_unit_square):
     np.testing.assert_allclose(u.max(), 0.1, rtol=1e-12)
     np.testing.assert_allclose(u.min(), -0.037995668257, rtol=1e-9)
     np.testing.assert_allclose(solver.energy(u.copy()), 1.590561321584, rtol=1e-9)
+
+
+def test_small_strain_energy_equals_direct_solve(make_unit_square):
+    """Same method, both strain measures agree in the limit: hold the *method*
+    fixed at energy minimization and switch to small strain, and it reproduces
+    `Solver`'s direct assembly exactly.
+
+    And in a single Newton step: a small-strain energy is quadratic, so its
+    gradient is affine and one step from any start lands on the minimizer. This
+    is the "converges in one iteration" the St-VK comment said it does *not* --
+    the difference is the strain measure, not the solver.
+    """
+    mesh, bc = _stretched_square(make_unit_square)
+
+    u_direct = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().get_values("u").flatten()
+    u_energy = _one_newton_step(_energy_solver(mesh, bc, _SmallStrain))
+
+    np.testing.assert_allclose(u_energy, u_direct, atol=1e-12)
+
+
+def test_stvk_needs_more_than_one_newton_step(make_unit_square):
+    """The complement: St-VK is nonlinear in u, so one Newton step is *not*
+    enough -- it leaves a residual against the converged answer. This is what
+    makes the small-strain one-step result above a real distinction rather than
+    a property of the solver.
+    """
+    mesh, bc = _stretched_square(make_unit_square)
+    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+
+    u_one = _one_newton_step(solver)
+    u_converged = solver.solve().get_values("u")
+
+    rel = np.linalg.norm(u_one - u_converged) / np.linalg.norm(u_converged)
+    assert rel > 0.1, f"one step should be far from converged, got rel={rel:.2e}"
+
+
+def test_models_agree_to_second_order_in_strain(make_unit_square):
+    """Same strain regime, both models: hold the *strain* small and the two
+    measures agree to O(||grad u||^2). Halving the imposed stretch shrinks the
+    displacement gap by ~4x, the signature of a quadratic difference -- the
+    precise content of "does not exactly match ... for larger deformations".
+    """
+    gaps = []
+    for stretch in (0.08, 0.04, 0.02, 0.01):
+        mesh, bc = _stretched_square(make_unit_square, stretch=stretch)
+        u_small = _energy_solver(mesh, bc, _SmallStrain).solve().get_values("u")
+        u_stvk = _energy_solver(mesh, bc, StVenantKirchhoffEnergyDensity).solve().get_values("u")
+        gaps.append(np.linalg.norm(u_small - u_stvk))
+
+    ratios = [a / b for a, b in zip(gaps[:-1], gaps[1:])]
+    # Quadratic gap -> 4x per halving. Loose bounds: the far field is not purely
+    # asymptotic and the mesh is coarse, but the trend must be unambiguously ~4.
+    for r in ratios:
+        assert 3.5 < r < 4.5, f"gap ratio {r:.2f} is not the ~4x of a quadratic difference"
+
+
+def test_green_lagrange_is_frame_indifferent(make_unit_square):
+    """A rigid rotation is strain-free -- the defining property of an exact
+    strain measure, and the reason St-VK exists.
+
+    Under a rigid rotation F = R exactly (the displacement is affine, which P1
+    represents without error), so Green-Lagrange gives S = 1/2 (R^T R - I) = 0
+    and zero energy. Small strain instead reads eps = (cos theta - 1) I, a
+    spurious compression, and stores energy that grows like theta^4. Evaluated
+    directly on the rotation field -- no solve -- so it isolates the strain
+    measure from the solver.
+    """
+    mesh = make_unit_square(8)
+    center = mesh.vertices.mean(axis=0)
+    # No pinned DOFs would make an EnergySolver degenerate; this BC is unused,
+    # since the energies are evaluated on an imposed field rather than solved.
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+
+    def total_energy(density, u_nodal):
+        solver.energy_density = density
+        return sum(
+            solver.element_energy(e_idx, u_nodal[element]) * solver.space.element_volumes[e_idx]
+            for e_idx, element in enumerate(mesh.elements)
+        )
+
+    def rotation_field(theta):
+        c, s = np.cos(theta), np.sin(theta)
+        R = np.array([[c, -s], [s, c]])
+        return (mesh.vertices - center) @ R.T + center - mesh.vertices
+
+    small_energies = []
+    for theta in (0.4, 0.2, 0.1):
+        u = rotation_field(theta)
+        stvk = total_energy(StVenantKirchhoffEnergyDensity(200, 0.4), u)
+        small = total_energy(_SmallStrain(200, 0.4), u)
+        assert stvk < 1e-18, f"Green-Lagrange stored {stvk:.2e} under a rigid rotation"
+        assert small > 1e-6, f"small strain should read a spurious {theta} rotation as strain"
+        small_energies.append(small)
+
+    # Spurious strain ~ theta^2, energy quadratic in strain -> ~theta^4, i.e.
+    # ~16x per halving of theta.
+    ratios = [a / b for a, b in zip(small_energies[:-1], small_energies[1:])]
+    for r in ratios:
+        assert 13 < r < 19, f"spurious energy ratio {r:.1f} is not the ~16x of a theta^4 law"
