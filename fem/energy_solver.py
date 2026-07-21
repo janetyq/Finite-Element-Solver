@@ -3,7 +3,7 @@ import logging
 import numpy as np
 
 from fem.boundary import BoundaryConditions
-from fem.energies import LinearElasticEnergyDensity
+from fem.energies import StVenantKirchhoffEnergyDensity
 from fem.mesh.mesh import Mesh
 from fem.solution import Solution
 from fem.solver import Equation, LinearElastic
@@ -35,7 +35,7 @@ class EnergySolver:
         # Checked against the mesh, not the component count: those are different
         # quantities and only the mesh knows this one. The guard used to compare the
         # component count against 2, which for LinearElastic is unconditionally 2, so
-        # it never fired -- a tet mesh reached LinearElasticEnergyDensity.set_grad_u
+        # it never fired -- a tet mesh reached StVenantKirchhoffEnergyDensity.set_grad_u
         # and failed there on its (3, 2) gradient instead.
         if mesh.spatial_dim != 2:
             raise NotImplementedError(
@@ -71,9 +71,9 @@ class EnergySolver:
         # check_gradient(self.energy, self.energy_gradient, len(self.mesh.vertices)*2)
         # check_hessian(self.energy_gradient, self.energy_hessian, len(self.mesh.vertices)*2)
 
-    def _select_energy(self, equation: Equation) -> LinearElasticEnergyDensity:
+    def _select_energy(self, equation: Equation) -> StVenantKirchhoffEnergyDensity:
         if isinstance(equation, LinearElastic):
-            return LinearElasticEnergyDensity(equation.E, equation.nu)
+            return StVenantKirchhoffEnergyDensity(equation.E, equation.nu)
         else:
             raise ValueError(f"Unsupported equation type: {type(equation).__name__}")
 
@@ -131,8 +131,14 @@ class EnergySolver:
             ix = np.ix_(element, range(self.n_components), element, range(self.n_components))
             total_energy_hessian[ix] += self.element_hessian(e_idx, u.reshape(-1, self.n_components)[element]) * self.space.element_volumes[e_idx]
         total_energy_hessian = total_energy_hessian.reshape(n*self.n_components, n*self.n_components)
+        # Eliminate the constrained DOFs: zero their coupling, then put 1 on the
+        # diagonal. Without the diagonal the matrix is exactly singular (rank
+        # n_free, not n_dofs), so every Newton step raised LinAlgError and fell
+        # through to the 1e-8 regularization below -- which perturbs the free
+        # block too, capping accuracy around 1e-8 for no reason.
         total_energy_hessian[self.fixed, :] = 0
         total_energy_hessian[:, self.fixed] = 0
+        total_energy_hessian[self.fixed, self.fixed] = 1
         return total_energy_hessian
 
     def solve(self, max_iters: int = 100) -> Solution:
