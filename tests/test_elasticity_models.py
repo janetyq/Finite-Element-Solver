@@ -21,12 +21,46 @@ deformations" and "not the linear approx ... so iterative solver does not
 converge in 1 iteration" -- into executable claims.
 """
 import numpy as np
+import pytest
 
 from fem.boundary import BoundaryConditions, BCType
+from fem.materials import LinearElasticMaterial
 from fem.regions import on_plane
 from fem.solver import Solver, LinearElastic
 from fem.energy_solver import EnergySolver
 from fem.energies import SmallStrainEnergyDensity, StVenantKirchhoffEnergyDensity
+
+
+def test_hooke_matrix_is_the_second_derivative_of_the_small_strain_energy():
+    """`Material`'s D and `SmallStrainEnergyDensity`'s W are one material, D = d2W/de2.
+
+    Both `Solver` (via LinearElasticMaterial -> D) and the small-strain energy
+    path describe the same linear material by different routes. This pins that
+    they agree: for any strain, the quadratic energy the Voigt D implies,
+    1/2 eps_v^T D eps_v, equals the energy density's W(eps) -- the shear terms
+    included, where the engineering-shear factor of 2 in eps_v = [e_xx, e_yy,
+    2 e_xy] cancels D's bare mu against W's 2 mu e_xy^2.
+
+    Checked in 2D, the only dimension where both representations exist:
+    `energies.py` is fixed-rank-2, so the 3D D is not cross-checked here -- it
+    stands on its closed form and the 3D MMS convergence test. This is why the
+    duplication is left in place rather than derived away: the closed-form D is
+    correct and dimension-general, and deriving it from the 2D energy density
+    would forfeit 3D.
+    """
+    E, nu = 200.0, 0.3
+    D = LinearElasticMaterial(E, nu).constitutive_matrix(reference_dim=2, e_idx=0)
+    density = SmallStrainEnergyDensity(E, nu)
+
+    rng = np.random.default_rng(0)
+    for _ in range(8):
+        strain = rng.normal(size=(2, 2))
+        strain = 0.5 * (strain + strain.T)  # a strain tensor is symmetric
+        strain_voigt = np.array([strain[0, 0], strain[1, 1], 2 * strain[0, 1]])
+
+        energy_from_D = 0.5 * strain_voigt @ D @ strain_voigt
+        energy_from_W = density.calculate_W_from_S(strain)
+        assert energy_from_D == pytest.approx(energy_from_W)
 
 
 def _stretched_square(make_unit_square, stretch=0.1, n=8):

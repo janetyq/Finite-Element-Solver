@@ -103,13 +103,14 @@ against `D`. That split is what let `Element` drop to pure geometry. The only as
 outside a `Form` is `EnergySolver`'s nonlinear energy path, which is a different method, not a
 bilinear form.
 
-What is *not* yet done is unifying the two constitutive representations. There is **one**
-energy density `W(ε) = ½λ(tr ε)² + μ tr(εᵀε)`, shared verbatim: `energies.py`'s
-`calculate_W_from_S` and the `½εᵀDε` implied by `Material` are the same function. `D` is
-`∂²W/∂ε²` — a *derivative* of the energy in the other file, currently transcribed by hand from
-Lamé parameters rather than computed from `W`. Deriving it would delete the duplication, at
-the cost of bridging Voigt and full-tensor notation (a follow-on, guarded by the golden
-matrices in `tests/test_forms.py`). The other axis is **kinematics**: the two solver paths
+The two constitutive representations are the same material, and this is now *pinned* rather
+than merely asserted: `energies.py`'s `calculate_W_from_S` and the `½εᵀDε` implied by `Material`
+are one energy `W(ε) = ½λ(tr ε)² + μ tr(εᵀε)`, and `test_hooke_matrix_is_the_second_derivative_of_the_small_strain_energy`
+checks that `D = ∂²W/∂ε²` in 2D. `D` is *left* in its Lamé-parameter closed form rather than
+derived from `W` on purpose: that closed form is correct and dimension-general, whereas
+`energies.py` is fixed-rank-2, so deriving `D` from the energy density would forfeit the 3D
+path for no gain. The duplication is a two-line closed form checked against its source, not a
+drift risk. The other axis is **kinematics**: the two solver paths
 differ only in the strain measure fed to that one `W` — `energies.py` uses Green–Lagrange
 `S = ½(FᵀF − I)` (geometrically nonlinear — St-VK), the linear path the small-strain
 `ε = ½(∇u + ∇uᵀ)`. Both measures are now named (`SmallStrainEnergyDensity`,
@@ -299,10 +300,10 @@ passing without modification.
    `Element` is pure geometry, and `FunctionSpace.assemble` takes a `Form` instead of an
    untyped material bag — mass, stiffness, and boundary mass all through it. Two follow-ons
    remain from the ideal end state, both smaller and independently landable:
-   - **1a. Derive `D` from `W`.** `Material` holds `D` built from Lamé parameters; the energy
-     `W` in `energies.py` already implies it as `∂²W/∂ε²`. Computing it from `W` deletes the
-     duplication but needs a Voigt↔full-tensor bridge, so it is isolated and guarded by the
-     golden matrices in `tests/test_forms.py`.
+   - **1a. Pin `D = ∂²W/∂ε²`.** *Done.* `Material` keeps `D` in its Lamé-parameter closed
+     form — correct and dimension-general — and a test cross-checks it against the small-strain
+     energy density in 2D. Deriving `D` from `W` was considered and rejected: `energies.py` is
+     fixed-rank-2, so it would forfeit the 3D path to remove a checked two-line closed form.
    - **1b. Make kinematics selectable.** `SmallStrainEnergyDensity` and
      `StVenantKirchhoffEnergyDensity` are the two members today; `Form` is where choosing
      between them becomes an equation-level choice rather than the test-only injection it is
