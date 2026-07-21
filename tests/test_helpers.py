@@ -85,6 +85,35 @@ class TestCircumcenter:
         assert center[1] == pytest.approx(1.0)
 
 
+class TestMassMatrix:
+    """A vector mass matrix must repeat the scalar one per component."""
+
+    ELEMENTS = [
+        (LinearTriangleElement, np.array([[0.0, 0], [1, 0], [0, 1]]), 2),
+        (LinearTetrahedralElement,
+         np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]]), 3),
+    ]
+
+    @pytest.mark.parametrize('element_type, vertices, n_components', ELEMENTS)
+    def test_is_scalar_matrix_per_component(self, element_type, vertices, n_components):
+        element = element_type(vertices)
+        scalar = element.calculate_mass_matrix(1)
+        vector = element.calculate_mass_matrix(n_components)
+        assert np.allclose(vector, np.kron(scalar, np.eye(n_components)))
+
+    @pytest.mark.parametrize('element_type, vertices, n_components', ELEMENTS)
+    def test_integrates_a_constant_force_in_every_component(
+        self, element_type, vertices, n_components,
+    ):
+        # int_element 1 dV == volume, componentwise.
+        element = element_type(vertices)
+        mass = element.calculate_mass_matrix(n_components)
+        for component in range(n_components):
+            load = np.zeros((element.N, n_components))
+            load[:, component] = 1.0
+            assert (mass @ load.flatten()).sum() == pytest.approx(element.volume)
+
+
 class TestDimensions:
     """spatial_dim and reference_dim must stay distinguishable.
 
