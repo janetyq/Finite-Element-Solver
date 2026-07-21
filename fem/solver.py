@@ -11,7 +11,8 @@ from fem.fields import FieldShape, Scalar, Vector
 from fem.regions import evaluate_field
 from fem.solution import Solution
 from fem.space import FunctionSpace, dof_indices
-from fem.materials import Enu_to_Lame
+from fem.forms import LaplacianForm, LinearElasticForm, strain_displacement
+from fem.materials import LinearElasticMaterial
 from fem.typing import (
     DofIndices,
     DofVector,
@@ -185,13 +186,10 @@ class Solver:
         self.M = self.space.mass_matrix
         self.M_b = self.space.boundary_mass_matrix
         if isinstance(self.equation, LinearElastic):
-            E = np.full(len(self.mesh.elements), self.equation.E)
-            nu = np.full(len(self.mesh.elements), self.equation.nu)
-            mu, lamb = Enu_to_Lame(E, nu)
-            self.mu, self.lamb = mu, lamb
-            self.K = self.space.assemble_stiffness(mu=mu, lamb=lamb)
+            self.material = LinearElasticMaterial(self.equation.E, self.equation.nu)
+            self.K = self.space.assemble_stiffness(LinearElasticForm(self.material))
         else:
-            self.K = self.space.assemble_stiffness()
+            self.K = self.space.assemble_stiffness(LaplacianForm())
 
         # RHS: the equation's source term over the volume, plus the boundary
         # traction over the boundary. A Robin condition would add its matrix
@@ -357,8 +355,8 @@ class Solver:
 
         for e_idx, element in enumerate(self.mesh.elements):
             element_obj = self.space.element_objs[e_idx]
-            B = element_obj.calculate_B()
-            D = element_obj.calculate_D(self.mu[e_idx], self.lamb[e_idx])
+            B = strain_displacement(element_obj.grad_phi)
+            D = self.material.constitutive_matrix(element_obj.reference_dim, e_idx)
             u_element = u[dof_indices(element, self.n_components)]
             eps = B @ u_element
             sigma = D @ eps
