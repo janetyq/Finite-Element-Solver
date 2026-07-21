@@ -20,6 +20,18 @@ class Element:
     def __init__(self, vertices: Vertices) -> None:
         self.vertices = vertices
 
+    @property
+    def reference_dim(self) -> int:
+        '''Dimension of the element itself: 1 for a line, 2 for a triangle, 3 for a tet.
+
+        Equals `N - 1` for a simplex, which is what the arithmetic below spells
+        out longhand. Distinct from `Mesh.spatial_dim`: a triangle embedded in 3D
+        has reference_dim 2 and spatial_dim 3. They coincide only when the element
+        fills its ambient space, so code using one to mean the other happens to
+        work for planar triangle and tet meshes and nowhere else.
+        '''
+        return self.N - 1
+
 
 class LinearElement(Element):
     '''
