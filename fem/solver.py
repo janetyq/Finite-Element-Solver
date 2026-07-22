@@ -191,9 +191,15 @@ class Solver:
         else:
             self.K = self.space.assemble(LaplacianForm())
 
-        # RHS: the equation's source term over the volume, plus the boundary
-        # traction over the boundary. A Robin condition would add its matrix
-        # term to the LHS here, from a boundary stiffness the space would assemble.
+        # RHS: the linear form L(v) = int f.v over the volume plus int t.v over the
+        # boundary. M @ f is the *exact* integral of f's P1 interpolant (M_ij =
+        # int phi_i phi_j), so the load is already assembled through a Form -- the
+        # mass form used as a load operator rather than a system matrix. A
+        # first-class LinearForm earns its place only once the source varies within
+        # an element, which needs quadrature to sample f at interior points; a
+        # time-varying f(.,t) does not -- it just needs re-evaluating M @ f_t each
+        # step. A Robin condition would add its matrix term to the LHS here, from a
+        # boundary stiffness the space would assemble.
         source_load = evaluate_field(self.equation.source, self.mesh.vertices, self.n_components)
         self.b = (self.M @ source_load.flatten()).flatten()
         self.b += (self.M_b @ self.resolved_bc.neumann_load.flatten()).flatten()
