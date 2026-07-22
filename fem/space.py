@@ -218,27 +218,32 @@ class FunctionSpace:
     # caller for the bilinear path.
 
     def total_energy(self, form: EnergyForm, u: DofVector) -> float:
-        '''Sum an EnergyForm's element energies at state `u`.'''
-        u_nodal = u.reshape(-1, self.n_components)
+        '''Sum an EnergyForm's element energies at state `u`: the scalar Pi(u).'''
+        u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
         return sum(
+            # u_nodal[element] is the element's (N, n_components) local state.
             form.element_energy(self.element_objs[e_idx], u_nodal[element])
             for e_idx, element in enumerate(self.mesh.elements)
         )
 
     def assemble_residual(self, form: EnergyForm, u: DofVector) -> DofVector:
-        '''Scatter an EnergyForm's element residuals at state `u` into a vector.'''
-        u_nodal = u.reshape(-1, self.n_components)
+        '''Scatter element residuals at `u` into grad Pi(u), shape (n_dofs,).'''
+        u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
         r = np.zeros(self.n_dofs)
         for e_idx, element in enumerate(self.mesh.elements):
+            # (N, n_components) -> flatten to (N*n_components,), added into the
+            # element's global DOF slots.
             contribution = form.element_residual(self.element_objs[e_idx], u_nodal[element])
             r[self.dof_indices(element)] += contribution.flatten()
         return r
 
     def assemble_tangent(self, form: EnergyForm, u: DofVector) -> Matrix:
-        '''Scatter an EnergyForm's element tangents at state `u` into a matrix.'''
-        u_nodal = u.reshape(-1, self.n_components)
+        '''Scatter element tangents at `u` into grad^2 Pi(u), shape (n_dofs, n_dofs).'''
+        u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
 
         def element_matrix(e_idx: int) -> Matrix:
+            # (N, n_components, N, n_components) -> (k, k) local stiffness, ordered
+            # to match dof_indices for _assemble's scatter.
             tangent = form.element_tangent(
                 self.element_objs[e_idx], u_nodal[self.mesh.elements[e_idx]]
             )
@@ -252,9 +257,11 @@ class FunctionSpace:
         elements: Elements,
         element_matrix: Callable[[int], Matrix],
     ) -> Matrix:
-        '''Scatter per-element matrices into a global one over `elements`.'''
+        '''Scatter per-element (k, k) matrices into the global (n_dofs, n_dofs) one.'''
         A = np.zeros((self.n_dofs, self.n_dofs))
         for e_idx, element in enumerate(elements):
+            # idxs: the element's k = N*n_components global DOF positions;
+            # np.ix_ makes the (k, k) grid so the block adds into A[idxs, idxs].
             idxs = self.dof_indices(element)
             A[np.ix_(idxs, idxs)] += element_matrix(e_idx)
         return A

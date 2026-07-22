@@ -139,6 +139,11 @@ class EnergyForm:
     def element_tangent(self, element: LinearElement, u_element: FloatArray) -> FloatArray:
         '''d2W/dx2, shape (n_nodes, n_components, n_nodes, n_components).'''
         # d2W_dx2 = dW_dS : (d2S_dF2 : dF_dx : dF_dx) + d2W_dS2 : (dS_dx : dS_dx)
+        # ":" is the tensor double contraction. For two second-order tensors,
+        # A : B = sum_ij A_ij B_ij -- the elementwise product summed over both
+        # indices, giving a scalar. In general it contracts the last two indices
+        # of the left operand against the first two of the right; each ":" above
+        # is one such contraction, i.e. one "...ij,ij...->..." einsum below.
         ed = self.energy_density
         ed.set_grad_u(element.calculate_gradient(u_element))
         dF_dx = element.dF_dx
