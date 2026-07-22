@@ -351,26 +351,23 @@ class Solver:
     def solve_linear_elastic(self) -> None:
         u = self.solve_linear_system(self.K, self.b)
 
-        eps_elements = []
-        sigma_elements = []
-        compliance_elements = []
+        # Recovered stresses, batched over the mesh for the same reason assembly
+        # is: one einsum beats a Python loop of 3x6 matrix products.
+        geometry = self.space.geometry
+        B = strain_displacement(geometry.grad_phi)
+        D = self.material.constitutive_matrices(
+            geometry.reference_dim, geometry.n_elements
+        )
+        u_elements = u[dof_indices(self.mesh.elements, self.n_components)]
 
-        for e_idx, element in enumerate(self.mesh.elements):
-            element_obj = self.space.geometry.at(e_idx)
-            B = strain_displacement(element_obj.grad_phi)
-            D = self.material.constitutive_matrix(element_obj.reference_dim, e_idx)
-            u_element = u[dof_indices(element, self.n_components)]
-            eps = B @ u_element
-            sigma = D @ eps
-            compliance = sigma @ eps * element_obj.volume
-            eps_elements.append(eps)
-            sigma_elements.append(sigma)
-            compliance_elements.append(compliance)
+        eps = np.einsum('esk,ek->es', B, u_elements)
+        sigma = np.einsum('est,et->es', D, eps)
+        compliance = np.einsum('es,es,e->e', sigma, eps, geometry.volumes)
 
         self.solution.set_values("u", u)
-        self.solution.set_values("strain", np.linalg.norm(eps_elements, axis=-1))
-        self.solution.set_values("stress", np.linalg.norm(sigma_elements, axis=-1))
-        self.solution.set_values("compliance", np.array(compliance_elements))
+        self.solution.set_values("strain", np.linalg.norm(eps, axis=-1))
+        self.solution.set_values("stress", np.linalg.norm(sigma, axis=-1))
+        self.solution.set_values("compliance", compliance)
 
     def adaptive_refinement(
         self,

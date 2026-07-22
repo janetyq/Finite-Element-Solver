@@ -23,7 +23,6 @@ the mesh is not mutated underneath them. Build a new space instead of editing on
 """
 from collections.abc import Sequence
 from functools import cached_property
-from typing import Callable
 
 import numpy as np
 
@@ -42,7 +41,6 @@ from fem.typing import (
     Elements,
     FloatArray,
     IntArray,
-    Matrix,
     SparseMatrix,
     VertexField,
 )
@@ -55,9 +53,13 @@ def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndi
 
     For node indices [n0, n1, ...] and `n_components` DOFs per node, returns
     [n_components*n0, n_components*n0+1, ..., n_components*n1, n_components*n1+1, ...].
+
+    Batched over the leading axis, so an `(n_elements, N)` connectivity array
+    gives `(n_elements, N*n_components)` -- one row of DOF slots per element.
     '''
     element = np.asarray(element)
-    return np.array([n_components*element + i for i in range(n_components)]).T.flatten()
+    interleaved = n_components * element[..., None] + np.arange(n_components)
+    return interleaved.reshape(*element.shape[:-1], -1)
 
 
 _SIMPLEX_ELEMENTS: dict[int, type[LinearElement]] = {
@@ -199,12 +201,8 @@ class FunctionSpace:
         topology-optimization iteration rescales the modulus). The geometry-only
         results the callers *want* cached, the mass matrices, cache themselves.
         '''
-        elements = self.mesh.boundary if boundary else self.mesh.elements
         geometry = self.boundary_geometry if boundary else self.geometry
-        return self._assemble(
-            elements,
-            lambda idx: form.element_matrix(geometry.at(idx), idx),
-        )
+        return self._assemble(form.element_matrices(geometry), boundary=boundary)
 
     # -- nonlinear assembly -------------------------------------------------
     #
@@ -239,41 +237,59 @@ class FunctionSpace:
     def assemble_tangent(self, form: EnergyForm, u: DofVector) -> SparseMatrix:
         '''Scatter element tangents at `u` into grad^2 Pi(u), shape (n_dofs, n_dofs).'''
         u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
-
-        def element_matrix(e_idx: int) -> Matrix:
+        k = self.element_type.N * self.n_components
+        tangents = np.empty((len(self.mesh.elements), k, k))
+        for e_idx, element in enumerate(self.mesh.elements):
             # (N, n_components, N, n_components) -> (k, k) local stiffness, ordered
-            # to match dof_indices for _assemble's scatter.
-            tangent = form.element_tangent(
-                self.geometry.at(e_idx), u_nodal[self.mesh.elements[e_idx]]
-            )
-            k = self.element_type.N * self.n_components
-            return tangent.reshape(k, k)
+            # to match the scatter's DOF numbering.
+            tangents[e_idx] = form.element_tangent(
+                self.geometry.at(e_idx), u_nodal[element]
+            ).reshape(k, k)
+        return self._assemble(tangents)
 
-        return self._assemble(self.mesh.elements, element_matrix)
+    # -- the scatter -------------------------------------------------------
+
+    def _scatter_indices(self, elements: Elements) -> tuple[IntArray, IntArray]:
+        '''Flat (row, col) COO coordinates for every entry of every element block.
+
+        Depends only on connectivity and `n_components`, never on the form or the
+        geometry, so it is computed once per element set and reused by every
+        operator assembled over it -- mass, stiffness, and each topology
+        optimization iteration's rebuilt stiffness alike.
+        '''
+        # (n_elements, k): each element's global DOF positions, interleaved per node.
+        dofs = self.dof_indices(elements)
+        k = dofs.shape[1]
+        # Row index varies down the block, column index across it -- the vectorized
+        # form of the (k, k) index grid, one block per element.
+        return np.repeat(dofs, k, axis=1).ravel(), np.tile(dofs, (1, k)).ravel()
+
+    @cached_property
+    def _volume_scatter(self) -> tuple[IntArray, IntArray]:
+        return self._scatter_indices(self.mesh.elements)
+
+    @cached_property
+    def _boundary_scatter(self) -> tuple[IntArray, IntArray]:
+        return self._scatter_indices(self.mesh.boundary)
 
     def _assemble(
         self,
-        elements: Elements,
-        element_matrix: Callable[[int], Matrix],
+        element_matrices: FloatArray,
+        boundary: bool = False,
     ) -> SparseMatrix:
-        '''Scatter per-element (k, k) matrices into the global (n_dofs, n_dofs) one.
+        '''Scatter (n_elements, k, k) element matrices into the global operator.
 
         Emitted as COO triplets (row, col, value) and built into a CSR matrix,
         which sums entries at repeated (row, col) -- exactly the scatter-add that
         `A[np.ix_(idxs, idxs)] += block` did densely, now in O(nonzeros) memory.
         '''
-        rows: list[IntArray] = []
-        cols: list[IntArray] = []
-        data: list[FloatArray] = []
-        for e_idx, element in enumerate(elements):
-            # idxs: the element's k = N*n_components global DOF positions; the
-            # (k, k) index grid pairs each block entry with its global (row, col).
-            idxs = self.dof_indices(element)
-            grid_rows, grid_cols = np.meshgrid(idxs, idxs, indexing='ij')
-            rows.append(grid_rows.ravel())
-            cols.append(grid_cols.ravel())
-            data.append(element_matrix(e_idx).ravel())
+        rows, cols = self._boundary_scatter if boundary else self._volume_scatter
+        if element_matrices.size != rows.size:
+            raise ValueError(
+                f'expected element matrices covering {rows.size} entries, got '
+                f'{element_matrices.size} (shape {element_matrices.shape})'
+            )
         return csr_array(
-            (np.concatenate(data), (np.concatenate(rows), np.concatenate(cols))),
+            (element_matrices.ravel(), (rows, cols)),
             shape=(self.n_dofs, self.n_dofs),
         )

@@ -50,7 +50,7 @@ def test_hooke_matrix_is_the_second_derivative_of_the_small_strain_energy():
     would forfeit 3D.
     """
     E, nu = 200.0, 0.3
-    D = LinearElasticMaterial(E, nu).constitutive_matrix(reference_dim=2, e_idx=0)
+    D = LinearElasticMaterial(E, nu).constitutive_matrices(reference_dim=2, n_elements=1)[0]
     density = SmallStrainEnergyDensity(E, nu)
 
     rng = np.random.default_rng(0)

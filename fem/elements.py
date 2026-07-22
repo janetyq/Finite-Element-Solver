@@ -29,7 +29,7 @@ from typing import ClassVar
 
 import numpy as np
 
-from fem.typing import FloatArray, Matrix, VertexBlocks, Vertices
+from fem.typing import FloatArray, Matrix, VertexBlocks
 
 
 class Element:
@@ -227,12 +227,3 @@ class ElementView:
     def calculate_gradient(self, u_element: FloatArray) -> FloatArray:
         # grad_u = grad_phi^T @ u
         return self.grad_phi.T @ u_element
-
-
-def single(element_type: type[LinearElement], vertices: Vertices) -> ElementView:
-    '''Geometry for one element, as a batch of one.
-
-    A convenience for tests and for reasoning about a single reference simplex.
-    Production code goes through `FunctionSpace`, which batches the whole mesh.
-    '''
-    return element_type.geometry(np.asarray(vertices)[None]).at(0)
