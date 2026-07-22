@@ -16,13 +16,13 @@ import numpy as np
 from scipy.sparse import csc_array
 from scipy.sparse.linalg import splu
 
-from fem.typing import Constraints, DofVector, Matrix
+from fem.typing import Constraints, DofVector, Operator
 
 
 class DiscreteSystem:
     '''A x = b with the Dirichlet DOFs eliminated and the free block factored once.'''
 
-    def __init__(self, A: Matrix, constraints: Constraints) -> None:
+    def __init__(self, A: Operator, constraints: Constraints) -> None:
         free, fixed, fixed_values = constraints
         self.n_dofs = A.shape[0]
         self.free = np.asarray(free, dtype=int)
