@@ -143,9 +143,11 @@ The list itself is a `cached_property` now, so nothing is paid until something a
 waste is per-element rather than per-mesh.
 
 The scalable alternative is element *types* as stateless strategies plus batched geometry:
-one `(n_elements, …)` array of `grad_phi`, one array of volumes, computed vectorized. This is
-a genuine fork and it interacts with the sparse migration — assembly over 3200 Python objects
-will dominate once the linear algebra stops dominating. Worth deciding before, not after.
+one `(n_elements, …)` array of `grad_phi`, one array of volumes, the element matrices computed
+vectorized. This is **now the top cost**: with the matrices sparse, the linear algebra has
+stopped dominating and the per-element Python loop has taken its place —
+`examples/benchmark_assembly.py` shows a 3D solve at n=17 spending ~14s assembling against
+~2.4s to factor and solve. Batched assembly is the next effort.
 
 ### `Equation` — four roles in one object
 
@@ -321,18 +323,18 @@ passing without modification.
      `StVenantKirchhoffEnergyDensity` are the two members today; `Form`/`EnergyForm` is where
      choosing between them becomes an equation-level choice rather than the test-only injection
      it is now.
-2. **`DiscreteSystem` (done), then dense→sparse behind it.** The seam exists: both solvers
-   eliminate constraints through `DiscreteSystem`, and the time-steppers factor their constant
-   LHS once. The backlog's highest-leverage change -- swapping the dense factorization and
-   assembly for sparse -- is now a one-layer edit inside that object rather than cross-cutting.
-   The remaining load-bearing step.
+2. **`DiscreteSystem` + dense→sparse.** *Done.* Both solvers eliminate constraints through
+   `DiscreteSystem`, the time-steppers factor their constant LHS once, assembly emits sparse
+   CSR, and the factorization is `splu`. The linear algebra is off the critical path; the
+   per-element assembly loop is now the top cost (see `Element`, above) -- **batched assembly**
+   is the load-bearing remainder of the scaling work.
 3. **Typed `Solution`,** together with the `io.py` rework they jointly require.
 4. **Extract `TimeIntegrator`;** move `dt`/`iters` off `Heat`/`Wave`. Breaking API change —
    worth batching with (3).
 5. **Uniform drivers:** `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
    problem factory rather than mutating an equation.
 
-Step 1 is done and step 2's seam with it; the dense→sparse swap is the load-bearing remainder.
+Steps 1 and 2 are done; batched assembly is the load-bearing remainder of the scaling work.
 Steps 3–5 are independent and can be done
 any time.
 
