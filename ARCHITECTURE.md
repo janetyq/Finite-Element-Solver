@@ -58,22 +58,23 @@ four files.
 | `Mesh` | █ | | | | | | | | ▒ |
 | `FunctionSpace` | | █ | | █ | | | | | ▒ |
 | `Element` | ▒ | | | | | | | | |
-| `Form` / `Material` | | | █ | | | | | | |
+| `Form` / `Material` / `EnergyForm` | | | █ | | | | | | |
 | `Equation` | | | █ | | | | ▒ | | |
 | `BoundaryConditions` / `ResolvedBC` | | | | | █ | | | | |
-| `Solver` | | | ▒ | ▒ | ▒ | █ | █ | ▒ | ▒ |
-| `EnergySolver` | | | ▒ | ▒ | ▒ | █ | | | |
+| `Solver` | | | | | ▒ | █ | █ | ▒ | ▒ |
+| `EnergySolver` | | | | | ▒ | █ | | | |
 | `TopologyOptimizer` | | | ▒ | | | | | █ | ▒ |
 | `Solution` | | | | | | | ▒ | | █ |
 | `RedGreenRefiner` | █ | | | | | | | | ▒ |
 
-Read the rows: `Solver` still touches six of nine layers. Read the columns: layer 2 (space)
-and layer 4 (assembly) each now have exactly one owner — `FunctionSpace` owns the loop, and
-`Form` owns the integrand, so nothing forwards material data it cannot interpret. Layer 3
-(physics) is spread across `Equation` (identity + parameters), `Form`/`Material`, and
-`energies.py`, but it is now *placed* rather than conflated: no non-physics object holds it.
-Its open work is unification, not extraction — see below. Layer 7 (time) is still split
-between `Equation` (holds `dt`, `iters`) and `Solver` (holds the scheme).
+Read the rows: `Solver` is down to five of nine layers, and both solvers have dropped out of
+physics and assembly entirely — they build a form and hand it to the space, they no longer
+define or scatter anything. Read the columns: layers 2 (space) and 4 (assembly) each have
+exactly one owner (`FunctionSpace`), and layer 3 (physics) is owned by `Form`/`Material`/`EnergyForm`
+plus `Equation` (identity + parameters), with `energies.py` holding the densities `EnergyForm`
+wraps. Physics is now *placed*, not conflated; its open work is unification within the layer,
+not extraction. Layer 7 (time) is still split between `Equation` (holds `dt`, `iters`) and
+`Solver` (holds the scheme).
 
 Layers 2, 4, and 5 each have exactly one owner. None is a coincidence: each got designed
 deliberately.
@@ -94,14 +95,21 @@ it cannot interpret.
 
 ### `Form` / `Material` — placed, not yet unified
 
-The constitutive law is off the element. `Form` owns every bilinear integrand the linear
-solvers assemble — `MassForm` (`∫u·v`), `LaplacianForm` and `LinearElasticForm` (the
-`Gᵀ C G · volume` stiffness family, `G` geometric and `C` material) — and `FunctionSpace.assemble`
-is a single scatter loop that no longer knows what it is scattering. `Material` owns `D`, and
-the strain-displacement matrix `B` sits in `fem/forms.py` next to the form that contracts it
-against `D`. That split is what let `Element` drop to pure geometry. The only assembly left
-outside a `Form` is `EnergySolver`'s nonlinear energy path, which is a different method, not a
-bilinear form.
+The constitutive law is off the element, and **every assembly path now goes through a form**:
+
+- **Bilinear forms** — `MassForm` (`∫u·v`), `LaplacianForm` and `LinearElasticForm` (the
+  `Gᵀ C G · volume` stiffness family) — scatter through `FunctionSpace.assemble`, one loop that
+  no longer knows what it is scattering.
+- **The nonlinear energy path** is `EnergyForm`, the sibling that maps an element *and a state*
+  to an energy, residual, and tangent; `EnergySolver` scatters it through
+  `assemble_residual`/`assemble_tangent`. A quadratic energy has a constant tangent, so the
+  bilinear `Form` is `EnergyForm`'s state-independent special case.
+- **The load** `L(v) = ∫f·v` is the mass form applied to the nodal source (`M @ f`), so it too
+  is form-assembled — used as a load operator rather than a system matrix. A first-class
+  `LinearForm` waits on quadrature, which is what would let `f` vary in space or time.
+
+`Material` owns `D`, and the strain-displacement matrix `B` sits in `fem/forms.py` next to the
+form that contracts it against `D`. That split is what let `Element` drop to pure geometry.
 
 The two constitutive representations are the same material, and this is now *pinned* rather
 than merely asserted: `energies.py`'s `calculate_W_from_S` and the `½εᵀDε` implied by `Material`
@@ -296,18 +304,19 @@ The convergence tests in `tests/test_convergence.py` and
 `tests/test_convergence_elasticity.py` are the safety net; each step below should leave them
 passing without modification.
 
-1. **Extract `Form` + `Material`.** *Done.* `Form` owns the integrand, `Material` owns `D`,
-   `Element` is pure geometry, and `FunctionSpace.assemble` takes a `Form` instead of an
-   untyped material bag — mass, stiffness, and boundary mass all through it. Two follow-ons
-   remain from the ideal end state, both smaller and independently landable:
+1. **Extract `Form` + `Material`, and make every assembly path a form.** *Done.* `Form` owns
+   the bilinear integrand, `EnergyForm` the nonlinear one, `Material` owns `D`, `Element` is
+   pure geometry, and the load is the mass form applied to the source. `EnergySolver` scatters
+   through the space like `Solver` does. Two follow-ons remain, both smaller and independently
+   landable:
    - **1a. Pin `D = ∂²W/∂ε²`.** *Done.* `Material` keeps `D` in its Lamé-parameter closed
      form — correct and dimension-general — and a test cross-checks it against the small-strain
      energy density in 2D. Deriving `D` from `W` was considered and rejected: `energies.py` is
      fixed-rank-2, so it would forfeit the 3D path to remove a checked two-line closed form.
    - **1b. Make kinematics selectable.** `SmallStrainEnergyDensity` and
-     `StVenantKirchhoffEnergyDensity` are the two members today; `Form` is where choosing
-     between them becomes an equation-level choice rather than the test-only injection it is
-     now.
+     `StVenantKirchhoffEnergyDensity` are the two members today; `Form`/`EnergyForm` is where
+     choosing between them becomes an equation-level choice rather than the test-only injection
+     it is now.
 2. **Introduce `DiscreteSystem`,** then migrate dense→sparse behind it. The backlog's
    highest-leverage change becomes a one-layer edit rather than a cross-cutting one. Now the
    next load-bearing step.

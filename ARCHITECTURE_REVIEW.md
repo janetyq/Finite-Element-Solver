@@ -107,22 +107,23 @@ Neither solver implements a shared interface, and `TopologyOptimizer` hardcodes 
 (`fem/topology.py:40`). A `SolverProtocol` — `(mesh, equation, bc) -> Solution` — would
 make them substitutable and let the optimizer accept either.
 
-### 🟡 The load vector is a linear form in disguise
+### 🟡 The load vector waits on quadrature, not on a `LinearForm`
 
-The matrix side is now clean — every bilinear form `a(u,v)` (mass, stiffness, boundary mass)
-is a `Form`, `Material` owns the constitutive matrix, and `FunctionSpace.assemble` is one loop.
-The right-hand side has no equivalent. `Solver.assemble_everything` builds it as:
+Assembly is now uniformly form-based: bilinear forms (mass, stiffness, boundary mass) scatter
+through `FunctionSpace.assemble`, the nonlinear energy path is `EnergyForm`, and the load
+`L(v) = ∫ f·v` is the mass form applied to the nodal source:
 
 ```python
 self.b = (self.M @ source_load.flatten()).flatten()
 ```
 
-That is `L(v) = ∫ f·v` evaluated by multiplying through the mass matrix — correct for a
-constant P1 source, but it is a *linear form* wearing a disguise. Time-varying sources,
-non-constant coefficients, and the Crank–Nicolson `b_n`/`b_{n+1}` average (`solve_wave` notes
-where it collapses) have nowhere natural to go because the linear form has no representation.
-The symmetric partner to `Form` — a `LinearForm` producing `b` — is the piece that closes
-this, and is a prerequisite for a general Robin/traction path.
+For a P1 field that is *exactly* `∫ f·v`, so the load is already form-assembled, used as a load
+operator rather than a system matrix. A standalone `LinearForm` would only add capability once
+there is quadrature: time-varying sources `f(x, t)`, non-constant coefficients, and the
+Crank–Nicolson `b_n`/`b_{n+1}` average (`solve_wave` notes where it collapses) need `f` sampled
+at quadrature points, which `M @ f` cannot express. So the `LinearForm` belongs with the
+quadrature work, not before it. Robin conditions, by contrast, need a *bilinear* boundary form,
+which `assemble(form, boundary=True)` already supports.
 
 ### 🟡 `Solution` is a stringly-typed dict
 
@@ -182,8 +183,9 @@ Consequences: the dependency direction is core → plot rather than plot → cor
 2. **`DiscreteSystem`, then dense → sparse** — the single seam where the algebra layer
    changes, and the item `BACKLOG.md` §2 calls the highest-leverage one. The load-bearing
    step now that `Form` + `Material` has landed.
-3. **`LinearForm` for the load vector** (§2) — the symmetric partner to `Form`, which also
-   opens the Robin/traction path and the time-varying source.
+3. **Quadrature, then `LinearForm`** (§2) — a real quadrature layer is what lets `f` vary in
+   space/time; the linear form (and variable-coefficient bilinear forms) follow from it. Until
+   then the load is `M @ f` and needs no new object.
 4. **Strategy registry for `Solver`** (§2) — then fold `EnergySolver` onto the shared
    elimination path and a common protocol.
 5. **`TimeIntegrator`; move `dt`/`iters` off `Heat`/`Wave`** — breaking API change.
