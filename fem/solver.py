@@ -13,20 +13,15 @@ from fem.solution import Solution
 from fem.space import FunctionSpace, dof_indices
 from fem.forms import LaplacianForm, LinearElasticForm, strain_displacement
 from fem.materials import LinearElasticMaterial
+from fem.system import DiscreteSystem
 from fem.typing import (
-    DofIndices,
+    Constraints,
     DofVector,
     ElementField,
     FieldValue,
-    FloatArray,
     Matrix,
     VertexField,
 )
-
-# (free_idxs, fixed_idxs, fixed_values) -- the DOF partition a solve works in.
-# Passed explicitly where the unknown is not one value per node, as in the wave
-# solver's stacked [u; du/dt] block.
-Constraints = tuple[DofIndices, DofIndices, FloatArray]
 
 EquationT = TypeVar('EquationT', bound='Equation')
 
@@ -231,16 +226,7 @@ class Solver:
         if constraints is None:
             bc = self.resolved_bc
             constraints = (bc.free_idxs, bc.fixed_idxs, bc.fixed_values)
-        free, fixed, fixed_values = constraints
-        free = np.asarray(free, dtype=int)
-        fixed = np.asarray(fixed, dtype=int)
-
-        x = np.zeros_like(b)
-        x[fixed] = fixed_values
-        A_mod = A[np.ix_(free, free)]
-        b_mod = b[free] - A[np.ix_(free, fixed)] @ x[fixed]
-        x[free] = np.linalg.solve(A_mod, b_mod)
-        return x
+        return DiscreteSystem(A, constraints).solve(b)
 
     def solve_nonlinear_system(
         self,
@@ -277,10 +263,15 @@ class Solver:
         u = equation.u_initial
         dt, iters = equation.dt, equation.iters
 
+        # The LHS (M + K*dt) is constant across steps, so factor it once and reuse
+        # the factorization; only the right-hand side changes each step.
+        bc = self.resolved_bc
+        system = DiscreteSystem(self.M + self.K * dt, (bc.free_idxs, bc.fixed_idxs, bc.fixed_values))
+
         t_values: list[float] = [0.0]
         u_values = [u]
         for i in range(iters):
-            u = self.solve_linear_system(self.M + self.K * dt, self.M @ u + self.b * dt)
+            u = system.solve(self.M @ u + self.b * dt)
             t_values.append(dt * (i+1))
             u_values.append(u.copy())
             logger.debug('t = %.3f, mean temp = %.3f', t_values[-1], self.space.mean_value(u_values[-1]))
@@ -332,7 +323,9 @@ class Solver:
         # collapses to dt * b. Reinstate the two-term form if loads ever vary in t.
         b_right = np.block([np.zeros_like(self.b), dt * self.b])
 
+        # A_left is constant across steps -- factor it once behind the constraints.
         constraints = self._wave_block_constraints(N)
+        system = DiscreteSystem(A_left, constraints)
         x = np.block([u, dudt])
         t_values: list[float] = [0.0]
         u_values = [x[:N]]
@@ -341,7 +334,7 @@ class Solver:
         logger.debug('t = %.3f, total energy = %.3f', t_values[-1], total_energy)
 
         for i in range(iters):
-            x = self.solve_linear_system(A_left, A_right @ x + b_right, constraints=constraints)
+            x = system.solve(A_right @ x + b_right)
             t_values.append(dt * (i+1))
             u_values.append(x[:N])
             dudt_values.append(x[N:])
