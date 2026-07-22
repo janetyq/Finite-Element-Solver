@@ -48,7 +48,8 @@ def test_two_spaces_share_one_mesh_without_interfering(unit_square):
 
     assert scalar.mass_matrix.shape == (len(unit_square.vertices),) * 2
     assert vector.mass_matrix.shape == (2 * len(unit_square.vertices),) * 2
-    assert np.allclose(scalar.mass_matrix, scalar_mass)
+    # Sparse operators: compare densely, and confirm nothing mutated.
+    assert np.allclose(scalar.mass_matrix.toarray(), scalar_mass.toarray())
     assert scalar.mesh is vector.mesh
 
 

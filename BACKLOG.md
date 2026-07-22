@@ -13,9 +13,9 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
-| Scaling | Sparse matrices + solver — **highest leverage** | 🔴 | [§2](#2-performance--scaling) |
+| Scaling | Batched assembly — **now the bottleneck** | 🔴 | [§2](#2-performance--scaling) |
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
-| Scaling | Sparsify smoothing matrix / EnergySolver Hessian | 🟡 | [§2](#2-performance--scaling) |
+| Scaling | Sparsify the smoothing matrix (topology) | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | O(n²) linear scans in meshing | 🟡 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -34,19 +34,16 @@ estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
 
 ## 2. Performance & Scaling
 
-### 🟠 Everything is dense — this is the single biggest limiter
-`FunctionSpace._assemble` (`fem/space.py`) builds `A = np.zeros((n_dofs, n_dofs))`, and
-`DiscreteSystem` (`fem/system.py`) factors it with `scipy.linalg.lu_factor`. FEM matrices are
-extremely sparse (each row has a handful of nonzeros), so this is `O(N²)` memory and
-`O(N³)` solve time. On the 40×40 meshes in the tests that's fine; it will fall over well
-before "interesting" resolutions. The seam is now in place -- both solvers go through
-`DiscreteSystem` -- so this is a one-object edit:
-- Assemble with `scipy.sparse.lil_matrix`/COO triplets, convert to CSR.
-- Factor/solve in `DiscreteSystem` with `scipy.sparse.linalg.splu` (or `cg` for the SPD
-  systems). The factorization is already built once and reused.
-
-This one change probably unlocks 1–2 orders of magnitude in mesh size, and the MMS
-convergence test guards correctness through the migration.
+### 🟠 Assembly is the bottleneck — the per-element Python loop
+Matrices are sparse now: `FunctionSpace._assemble` builds a `csr_array` from COO triplets and
+`DiscreteSystem` factors it with `scipy.sparse.linalg.splu`. The solve is no longer the
+limiter -- `examples/benchmark_assembly.py` shows a 3D solve at n=17 taking ~2.4s to
+factor+solve against ~14s to assemble. Assembly is a Python loop over `FunctionSpace.element_objs`,
+one object per element (each caching `grad_phi`, `volume`, `dF_dx`), calling into a form per
+element. The scalable form is stateless element *types* plus batched geometry: one
+`(n_elements, …)` array of `grad_phi`, one of volumes, and the element matrices computed
+vectorized (`np.einsum` over the batch) rather than in a loop. See `ARCHITECTURE.md` -- this is
+the "stateful, per-instance elements" fork, and the sparse work has now made it the top cost.
 
 ### 🟠 `assemble_everything` runs on every `solve()`
 `fem/solver.py:Solver.solve` even flags it: `# TODO: don't call this every time`. For
@@ -64,10 +61,10 @@ matrix would scale far better and is a near drop-in.
 `fem/mesh/generation.py` still has linear-scan bottlenecks in vertex deduplication
 and neighbour lookups during mesh construction.
 
-### 🟠 `EnergySolver` Hessian is dense and rebuilt each Newton step
-`fem/energy_solver.py:energy_hessian` allocates an `(n·dim, n·dim)` dense Hessian every
-iteration and solves it densely. Same sparse story as above; here it matters even more
-because it's inside a Newton loop.
+### 🟠 `EnergySolver` Hessian assembly is per-element too
+`energy_hessian` now returns a sparse tangent (`assemble_tangent`), so the Newton solve is
+sparse. But it re-assembles that tangent every iteration through the same per-element loop, so
+it inherits the assembly bottleneck above -- doubly, since it is inside the Newton loop.
 
 ---
 
@@ -82,9 +79,9 @@ because it's inside a Newton loop.
   integrals. A general quadrature layer (reference element + Gauss points + Jacobian) would
   make adding new element types and variable coefficients far easier, and is a prerequisite for
   the quadratic elements above. Decide `quadrature.py`'s fate: integrate it or mark it WIP.
-- 💡 **Iterative solvers + preconditioning.** Once sparse, add CG with a Jacobi/AMG
-  preconditioner for the SPD systems (Poisson, elasticity) — where large 3D problems become
-  tractable.
+- 💡 **Iterative solvers + preconditioning.** The systems are sparse now, so `DiscreteSystem`
+  can offer CG with a Jacobi/AMG preconditioner for the SPD systems (Poisson, elasticity),
+  where iterative beats direct at large 3D sizes. Most useful once assembly is batched.
 - 💡 **A posteriori error estimator** so adaptive refinement is fully closed-loop — the
   residual scaffolding is already sketched in `fem/solver.py`. `Solver.adaptive_refinement`
   takes the estimator as a callable `(solver) -> per-element error`, so this drops straight in.
@@ -122,9 +119,9 @@ because it's inside a Newton loop.
 **Engineering**
 - 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg`, `generation` (Rupperts/approx
   mesh), and adaptive refinement have no *correctness* tests. The 3D tet path now has one,
-  but only up to h = 1/10: the dense solve caps resolution short of the asymptotic regime,
-  so the 3D assertion is "order climbs toward 2" rather than "order is 2". Worth tightening
-  to the 2D band once sparse matrices make finer meshes affordable.
+  but only up to h = 1/10: the 3D assertion is "order climbs toward 2" rather than "order is 2".
+  Now capped by assembly cost, not the solve — worth tightening to the 2D band once assembly is
+  batched.
 - 💡 **The CLI demos have rotted.** Five of fifteen fail, each against an API that
   moved out from under them: `linear_elastic` calls `BoundaryConditions.plot`,
   `topology_optimization` passes `solve(plot=...)`, `energy_solver` reads a
@@ -142,8 +139,6 @@ because it's inside a Newton loop.
 - 💡 **pre-commit hooks** (ruff + whitespace) so the CI checks run locally before each commit.
 - 💡 **README refresh.** The "Project Structure" section and described capabilities have
   drifted from the code.
-- 💡 **Benchmarks.** A tiny script timing assembly + solve vs. mesh size would make the impact
-  of the sparse migration concrete and guard against future regressions.
 - 💡 **Mesh formats.** `fem/io.py` writes meshes as JSON; `.off`/`.obj` export would make them
   loadable by standard tools.
 
@@ -151,8 +146,8 @@ because it's inside a Newton loop.
 
 ## Suggested Priority Order
 
-1. **Sparse matrices + solver** (§2) — the highest-leverage single change for capability.
-2. **The correctness bugs** (§1) — cheap relative to their blast radius, and they clear the deck.
-3. **Coverage + type hints** (§3) — deepen the safety net before the bigger numerics work.
-4. **Then the numerics roadmap** — quadrature → higher-order elements → time-integrator →
+1. **Batched assembly** (§2) — now the top cost, after sparse matrices moved the solve off the
+   critical path. Unblocks finer meshes and the tighter 3D convergence assertion.
+2. **Coverage + type hints** (§3) — deepen the safety net before the bigger numerics work.
+3. **Then the numerics roadmap** — quadrature → higher-order elements → time-integrator →
    adaptive refinement.

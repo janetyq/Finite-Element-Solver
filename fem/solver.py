@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import TypeVar
 
 import numpy as np
+from scipy.sparse import block_array
 
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.mesh import Mesh
@@ -20,6 +21,7 @@ from fem.typing import (
     ElementField,
     FieldValue,
     Matrix,
+    Operator,
     VertexField,
 )
 
@@ -212,7 +214,7 @@ class Solver:
 
     def solve_linear_system(
         self,
-        A: Matrix,
+        A: Operator,
         b: DofVector,
         constraints: Constraints | None = None,
     ) -> DofVector:
@@ -313,11 +315,12 @@ class Solver:
         dt, iters = equation.dt, equation.iters
         N = len(self.mesh.vertices)
 
-        # Crank-Nicolson method - average of forward and backward Euler
-        A_left = np.block([[self.M, -dt/2 * self.M],
-                           [c**2 * dt/2 * self.K, self.M]])
-        A_right = np.block([[self.M, dt/2 * self.M],
-                            [-c**2 * dt/2 * self.K, self.M]])
+        # Crank-Nicolson method - average of forward and backward Euler. M and K
+        # are sparse, so the 2N block system is built with block_array, not np.block.
+        A_left = block_array([[self.M, -dt/2 * self.M],
+                              [c**2 * dt/2 * self.K, self.M]])
+        A_right = block_array([[self.M, dt/2 * self.M],
+                               [-c**2 * dt/2 * self.K, self.M]])
         # The load row of Crank-Nicolson is dt/2 * (b_n + b_{n+1}). Nothing in the
         # solver makes the load time-dependent, so b_n == b_{n+1} and the average
         # collapses to dt * b. Reinstate the two-term form if loads ever vary in t.

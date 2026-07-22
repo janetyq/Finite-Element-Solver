@@ -10,7 +10,7 @@ from fem.system import DiscreteSystem
 from fem.solution import Solution
 from fem.solver import Equation, LinearElastic
 from fem.space import FunctionSpace
-from fem.typing import DofVector, FloatArray, Matrix
+from fem.typing import DofVector, FloatArray, SparseMatrix
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class EnergySolver:
     def energy_gradient(self, u: DofVector) -> DofVector:
         return self.space.assemble_residual(self.form, u)
 
-    def energy_hessian(self, u: DofVector) -> Matrix:
+    def energy_hessian(self, u: DofVector) -> SparseMatrix:
         return self.space.assemble_tangent(self.form, u)
 
     def solve(self, max_iters: int = 100) -> Solution:

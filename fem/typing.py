@@ -17,6 +17,7 @@ from typing import Any, TypeAlias, Union
 
 import numpy as np
 import numpy.typing as npt
+from scipy.sparse import csr_array
 
 FloatArray: TypeAlias = npt.NDArray[np.float64]
 # Any integer width: scipy hands back `intc` from Delaunay while numpy's own
@@ -52,8 +53,20 @@ DofIndices: TypeAlias = IntArray
 # only when n_components == 1.
 VertexIndices: TypeAlias = IntArray
 
-# (n, n) dense system matrix -- mass, stiffness, or a Crank-Nicolson block.
+# (n, n) dense matrix -- a per-element block (grad_phi grad_phi^T, B^T D B), or a
+# small dense system in a test.
 Matrix: TypeAlias = FloatArray
+
+# An assembled global operator -- mass, stiffness, tangent, or a Crank-Nicolson
+# block. Sparse (CSR): FEM matrices have a handful of nonzeros per row, so the
+# dense (n_dofs, n_dofs) form is O(N^2) memory and never assembled.
+SparseMatrix: TypeAlias = csr_array
+
+# What a DiscreteSystem factors and solve_linear_system takes: a sparse assembled
+# operator in production, or a small dense one in a test (csc_array converts either).
+# Loose on purpose -- scipy.sparse ships no stubs, so block_array's return union and
+# sparse subscripting fight a precise type more than it documents.
+Operator: TypeAlias = Any
 
 # (free_idxs, fixed_idxs, fixed_values) -- the DOF partition a solve works in.
 # Passed explicitly where the unknown is not one value per node, as in the wave

@@ -42,8 +42,11 @@ from fem.typing import (
     FloatArray,
     IntArray,
     Matrix,
+    SparseMatrix,
     VertexField,
 )
+
+from scipy.sparse import csr_array
 
 
 def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndices:
@@ -181,16 +184,16 @@ class FunctionSpace:
     # -- operators ----------------------------------------------------------
 
     @cached_property
-    def mass_matrix(self) -> Matrix:
+    def mass_matrix(self) -> SparseMatrix:
         '''The consistent mass matrix. Depends only on geometry, so it caches.'''
         return self.assemble(MassForm(self.n_components))
 
     @cached_property
-    def boundary_mass_matrix(self) -> Matrix:
+    def boundary_mass_matrix(self) -> SparseMatrix:
         '''Mass matrix over boundary facets, for integrating tractions.'''
         return self.assemble(MassForm(self.n_components), boundary=True)
 
-    def assemble(self, form: Form, boundary: bool = False) -> Matrix:
+    def assemble(self, form: Form, boundary: bool = False) -> SparseMatrix:
         '''Scatter `form`'s element matrices into a global matrix.
 
         The space owns the loop; the form owns the integrand, so the space stays
@@ -237,7 +240,7 @@ class FunctionSpace:
             r[self.dof_indices(element)] += contribution.flatten()
         return r
 
-    def assemble_tangent(self, form: EnergyForm, u: DofVector) -> Matrix:
+    def assemble_tangent(self, form: EnergyForm, u: DofVector) -> SparseMatrix:
         '''Scatter element tangents at `u` into grad^2 Pi(u), shape (n_dofs, n_dofs).'''
         u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
 
@@ -256,12 +259,25 @@ class FunctionSpace:
         self,
         elements: Elements,
         element_matrix: Callable[[int], Matrix],
-    ) -> Matrix:
-        '''Scatter per-element (k, k) matrices into the global (n_dofs, n_dofs) one.'''
-        A = np.zeros((self.n_dofs, self.n_dofs))
+    ) -> SparseMatrix:
+        '''Scatter per-element (k, k) matrices into the global (n_dofs, n_dofs) one.
+
+        Emitted as COO triplets (row, col, value) and built into a CSR matrix,
+        which sums entries at repeated (row, col) -- exactly the scatter-add that
+        `A[np.ix_(idxs, idxs)] += block` did densely, now in O(nonzeros) memory.
+        '''
+        rows: list[IntArray] = []
+        cols: list[IntArray] = []
+        data: list[FloatArray] = []
         for e_idx, element in enumerate(elements):
-            # idxs: the element's k = N*n_components global DOF positions;
-            # np.ix_ makes the (k, k) grid so the block adds into A[idxs, idxs].
+            # idxs: the element's k = N*n_components global DOF positions; the
+            # (k, k) index grid pairs each block entry with its global (row, col).
             idxs = self.dof_indices(element)
-            A[np.ix_(idxs, idxs)] += element_matrix(e_idx)
-        return A
+            grid_rows, grid_cols = np.meshgrid(idxs, idxs, indexing='ij')
+            rows.append(grid_rows.ravel())
+            cols.append(grid_cols.ravel())
+            data.append(element_matrix(e_idx).ravel())
+        return csr_array(
+            (np.concatenate(data), (np.concatenate(rows), np.concatenate(cols))),
+            shape=(self.n_dofs, self.n_dofs),
+        )
