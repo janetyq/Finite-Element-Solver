@@ -117,13 +117,15 @@ through `FunctionSpace.assemble`, the nonlinear energy path is `EnergyForm`, and
 self.b = (self.M @ source_load.flatten()).flatten()
 ```
 
-For a P1 field that is *exactly* `∫ f·v`, so the load is already form-assembled, used as a load
-operator rather than a system matrix. A standalone `LinearForm` would only add capability once
-there is quadrature: time-varying sources `f(x, t)`, non-constant coefficients, and the
-Crank–Nicolson `b_n`/`b_{n+1}` average (`solve_wave` notes where it collapses) need `f` sampled
-at quadrature points, which `M @ f` cannot express. So the `LinearForm` belongs with the
-quadrature work, not before it. Robin conditions, by contrast, need a *bilinear* boundary form,
-which `assemble(form, boundary=True)` already supports.
+This is the *exact* integral of `f`'s P1 interpolant (`M_ij = ∫ φ_i φ_j`), so the load is
+already form-assembled — the mass form used as a load operator rather than a system matrix. A
+standalone `LinearForm` adds capability only when `f` varies *within* an element, which needs
+quadrature to sample it at interior points — the same machinery non-constant coefficients
+(`∫ κ(x) ∇u·∇v`) and P2 elements need, and the reason `quadrature.py` has no callers yet. So a
+`LinearForm` belongs with the quadrature work, not before it. Two things it is *not* blocked
+on: a time-varying source `f(·, t)` just needs re-evaluating `M @ f_t` per step (and fixing the
+Crank–Nicolson `b_n`/`b_{n+1}` average `solve_wave` flags), and Robin conditions need a
+*bilinear* boundary form, which `assemble(form, boundary=True)` already supports.
 
 ### 🟡 `Solution` is a stringly-typed dict
 

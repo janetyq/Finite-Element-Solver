@@ -104,9 +104,11 @@ The constitutive law is off the element, and **every assembly path now goes thro
   to an energy, residual, and tangent; `EnergySolver` scatters it through
   `assemble_residual`/`assemble_tangent`. A quadratic energy has a constant tangent, so the
   bilinear `Form` is `EnergyForm`'s state-independent special case.
-- **The load** `L(v) = ∫f·v` is the mass form applied to the nodal source (`M @ f`), so it too
-  is form-assembled — used as a load operator rather than a system matrix. A first-class
-  `LinearForm` waits on quadrature, which is what would let `f` vary in space or time.
+- **The load** `L(v) = ∫f·v` is the mass form applied to the nodal source (`M @ f`), which is
+  the exact integral of `f`'s P1 interpolant — form-assembled, a load operator rather than a
+  system matrix. A first-class `LinearForm` waits on quadrature, which is what lets `f` vary
+  *within* an element (a time-varying `f(·, t)` needs only per-step re-evaluation, not
+  quadrature).
 
 `Material` owns `D`, and the strain-displacement matrix `B` sits in `fem/forms.py` next to the
 form that contracts it against `D`. That split is what let `Element` drop to pure geometry.
