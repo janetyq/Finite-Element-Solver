@@ -23,7 +23,7 @@ the mesh is not mutated underneath them. Build a new space instead of editing on
 """
 from collections.abc import Sequence
 from functools import cached_property
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 
@@ -33,6 +33,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
+from fem.forms import Form, MassForm
 from fem.mesh.mesh import Mesh
 from fem.typing import DofIndices, Elements, FloatArray, IntArray, Matrix, VertexField
 
@@ -178,33 +179,28 @@ class FunctionSpace:
     @cached_property
     def mass_matrix(self) -> Matrix:
         '''The consistent mass matrix. Depends only on geometry, so it caches.'''
-        return self._assemble(
-            self.mesh.elements,
-            lambda e_idx: self.element_objs[e_idx].calculate_mass_matrix(self.n_components),
-        )
+        return self.assemble(MassForm(self.n_components))
 
     @cached_property
     def boundary_mass_matrix(self) -> Matrix:
         '''Mass matrix over boundary facets, for integrating tractions.'''
-        return self._assemble(
-            self.mesh.boundary,
-            lambda f_idx: self.boundary_objs[f_idx].calculate_mass_matrix(self.n_components),
-        )
+        return self.assemble(MassForm(self.n_components), boundary=True)
 
-    def assemble_stiffness(self, **material: Any) -> Matrix:
-        '''The stiffness matrix, which is *not* cached -- it depends on material data.
+    def assemble(self, form: Form, boundary: bool = False) -> Matrix:
+        '''Scatter `form`'s element matrices into a global matrix.
 
-        That asymmetry with the mass matrix is the whole reason assembly cannot
-        simply live on the space: the scalar case is a material-free Laplacian,
-        but the elastic case needs per-element `mu` and `lamb`. Passing them as
-        keywords is the interim; a `Form` owning its own material is where this
-        goes, and is what lets the result be cached against something meaningful.
+        The space owns the loop; the form owns the integrand, so the space stays
+        free of any physics. `boundary=True` integrates over the boundary facets
+        instead of the volume elements -- the same scatter, a different mesh of
+        elements. Not cached: a form may carry material data that changes (a
+        topology-optimization iteration rescales the modulus). The geometry-only
+        results the callers *want* cached, the mass matrices, cache themselves.
         '''
+        elements = self.mesh.boundary if boundary else self.mesh.elements
+        element_objs = self.boundary_objs if boundary else self.element_objs
         return self._assemble(
-            self.mesh.elements,
-            lambda e_idx: self.element_objs[e_idx].calculate_stiffness_matrix(
-                self.n_components, idx=e_idx, **material
-            ),
+            elements,
+            lambda idx: form.element_matrix(element_objs[idx], idx),
         )
 
     def _assemble(

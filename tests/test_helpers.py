@@ -8,6 +8,7 @@ import pytest
 
 from fem.materials import Enu_to_Lame, Lame_to_Enu
 from fem.elements import LinearTetrahedralElement, LinearTriangleElement
+from fem.forms import MassForm
 from fem.geometry import (
     calculate_polygon_area,
     calculate_tetrahedron_volume,
@@ -86,7 +87,7 @@ class TestCircumcenter:
 
 
 class TestMassMatrix:
-    """A vector mass matrix must repeat the scalar one per component."""
+    """MassForm repeats the scalar element mass matrix once per component."""
 
     ELEMENTS = [
         (LinearTriangleElement, np.array([[0.0, 0], [1, 0], [0, 1]]), 2),
@@ -97,8 +98,8 @@ class TestMassMatrix:
     @pytest.mark.parametrize('element_type, vertices, n_components', ELEMENTS)
     def test_is_scalar_matrix_per_component(self, element_type, vertices, n_components):
         element = element_type(vertices)
-        scalar = element.calculate_mass_matrix(1)
-        vector = element.calculate_mass_matrix(n_components)
+        scalar = element.calculate_mass_matrix()
+        vector = MassForm(n_components).element_matrix(element, 0)
         assert np.allclose(vector, np.kron(scalar, np.eye(n_components)))
 
     @pytest.mark.parametrize('element_type, vertices, n_components', ELEMENTS)
@@ -107,7 +108,7 @@ class TestMassMatrix:
     ):
         # int_element 1 dV == volume, componentwise.
         element = element_type(vertices)
-        mass = element.calculate_mass_matrix(n_components)
+        mass = MassForm(n_components).element_matrix(element, 0)
         for component in range(n_components):
             load = np.zeros((element.N, n_components))
             load[:, component] = 1.0

@@ -107,118 +107,22 @@ Neither solver implements a shared interface, and `TopologyOptimizer` hardcodes 
 (`fem/topology.py:40`). A `SolverProtocol` — `(mesh, equation, bc) -> Solution` — would
 make them substitutable and let the optimizer accept either.
 
-### 🟡 Elements know physics they should not
+### 🟡 The load vector is a linear form in disguise
 
-`LinearElement.calculate_stiffness_matrix` (`fem/elements.py:61`) branches on DOF count to
-decide which PDE it is discretizing:
-
-```python
-if n_components == 1:
-    return self.grad_phi @ self.grad_phi.T * self.volume
-# otherwise, the equation is linear elastic
-idx = kwargs['idx']
-B, D = self.calculate_B(), self.calculate_D(kwargs['mu'][idx], kwargs['lamb'][idx])
-```
-
-An element type is inferring the equation from the number of DOFs per node. It also receives
-material parameters as untyped `**kwargs` carrying the *global* `mu`/`lamb` arrays plus its
-own index, rather than its own scalar values — the element reaches into a global array to
-find itself.
-
-`FunctionSpace.assemble_stiffness` (`space.py`) now passes the material through as
-`**kwargs` rather than a mesh doing it, which narrows the smell to one method but does not
-remove it: the space still has to forward data it has no opinion about.
-
-There is also a hidden physics assumption in the load assembly:
+The matrix side is now clean — every bilinear form `a(u,v)` (mass, stiffness, boundary mass)
+is a `Form`, `Material` owns the constitutive matrix, and `FunctionSpace.assemble` is one loop.
+The right-hand side has no equivalent. `Solver.assemble_everything` builds it as:
 
 ```python
 self.b = (self.M @ source_load.flatten()).flatten()
 ```
 
-That is `L(v) = ∫ f·v` evaluated by multiplying through the mass matrix — correct for P1
-elements, but it is a *linear form* wearing a disguise. Time-varying sources and
-non-constant-coefficient equations have nowhere natural to go because the linear form has
-no representation.
-
-### 🟡 The missing `Form` abstraction
-
-FEM turns a PDE into "find `u` such that `a(u,v) = L(v)` for all test functions `v`":
-
-| PDE | `a(u,v)` — the bilinear form | becomes |
-|---|---|---|
-| L2 projection | `∫ u·v` | mass matrix |
-| Poisson | `∫ ∇u·∇v` | stiffness matrix |
-| Elasticity | `∫ ε(u)ᵀ D ε(v)` | stiffness matrix |
-
-The assembly loop is identical for all three: loop elements, compute a local matrix from the
-integrand, scatter into the global one. **The only thing that varies per PDE is the
-integrand.** That integrand is the form — and it currently has no home, so it is smeared
-across `Element.calculate_stiffness_matrix` (the physics branch),
-`FunctionSpace.assemble_stiffness` (the `**kwargs` passthrough), and
-`Solver.assemble_everything` (which computes the material and hands it over).
-
-A `BilinearForm` makes the integrand an object:
-
-```python
-class BilinearForm(Protocol):
-    def element_matrix(self, element: Element, e_idx: int) -> Matrix: ...
-
-class DiffusionForm:
-    def element_matrix(self, element, e_idx):
-        return element.grad_phi @ element.grad_phi.T * element.volume
-
-class ElasticityForm:
-    def __init__(self, material: Material):
-        self.material = material
-    def element_matrix(self, element, e_idx):
-        B = element.calculate_B()
-        D = self.material.constitutive_matrix(e_idx)
-        return B.T @ D @ B * element.volume
-```
-
-`FunctionSpace._assemble` is already this loop, parameterised by a callable that returns a
-local matrix. Taking a form instead is a change of what gets passed in, not new machinery:
-
-```python
-def assemble(space: FunctionSpace, form: BilinearForm) -> Matrix:
-    return space._assemble(
-        space.mesh.elements,
-        lambda e_idx: form.element_matrix(space.element_objs[e_idx], e_idx),
-    )
-```
-
-One loop. No `**kwargs`, no `n_components` branch. The element supplies geometry and
-shape functions; the form supplies physics; the material supplies constitutive constants.
-
-**What this concretely unblocks:**
-
-1. **Retires `if n_components == 1`.** Which physics you get comes from *which form you
-   passed*, not from counting DOFs.
-2. **Robin BCs.** `BCType.ROBIN` exists and `resolve` refuses it. A Robin condition is
-   `∫ α·u·v ds` — a bilinear form on the boundary. With forms you assemble it and add to
-   the LHS.
-3. **`quadrature.py` gets a purpose.** Five rules, zero importers — because no object's job
-   is "integrate this integrand over an element." A form is that object.
-4. **Variable coefficients.** The Laplacian is currently a hardcoded closed-form
-   `∇φ·∇φ·volume`. A form with quadrature does `∫ κ(x)∇u·∇v`.
-5. **Higher-order elements become additive.** P2 needs new shape functions *and* real
-   quadrature. `Form` + `FunctionSpace` is the pair that makes it a new element class
-   rather than another component-count branch.
-6. **Unifies the two elasticity models.** `elements.py` has D-matrices (small strain),
-   `energies.py` has energy densities (Green–Lagrange). A shared `Material` consumed by a
-   linear `ElasticityForm` and a nonlinear energy form makes them two materials under one
-   interface rather than two unrelated subsystems.
-
-**Interaction with `FieldShape`.** An `ElasticityForm` inherently *is* vector-valued — its
-`B` matrix assumes one component per spatial direction. So the form knows the component count
-without being told. The counter-argument is that `Equation` is the user-facing declaration
-(`LinearElastic(E, nu)`) and `Form` is internal machinery; the field shape stays on the
-declaration and the form derives from it. They are complementary, not redundant — but
-`Equation.field` is the piece most likely to simplify once forms exist.
-
-`FunctionSpace` already owns the DOF map and an `_assemble` loop of exactly this shape, so
-this is now a matter of parameterising that loop by an integrand rather than building the
-layer underneath it.
+That is `L(v) = ∫ f·v` evaluated by multiplying through the mass matrix — correct for a
+constant P1 source, but it is a *linear form* wearing a disguise. Time-varying sources,
+non-constant coefficients, and the Crank–Nicolson `b_n`/`b_{n+1}` average (`solve_wave` notes
+where it collapses) have nowhere natural to go because the linear form has no representation.
+The symmetric partner to `Form` — a `LinearForm` producing `b` — is the piece that closes
+this, and is a prerequisite for a general Robin/traction path.
 
 ### 🟡 `Solution` is a stringly-typed dict
 
@@ -275,12 +179,11 @@ Consequences: the dependency direction is core → plot rather than plot → cor
 
 1. **Typed `Solution`** (§2) — independent of everything below, and the largest felt
    improvement for callers. Touches every call site, so it wants to land on its own.
-2. **Extract `Form` + `Material`** (§2) — move `calculate_D` off `Element`, unify with
-   `energies.py`, and parameterise `FunctionSpace._assemble` by an integrand. Retires the
-   `**kwargs`, and the `if n_components == 1` physics branch with it. The keystone now that
-   the space exists.
-3. **`DiscreteSystem`, then dense → sparse** — the single seam where the algebra layer
-   changes, and the item `BACKLOG.md` §2 calls the highest-leverage one.
+2. **`DiscreteSystem`, then dense → sparse** — the single seam where the algebra layer
+   changes, and the item `BACKLOG.md` §2 calls the highest-leverage one. The load-bearing
+   step now that `Form` + `Material` has landed.
+3. **`LinearForm` for the load vector** (§2) — the symmetric partner to `Form`, which also
+   opens the Robin/traction path and the time-varying source.
 4. **Strategy registry for `Solver`** (§2) — then fold `EnergySolver` onto the shared
    elimination path and a common protocol.
 5. **`TimeIntegrator`; move `dt`/`iters` off `Heat`/`Wave`** — breaking API change.
@@ -289,5 +192,3 @@ Consequences: the dependency direction is core → plot rather than plot → cor
    plumbing in §1.
 7. **Invert the core → plot dependency** (§2) and clear §1's unused modules — small, and
    independent of all of the above.
-
-Step 2 is the load-bearing one: it is what the `FunctionSpace` work was clearing the way for.
