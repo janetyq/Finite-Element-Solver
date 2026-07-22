@@ -13,13 +13,17 @@ its role conflations were downstream of that absence. `FunctionSpace` now exists
 conflations that depended on it are gone with it: the mesh no longer owns assembly, and the
 `dim` that meant both components-per-node and spatial dimension is now two named quantities.
 
-**One conflation of that original three survives**, and it is the subject of most of what
-follows: `Element` still owns constitutive law, because it is still the only object that
-knows the element geometry. That is what `Form` + `Material` is for. `Equation` also still
-carries time-step parameters, which is a smaller and independent problem.
+**All three of the original conflations are now closed.** The last — `Element` owning the
+constitutive law — is gone: `Form` + `Material` exist, `D` and the strain-displacement matrix
+`B` moved off the element, and assembly runs through a typed `Form` rather than an untyped
+material bag. `Element` is pure geometry.
 
-The package contains a **worked example of the right pattern** in two places now — see "The
-layer that is already right" at the end.
+Two smaller, independent problems remain, and are the subject of most of what follows:
+`Equation` still carries time-step parameters (a Time-layer split), and the physics layer,
+though no longer on the element, is not yet *unified* — `D` is built from Lamé parameters
+rather than derived from the energy `W` that `energies.py` already holds, and the strain
+measure is not yet a selectable axis. The package contains a **worked example of the right
+pattern** in three places now — see "The layer that is already right" at the end.
 
 ---
 
@@ -53,7 +57,8 @@ four files.
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | `Mesh` | █ | | | | | | | | ▒ |
 | `FunctionSpace` | | █ | | █ | | | | | ▒ |
-| `Element` | ▒ | ▒ | ▒ | ▒ | | | | | |
+| `Element` | ▒ | | | | | | | | |
+| `Form` / `Material` | | | █ | | | | | | |
 | `Equation` | | | █ | | | | ▒ | | |
 | `BoundaryConditions` / `ResolvedBC` | | | | | █ | | | | |
 | `Solver` | | | ▒ | ▒ | ▒ | █ | █ | ▒ | ▒ |
@@ -63,60 +68,61 @@ four files.
 | `RedGreenRefiner` | █ | | | | | | | | ▒ |
 
 Read the rows: `Solver` still touches six of nine layers. Read the columns: layer 2 (space)
-now has exactly one owner, which is the change the rest of this document was written to
-argue for. Layer 3 (physics) is still split across `Equation`, `Element.calculate_D`,
-`energies.py`, and `materials.py` — that is the remaining conflation. Layer 7 (time) is split
+and layer 4 (assembly) each now have exactly one owner — `FunctionSpace` owns the loop, and
+`Form` owns the integrand, so nothing forwards material data it cannot interpret. Layer 3
+(physics) is spread across `Equation` (identity + parameters), `Form`/`Material`, and
+`energies.py`, but it is now *placed* rather than conflated: no non-physics object holds it.
+Its open work is unification, not extraction — see below. Layer 7 (time) is still split
 between `Equation` (holds `dt`, `iters`) and `Solver` (holds the scheme).
 
-Layers 2 and 5 each have exactly one owner. Neither is a coincidence: both got designed
-deliberately, one recently.
-
-`FunctionSpace` retains a ▒ in layer 4 rather than a clean █ because assembly still takes
-material data it cannot interpret — see `Form`, below.
+Layers 2, 4, and 5 each have exactly one owner. None is a coincidence: each got designed
+deliberately.
 
 ---
 
 ## 3. Role-by-role
 
-### `Mesh` / `FunctionSpace` — clean, with one seam left
+### `Mesh` / `FunctionSpace` — clean
 
 `Mesh` is geometry: vertices, elements, boundary, topology queries. `FunctionSpace` has a
 mesh and owns the discretization — element geometry, DOF numbering, cached operators. Two
 spaces can share one domain, which is the property that made the split necessary.
-
-One thing is still wrong, and it is the same thing that is wrong with `Element`:
-
-**Assembly still takes material data it cannot interpret.** `assemble_stiffness(**material)`
-forwards `mu` and `lamb` to the element, which indexes into them. The space has no opinion
-about what it is forwarding and no way to type it. That is narrower than when a *mesh* did
-it, but it is the same defect, and it is the `Form` seam — see below.
+`assemble` takes a `Form` rather than an untyped material bag, so the space forwards nothing
+it cannot interpret.
 
 `Mesh` should still lose `plot`, which is the last core → plot dependency (review §2).
 
-### `Element` — geometry, shape functions, *and* constitutive law
+### `Form` / `Material` — placed, not yet unified
 
-`calculate_D(mu, lamb)` returns the Hooke tensor. That is a **material law**, not element
-geometry, and it lives on the element only because the element was in scope. Meanwhile:
+The constitutive law is off the element. `Form` owns every bilinear integrand the linear
+solvers assemble — `MassForm` (`∫u·v`), `LaplacianForm` and `LinearElasticForm` (the
+`Gᵀ C G · volume` stiffness family, `G` geometric and `C` material) — and `FunctionSpace.assemble`
+is a single scatter loop that no longer knows what it is scattering. `Material` owns `D`, and
+the strain-displacement matrix `B` sits in `fem/forms.py` next to the form that contracts it
+against `D`. That split is what let `Element` drop to pure geometry. The only assembly left
+outside a `Form` is `EnergySolver`'s nonlinear energy path, which is a different method, not a
+bilinear form.
 
-- `fem/materials.py` holds `Enu_to_Lame` and nothing else (16 lines)
-- `fem/energies.py` holds `StVenantKirchhoffEnergyDensity`, used only by `EnergySolver`
+What is *not* yet done is unifying the two constitutive representations. There is **one**
+energy density `W(ε) = ½λ(tr ε)² + μ tr(εᵀε)`, shared verbatim: `energies.py`'s
+`calculate_W_from_S` and the `½εᵀDε` implied by `Material` are the same function. `D` is
+`∂²W/∂ε²` — a *derivative* of the energy in the other file, currently transcribed by hand from
+Lamé parameters rather than computed from `W`. Deriving it would delete the duplication, at
+the cost of bridging Voigt and full-tensor notation (a follow-on, guarded by the golden
+matrices in `tests/test_forms.py`). The other axis is **kinematics**: the two solver paths
+differ only in the strain measure fed to that one `W` — `energies.py` uses Green–Lagrange
+`S = ½(FᵀF − I)` (geometrically nonlinear — St-VK), the linear path the small-strain
+`ε = ½(∇u + ∇uᵀ)`. Both measures are now named (`SmallStrainEnergyDensity`,
+`StVenantKirchhoffEnergyDensity`), pinned in `tests/test_elasticity_models.py`, but selecting
+between them is not yet an equation-level choice.
 
-It is tempting to call these two *representations of the same material*, but that is not
-quite it, and the distinction is what points at the fix. There is **one** energy density
-`W(ε) = ½λ(tr ε)² + μ tr(εᵀε)`, shared verbatim: `energies.py`'s `calculate_W_from_S` and the
-`½εᵀDε` implied by `calculate_D` are the same function. `D` is simply `∂²W/∂ε²` transcribed by
-hand into a matrix — a *precomputed derivative* of the energy in the other file, duplicated
-across the element subclasses and disconnected from its source. The only real difference
-between the two solver paths is the **strain measure** fed to that one `W`: `energies.py` uses
-Green–Lagrange `S = ½(FᵀF − I)` (geometrically nonlinear — St-VK), `elements.py` the
-small-strain linearization `ε = ½(∇u + ∇uᵀ)`. `tests/test_elasticity_models.py` now pins how
-those two relate (agreement to O(‖∇u‖²), frame indifference, one-step equivalence).
+So the physics layer decomposes as **material** (the energy `W`) × **kinematics** (the strain
+measure), and `Form` is where selecting a point in that product becomes declarative.
 
-So the decomposition is not "two materials" but **material** (the energy `W`) × **kinematics**
-(the strain measure). `D` should be *derived* from `W`, not declared alongside it, and `Element`
-should hold neither.
+### `Element` — now pure geometry, but stateful and per-instance
 
-Second issue: **elements are stateful and per-instance**. `FunctionSpace` builds one object
+`Element` holds `grad_phi`, `volume`, and `dF_dx` and nothing physical. One issue remains,
+and it is performance, not layering. `FunctionSpace` builds one object
 per element, each caching `vertices`, `volume`, `grad_phi`, and `dF_dx` — a rank-4 tensor
 built by a 4-deep Python loop, needed only by `EnergySolver`, computed unconditionally in
 `LinearElement.__init__`. On a 40×40 mesh that is 3200 objects and 3200 unnecessary tensors.
@@ -205,7 +211,6 @@ happened, and rigidity exactly where extension is on the roadmap.
 
 | Mechanism | Reality |
 |---|---|
-| `FunctionSpace.assemble_stiffness(**material)` | leaks untyped material data; narrower than before, same defect |
 | `TopologyOptimizer._select_objective` / `_select_optimization` | a plugin system with one optimization method, an ignored args bag, and an objective value that is never evaluated |
 | `Solution.get_values(name, iter_idx, mode)` | three-axis generality; the `mode` axis has zero callers and no test |
 | `Solver.solve_nonlinear_system` | general Newton hook, zero callers |
@@ -244,9 +249,9 @@ mesh = Mesh(vertices, elements, boundary)
 # 2. discretization — owns DOF numbering, element geometry, operators   [done]
 V = FunctionSpace(mesh, element=P1Triangle, n_components=2)
 
-# 3. physics — material separate from form, form owns the weak statement
-material = LinearElastic(E=210e9, nu=0.3)        # or ElementField for SIMP
-form     = ElasticityForm(material)
+# 3. physics — material separate from form, form owns the weak statement   [done]
+material = LinearElasticMaterial(E=210e9, nu=0.3)   # or ElementField for SIMP
+form     = LinearElasticForm(material)
 
 # 4. problem — space + form + constraints + data
 problem = Problem(V, form, bcs=bc, source=f)
@@ -265,10 +270,12 @@ TopologyOptimizer(problem_factory, objective=MinCompliance()).run()
 
 What each move buys, concretely:
 
-- **`Form` + `Material`** — removes `**kwargs` from assembly; removes the
-  `n_components == 1` physics branch from `Element`; gives Robin conditions somewhere to contribute; unifies the
-  `D`-matrix and energy-density representations; removes `TopologyOptimizer`'s mutation of
-  `equation.E`.
+- **`Form` + `Material`** — *done*: removed `**kwargs` from assembly and the
+  `n_components == 1` physics branch from `Element`, which is now pure geometry. *Remaining*:
+  derive `D` from the energy `W` rather than from Lamé parameters (unifying the two
+  constitutive representations); make the strain measure a selectable axis; give Robin
+  conditions a boundary form to contribute to; retire `TopologyOptimizer`'s mutation of
+  `equation.E` in favour of handing the driver a fresh `Material` each iteration.
 - **`DiscreteSystem`** — one place that knows "matrix + rhs + which DOFs are fixed"; makes the
   wave block system a composition instead of hand-indexed `np.block`; the single seam where
   dense becomes sparse.
@@ -288,25 +295,29 @@ The convergence tests in `tests/test_convergence.py` and
 `tests/test_convergence_elasticity.py` are the safety net; each step below should leave them
 passing without modification.
 
-1. **Extract `Form` + `Material`.** `Material` owns the energy `W` and its derivatives;
-   `D` becomes `∂²W/∂ε²` derived from it, so `calculate_D` is deleted from every element and
-   `Element` keeps only geometry. `Form` pairs a `Material` with the space and produces the
-   operator — the linear case being where `W` is quadratic, so the Hessian is constant and
-   `BᵀDB` assembles once. `FunctionSpace._assemble` is already the right loop, so this
-   parameterises it by an integrand rather than adding a layer. Retires the `**kwargs` and the
-   `if n_components == 1` physics branch. The kinematics (strain measure) is a second, smaller
-   axis — `SmallStrainEnergyDensity` and `StVenantKirchhoffEnergyDensity` are its two members
-   today; `Form` is where selecting between them becomes an equation-level choice rather than a
-   test-only injection. The keystone.
+1. **Extract `Form` + `Material`.** *Done.* `Form` owns the integrand, `Material` owns `D`,
+   `Element` is pure geometry, and `FunctionSpace.assemble` takes a `Form` instead of an
+   untyped material bag — mass, stiffness, and boundary mass all through it. Two follow-ons
+   remain from the ideal end state, both smaller and independently landable:
+   - **1a. Derive `D` from `W`.** `Material` holds `D` built from Lamé parameters; the energy
+     `W` in `energies.py` already implies it as `∂²W/∂ε²`. Computing it from `W` deletes the
+     duplication but needs a Voigt↔full-tensor bridge, so it is isolated and guarded by the
+     golden matrices in `tests/test_forms.py`.
+   - **1b. Make kinematics selectable.** `SmallStrainEnergyDensity` and
+     `StVenantKirchhoffEnergyDensity` are the two members today; `Form` is where choosing
+     between them becomes an equation-level choice rather than the test-only injection it is
+     now.
 2. **Introduce `DiscreteSystem`,** then migrate dense→sparse behind it. The backlog's
-   highest-leverage change becomes a one-layer edit rather than a cross-cutting one.
+   highest-leverage change becomes a one-layer edit rather than a cross-cutting one. Now the
+   next load-bearing step.
 3. **Typed `Solution`,** together with the `io.py` rework they jointly require.
 4. **Extract `TimeIntegrator`;** move `dt`/`iters` off `Heat`/`Wave`. Breaking API change —
    worth batching with (3).
 5. **Uniform drivers:** `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
    problem factory rather than mutating an equation.
 
-Steps 1–2 are the load-bearing ones. Steps 3–5 are independent and can be done any time.
+Step 1 is done; step 2 is now the load-bearing one. Steps 3–5 are independent and can be done
+any time.
 
 The pattern from the completed work is worth keeping: a mechanical rename that makes two
 concepts unspellable as one name is cheap and buys more than it looks like, and the checkpoint
@@ -328,10 +339,12 @@ keyed by the discretization, replacing mutable state that used to drift. That it
 at independently, and ended up shaped like `ResolvedBC`, is the argument that the pattern is
 the right one here rather than a stylistic preference.
 
-The remaining recommendation is the same pattern once more:
+`Form` is now the third instance of the same pattern:
 
 - `Form` is to `Equation` what `ResolvedBC` is to `BoundaryConditions` — the resolved,
-  assembly-ready view of a specification that stays declarative.
+  assembly-ready view of a specification that stays declarative. `LinearElasticForm(material)`
+  is derived from a `LinearElastic` equation, produces element matrices, and holds no mutable
+  state of its own.
 
-You found the right shape once and it has now been applied twice. The physics layer is what
-has not caught up.
+You found the right shape once and it has now been applied three times. What remains in the
+physics layer is unification within it (deriving `D` from `W`), not a missing object.
