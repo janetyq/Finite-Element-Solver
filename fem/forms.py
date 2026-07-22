@@ -18,7 +18,7 @@ matrix). Splitting G from C is what lets `Element` be pure geometry: it supplies
 match `fem.materials.hooke_matrix`; the two are contracted together.
 """
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -103,3 +103,54 @@ class LinearElasticForm:
         B = strain_displacement(element.grad_phi)
         D = self.material.constitutive_matrix(element.reference_dim, e_idx)
         return B.T @ D @ B * element.volume
+
+
+@dataclass(frozen=True)
+class EnergyForm:
+    '''The nonlinear (hyperelastic) sibling of `Form`.
+
+    A bilinear `Form` maps an element to a constant matrix. An `EnergyForm` maps an
+    element *and the current nodal displacement* to three volume-weighted element
+    quantities: the stored energy (a scalar), its gradient (the residual, one
+    value per node-component), and its Hessian (the tangent). A quadratic energy
+    gives a constant tangent independent of the state -- the linear stiffness
+    `Form` is that special case, which is why these are siblings rather than one
+    protocol taking a mostly-ignored state.
+
+    The physics is delegated to an energy density (`fem.energies`) via the same
+    `set_grad_u -> W, dW_dF, ...` interface `EnergySolver` already used; this form
+    is where the element-level assembly of those tensors now lives, so a solver
+    only scatters. 2D only, inheriting the densities' fixed-rank-2 limit.
+    '''
+    # A fem.energies density. Untyped there (its outputs are set dynamically in
+    # set_grad_u), so annotating a Protocol here would not typecheck either.
+    energy_density: Any
+
+    def element_energy(self, element: LinearElement, u_element: FloatArray) -> float:
+        self.energy_density.set_grad_u(element.calculate_gradient(u_element))
+        return float(self.energy_density.W) * element.volume
+
+    def element_residual(self, element: LinearElement, u_element: FloatArray) -> FloatArray:
+        '''dW/dx, shape (n_nodes, n_components) -- the element's force contribution.'''
+        self.energy_density.set_grad_u(element.calculate_gradient(u_element))
+        dW_dx = np.einsum('ij,ijmn->mn', self.energy_density.dW_dF, element.dF_dx)
+        return dW_dx * element.volume
+
+    def element_tangent(self, element: LinearElement, u_element: FloatArray) -> FloatArray:
+        '''d2W/dx2, shape (n_nodes, n_components, n_nodes, n_components).'''
+        # d2W_dx2 = dW_dS : (d2S_dF2 : dF_dx : dF_dx) + d2W_dS2 : (dS_dx : dS_dx)
+        # ":" is the tensor double contraction. For two second-order tensors,
+        # A : B = sum_ij A_ij B_ij -- the elementwise product summed over both
+        # indices, giving a scalar. In general it contracts the last two indices
+        # of the left operand against the first two of the right; each ":" above
+        # is one such contraction, i.e. one "...ij,ij...->..." einsum below.
+        ed = self.energy_density
+        ed.set_grad_u(element.calculate_gradient(u_element))
+        dF_dx = element.dF_dx
+        dS_dx = np.einsum('klij,ijmn->klmn', ed.dS_dF, dF_dx)
+        term1 = np.einsum('abcdij,ijmn->abcdmn', ed.d2S_dF2, dF_dx)
+        term1 = np.einsum('abijcd,ijmn->abcdmn', term1, dF_dx)
+        term1 = np.einsum('ij...,ij...->...', ed.dW_dS, term1)
+        term2 = np.einsum('klij,ijmn->klmn', ed.d2W_dS2, dS_dx)
+        term2 = np.einsum('ijkl,ijmn->klmn', term2, dS_dx)
+        return (term1 + term2) * element.volume
