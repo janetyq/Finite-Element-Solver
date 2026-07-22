@@ -13,7 +13,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
-| Scaling | Batched assembly — **now the bottleneck** | 🔴 | [§2](#2-performance--scaling) |
+| Scaling | Iterative solvers + preconditioning — **now the bottleneck** | 🔴 | [§2](#2-performance--scaling) |
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify the smoothing matrix (topology) | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | O(n²) linear scans in meshing | 🟡 | [§2](#2-performance--scaling) |
@@ -34,16 +34,14 @@ estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
 
 ## 2. Performance & Scaling
 
-### 🟠 Assembly is the bottleneck — the per-element Python loop
-Matrices are sparse now: `FunctionSpace._assemble` builds a `csr_array` from COO triplets and
-`DiscreteSystem` factors it with `scipy.sparse.linalg.splu`. The solve is no longer the
-limiter -- `examples/benchmark_assembly.py` shows a 3D solve at n=17 taking ~2.4s to
-factor+solve against ~14s to assemble. Assembly is a Python loop over `FunctionSpace.element_objs`,
-one object per element (each caching `grad_phi`, `volume`, `dF_dx`), calling into a form per
-element. The scalable form is stateless element *types* plus batched geometry: one
-`(n_elements, …)` array of `grad_phi`, one of volumes, and the element matrices computed
-vectorized (`np.einsum` over the batch) rather than in a loop. See `ARCHITECTURE.md` -- this is
-the "stateful, per-instance elements" fork, and the sparse work has now made it the top cost.
+### 🟠 The sparse factorization is the bottleneck
+Both earlier limits are gone: matrices are sparse, and assembly is batched (a 3D solve at
+n=17 assembles in 0.48s, down from 18.7s). `examples/benchmark_assembly.py` now shows the
+cost sitting almost entirely in `splu` -- 2.5s against 0.48s at n=17, and ~13s at n=21,
+where fill-in on a 3D tet mesh is what dominates. This is the "iterative solvers +
+preconditioning" idea, promoted out of §3: the systems are SPD for Poisson and elasticity,
+so CG with a Jacobi or AMG preconditioner should beat a direct factorization well before
+n=21. It is the last thing standing between the solver and genuinely large 3D meshes.
 
 ### 🟠 `assemble_everything` runs on every `solve()`
 `fem/solver.py:Solver.solve` even flags it: `# TODO: don't call this every time`. For
@@ -61,10 +59,13 @@ matrix would scale far better and is a near drop-in.
 `fem/mesh/generation.py` still has linear-scan bottlenecks in vertex deduplication
 and neighbour lookups during mesh construction.
 
-### 🟠 `EnergySolver` Hessian assembly is per-element too
-`energy_hessian` now returns a sparse tangent (`assemble_tangent`), so the Newton solve is
-sparse. But it re-assembles that tangent every iteration through the same per-element loop, so
-it inherits the assembly bottleneck above -- doubly, since it is inside the Newton loop.
+### 🟠 `EnergyForm` is still evaluated one element at a time
+The bilinear forms are batched, but `EnergyForm` is not: its integrand depends on the current
+state through an energy density (`fem/energies.py`) whose tensor chain is written for a single
+element. It reads geometry through `ElementGeometry.at(i)`, a view onto the batched arrays, and
+scatters through the batched path -- so only the middle step is still a loop. Batching it means
+giving the energy densities a leading element axis, which is the same change that would lift
+their fixed-rank-2 limit. Worth doing: the tangent is re-assembled every Newton iteration.
 
 ---
 
@@ -79,9 +80,6 @@ it inherits the assembly bottleneck above -- doubly, since it is inside the Newt
   integrals. A general quadrature layer (reference element + Gauss points + Jacobian) would
   make adding new element types and variable coefficients far easier, and is a prerequisite for
   the quadratic elements above. Decide `quadrature.py`'s fate: integrate it or mark it WIP.
-- 💡 **Iterative solvers + preconditioning.** The systems are sparse now, so `DiscreteSystem`
-  can offer CG with a Jacobi/AMG preconditioner for the SPD systems (Poisson, elasticity),
-  where iterative beats direct at large 3D sizes. Most useful once assembly is batched.
 - 💡 **A posteriori error estimator** so adaptive refinement is fully closed-loop — the
   residual scaffolding is already sketched in `fem/solver.py`. `Solver.adaptive_refinement`
   takes the estimator as a callable `(solver) -> per-element error`, so this drops straight in.
@@ -118,10 +116,8 @@ it inherits the assembly bottleneck above -- doubly, since it is inside the Newt
 
 **Engineering**
 - 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg`, `generation` (Rupperts/approx
-  mesh), and adaptive refinement have no *correctness* tests. The 3D tet path now has one,
-  but only up to h = 1/10: the 3D assertion is "order climbs toward 2" rather than "order is 2".
-  Now capped by assembly cost, not the solve — worth tightening to the 2D band once assembly is
-  batched.
+  mesh), and adaptive refinement have no *correctness* tests. The 3D tet path now runs to
+  h = 1/20 and asserts the same O(h²) band as the 2D case.
 - 💡 **The CLI demos have rotted.** Five of fifteen fail, each against an API that
   moved out from under them: `linear_elastic` calls `BoundaryConditions.plot`,
   `topology_optimization` passes `solve(plot=...)`, `energy_solver` reads a
@@ -146,8 +142,8 @@ it inherits the assembly bottleneck above -- doubly, since it is inside the Newt
 
 ## Suggested Priority Order
 
-1. **Batched assembly** (§2) — now the top cost, after sparse matrices moved the solve off the
-   critical path. Unblocks finer meshes and the tighter 3D convergence assertion.
+1. **Iterative solvers + preconditioning** (§2) — now the top cost, after batched assembly
+   moved the last Python loop off the critical path. Unblocks 3D meshes past n≈21.
 2. **Coverage + type hints** (§3) — deepen the safety net before the bigger numerics work.
 3. **Then the numerics roadmap** — quadrature → higher-order elements → time-integrator →
    adaptive refinement.

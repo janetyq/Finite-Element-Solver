@@ -132,22 +132,26 @@ between them is not yet an equation-level choice.
 So the physics layer decomposes as **material** (the energy `W`) × **kinematics** (the strain
 measure), and `Form` is where selecting a point in that product becomes declarative.
 
-### `Element` — now pure geometry, but stateful and per-instance
+### `Element` — stateless types, batched geometry
 
-`Element` holds `grad_phi`, `volume`, and `dF_dx` and nothing physical. One issue remains,
-and it is performance, not layering. `FunctionSpace` builds one object
-per element, each caching `vertices`, `volume`, `grad_phi`, and `dF_dx` — a rank-4 tensor
-built by a 4-deep Python loop, needed only by `EnergySolver`, computed unconditionally in
-`LinearElement.__init__`. On a 40×40 mesh that is 3200 objects and 3200 unnecessary tensors.
-The list itself is a `cached_property` now, so nothing is paid until something asks; the
-waste is per-element rather than per-mesh.
+Element types are stateless: `LinearTetrahedralElement` describes a shape and holds no
+per-element data, so there is one of them in a program rather than one per tet. The
+per-element data lives in `ElementGeometry`, which holds it for the whole mesh at once — one
+`(n_elements, N, spatial_dim)` array of `grad_phi`, one `(n_elements,)` array of measures —
+and `Form.element_matrices` computes every element matrix in a single vectorized pass.
 
-The scalable alternative is element *types* as stateless strategies plus batched geometry:
-one `(n_elements, …)` array of `grad_phi`, one array of volumes, the element matrices computed
-vectorized. This is **now the top cost**: with the matrices sparse, the linear algebra has
-stopped dominating and the per-element Python loop has taken its place —
-`examples/benchmark_assembly.py` shows a 3D solve at n=17 spending ~14s assembling against
-~2.4s to factor and solve. Batched assembly is the next effort.
+This was the last of the scaling work. Assembling a 3D elastic solve at n=17 went from
+18.7s to 0.48s, and the 3D MMS test now asserts a real O(h²) rate instead of an approach to
+one. `examples/benchmark_assembly.py` measures the split; the cost is back on the sparse
+factorization, which is the natural next target (see the iterative-solver item in
+`BACKLOG.md`).
+
+One caller still works element-at-a-time: `EnergyForm`, whose integrand depends on the
+current state through an energy density written for a single element. It reads
+`ElementGeometry.at(i)`, a *view* onto the batched arrays rather than a second
+representation, so there is still one source of geometric truth. `dF_dx` — the rank-4
+tensor that used to be built eagerly for every element by a 4-deep Python loop — now hangs
+lazily off that view, so a mesh that never touches the nonlinear path never builds one.
 
 ### `Equation` — four roles in one object
 
@@ -246,6 +250,7 @@ against — dead parameters stay invisible precisely because nothing types them.
 | Time-varying loads / BCs | `evaluate_field` takes position only, no `t` |
 | Nonlinear materials | two unrelated constitutive representations, no common interface |
 | Sparse matrices | dense `np.zeros` hardcoded in `FunctionSpace._assemble`, per-element Python objects |
+| Batched assembly | stateful per-instance `Element` objects; forms evaluated one element at a time |
 
 Note the pattern: the unused flexibility is all *lateral* (more string options on existing
 operations), while the needed flexibility is all *vertical* (new layers between existing
@@ -326,17 +331,17 @@ passing without modification.
 2. **`DiscreteSystem` + dense→sparse.** *Done.* Both solvers eliminate constraints through
    `DiscreteSystem`, the time-steppers factor their constant LHS once, assembly emits sparse
    CSR, and the factorization is `splu`. The linear algebra is off the critical path; the
-   per-element assembly loop is now the top cost (see `Element`, above) -- **batched assembly**
-   is the load-bearing remainder of the scaling work.
+   per-element assembly loop that replaced it as the top cost has been batched too (see
+   `Element`, above). The scaling work is done; the remaining limit is the direct sparse
+   factorization.
 3. **Typed `Solution`,** together with the `io.py` rework they jointly require.
 4. **Extract `TimeIntegrator`;** move `dt`/`iters` off `Heat`/`Wave`. Breaking API change —
    worth batching with (3).
 5. **Uniform drivers:** `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
    problem factory rather than mutating an equation.
 
-Steps 1 and 2 are done; batched assembly is the load-bearing remainder of the scaling work.
-Steps 3–5 are independent and can be done
-any time.
+Steps 1 and 2 are done, batched assembly with them. Steps 3–5 are independent and can be
+done any time.
 
 The pattern from the completed work is worth keeping: a mechanical rename that makes two
 concepts unspellable as one name is cheap and buys more than it looks like, and the checkpoint
