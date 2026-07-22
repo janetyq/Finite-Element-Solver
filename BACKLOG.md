@@ -35,24 +35,24 @@ estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
 ## 2. Performance & Scaling
 
 ### 🟠 Everything is dense — this is the single biggest limiter
-`FunctionSpace._assemble` (`fem/space.py`) builds `A = np.zeros((n_dofs, n_dofs))` and
-solves via `np.linalg.solve` (`fem/solver.py:solve_linear_system`). FEM matrices are
+`FunctionSpace._assemble` (`fem/space.py`) builds `A = np.zeros((n_dofs, n_dofs))`, and
+`DiscreteSystem` (`fem/system.py`) factors it with `scipy.linalg.lu_factor`. FEM matrices are
 extremely sparse (each row has a handful of nonzeros), so this is `O(N²)` memory and
 `O(N³)` solve time. On the 40×40 meshes in the tests that's fine; it will fall over well
-before "interesting" resolutions. Concretely:
+before "interesting" resolutions. The seam is now in place -- both solvers go through
+`DiscreteSystem` -- so this is a one-object edit:
 - Assemble with `scipy.sparse.lil_matrix`/COO triplets, convert to CSR.
-- Solve with `scipy.sparse.linalg.spsolve` (or `cg`/`splu` with caching for the time-stepping
-  loops, where the matrix is constant across iterations).
+- Factor/solve in `DiscreteSystem` with `scipy.sparse.linalg.splu` (or `cg` for the SPD
+  systems). The factorization is already built once and reused.
 
 This one change probably unlocks 1–2 orders of magnitude in mesh size, and the MMS
 convergence test guards correctness through the migration.
 
 ### 🟠 `assemble_everything` runs on every `solve()`
 `fem/solver.py:Solver.solve` even flags it: `# TODO: don't call this every time`. For
-heat/wave the system matrices are rebuilt implicitly each timestep via re-assembly; for
 topology optimization `solve()` is called every iteration. Cache `M`, `M_b`, `K` and only
-re-factor when the mesh or material actually changes. For time-stepping, pre-factor
-`(M + K·dt)` once (LU) and reuse.
+re-assemble when the mesh or material actually changes. (Time-stepping is handled: heat and
+wave now build one `DiscreteSystem` and reuse its factorization across steps.)
 
 ### 🟠 `calculate_smoothing_matrix` is dense `O(n_elem²)`
 `fem/numerics.py:calculate_smoothing_matrix` materializes a full element-by-element
