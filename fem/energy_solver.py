@@ -6,6 +6,7 @@ from fem.boundary import BoundaryConditions
 from fem.energies import StVenantKirchhoffEnergyDensity
 from fem.forms import EnergyForm
 from fem.mesh.mesh import Mesh
+from fem.system import DiscreteSystem
 from fem.solution import Solution
 from fem.solver import Equation, LinearElastic
 from fem.space import FunctionSpace
@@ -91,50 +92,40 @@ class EnergySolver:
     def element_hessian(self, e_idx: int, u_element: FloatArray) -> FloatArray:
         return self.form.element_tangent(self.space.element_objs[e_idx], u_element)
 
+    # energy / gradient / hessian are the raw, unconstrained quantities: the total
+    # energy Pi(u), its gradient (nonzero at fixed DOFs -- the reaction forces),
+    # and its Hessian. The Dirichlet constraint is applied by the DiscreteSystem
+    # in newton_solve, not baked into these, the same way Solver assembles a raw K
+    # and eliminates in solve_linear_system.
     def energy(self, u: DofVector) -> float:
-        u[self.fixed] = self.fixed_values
         return self.space.total_energy(self.form, u)
 
     def energy_gradient(self, u: DofVector) -> DofVector:
-        u[self.fixed] = self.fixed_values
-        gradient = self.space.assemble_residual(self.form, u)
-        gradient[self.fixed] = 0
-        return gradient
+        return self.space.assemble_residual(self.form, u)
 
     def energy_hessian(self, u: DofVector) -> Matrix:
-        u[self.fixed] = self.fixed_values
-        hessian = self.space.assemble_tangent(self.form, u)
-        # Eliminate the constrained DOFs: zero their coupling, then put 1 on the
-        # diagonal. Without the diagonal the matrix is exactly singular (rank
-        # n_free, not n_dofs), so every Newton step raised LinAlgError and fell
-        # through to the 1e-8 regularization -- which perturbs the free block too,
-        # capping accuracy around 1e-8 for no reason.
-        hessian[self.fixed, :] = 0
-        hessian[:, self.fixed] = 0
-        hessian[self.fixed, self.fixed] = 1
-        return hessian
+        return self.space.assemble_tangent(self.form, u)
 
     def solve(self, max_iters: int = 100) -> Solution:
         u = np.zeros(len(self.mesh.vertices) * self.n_components)
         u[self.fixed] = self.fixed_values
         logger.info("Initial energy: %s", self.energy(u))
-        u = self.newton_solve(u)
+        u = self.newton_solve(u, max_iters)
         self.solution.set_values("u", u)
         return self.solution
 
     def newton_solve(self, u: DofVector, max_iters: int = 100) -> DofVector:
+        # The increment is pinned to zero at the fixed DOFs -- u already holds
+        # their Dirichlet values -- and DiscreteSystem eliminates them, so the
+        # tangent needs no special-casing and the free block is non-singular.
+        step_constraints = (self.free, self.fixed, np.zeros(len(self.fixed)))
         for iter in range(max_iters):
             if self.verbose:
                 logger.info("%d %s", iter, self.energy(u))
-            gradient = self.energy_gradient(u)
-            hessian = self.energy_hessian(u)
-            try:
-                newton_step = np.linalg.solve(hessian, -gradient)
-            except np.linalg.LinAlgError:
-                logger.warning("Singular hessian, adding regularization")
-                newton_step = np.linalg.solve(hessian + 1e-8 * np.eye(hessian.shape[0]), -gradient)
+            system = DiscreteSystem(self.energy_hessian(u), step_constraints)
+            newton_step = system.solve(-self.energy_gradient(u))
             if np.linalg.norm(newton_step) < 1e-6:
                 break
             u += newton_step
-            
+
         return u

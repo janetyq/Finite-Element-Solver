@@ -76,36 +76,16 @@ Note that the obvious fix — putting `solve()` on `Equation` — is *wrong*, an
 strategy registry (`Poisson → PoissonStrategy`, …), resolved by an MRO walk so subclasses
 dispatch correctly, with each strategy owning its own assembly and its own result fields.
 
-### 🟡 `EnergySolver` duplicates `Solver`, and handles Dirichlet worse
+### 🟡 `EnergySolver` and `Solver` share no interface
 
-`fem/energy_solver.py` reimplements the Newton loop (`newton_solve`, `:146`) that already
-exists as `Solver.solve_nonlinear_system` (`fem/solver.py:241`), and re-unpacks the resolved
-BC by hand into `self.free` / `self.fixed` / `self.fixed_values` (`:56-58`).
-
-The more substantive divergence is Dirichlet handling. `Solver.solve_linear_system`
-eliminates fixed DOFs properly (`solver.py:214`). `energy_hessian` (`:126`) instead zeroes
-fixed rows *and* columns:
-
-```python
-total_energy_hessian[self.fixed, :] = 0
-total_energy_hessian[:, self.fixed] = 0
-```
-
-That zeroes the diagonal too, making the Hessian **structurally singular by construction** —
-which is precisely why `newton_solve` needs its fallback:
-
-```python
-except np.linalg.LinAlgError:
-    logger.warning("Singular hessian, adding regularization")
-    newton_step = np.linalg.solve(hessian + 1e-8 * np.eye(...), -gradient)
-```
-
-The regularization is papering over a self-inflicted singularity. Routing through the same
-elimination path removes both the special case and the fallback.
-
-Neither solver implements a shared interface, and `TopologyOptimizer` hardcodes `Solver`
-(`fem/topology.py:40`). A `SolverProtocol` — `(mesh, equation, bc) -> Solution` — would
-make them substitutable and let the optimizer accept either.
+Dirichlet handling is now unified: both eliminate fixed DOFs through `DiscreteSystem`, so
+`EnergySolver`'s old zero-the-rows-and-columns Hessian (structurally singular, hence its
+`1e-8` regularization fallback) is gone. What remains is that the two solvers still reimplement
+their Newton/step loops separately and re-unpack the resolved BC by hand, and neither
+implements a shared interface: `TopologyOptimizer` hardcodes `Solver` (`fem/topology.py:40`).
+A `SolverProtocol` — `(mesh, equation, bc) -> Solution` — would make them substitutable and let
+the optimizer accept either. (`Solver.solve_nonlinear_system` is a general Newton hook with no
+callers; folding `EnergySolver` onto it, or deleting it, would settle which loop is canonical.)
 
 ### 🟡 The load vector waits on quadrature, not on a `LinearForm`
 
@@ -182,14 +162,15 @@ Consequences: the dependency direction is core → plot rather than plot → cor
 
 1. **Typed `Solution`** (§2) — independent of everything below, and the largest felt
    improvement for callers. Touches every call site, so it wants to land on its own.
-2. **`DiscreteSystem`, then dense → sparse** — the single seam where the algebra layer
-   changes, and the item `BACKLOG.md` §2 calls the highest-leverage one. The load-bearing
-   step now that `Form` + `Material` has landed.
-3. **Quadrature, then `LinearForm`** (§2) — a real quadrature layer is what lets `f` vary in
-   space/time; the linear form (and variable-coefficient bilinear forms) follow from it. Until
-   then the load is `M @ f` and needs no new object.
+2. **Dense → sparse behind `DiscreteSystem`** — `DiscreteSystem` (the seam) has landed; both
+   solvers eliminate through it and the time-steppers factor once. Swapping its dense
+   factorization and assembly for sparse is `BACKLOG.md` §2's highest-leverage item, now a
+   one-object edit. The load-bearing remainder.
+3. **Quadrature, then `LinearForm`** (§2) — a real quadrature layer is what lets `f` vary
+   within an element; the linear form (and variable-coefficient bilinear forms) follow from it.
+   Until then the load is `M @ f` and needs no new object.
 4. **Strategy registry for `Solver`** (§2) — then fold `EnergySolver` onto the shared
-   elimination path and a common protocol.
+   Newton loop and a common protocol.
 5. **`TimeIntegrator`; move `dt`/`iters` off `Heat`/`Wave`** — breaking API change.
 6. **Uniform drivers** — `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
    problem factory rather than mutating an equation, which also removes the `_select_*`

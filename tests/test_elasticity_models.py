@@ -94,8 +94,7 @@ def _one_newton_step(solver):
     """Displacement after a single Newton step from the zero initial guess."""
     u = np.zeros(len(solver.mesh.vertices) * solver.n_components)
     u[solver.fixed] = solver.fixed_values
-    step = np.linalg.solve(solver.energy_hessian(u), -solver.energy_gradient(u))
-    return u + step
+    return solver.newton_solve(u, max_iters=1)
 
 
 def test_energy_solver_matches_recorded_solution(make_unit_square):

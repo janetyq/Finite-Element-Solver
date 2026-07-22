@@ -61,20 +61,22 @@ four files.
 | `Form` / `Material` / `EnergyForm` | | | █ | | | | | | |
 | `Equation` | | | █ | | | | ▒ | | |
 | `BoundaryConditions` / `ResolvedBC` | | | | | █ | | | | |
-| `Solver` | | | | | ▒ | █ | █ | ▒ | ▒ |
-| `EnergySolver` | | | | | ▒ | █ | | | |
+| `DiscreteSystem` | | | | | ▒ | █ | | | |
+| `Solver` | | | | | ▒ | ▒ | █ | ▒ | ▒ |
+| `EnergySolver` | | | | | ▒ | ▒ | | | |
 | `TopologyOptimizer` | | | ▒ | | | | | █ | ▒ |
 | `Solution` | | | | | | | ▒ | | █ |
 | `RedGreenRefiner` | █ | | | | | | | | ▒ |
 
-Read the rows: `Solver` is down to five of nine layers, and both solvers have dropped out of
-physics and assembly entirely — they build a form and hand it to the space, they no longer
-define or scatter anything. Read the columns: layers 2 (space) and 4 (assembly) each have
-exactly one owner (`FunctionSpace`), and layer 3 (physics) is owned by `Form`/`Material`/`EnergyForm`
-plus `Equation` (identity + parameters), with `energies.py` holding the densities `EnergyForm`
-wraps. Physics is now *placed*, not conflated; its open work is unification within the layer,
-not extraction. Layer 7 (time) is still split between `Equation` (holds `dt`, `iters`) and
-`Solver` (holds the scheme).
+Read the rows: both solvers have dropped out of physics and assembly entirely — they build a
+form and hand it to the space — and now out of the *algebra* too: the constrained solve lives
+in `DiscreteSystem`, so `Solver` retains only a partial mark there (it still drives the loop
+and picks the scheme). Read the columns: layers 2 (space) and 4 (assembly) each have exactly
+one owner (`FunctionSpace`), layer 3 (physics) is owned by `Form`/`Material`/`EnergyForm` plus
+`Equation` (identity + parameters), and layer 6 (algebra) now has one owner too
+(`DiscreteSystem`). Physics is *placed*, not conflated; its open work is unification within the
+layer, not extraction. Layer 7 (time) is still split between `Equation` (holds `dt`, `iters`)
+and `Solver` (holds the scheme).
 
 Layers 2, 4, and 5 each have exactly one owner. None is a coincidence: each got designed
 deliberately.
@@ -198,8 +200,8 @@ knows how to compose and block itself would make `solve_wave` a scheme applied t
 rather than a solver that knows how to index around a `2N`-sized matrix.
 
 **`solve_nonlinear_system` has no callers.** A general Newton solver sits unused on `Solver`
-while `EnergySolver` implements its own, differently and worse (see the review's singular-
-Hessian finding). One of these should exist.
+while `EnergySolver` implements its own. They no longer *diverge* on constraints -- both
+eliminate through `DiscreteSystem` now -- but two Newton loops still exist where one should.
 
 ### `Solution` — result, field container, and time series
 
@@ -319,16 +321,19 @@ passing without modification.
      `StVenantKirchhoffEnergyDensity` are the two members today; `Form`/`EnergyForm` is where
      choosing between them becomes an equation-level choice rather than the test-only injection
      it is now.
-2. **Introduce `DiscreteSystem`,** then migrate dense→sparse behind it. The backlog's
-   highest-leverage change becomes a one-layer edit rather than a cross-cutting one. Now the
-   next load-bearing step.
+2. **`DiscreteSystem` (done), then dense→sparse behind it.** The seam exists: both solvers
+   eliminate constraints through `DiscreteSystem`, and the time-steppers factor their constant
+   LHS once. The backlog's highest-leverage change -- swapping the dense factorization and
+   assembly for sparse -- is now a one-layer edit inside that object rather than cross-cutting.
+   The remaining load-bearing step.
 3. **Typed `Solution`,** together with the `io.py` rework they jointly require.
 4. **Extract `TimeIntegrator`;** move `dt`/`iters` off `Heat`/`Wave`. Breaking API change —
    worth batching with (3).
 5. **Uniform drivers:** `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
    problem factory rather than mutating an equation.
 
-Step 1 is done; step 2 is now the load-bearing one. Steps 3–5 are independent and can be done
+Step 1 is done and step 2's seam with it; the dense→sparse swap is the load-bearing remainder.
+Steps 3–5 are independent and can be done
 any time.
 
 The pattern from the completed work is worth keeping: a mechanical rename that makes two
