@@ -55,6 +55,11 @@ VertexIndices: TypeAlias = IntArray
 # (n, n) dense system matrix -- mass, stiffness, or a Crank-Nicolson block.
 Matrix: TypeAlias = FloatArray
 
+# (free_idxs, fixed_idxs, fixed_values) -- the DOF partition a solve works in.
+# Passed explicitly where the unknown is not one value per node, as in the wave
+# solver's stacked [u; du/dt] block.
+Constraints: TypeAlias = tuple[DofIndices, DofIndices, FloatArray]
+
 # A region: (n_vertices, spatial_dim) coordinates -> (n_vertices,) membership mask.
 # Any callable of that shape qualifies; `fem.regions` names the recurring cases.
 Region: TypeAlias = Callable[[Vertices], BoolArray]
