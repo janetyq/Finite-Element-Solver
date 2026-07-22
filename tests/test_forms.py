@@ -13,16 +13,17 @@ from fem.elements import (
     LinearLineElement,
     LinearTetrahedralElement,
     LinearTriangleElement,
+    single,
 )
 from fem.forms import LaplacianForm, LinearElasticForm, MassForm, strain_displacement
 from fem.materials import LinearElasticMaterial
 
 # Reference simplices: the unit right triangle and tet, and a unit line.
-TRI = LinearTriangleElement(np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]))
-TET = LinearTetrahedralElement(
-    np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])
+TRI = single(LinearTriangleElement, np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]))
+TET = single(
+    LinearTetrahedralElement, np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])
 )
-LINE = LinearLineElement(np.array([[0.0], [1.0]]))
+LINE = single(LinearLineElement, np.array([[0.0], [1.0]]))
 
 
 def test_laplacian_matches_analytic_unit_triangle():
@@ -40,7 +41,9 @@ def test_mass_form_scalar_matches_consistent_mass():
     """The scalar mass form is the element's consistent P1 mass matrix, and it
     integrates a unit field to the element volume (its row sum)."""
     M = MassForm().element_matrix(TRI, 0)
-    np.testing.assert_allclose(M, TRI.calculate_mass_matrix())
+    np.testing.assert_allclose(
+        M, TRI.element_type.reference_mass_matrix() * TRI.volume
+    )
     np.testing.assert_allclose(M.sum(), TRI.volume)
 
 

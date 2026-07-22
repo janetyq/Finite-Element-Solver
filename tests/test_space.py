@@ -53,9 +53,10 @@ def test_two_spaces_share_one_mesh_without_interfering(unit_square):
     assert scalar.mesh is vector.mesh
 
 
-def test_operators_and_element_objs_are_cached(unit_square):
+def test_operators_and_geometry_are_cached(unit_square):
     space = FunctionSpace(unit_square)
-    assert space.element_objs is space.element_objs
+    assert space.geometry is space.geometry
+    assert space.boundary_geometry is space.boundary_geometry
     assert space.mass_matrix is space.mass_matrix
 
 

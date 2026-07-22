@@ -356,7 +356,7 @@ class Solver:
         compliance_elements = []
 
         for e_idx, element in enumerate(self.mesh.elements):
-            element_obj = self.space.element_objs[e_idx]
+            element_obj = self.space.geometry.at(e_idx)
             B = strain_displacement(element_obj.grad_phi)
             D = self.material.constitutive_matrix(element_obj.reference_dim, e_idx)
             u_element = u[dof_indices(element, self.n_components)]

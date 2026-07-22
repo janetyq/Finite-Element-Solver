@@ -32,7 +32,11 @@ def fingerprint(A):
     A = A.toarray()
     return {
         'shape': A.shape,
-        'nnz': int((A != 0).sum()),
+        # Counted against a relative threshold rather than `!= 0`: an entry that
+        # cancels to rounding is structurally a zero, and whether it lands at
+        # exactly 0.0 or at 1e-16 depends on the arithmetic used to get there.
+        # Pinning the exact-zero count would pin that incidental detail.
+        'nnz': int((np.abs(A) > 1e-12 * np.abs(A).max()).sum()),
         'trace': float(np.trace(A)),
         'fro': float(np.linalg.norm(A)),
         'sum': float(A.sum()),
@@ -112,7 +116,7 @@ def test_scalar_operators_on_cube(unit_cube):
         'fro': 0.10520317644135, 'sum': 1.0,
     })
     assert fingerprint(V.assemble(LaplacianForm())) == approx({
-        'shape': (27, 27), 'nnz': 223, 'trace': 24.0,
+        'shape': (27, 27), 'nnz': 135, 'trace': 24.0,
         'fro': 6.1101009266078, 'sum': 0.0,
     })
 
@@ -129,7 +133,7 @@ def test_vector_operators_on_cube(unit_cube):
     })
     K = V.assemble(LinearElasticForm(LinearElasticMaterial(200.0, 0.3)))
     assert fingerprint(K) == approx({
-        'shape': (81, 81), 'nnz': 2007, 'trace': 10153.846153846,
+        'shape': (81, 81), 'nnz': 1659, 'trace': 10153.846153846,
         'fro': 1660.0583982503, 'sum': 0.0,
     })
 

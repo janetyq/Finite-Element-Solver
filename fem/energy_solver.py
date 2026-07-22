@@ -84,13 +84,13 @@ class EnergySolver:
     # assembly. Kept as methods (rather than inlined at the call sites) so the
     # parked gradient/hessian checks in __init__ still have something to point at.
     def element_energy(self, e_idx: int, u_element: FloatArray) -> float:
-        return self.form.element_energy(self.space.element_objs[e_idx], u_element)
+        return self.form.element_energy(self.space.geometry.at(e_idx), u_element)
 
     def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
-        return self.form.element_residual(self.space.element_objs[e_idx], u_element)
+        return self.form.element_residual(self.space.geometry.at(e_idx), u_element)
 
     def element_hessian(self, e_idx: int, u_element: FloatArray) -> FloatArray:
-        return self.form.element_tangent(self.space.element_objs[e_idx], u_element)
+        return self.form.element_tangent(self.space.geometry.at(e_idx), u_element)
 
     # energy / gradient / hessian are the raw, unconstrained quantities: the total
     # energy Pi(u), its gradient (nonzero at fixed DOFs -- the reaction forces),

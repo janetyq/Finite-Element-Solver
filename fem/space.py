@@ -28,6 +28,7 @@ from typing import Callable
 import numpy as np
 
 from fem.elements import (
+    ElementGeometry,
     LinearElement,
     LinearLineElement,
     LinearTetrahedralElement,
@@ -131,25 +132,23 @@ class FunctionSpace:
     # -- element geometry ---------------------------------------------------
 
     @cached_property
-    def element_objs(self) -> list[LinearElement]:
-        return [self.element_type(self.mesh.vertices[e]) for e in self.mesh.elements]
+    def geometry(self) -> ElementGeometry:
+        '''Batched geometry of the volume elements: one array of grad_phi, one of measures.'''
+        return self.element_type.geometry(self.mesh.vertices[self.mesh.elements])
 
     @cached_property
-    def boundary_objs(self) -> list[LinearElement]:
-        return [self.boundary_type(self.mesh.vertices[f]) for f in self.mesh.boundary]
+    def boundary_geometry(self) -> ElementGeometry:
+        '''The same, for the boundary facets -- embedded elements, so a wider grad_phi.'''
+        return self.boundary_type.geometry(self.mesh.vertices[self.mesh.boundary])
 
-    # Per-element geometry is reached through these rather than through
-    # `element_objs`, so that replacing the per-element objects with batched
-    # `(n_elements, ...)` arrays stays a change inside this class.
-
-    @cached_property
+    @property
     def element_volumes(self) -> FloatArray:
         '''(n_elements,) element measure -- length, area, or volume.'''
-        return np.array([e.volume for e in self.element_objs])
+        return self.geometry.volumes
 
     def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
         '''Gradient of a field over one element, from its nodal values.'''
-        return self.element_objs[e_idx].calculate_gradient(u_element)
+        return self.geometry.at(e_idx).calculate_gradient(u_element)
 
     # -- integrals ----------------------------------------------------------
 
@@ -176,10 +175,7 @@ class FunctionSpace:
 
         Constant per element for P1, which is why it is an element field.
         '''
-        return np.array([
-            self.element_gradient(e_idx, u[element])
-            for e_idx, element in enumerate(self.mesh.elements)
-        ])
+        return self.geometry.gradients(u[self.mesh.elements])
 
     # -- operators ----------------------------------------------------------
 
@@ -204,10 +200,10 @@ class FunctionSpace:
         results the callers *want* cached, the mass matrices, cache themselves.
         '''
         elements = self.mesh.boundary if boundary else self.mesh.elements
-        element_objs = self.boundary_objs if boundary else self.element_objs
+        geometry = self.boundary_geometry if boundary else self.geometry
         return self._assemble(
             elements,
-            lambda idx: form.element_matrix(element_objs[idx], idx),
+            lambda idx: form.element_matrix(geometry.at(idx), idx),
         )
 
     # -- nonlinear assembly -------------------------------------------------
@@ -225,7 +221,7 @@ class FunctionSpace:
         u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
         return sum(
             # u_nodal[element] is the element's (N, n_components) local state.
-            form.element_energy(self.element_objs[e_idx], u_nodal[element])
+            form.element_energy(self.geometry.at(e_idx), u_nodal[element])
             for e_idx, element in enumerate(self.mesh.elements)
         )
 
@@ -236,7 +232,7 @@ class FunctionSpace:
         for e_idx, element in enumerate(self.mesh.elements):
             # (N, n_components) -> flatten to (N*n_components,), added into the
             # element's global DOF slots.
-            contribution = form.element_residual(self.element_objs[e_idx], u_nodal[element])
+            contribution = form.element_residual(self.geometry.at(e_idx), u_nodal[element])
             r[self.dof_indices(element)] += contribution.flatten()
         return r
 
@@ -248,7 +244,7 @@ class FunctionSpace:
             # (N, n_components, N, n_components) -> (k, k) local stiffness, ordered
             # to match dof_indices for _assemble's scatter.
             tangent = form.element_tangent(
-                self.element_objs[e_idx], u_nodal[self.mesh.elements[e_idx]]
+                self.geometry.at(e_idx), u_nodal[self.mesh.elements[e_idx]]
             )
             k = self.element_type.N * self.n_components
             return tangent.reshape(k, k)

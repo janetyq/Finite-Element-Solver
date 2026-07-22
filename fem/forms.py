@@ -22,7 +22,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from fem.elements import LinearElement
+from fem.elements import ElementView
 from fem.materials import LinearElasticMaterial
 from fem.typing import FloatArray, Matrix
 
@@ -64,7 +64,7 @@ def strain_displacement(grad_phi: FloatArray) -> Matrix:
 class Form(Protocol):
     '''The element-matrix integrand for a bilinear form.'''
 
-    def element_matrix(self, element: LinearElement, e_idx: int) -> Matrix:
+    def element_matrix(self, element: ElementView, e_idx: int) -> Matrix:
         '''The dense element stiffness for `element`, index `e_idx` in the mesh.'''
         ...
 
@@ -81,16 +81,16 @@ class MassForm:
     '''
     n_components: int = 1
 
-    def element_matrix(self, element: LinearElement, e_idx: int) -> Matrix:
-        M = np.kron(element.calculate_mass_matrix(), np.eye(self.n_components))
-        return M.astype(np.float64)
+    def element_matrix(self, element: ElementView, e_idx: int) -> Matrix:
+        scalar = element.element_type.reference_mass_matrix() * element.volume
+        return np.kron(scalar, np.eye(self.n_components)).astype(np.float64)
 
 
 @dataclass(frozen=True)
 class LaplacianForm:
     '''The scalar Laplacian ∫ ∇u·∇v -- material-free, so G = grad_phi, C = I.'''
 
-    def element_matrix(self, element: LinearElement, e_idx: int) -> Matrix:
+    def element_matrix(self, element: ElementView, e_idx: int) -> Matrix:
         return element.grad_phi @ element.grad_phi.T * element.volume
 
 
@@ -99,7 +99,7 @@ class LinearElasticForm:
     '''Small-strain linear elasticity ∫ ε(u):D:ε(v), so G = B, C = D.'''
     material: LinearElasticMaterial
 
-    def element_matrix(self, element: LinearElement, e_idx: int) -> Matrix:
+    def element_matrix(self, element: ElementView, e_idx: int) -> Matrix:
         B = strain_displacement(element.grad_phi)
         D = self.material.constitutive_matrix(element.reference_dim, e_idx)
         return B.T @ D @ B * element.volume
@@ -126,17 +126,17 @@ class EnergyForm:
     # set_grad_u), so annotating a Protocol here would not typecheck either.
     energy_density: Any
 
-    def element_energy(self, element: LinearElement, u_element: FloatArray) -> float:
+    def element_energy(self, element: ElementView, u_element: FloatArray) -> float:
         self.energy_density.set_grad_u(element.calculate_gradient(u_element))
         return float(self.energy_density.W) * element.volume
 
-    def element_residual(self, element: LinearElement, u_element: FloatArray) -> FloatArray:
+    def element_residual(self, element: ElementView, u_element: FloatArray) -> FloatArray:
         '''dW/dx, shape (n_nodes, n_components) -- the element's force contribution.'''
         self.energy_density.set_grad_u(element.calculate_gradient(u_element))
         dW_dx = np.einsum('ij,ijmn->mn', self.energy_density.dW_dF, element.dF_dx)
         return dW_dx * element.volume
 
-    def element_tangent(self, element: LinearElement, u_element: FloatArray) -> FloatArray:
+    def element_tangent(self, element: ElementView, u_element: FloatArray) -> FloatArray:
         '''d2W/dx2, shape (n_nodes, n_components, n_nodes, n_components).'''
         # d2W_dx2 = dW_dS : (d2S_dF2 : dF_dx : dF_dx) + d2W_dS2 : (dS_dx : dS_dx)
         # ":" is the tensor double contraction. For two second-order tensors,

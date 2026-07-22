@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from fem.materials import Enu_to_Lame, Lame_to_Enu
-from fem.elements import LinearTetrahedralElement, LinearTriangleElement
+from fem.elements import LinearTetrahedralElement, LinearTriangleElement, single
 from fem.forms import MassForm
 from fem.geometry import (
     calculate_polygon_area,
@@ -97,8 +97,8 @@ class TestMassMatrix:
 
     @pytest.mark.parametrize('element_type, vertices, n_components', ELEMENTS)
     def test_is_scalar_matrix_per_component(self, element_type, vertices, n_components):
-        element = element_type(vertices)
-        scalar = element.calculate_mass_matrix()
+        element = single(element_type, vertices)
+        scalar = element_type.reference_mass_matrix() * element.volume
         vector = MassForm(n_components).element_matrix(element, 0)
         assert np.allclose(vector, np.kron(scalar, np.eye(n_components)))
 
@@ -107,10 +107,10 @@ class TestMassMatrix:
         self, element_type, vertices, n_components,
     ):
         # int_element 1 dV == volume, componentwise.
-        element = element_type(vertices)
+        element = single(element_type, vertices)
         mass = MassForm(n_components).element_matrix(element, 0)
         for component in range(n_components):
-            load = np.zeros((element.N, n_components))
+            load = np.zeros((element_type.N, n_components))
             load[:, component] = 1.0
             assert (mass @ load.flatten()).sum() == pytest.approx(element.volume)
 
@@ -125,12 +125,12 @@ class TestDimensions:
     def test_planar_triangle_mesh(self):
         mesh = Mesh([[0, 0], [1, 0], [0, 1]], [[0, 1, 2]], [[0, 1], [1, 2], [2, 0]])
         assert mesh.spatial_dim == 2
-        assert LinearTriangleElement(mesh.vertices).reference_dim == 2
+        assert single(LinearTriangleElement, mesh.vertices).reference_dim == 2
 
     def test_tet_element(self):
         assert LinearTetrahedralElement.N - 1 == 3
         tet = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])
-        assert LinearTetrahedralElement(tet).reference_dim == 3
+        assert single(LinearTetrahedralElement, tet).reference_dim == 3
 
     def test_surface_mesh_separates_them(self):
         # A triangle embedded in 3D: 3 ambient coordinates, still a 2D element.
