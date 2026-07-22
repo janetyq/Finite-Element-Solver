@@ -122,8 +122,10 @@ def _solve_3d(n):
 
 @pytest.fixture(scope='module')
 def convergence_3d():
-    # h = 1/4, 1/6, 1/8, 1/10. Capped by the dense solve: DOFs go as 3n^3, and
-    # n=13 alone costs ~9s against ~8s for this whole sequence.
+    # h = 1/4, 1/6, 1/8, 1/10. The sparse solve is now cheap (a factor+solve at
+    # n=17 is ~2s); the cap is the Python per-element assembly loop, which
+    # dominates above these sizes (~15s at n=17). Finer meshes wait on batched
+    # assembly, not on the linear algebra.
     return [_solve_3d(n) for n in (5, 7, 9, 11)]
 
 
@@ -138,13 +140,14 @@ def test_3d_approaches_second_order(convergence_3d):
 
     These meshes are pre-asymptotic. The Kuhn tets are distorted enough that the
     error constant is large, and the affordable resolutions only reach an
-    observed order of ~1.79 (and ~1.85 at n=13, which is too slow to keep).
-    A gentler manufactured solution shifts this only slightly, so it is the tet
-    geometry rather than the solution's frequency.
+    observed order of ~1.79. Pushing further does climb into the band -- ~1.94 at
+    n=21 -- but n=21 is ~73s, now dominated by assembly rather than the (sparse)
+    solve, so it is left to the batched-assembly work rather than kept here.
 
-    What makes that reading trustworthy rather than convenient: the order climbs
-    monotonically toward 2 (1.46, 1.69, 1.79), and the identical setup in 2D
-    reaches 2.006. A genuine first-order defect would plateau near 1.0 instead.
+    What makes the reading trustworthy rather than convenient: the order climbs
+    monotonically toward 2 (1.46, 1.69, 1.79), continues to 1.94 when pushed, and
+    the identical setup in 2D reaches 2.006. A genuine first-order defect would
+    plateau near 1.0 instead.
     """
     orders = _observed_orders(convergence_3d)
     for coarse, fine in zip(orders, orders[1:]):
