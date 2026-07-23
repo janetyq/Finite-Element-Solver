@@ -20,7 +20,6 @@ from fem.typing import (
     DofVector,
     ElementField,
     FieldValue,
-    Matrix,
     Operator,
     VertexField,
 )
@@ -48,12 +47,6 @@ class Equation:
 
     def __init__(self, source: FieldValue = None) -> None:
         self.source = source
-
-    def copy(self: EquationT) -> EquationT:
-        # shallow copy that works regardless of subclass __init__ signature
-        new = self.__class__.__new__(self.__class__)
-        new.__dict__.update(self.__dict__)
-        return new
 
 
 class Projection(Equation):
@@ -229,24 +222,6 @@ class Solver:
             bc = self.resolved_bc
             constraints = (bc.free_idxs, bc.fixed_idxs, bc.fixed_values)
         return DiscreteSystem(A, constraints).solve(b)
-
-    def solve_nonlinear_system(
-        self,
-        A: Callable[[DofVector], Matrix],
-        b: Callable[[DofVector], DofVector],
-        x0: DofVector,
-        tol: float = 1e-6,
-        max_iters: int = 100,
-    ) -> DofVector:
-        # newton solver
-        x = x0.copy()
-        for iter in range(max_iters):
-            logger.debug('newton iter %d', iter)
-            dx = self.solve_linear_system(A(x), A(x) @ x - b(x))
-            if np.linalg.norm(dx) < tol:
-                break
-            x -= dx
-        return x
 
     def solve_projection(self) -> None:
         logger.info('Solving L2 projection...')  # M @ u = b
