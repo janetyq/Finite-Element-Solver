@@ -232,13 +232,19 @@ awkwardness that it has to rebuild BC resolution by hand after each remesh.
 `solve_wave` hardcodes Crank–Nicolson, hand-builds a `2N` block system with `block_array`, and
 needs `_wave_block_constraints` to lift nodal Dirichlet indices into block-DOF space.
 
-`DiscreteSystem` was predicted here as the fix and only half delivered on it. It landed, and
-`solve_wave` does now hand it the block operator and reuse one factorization across steps — but
-it composes nothing: the blocking and the constraint lifting are still written out in the
-solver. A system that knew **how to compose and block itself** would make `solve_wave` a scheme
-applied to a system rather than a solver that knows how to index around a `2N` matrix. That is
-the missing half, and it is a prerequisite for `TimeIntegrator` being additive rather than
-another rewrite of the same indexing.
+`DiscreteSystem` was predicted here as the fix and only partly delivered: `solve_wave` hands it
+the block operator and reuses one factorization, but the blocking and the constraint lifting are
+still written out in the solver.
+
+**Whether that is a defect depends on an unmade decision.** The `2N` system is not a requirement
+of the wave equation — it is a consequence of reducing a second-order equation to first order in
+`[u; u']`. So `TimeIntegrator` forks: either *one first-order interface* for both PDEs, which
+needs `DiscreteSystem` to compose and block itself and generalizes `_wave_block_constraints`; or
+*one integrator per order* (θ-method for heat, Newmark/generalized-α for wave), which never
+blocks — Newmark solves an `N`-sized `(M + β dt²c²K) a = …` — and deletes the lifting outright.
+Leaning to the second: that operator is SPD where the block one is not (`A_left`'s off-diagonals
+are `-dt/2·M` against `+c²dt/2·K`, not transposes), so it stays inside the CG/preconditioning
+story that is the top backlog item. Worth settling before step 4, not during.
 
 The second Newton loop is gone: `Solver.solve_nonlinear_system` had no callers and has been
 deleted, leaving `EnergySolver.newton_solve` as the only one.
@@ -279,7 +285,8 @@ against — dead parameters stay invisible precisely because nothing types them.
 | Wanted (from `BACKLOG.md`) | Blocked by |
 |---|---|
 | Quadratic / higher-order elements | DOFs assumed one-per-vertex (`dof_indices`, `Mesh._get_all_edges`, `n_dofs`); needs real quadrature |
-| Time-integrator abstraction | `dt`/`iters` live on `Equation`; schemes inlined in `Solver`; `DiscreteSystem` does not compose or block itself |
+| Time-integrator abstraction | `dt`/`iters` live on `Equation`; schemes inlined in `Solver`; and an unmade design decision about its shape (see the fork in §3) |
+| Mixed / saddle-point formulations | `DiscreteSystem` does not compose or block itself; no DOF map naming which block is which |
 | Robin BCs | needs a *boundary stiffness* form and somewhere in `assemble_everything` for it to contribute to the LHS — the space assembles only a boundary mass matrix today |
 | Variable coefficients | assembly uses closed-form linear-simplex integrals, no quadrature hook |
 | Time-varying loads / BCs | `evaluate_field` takes position only, no `t` |
@@ -336,8 +343,8 @@ What each move buys, concretely:
   of `equation.E` in favour of handing the driver a fresh `Material` each iteration.
 - **`DiscreteSystem`** — *mostly done*: it is the one place that knows "matrix + rhs + which
   DOFs are fixed", and it was the single seam where dense became sparse. *Remaining*: it does
-  not compose or block itself, so the wave system is still hand-built with `block_array` and
-  hand-lifted by `_wave_block_constraints`.
+  not compose or block itself, so the wave system is still hand-built with `block_array` — but
+  whether that needs fixing depends on the `TimeIntegrator` fork in §3.
 - **`TimeIntegrator`** — deduplicates backward Euler / Crank–Nicolson; moves `dt`/`iters` off
   `Equation`; makes θ-method / generalized-α additive.
 - **Uniform drivers** — `adaptive_refinement` stops being a method on the thing it drives.
@@ -376,10 +383,10 @@ passing without modification.
    CSR, and the factorization is `splu`. The linear algebra is off the critical path; the
    per-element assembly loop that replaced it as the top cost has been batched too (see
    `Element`, above). The scaling work is done; the remaining limit is the direct sparse
-   factorization. *Remaining:* self-composition, which step 4 needs (see `Solver`, above).
+   factorization.
 3. **Typed `Solution`,** together with the `io.py` rework they jointly require.
 4. **Extract `TimeIntegrator`;** move `dt`/`iters` off `Heat`/`Wave`. Breaking API change —
-   worth batching with (3).
+   worth batching with (3). Settle the fork in §3 first.
 5. **Uniform drivers:** `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
    problem factory rather than mutating an equation.
 
