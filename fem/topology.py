@@ -29,6 +29,7 @@ class TopologyOptimizer:
         iters: int = 10,
         volume_frac: float = 1.0,
         smoothing_radius: float = 0.1,
+        penalty: float = 3.0,
     ) -> None:
         assert isinstance(equation, LinearElastic), \
             'TopologyOptimizer only supports LinearElastic equations'
@@ -45,6 +46,10 @@ class TopologyOptimizer:
 
         self.iters = iters
         self.volume_frac = volume_frac
+        # The SIMP exponent p in E(rho) = rho^p * E_0. Above 1 it makes
+        # intermediate densities inefficient per unit volume, which is what
+        # drives the design towards black-and-white; 3 is the standard choice.
+        self.penalty = penalty
 
         self.rho: ElementField
         self.set_rho(np.full(len(self.mesh.elements), self.volume_frac))
@@ -58,7 +63,7 @@ class TopologyOptimizer:
 
     def set_rho(self, rho: ElementField) -> None:
         self.rho = rho
-        self.equation.E = self.rho**3 * self.base_E
+        self.equation.E = self.rho**self.penalty * self.base_E
 
     def oc_density(
         self,
@@ -126,7 +131,10 @@ class TopologyOptimizer:
         return self.solver.solution.values['compliance'].sum()
 
     def compliance_gradient(self, args: Sequence[Any] | None) -> ElementField:
-        return self.solver.solution.values['compliance'] * 3/self.rho
+        # d(compliance)/d(rho) for E(rho) = rho^p E_0: the element compliance is
+        # linear in E, so the derivative is p/rho times it. The exponent has to
+        # be the same p set_rho raised rho to, hence self.penalty in both.
+        return self.solver.solution.values['compliance'] * self.penalty/self.rho
 
     def target_compliance_objective(self, args: Sequence[Any]) -> float:
         target = args[0]
