@@ -4,7 +4,6 @@ from functools import cached_property
 
 import numpy as np
 
-from fem.plot.plotter import Plotter, PlotMode
 from fem.typing import ElementField, Elements, IntArray, VertexField, Vertices
 
 Edge = tuple[int, int]
@@ -48,11 +47,6 @@ class Mesh:
             for v_idx in element:
                 vertex_values[v_idx] = element_values[e_idx]
         return vertex_values
-
-    def plot(self) -> None:
-        plotter = Plotter(title='Mesh plot')
-        plotter.plot(self, mode=PlotMode.MESH)
-        plotter.show()
 
     # TODO: Save and load to better formats - off, obj
     def save(self, path: str = 'test_mesh.json') -> None:
