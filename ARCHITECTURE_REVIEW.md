@@ -32,11 +32,9 @@ string plus a positional-args tuple resolved through `_select_*`.
 
 ### 🟡 Unused modules and members
 
-- `fem/quadrature.py` — no importers anywhere in the repo. `BACKLOG.md` already flags
-  "decide its fate"; worth deciding, and the decision is easier than it looks: the rules take
-  `(func, polygon_vertices)`, whereas the quadrature layer §2 wants needs reference-element
-  points and weights. They are not a head start on it. (The README's project structure does
-  annotate the file "not yet wired into assembly", so it is at least not advertised as live.)
+- `fem/quadrature.py` — no importers anywhere in the repo. Not a head start on the quadrature
+  layer §2 wants, either: the rules take `(func, polygon_vertices)`, where a real layer needs
+  reference-element points and weights. Delete or rewrite; `BACKLOG.md` flags "decide its fate".
 - `fem/numerics.py:91` `class color` — no callers. Superseded by the move to `logging`.
 - `fem/numerics.py:79` `timer` — no callers.
 - `check_gradient` / `check_hessian` (`fem/numerics.py:27,53`) both end in `plt.show()`,
@@ -68,9 +66,8 @@ Problems:
 - **Implicit temporal coupling.** `self.material` is set only inside the `LinearElastic`
   branch of `assemble_everything` (`:179`) and read unconditionally in
   `solve_linear_elastic` (`:333`). The two methods must be called in order, and nothing
-  encodes that. (The attribute used to be `self.mu` / `self.lamb`; extracting `Material`
-  moved the coupling without removing it.)
-- The class now carries five PDE solve routines, the linear solver, assembly, and the
+  encodes that.
+- The class carries five PDE solve routines, the linear solver, assembly, and the
   adaptive-refinement loop.
 
 Note that the obvious fix — putting `solve()` on `Equation` — is *wrong*, and the
@@ -81,35 +78,21 @@ dispatch correctly, with each strategy owning its own assembly and its own resul
 
 ### 🟡 `EnergySolver` and `Solver` share no interface
 
-Dirichlet handling is now unified: both eliminate fixed DOFs through `DiscreteSystem`, so
-`EnergySolver`'s old zero-the-rows-and-columns Hessian (structurally singular, hence its
-`1e-8` regularization fallback) is gone. What remains is that the two solvers still reimplement
-their step loops separately and re-unpack the resolved BC by hand, and neither implements a
-shared interface: `TopologyOptimizer` hardcodes `Solver` (`fem/topology.py:44`).
-A `SolverProtocol` — `(mesh, equation, bc) -> Solution` — would make them substitutable and let
-the optimizer accept either. Which Newton loop is canonical is now settled by deletion:
-`Solver.solve_nonlinear_system` had no callers and is gone, leaving `EnergySolver.newton_solve`
-as the only one.
+The two solvers reimplement their step loops separately and re-unpack the resolved BC by hand,
+and neither implements a shared interface: `TopologyOptimizer` hardcodes `Solver`
+(`fem/topology.py:44`). A `SolverProtocol` — `(mesh, equation, bc) -> Solution` — would make
+them substitutable and let the optimizer accept either.
 
 ### 🟡 The load vector waits on quadrature, not on a `LinearForm`
 
-Assembly is now uniformly form-based: bilinear forms (mass, stiffness, boundary mass) scatter
-through `FunctionSpace.assemble`, the nonlinear energy path is `EnergyForm`, and the load
-`L(v) = ∫ f·v` is the mass form applied to the nodal source:
-
-```python
-self.b = (self.M @ source_load.flatten()).flatten()
-```
-
-This is the *exact* integral of `f`'s P1 interpolant (`M_ij = ∫ φ_i φ_j`), so the load is
-already form-assembled — the mass form used as a load operator rather than a system matrix. A
-standalone `LinearForm` adds capability only when `f` varies *within* an element, which needs
+The load `L(v) = ∫ f·v` is `self.b = self.M @ source_load` (`solver.py:199`) — the mass form as
+a load operator, which is the *exact* integral of `f`'s P1 interpolant (`M_ij = ∫ φ_i φ_j`). A
+standalone `LinearForm` adds capability only once `f` varies *within* an element, which needs
 quadrature to sample it at interior points — the same machinery non-constant coefficients
-(`∫ κ(x) ∇u·∇v`) and P2 elements need, and the reason `quadrature.py` has no callers yet. So a
-`LinearForm` belongs with the quadrature work, not before it. Two things it is *not* blocked
-on: a time-varying source `f(·, t)` just needs re-evaluating `M @ f_t` per step (and fixing the
-Crank–Nicolson `b_n`/`b_{n+1}` average `solve_wave` flags), and Robin conditions need a
-*bilinear* boundary form, which `assemble(form, boundary=True)` already supports.
+(`∫ κ(x) ∇u·∇v`) and P2 elements need. So a `LinearForm` belongs with the quadrature work, not
+before it. It is *not* blocked on a time-varying source `f(·, t)` (just re-evaluate `M @ f_t`
+per step) or on Robin conditions (those need a *bilinear* boundary form, which
+`assemble(form, boundary=True)` already supports).
 
 ### 🟡 `Solution` is a stringly-typed dict
 
@@ -126,33 +109,23 @@ Against the repo's own "prefer typed over stringly-typed" convention:
   nothing in the type distinguishing them, so `mode` conversion has to *infer* meaning from
   `len(values)` (`:46`, `:53`) — which silently picks the wrong branch whenever
   `n_elements == n_vertices`.
-- The `mode` axis of `get_values` has no *production* callers: `tests/test_regressions.py`
-  covers all three branches, but nothing in `fem/`, `examples/`, or the README snippet passes
-  it. So the length-guessing above is pinned but unused — the tests fix its behaviour without
-  making it sound.
+- The `mode` axis of `get_values` has no *production* callers — nothing in `fem/`, `examples/`,
+  or the README snippet passes it — so the length-guessing above is unused as well as unsound.
 - `combine_solutions` hardcodes a component count of 2 with its own `# TODO: bit weird`.
 
 Per-solve-type dataclasses (`SteadySolution`, `TransientSolution`, `ElasticSolution`) would
 make the fields discoverable and delete the length-guessing entirely.
 
-### 🟡 Core still depends on the plot layer — partly fixed
+### 🟡 `import fem` still pulls in matplotlib
 
-The `Mesh` half is closed. `Mesh.plot()` had no callers and is deleted, so `fem/mesh/mesh.py`
-imports no plot code and the geometry layer is clean. It followed the shape
-`fem/mesh/refinement.py` already had: expose `leaf_classifications()` as plain data and let
-`fem.plot.helpers.plot_refinement` render it.
-
-Two paths remain:
+Two paths reach the plot layer from core:
 
 - `fem/numerics.py:8` imports `matplotlib.pyplot` at module scope, only for the blocking
   `check_gradient` / `check_hessian` dev tools in §1. `fem.topology` imports `numerics` for
-  `calculate_smoothing_matrix`, so this one is on a live path.
-- `fem/__init__.py:54` re-exports `Plotter` and `PlotMode` as part of the public API.
-
-So `import fem` still pulls in matplotlib, by both routes. The `numerics` one is a genuine
-layering violation and goes away with the §1 dev tools; the `__init__` one is a deliberate
-API choice, and only worth revisiting if the package should be importable without a plotting
-backend installed.
+  `calculate_smoothing_matrix`, so this is on a live path — a genuine layering violation that
+  goes away with the §1 dev tools.
+- `fem/__init__.py:54` re-exports `Plotter` and `PlotMode` as public API. Deliberate, and only
+  worth revisiting if the package should be importable without a plotting backend installed.
 
 ---
 
@@ -162,19 +135,9 @@ backend installed.
   shared vertices, while its inverse (`:36`) averages. The asymmetry is probably unintended —
   an area-weighted average is the usual choice.
 
-The deep-loop item that sat here is closed. `LinearElement.calculate_dF_dx` (a 4-deep Python
-loop with its own `# TODO: figure out kronecker product`) and `calculate_d2S_dF2` (6-deep) are
-both gone: the first is now `EnergyForm._dF_dx` in `fem/forms.py`, the second
-`StVenantKirchhoff._d2S_dF2` (`energies.py:105`), each a single batched `einsum`. That was the
-batched-assembly work, not a separate cleanup.
-
 ---
 
 ## Suggested order
-
-Dense → sparse behind `DiscreteSystem` was item 2 and is **done** — assembly emits sparse CSR,
-the factorization is `splu`, and `BACKLOG.md` §2 has moved on to iterative solvers. The rest
-stands:
 
 1. **Typed `Solution`** (§2) — independent of everything below, and the largest felt
    improvement for callers. Touches every call site, so it wants to land on its own.
@@ -188,4 +151,4 @@ stands:
    problem factory rather than mutating an equation, which also removes the `_select_*`
    plumbing in §1.
 6. **Clear the remaining core → plot paths** (§2) and §1's unused modules — small, and
-   independent of all of the above. The `Mesh` half of this is already done.
+   independent of all of the above.
