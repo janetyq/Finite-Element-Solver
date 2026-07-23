@@ -48,12 +48,6 @@ class Equation:
     def __init__(self, source: FieldValue = None) -> None:
         self.source = source
 
-    def copy(self: EquationT) -> EquationT:
-        # shallow copy that works regardless of subclass __init__ signature
-        new = self.__class__.__new__(self.__class__)
-        new.__dict__.update(self.__dict__)
-        return new
-
 
 class Projection(Equation):
     '''L2 projection of the source field onto the FE space (M u = b).'''

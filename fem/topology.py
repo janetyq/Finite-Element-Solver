@@ -36,7 +36,10 @@ class TopologyOptimizer:
         # Narrowed once here: the assert above guarantees it, and every later use
         # of E goes through this rather than the Solver's loosely-typed equation.
         self.equation: LinearElastic = equation
-        self.orig_equation: LinearElastic = equation.copy()
+        # The solid-material modulus every density scaling is measured against.
+        # Only this one number outlives set_rho's overwrite of equation.E, so it
+        # is kept directly rather than by cloning the whole equation.
+        self.base_E: float | ElementField = equation.E
         self.solver = Solver(mesh, equation, boundary_conditions)
         self.solution = Solution(mesh, self.solver.n_components)
 
@@ -55,7 +58,7 @@ class TopologyOptimizer:
 
     def set_rho(self, rho: ElementField) -> None:
         self.rho = rho
-        self.equation.E = self.rho**3 * self.orig_equation.E
+        self.equation.E = self.rho**3 * self.base_E
 
     def oc_density(
         self,
