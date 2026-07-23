@@ -106,11 +106,8 @@ def test_box_mesh_tiles_the_cube_exactly(n):
     assert len(mesh.vertices) == n**3
     assert len(mesh.elements) == 6 * (n - 1)**3
 
-    volume = sum(
-        LinearTetrahedralElement(mesh.vertices[element]).volume
-        for element in mesh.elements
-    )
-    assert volume == pytest.approx(1.0)
+    geometry = LinearTetrahedralElement.geometry(mesh.vertices[mesh.elements])
+    assert geometry.total_volume == pytest.approx(1.0)
 
 
 def test_box_mesh_boundary_is_the_cube_surface():

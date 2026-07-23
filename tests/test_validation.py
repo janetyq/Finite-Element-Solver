@@ -19,7 +19,7 @@ def test_neohookean_is_gated():
     """The unfinished Neohookean material must raise, not silently do nothing."""
     density = NeohookeanEnergyDensity(E=200, nu=0.3)
     with pytest.raises(NotImplementedError):
-        density.set_grad_u(np.zeros((2, 2)))
+        density.evaluate(np.zeros((1, 2, 2)))
 
 
 def test_named_interior_vertex_is_rejected(make_unit_square):
@@ -138,14 +138,8 @@ def test_energy_solver_rejects_a_source_term(make_unit_square):
     EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
 
 
-def test_energy_solver_rejects_a_3d_mesh():
-    """The energy densities are built at fixed rank 2, so a tet mesh must be
-    refused up front.
-
-    The guard used to compare the component count against 2. That is unconditionally
-    2 for LinearElastic, so it never fired, and a tet mesh got as far as set_grad_u
-    rejecting its (3, 2) gradient -- several frames from the cause.
-    """
+def test_energy_solver_accepts_a_3d_mesh():
+    """The energy densities are now dimension-general, so a tet mesh is accepted."""
     mesh = Mesh(
         vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
         elements=[[0, 1, 2, 3]],
@@ -154,8 +148,21 @@ def test_energy_solver_rejects_a_3d_mesh():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(2, 0.0), [0, 0, 0])
 
-    with pytest.raises(NotImplementedError, match='spatial_dim=3'):
-        EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+    assert solver.n_components == 3
+
+
+def test_energy_solver_rejects_a_per_element_modulus(make_unit_square):
+    """A density carries one pair of Lame parameters for the whole mesh, so an
+    array E broadcasts wrongly against the constant d2W/dS2 rather than giving
+    per-element moduli. `Solver` is the path that supports them."""
+    mesh = make_unit_square(6)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+
+    E = np.full(len(mesh.elements), 200.0)
+    with pytest.raises(NotImplementedError):
+        EnergySolver(mesh, LinearElastic(E=E, nu=0.4), bc, verbose=False)
 
 
 def test_robin_is_gated(make_unit_square):

@@ -1,9 +1,10 @@
 """Time assembly and solve versus mesh size, split into their two phases.
 
-Makes the sparse-matrix migration concrete and guards against regressions: run it
-before and after a change to see where the time goes. As of the sparse migration
-the solve is cheap and the per-element Python assembly loop dominates at any
-interesting resolution -- the motivation for batched assembly next.
+Makes the scaling work concrete and guards against regressions: run it before and
+after a change to see where the time goes. Sparse matrices moved the cost off the
+solve and onto the per-element assembly loop; batching assembly has moved it back
+onto the sparse factorization, which now dominates at any interesting resolution
+-- the motivation for an iterative solver next.
 
     uv run python -m examples.benchmark_assembly
 """

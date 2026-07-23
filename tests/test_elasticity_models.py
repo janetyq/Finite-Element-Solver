@@ -12,7 +12,7 @@ The package solves elasticity twice, along two independent axes:
 (Green-Lagrange, energy). Because they sit on the diagonal, switching solver
 also switches physics, and neither difference can be observed alone.
 
-`SmallStrainEnergyDensity` (`fem/energies.py`) is the missing off-diagonal cell
+`SmallStrain` (`fem/energies.py`) is the missing off-diagonal cell
 -- Green-Lagrange's linearization dropped into the energy machinery. Holding the
 method fixed while changing only the strain measure, and vice versa, makes each
 axis observable on its own. That turns the two comments which used to carry this
@@ -28,12 +28,12 @@ from fem.materials import LinearElasticMaterial
 from fem.regions import on_plane
 from fem.solver import Solver, LinearElastic
 from fem.energy_solver import EnergySolver
-from fem.energies import SmallStrainEnergyDensity, StVenantKirchhoffEnergyDensity
+from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.forms import EnergyForm
 
 
 def test_hooke_matrix_is_the_second_derivative_of_the_small_strain_energy():
-    """`Material`'s D and `SmallStrainEnergyDensity`'s W are one material, D = d2W/de2.
+    """`Material`'s D and `SmallStrain`'s W are one material, D = d2W/de2.
 
     Both `Solver` (via LinearElasticMaterial -> D) and the small-strain energy
     path describe the same linear material by different routes. This pins that
@@ -50,8 +50,8 @@ def test_hooke_matrix_is_the_second_derivative_of_the_small_strain_energy():
     would forfeit 3D.
     """
     E, nu = 200.0, 0.3
-    D = LinearElasticMaterial(E, nu).constitutive_matrix(reference_dim=2, e_idx=0)
-    density = SmallStrainEnergyDensity(E, nu)
+    D = LinearElasticMaterial(E, nu).constitutive_matrices(reference_dim=2, n_elements=1)[0]
+    density = SmallStrain(E, nu)
 
     rng = np.random.default_rng(0)
     for _ in range(8):
@@ -129,7 +129,7 @@ def test_small_strain_energy_equals_direct_solve(make_unit_square):
     mesh, bc = _stretched_square(make_unit_square)
 
     u_direct = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().get_values("u").flatten()
-    u_energy = _one_newton_step(_energy_solver(mesh, bc, SmallStrainEnergyDensity))
+    u_energy = _one_newton_step(_energy_solver(mesh, bc, SmallStrain))
 
     np.testing.assert_allclose(u_energy, u_direct, atol=1e-12)
 
@@ -159,8 +159,8 @@ def test_models_agree_to_second_order_in_strain(make_unit_square):
     gaps = []
     for stretch in (0.08, 0.04, 0.02, 0.01):
         mesh, bc = _stretched_square(make_unit_square, stretch=stretch)
-        u_small = _energy_solver(mesh, bc, SmallStrainEnergyDensity).solve().get_values("u")
-        u_stvk = _energy_solver(mesh, bc, StVenantKirchhoffEnergyDensity).solve().get_values("u")
+        u_small = _energy_solver(mesh, bc, SmallStrain).solve().get_values("u")
+        u_stvk = _energy_solver(mesh, bc, StVenantKirchhoff).solve().get_values("u")
         gaps.append(np.linalg.norm(u_small - u_stvk))
 
     ratios = [a / b for a, b in zip(gaps[:-1], gaps[1:])]
@@ -200,8 +200,8 @@ def test_green_lagrange_is_frame_indifferent(make_unit_square):
     small_energies = []
     for theta in (0.4, 0.2, 0.1):
         u = rotation_field(theta)
-        stvk = total_energy(StVenantKirchhoffEnergyDensity(200, 0.4), u)
-        small = total_energy(SmallStrainEnergyDensity(200, 0.4), u)
+        stvk = total_energy(StVenantKirchhoff(200, 0.4), u)
+        small = total_energy(SmallStrain(200, 0.4), u)
         assert stvk < 1e-18, f"Green-Lagrange stored {stvk:.2e} under a rigid rotation"
         assert small > 1e-6, f"small strain should read a spurious {theta} rotation as strain"
         small_energies.append(small)

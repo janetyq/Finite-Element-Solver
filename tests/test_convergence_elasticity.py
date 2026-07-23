@@ -99,6 +99,7 @@ def test_2d_second_order(convergence_2d):
 
 def _solve_3d(n):
     # No element type to state: Solver reads it off the connectivity.
+    # n vertices per side, so h = 1/(n-1) and the mesh has 6(n-1)^3 tets.
     mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
 
     def source(p):
@@ -122,11 +123,18 @@ def _solve_3d(n):
 
 @pytest.fixture(scope='module')
 def convergence_3d():
-    # h = 1/4, 1/6, 1/8, 1/10. The sparse solve is now cheap (a factor+solve at
-    # n=17 is ~2s); the cap is the Python per-element assembly loop, which
-    # dominates above these sizes (~15s at n=17). Finer meshes wait on batched
-    # assembly, not on the linear algebra.
-    return [_solve_3d(n) for n in (5, 7, 9, 11)]
+    # h = 1/8, 1/12, 1/16, 1/20.
+    #
+    # The coarse end is deliberately dropped. Kuhn tets are distorted enough that
+    # the error constant is large, so h = 1/4 and 1/6 are still pre-asymptotic
+    # (they read 1.46 and 1.69) and including them would force a weaker assertion
+    # on the whole sequence. Starting at h = 1/8 is not cherry-picking the answer:
+    # it is declining to measure an asymptotic rate outside the asymptotic regime.
+    #
+    # Batched assembly is what makes this affordable -- assembling n=21 took ~28s
+    # and now takes under a second. The cost is back on the sparse factorization,
+    # which is most of the ~14s that n=21 spends.
+    return [_solve_3d(n) for n in (9, 13, 17, 21)]
 
 
 def test_3d_error_decreases(convergence_3d):
@@ -135,21 +143,21 @@ def test_3d_error_decreases(convergence_3d):
         assert fine < coarse, f'error grew under refinement: {errors}'
 
 
-def test_3d_approaches_second_order(convergence_3d):
-    """Asserts approach to O(h^2) rather than arrival at it.
+def test_3d_second_order(convergence_3d):
+    """The same O(h^2) band the 2D case asserts -- observed orders 1.82, 1.90, 1.94."""
+    orders = _observed_orders(convergence_3d)
+    for p in orders:
+        assert 1.7 < p < 2.3, f'expected ~2nd order, got {orders}'
 
-    These meshes are pre-asymptotic. The Kuhn tets are distorted enough that the
-    error constant is large, and the affordable resolutions only reach an
-    observed order of ~1.79. Pushing further does climb into the band -- ~1.94 at
-    n=21 -- but n=21 is ~73s, now dominated by assembly rather than the (sparse)
-    solve, so it is left to the batched-assembly work rather than kept here.
 
-    What makes the reading trustworthy rather than convenient: the order climbs
-    monotonically toward 2 (1.46, 1.69, 1.79), continues to 1.94 when pushed, and
-    the identical setup in 2D reaches 2.006. A genuine first-order defect would
-    plateau near 1.0 instead.
+def test_3d_order_climbs_toward_two(convergence_3d):
+    """Still approaching 2 from below, rather than sitting at a plateau.
+
+    Being inside the band is necessary but not sufficient: a defect that degraded
+    the rate to a constant 1.8 would also pass the band check on these meshes.
+    Monotone improvement under refinement is what distinguishes a pre-asymptotic
+    reading of a second-order method from a genuinely lower-order one.
     """
     orders = _observed_orders(convergence_3d)
     for coarse, fine in zip(orders, orders[1:]):
         assert fine > coarse, f'order should climb toward 2, got {orders}'
-    assert orders[-1] > 1.75, f'finest order too low, got {orders}'

@@ -23,11 +23,11 @@ the mesh is not mutated underneath them. Build a new space instead of editing on
 """
 from collections.abc import Sequence
 from functools import cached_property
-from typing import Callable
 
 import numpy as np
 
 from fem.elements import (
+    ElementGeometry,
     LinearElement,
     LinearLineElement,
     LinearTetrahedralElement,
@@ -41,7 +41,6 @@ from fem.typing import (
     Elements,
     FloatArray,
     IntArray,
-    Matrix,
     SparseMatrix,
     VertexField,
 )
@@ -54,9 +53,13 @@ def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndi
 
     For node indices [n0, n1, ...] and `n_components` DOFs per node, returns
     [n_components*n0, n_components*n0+1, ..., n_components*n1, n_components*n1+1, ...].
+
+    Batched over the leading axis, so an `(n_elements, N)` connectivity array
+    gives `(n_elements, N*n_components)` -- one row of DOF slots per element.
     '''
     element = np.asarray(element)
-    return np.array([n_components*element + i for i in range(n_components)]).T.flatten()
+    interleaved = n_components * element[..., None] + np.arange(n_components)
+    return interleaved.reshape(*element.shape[:-1], -1)
 
 
 _SIMPLEX_ELEMENTS: dict[int, type[LinearElement]] = {
@@ -131,25 +134,23 @@ class FunctionSpace:
     # -- element geometry ---------------------------------------------------
 
     @cached_property
-    def element_objs(self) -> list[LinearElement]:
-        return [self.element_type(self.mesh.vertices[e]) for e in self.mesh.elements]
+    def geometry(self) -> ElementGeometry:
+        '''Batched geometry of the volume elements: one array of grad_phi, one of measures.'''
+        return self.element_type.geometry(self.mesh.vertices[self.mesh.elements])
 
     @cached_property
-    def boundary_objs(self) -> list[LinearElement]:
-        return [self.boundary_type(self.mesh.vertices[f]) for f in self.mesh.boundary]
+    def boundary_geometry(self) -> ElementGeometry:
+        '''The same, for the boundary facets -- embedded elements, so a wider grad_phi.'''
+        return self.boundary_type.geometry(self.mesh.vertices[self.mesh.boundary])
 
-    # Per-element geometry is reached through these rather than through
-    # `element_objs`, so that replacing the per-element objects with batched
-    # `(n_elements, ...)` arrays stays a change inside this class.
-
-    @cached_property
+    @property
     def element_volumes(self) -> FloatArray:
         '''(n_elements,) element measure -- length, area, or volume.'''
-        return np.array([e.volume for e in self.element_objs])
+        return self.geometry.volumes
 
     def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
         '''Gradient of a field over one element, from its nodal values.'''
-        return self.element_objs[e_idx].calculate_gradient(u_element)
+        return self.geometry.grad_phi[e_idx].T @ u_element
 
     # -- integrals ----------------------------------------------------------
 
@@ -176,10 +177,7 @@ class FunctionSpace:
 
         Constant per element for P1, which is why it is an element field.
         '''
-        return np.array([
-            self.element_gradient(e_idx, u[element])
-            for e_idx, element in enumerate(self.mesh.elements)
-        ])
+        return self.geometry.gradients(u[self.mesh.elements])
 
     # -- operators ----------------------------------------------------------
 
@@ -203,12 +201,8 @@ class FunctionSpace:
         topology-optimization iteration rescales the modulus). The geometry-only
         results the callers *want* cached, the mass matrices, cache themselves.
         '''
-        elements = self.mesh.boundary if boundary else self.mesh.elements
-        element_objs = self.boundary_objs if boundary else self.element_objs
-        return self._assemble(
-            elements,
-            lambda idx: form.element_matrix(element_objs[idx], idx),
-        )
+        geometry = self.boundary_geometry if boundary else self.geometry
+        return self._assemble(form.element_matrices(geometry), boundary=boundary)
 
     # -- nonlinear assembly -------------------------------------------------
     #
@@ -222,62 +216,68 @@ class FunctionSpace:
 
     def total_energy(self, form: EnergyForm, u: DofVector) -> float:
         '''Sum an EnergyForm's element energies at state `u`: the scalar Pi(u).'''
-        u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
-        return sum(
-            # u_nodal[element] is the element's (N, n_components) local state.
-            form.element_energy(self.element_objs[e_idx], u_nodal[element])
-            for e_idx, element in enumerate(self.mesh.elements)
-        )
+        u_elements = u.reshape(-1, self.n_components)[self.mesh.elements]
+        return float(form.element_energies(self.geometry, u_elements).sum())
 
     def assemble_residual(self, form: EnergyForm, u: DofVector) -> DofVector:
         '''Scatter element residuals at `u` into grad Pi(u), shape (n_dofs,).'''
-        u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
+        u_elements = u.reshape(-1, self.n_components)[self.mesh.elements]
+        residuals = form.element_residuals(self.geometry, u_elements)
+        dofs = dof_indices(self.mesh.elements, self.n_components)
         r = np.zeros(self.n_dofs)
-        for e_idx, element in enumerate(self.mesh.elements):
-            # (N, n_components) -> flatten to (N*n_components,), added into the
-            # element's global DOF slots.
-            contribution = form.element_residual(self.element_objs[e_idx], u_nodal[element])
-            r[self.dof_indices(element)] += contribution.flatten()
+        np.add.at(r, dofs, residuals.reshape(len(self.mesh.elements), -1))
         return r
 
     def assemble_tangent(self, form: EnergyForm, u: DofVector) -> SparseMatrix:
         '''Scatter element tangents at `u` into grad^2 Pi(u), shape (n_dofs, n_dofs).'''
-        u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
+        u_elements = u.reshape(-1, self.n_components)[self.mesh.elements]
+        k = self.element_type.N * self.n_components
+        tangents = form.element_tangents(self.geometry, u_elements).reshape(-1, k, k)
+        return self._assemble(tangents)
 
-        def element_matrix(e_idx: int) -> Matrix:
-            # (N, n_components, N, n_components) -> (k, k) local stiffness, ordered
-            # to match dof_indices for _assemble's scatter.
-            tangent = form.element_tangent(
-                self.element_objs[e_idx], u_nodal[self.mesh.elements[e_idx]]
-            )
-            k = self.element_type.N * self.n_components
-            return tangent.reshape(k, k)
+    # -- the scatter -------------------------------------------------------
 
-        return self._assemble(self.mesh.elements, element_matrix)
+    def _scatter_indices(self, elements: Elements) -> tuple[IntArray, IntArray]:
+        '''Flat (row, col) COO coordinates for every entry of every element block.
+
+        Depends only on connectivity and `n_components`, never on the form or the
+        geometry, so it is computed once per element set and reused by every
+        operator assembled over it -- mass, stiffness, and each topology
+        optimization iteration's rebuilt stiffness alike.
+        '''
+        # (n_elements, k): each element's global DOF positions, interleaved per node.
+        dofs = self.dof_indices(elements)
+        k = dofs.shape[1]
+        # Row index varies down the block, column index across it -- the vectorized
+        # form of the (k, k) index grid, one block per element.
+        return np.repeat(dofs, k, axis=1).ravel(), np.tile(dofs, (1, k)).ravel()
+
+    @cached_property
+    def _volume_scatter(self) -> tuple[IntArray, IntArray]:
+        return self._scatter_indices(self.mesh.elements)
+
+    @cached_property
+    def _boundary_scatter(self) -> tuple[IntArray, IntArray]:
+        return self._scatter_indices(self.mesh.boundary)
 
     def _assemble(
         self,
-        elements: Elements,
-        element_matrix: Callable[[int], Matrix],
+        element_matrices: FloatArray,
+        boundary: bool = False,
     ) -> SparseMatrix:
-        '''Scatter per-element (k, k) matrices into the global (n_dofs, n_dofs) one.
+        '''Scatter (n_elements, k, k) element matrices into the global operator.
 
         Emitted as COO triplets (row, col, value) and built into a CSR matrix,
         which sums entries at repeated (row, col) -- exactly the scatter-add that
         `A[np.ix_(idxs, idxs)] += block` did densely, now in O(nonzeros) memory.
         '''
-        rows: list[IntArray] = []
-        cols: list[IntArray] = []
-        data: list[FloatArray] = []
-        for e_idx, element in enumerate(elements):
-            # idxs: the element's k = N*n_components global DOF positions; the
-            # (k, k) index grid pairs each block entry with its global (row, col).
-            idxs = self.dof_indices(element)
-            grid_rows, grid_cols = np.meshgrid(idxs, idxs, indexing='ij')
-            rows.append(grid_rows.ravel())
-            cols.append(grid_cols.ravel())
-            data.append(element_matrix(e_idx).ravel())
+        rows, cols = self._boundary_scatter if boundary else self._volume_scatter
+        if element_matrices.size != rows.size:
+            raise ValueError(
+                f'expected element matrices covering {rows.size} entries, got '
+                f'{element_matrices.size} (shape {element_matrices.shape})'
+            )
         return csr_array(
-            (np.concatenate(data), (np.concatenate(rows), np.concatenate(cols))),
+            (element_matrices.ravel(), (rows, cols)),
             shape=(self.n_dofs, self.n_dofs),
         )

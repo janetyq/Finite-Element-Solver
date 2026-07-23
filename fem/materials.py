@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.typing import ElementField, Matrix
+from fem.typing import ElementField, FloatArray, Matrix
 
 
 def Enu_to_Lame(E, nu):
@@ -31,6 +31,37 @@ def Lame_to_Enu(mu, lamb):
     return E, nu
 
 
+def hooke_patterns(reference_dim: int) -> tuple[Matrix, Matrix]:
+    '''The two constant matrices `D = mu * P_mu + lamb * P_lamb` is built from.
+
+    The isotropic law is linear in the Lame parameters, so D decomposes into a
+    part scaled by mu and a part scaled by lamb, neither depending on the
+    material. Writing it this way is what lets one element and a whole mesh of
+    elements with different moduli share an implementation: scale by scalars for
+    the first, by `(n_elements, 1, 1)` arrays for the second.
+
+    In Voigt form with strain ordered [xx, yy, (zz,) engineering shears], P_mu is
+    diagonal -- 2 on the normal components, 1 on the shears -- and P_lamb is the
+    all-ones block coupling the normal components, since lamb multiplies the
+    trace of the strain. For reference_dim 2 that spells out to
+
+        D = [[2mu+lamb, lamb, 0], [lamb, 2mu+lamb, 0], [0, 0, mu]]
+
+    which is the form `tests/test_elasticity_models.py` checks against the second
+    derivative of the small-strain energy.
+    '''
+    if reference_dim not in (2, 3):
+        raise NotImplementedError(
+            f'no elastic constitutive matrix for reference_dim={reference_dim}'
+        )
+    d = reference_dim
+    n_shears = d * (d - 1) // 2
+    P_mu = np.diag(np.array([2.0] * d + [1.0] * n_shears))
+    P_lamb = np.zeros((d + n_shears, d + n_shears))
+    P_lamb[:d, :d] = 1.0
+    return P_mu, P_lamb
+
+
 def hooke_matrix(reference_dim: int, mu: float, lamb: float) -> Matrix:
     '''Isotropic elastic constitutive matrix D (strain -> stress) in Voigt form.
 
@@ -39,24 +70,8 @@ def hooke_matrix(reference_dim: int, mu: float, lamb: float) -> Matrix:
     own dimension (2 for a triangle, 3 for a tet), which for the planar meshes
     supported today equals the number of displacement components.
     '''
-    if reference_dim == 2:
-        return np.array([
-            [2 * mu + lamb, lamb, 0],
-            [lamb, 2 * mu + lamb, 0],
-            [0, 0, mu],
-        ], dtype=np.float64)
-    if reference_dim == 3:
-        return np.array([
-            [2 * mu + lamb, lamb, lamb, 0, 0, 0],
-            [lamb, 2 * mu + lamb, lamb, 0, 0, 0],
-            [lamb, lamb, 2 * mu + lamb, 0, 0, 0],
-            [0, 0, 0, mu, 0, 0],
-            [0, 0, 0, 0, mu, 0],
-            [0, 0, 0, 0, 0, mu],
-        ], dtype=np.float64)
-    raise NotImplementedError(
-        f'no elastic constitutive matrix for reference_dim={reference_dim}'
-    )
+    P_mu, P_lamb = hooke_patterns(reference_dim)
+    return mu * P_mu + lamb * P_lamb
 
 
 @dataclass(frozen=True)
@@ -70,8 +85,22 @@ class LinearElasticMaterial:
     E: float | ElementField
     nu: float
 
-    def constitutive_matrix(self, reference_dim: int, e_idx: int) -> Matrix:
-        '''The Voigt D for element `e_idx`, at the element's `reference_dim`.'''
-        E = self.E[e_idx] if isinstance(self.E, np.ndarray) else self.E
-        mu, lamb = Enu_to_Lame(E, self.nu)
-        return hooke_matrix(reference_dim, mu, lamb)
+    def constitutive_matrices(self, reference_dim: int, n_elements: int) -> FloatArray:
+        '''(n_elements, s, s) Voigt D, one per element -- the batched assembly path.
+
+        A uniform modulus returns a broadcast *view* of the single matrix rather
+        than n_elements copies of it, so the common case costs no extra memory
+        and `np.einsum` still contracts it against a per-element B.
+        '''
+        P_mu, P_lamb = hooke_patterns(reference_dim)
+        if isinstance(self.E, np.ndarray):
+            if len(self.E) != n_elements:
+                raise ValueError(
+                    f'per-element modulus has {len(self.E)} entries but the mesh has '
+                    f'{n_elements} elements'
+                )
+            mu, lamb = Enu_to_Lame(self.E, self.nu)
+            return mu[:, None, None] * P_mu + lamb[:, None, None] * P_lamb
+
+        mu, lamb = Enu_to_Lame(self.E, self.nu)
+        return np.broadcast_to(mu * P_mu + lamb * P_lamb, (n_elements, *P_mu.shape))
