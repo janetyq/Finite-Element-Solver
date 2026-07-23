@@ -9,8 +9,6 @@ scaling what's already here, not a knock on the design.
 Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / maintainability · 💡 idea
 · effort 🟢 low · 🟡 medium · 🔴 high
 
-The two open scaling efforts have design notes in [`NEXT_STEPS.md`](NEXT_STEPS.md).
-
 ## At a glance
 
 | Area | Item | Effort | Detail |
