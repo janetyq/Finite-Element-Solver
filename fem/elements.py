@@ -23,7 +23,7 @@ from typing import ClassVar
 
 import numpy as np
 
-from fem.typing import FloatArray, Matrix, VertexBlocks
+from fem.typing import ElementVertices, FloatArray, Matrix
 
 
 class Element:
@@ -62,9 +62,9 @@ class LinearElement(Element):
         return np.vstack([-np.ones(cls.N - 1), np.eye(cls.N - 1)])
 
     @classmethod
-    def geometry(cls, vertex_blocks: VertexBlocks) -> 'ElementGeometry':
+    def geometry(cls, element_vertices: ElementVertices) -> 'ElementGeometry':
         '''Batched geometry for `(n_elements, N, spatial_dim)` node coordinates.'''
-        X = np.asarray(vertex_blocks, dtype=np.float64)
+        X = np.asarray(element_vertices, dtype=np.float64)
         if X.ndim != 3 or X.shape[1] != cls.N:
             raise ValueError(
                 f'{cls.__name__}.geometry expects (n_elements, {cls.N}, spatial_dim) '
@@ -117,7 +117,7 @@ class LinearLineElement(LinearElement):
     SUB_TYPE = None # TODO: add subtype point element? need to test 1D solve
 
 
-class LinearTriangleElement(LinearElement):
+class LinearTriangleElement(LinearElement): # TODO: perhaps put quadrature in here too?
     '''2D linear triangle element. Shape function phi(x) = a + b*x + c*y.'''
     N = 3
     SUB_TYPE = LinearLineElement

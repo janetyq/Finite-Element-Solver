@@ -125,8 +125,8 @@ path for no gain. The duplication is a two-line closed form checked against its 
 drift risk. The other axis is **kinematics**: the two solver paths
 differ only in the strain measure fed to that one `W` — `energies.py` uses Green–Lagrange
 `S = ½(FᵀF − I)` (geometrically nonlinear — St-VK), the linear path the small-strain
-`ε = ½(∇u + ∇uᵀ)`. Both measures are now named (`SmallStrainEnergyDensity`,
-`StVenantKirchhoffEnergyDensity`), pinned in `tests/test_elasticity_models.py`, but selecting
+`ε = ½(∇u + ∇uᵀ)`. Both measures are now named (`SmallStrain`,
+`StVenantKirchhoff`), pinned in `tests/test_elasticity_models.py`, but selecting
 between them is not yet an equation-level choice.
 
 So the physics layer decomposes as **material** (the energy `W`) × **kinematics** (the strain
@@ -321,10 +321,10 @@ passing without modification.
    landable:
    - **1a. Pin `D = ∂²W/∂ε²`.** *Done.* `Material` keeps `D` in its Lamé-parameter closed
      form — correct and dimension-general — and a test cross-checks it against the small-strain
-     energy density in 2D. Deriving `D` from `W` was considered and rejected: `energies.py` is
-     fixed-rank-2, so it would forfeit the 3D path to remove a checked two-line closed form.
-   - **1b. Make kinematics selectable.** `SmallStrainEnergyDensity` and
-     `StVenantKirchhoffEnergyDensity` are the two members today; `Form`/`EnergyForm` is where
+     energy density in 2D. Deriving `D` from `W` was considered and rejected: it would trade a
+     checked two-line closed form for a contraction of the energy's rank-4 Hessian.
+   - **1b. Make kinematics selectable.** `SmallStrain` and
+     `StVenantKirchhoff` are the two members today; `Form`/`EnergyForm` is where
      choosing between them becomes an equation-level choice rather than the test-only injection
      it is now.
 2. **`DiscreteSystem` + dense→sparse.** *Done.* Both solvers eliminate constraints through

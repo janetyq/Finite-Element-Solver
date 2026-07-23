@@ -144,7 +144,7 @@ class EnergyForm:
 
     The physics is delegated to an energy density (`fem.energies`), which
     evaluates the full derivative chain once for the whole mesh and returns a
-    `Tensors` bundle. This form contracts those tensors against `dF_dx` (the
+    `EnergyDerivatives` bundle. This form contracts those against `dF_dx` (the
     shape-function contribution to the deformation gradient) to produce the
     assembly-ready element quantities.
     '''
@@ -182,6 +182,13 @@ class EnergyForm:
         matrix, where k = N * n_components.
         '''
         # d2W_dx2 = dW_dS : (d2S_dF2 : dF_dx : dF_dx) + d2W_dS2 : (dS_dx : dS_dx)
+        #
+        # ":" is the tensor double contraction. For two second-order tensors,
+        # A : B = sum_ij A_ij B_ij -- the elementwise product summed over both
+        # indices, giving a scalar. In general it contracts the last two indices
+        # of the left operand against the first two of the right; each ":" above
+        # is one such contraction, i.e. one "...ij,ij...->..." einsum below (with
+        # a leading "e" element axis on everything that varies per element).
         grad_u = geometry.gradients(u_elements)
         t = self.energy_density.evaluate(grad_u)
         dF_dx = self._dF_dx(geometry)

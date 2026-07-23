@@ -83,12 +83,7 @@ and neighbour lookups during mesh construction.
   gives a nonlinear material through the already-working Newton solver. Note it is naturally
   written in invariants of `C = FᵀF` rather than in a strain tensor `S`, so it does not slot
   into the St-VK class's `S`-based derivative chain as cleanly as the shared-`W` framing above
-  might suggest — it wants its own `set_grad_u`.
-- 💡 **N-D elasticity in `EnergySolver`.** The linear path is done: `Solver` + `LinearElastic`
-  now solves 3D elasticity on a tet mesh, with an MMS convergence test in
-  `tests/test_convergence_elasticity.py`. `EnergySolver` still refuses anything but 2D,
-  because `StVenantKirchhoffEnergyDensity` builds its tensors at fixed rank 2 — generalizing
-  those is the remaining work behind that guard.
+  might suggest — it wants its own `evaluate`.
 - 💡 **Time-integration abstraction.** Backward-Euler (heat) and Crank–Nicolson (wave) are
   hand-coded inline. A small `TimeIntegrator` interface (θ-method / generalized-α) would
   deduplicate and make it trivial to add new dynamics.

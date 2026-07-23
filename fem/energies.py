@@ -4,8 +4,8 @@ An energy density maps the deformation gradient F = I + grad u to a scalar
 energy W and the derivative chain the Newton solver needs (dW/dF, d²W/dF²
 decomposed through the strain tensor S).  Every quantity is batched over the
 mesh: the primary interface is `evaluate`, which takes `(n_elements, d, d)`
-gradients and returns a `Tensors` bundle with a leading element axis on each
-array.
+gradients and returns an `EnergyDerivatives` bundle with a leading element axis
+on each array.
 
 Two strain measures share one energy function W(S):
 
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class Tensors:
+class EnergyDerivatives:
     """The derivative chain of a strain energy, batched over elements.
 
     Every array has a leading `(n_elements,)` axis.  `EnergyForm` contracts
@@ -52,25 +52,36 @@ class StVenantKirchhoff:
     """St Venant-Kirchhoff strain energy density.
 
     Green-Lagrange strain S = ½(FᵀF - I) paired with the isotropic energy
-    W = ½λ tr(S)² + μ tr(SᵀS).  Geometrically nonlinear (frame indifferent)
-    at the cost of a Newton solve.  Small strain is its linearisation — the
-    two agree to O(‖grad u‖²).
+    W = ½λ tr(S)² + μ tr(SᵀS).
+
+    Not linear elasticity, despite pairing the same W with the same Lame
+    parameters. Green-Lagrange keeps the quadratic grad_uᵀ grad_u term that
+    infinitesimal strain theory drops, which makes the model *geometrically*
+    nonlinear: it is frame indifferent (a rigid rotation produces no strain,
+    where small strain produces a spurious ~θ²/2 compression) at the cost of a
+    Newton solve.
+
+    Small strain is its linearisation, so the two agree to O(‖grad u‖²) --
+    see tests/test_elasticity_models.py, which pins both halves of that
+    statement.
     """
 
     def __init__(self, E: float, nu: float) -> None:
         self.mu, self.lamb = Enu_to_Lame(E, nu)
 
-    def evaluate(self, grad_u: FloatArray) -> Tensors:
+    def evaluate(self, grad_u: FloatArray) -> EnergyDerivatives:
         """Evaluate the full derivative chain at `(n_elements, d, d)` gradients."""
         d = grad_u.shape[-1]
         eye = np.eye(d)
         F = eye + grad_u
         S = self._strain(F, eye)
-        return Tensors(
+        dW_dS = self._dW_dS(S, eye)
+        dS_dF = self._dS_dF(F, d)
+        return EnergyDerivatives(
             W=self._energy(S),
-            dW_dF=np.einsum('eij,eijmn->emn', self._dW_dS(S, eye), self._dS_dF(F, d)),
-            dW_dS=self._dW_dS(S, eye),
-            dS_dF=self._dS_dF(F, d),
+            dW_dF=np.einsum('eij,eijmn->emn', dW_dS, dS_dF),
+            dW_dS=dW_dS,
+            dS_dF=dS_dF,
             d2S_dF2=self._d2S_dF2(d),
             d2W_dS2=self._d2W_dS2(d),
         )
@@ -78,6 +89,9 @@ class StVenantKirchhoff:
     # -- strain measure (overridden by SmallStrain) -------------------------
 
     def _strain(self, F: FloatArray, eye: FloatArray) -> FloatArray:
+        # Green-Lagrange. The quadratic term is what makes this nonlinear in u,
+        # so Newton takes several iterations rather than the single step a
+        # quadratic energy would need.
         return 0.5 * (np.einsum('eji,ejk->eik', F, F) - eye)
 
     def _dS_dF(self, F: FloatArray, d: int) -> FloatArray:
@@ -182,13 +196,8 @@ class NeohookeanEnergyDensity:
     def __init__(self, E: float, nu: float) -> None:
         self.mu, self.lamb = Enu_to_Lame(E, nu)
 
-    def evaluate(self, grad_u: FloatArray) -> Tensors:
+    def evaluate(self, grad_u: FloatArray) -> EnergyDerivatives:
         raise NotImplementedError(
             "NeohookeanEnergyDensity is not implemented yet; "
             "use StVenantKirchhoff for now."
         )
-
-
-# Backwards-compatible aliases for the old names used by tests.
-StVenantKirchhoffEnergyDensity = StVenantKirchhoff
-SmallStrainEnergyDensity = SmallStrain

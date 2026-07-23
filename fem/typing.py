@@ -33,7 +33,7 @@ Vertices: TypeAlias = FloatArray
 
 # (n_elements, n_nodes, spatial_dim) node coordinates gathered per element -- the
 # input to batched element geometry. `vertices[elements]` builds one.
-VertexBlocks: TypeAlias = FloatArray
+ElementVertices: TypeAlias = FloatArray
 
 # (n_elements, n_nodes) vertex indices per element; (n_boundary, n_nodes) for a
 # boundary facet array.
