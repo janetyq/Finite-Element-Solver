@@ -144,9 +144,10 @@ class EnergyForm:
 
     The physics is delegated to an energy density (`fem.energies`), which
     evaluates the full derivative chain once for the whole mesh and returns a
-    `EnergyDerivatives` bundle. This form contracts those against `dF_dx` (the
-    shape-function contribution to the deformation gradient) to produce the
-    assembly-ready element quantities.
+    `StrainEnergyDerivatives` bundle -- derivatives of W, distinct from the
+    derivatives of the total potential Pi that this form goes on to build. It
+    contracts those against `dF_dx` (the shape-function contribution to the
+    deformation gradient) to produce the assembly-ready element quantities.
     '''
     energy_density: object
 

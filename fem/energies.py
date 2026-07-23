@@ -4,8 +4,8 @@ An energy density maps the deformation gradient F = I + grad u to a scalar
 energy W and the derivative chain the Newton solver needs (dW/dF, d²W/dF²
 decomposed through the strain tensor S).  Every quantity is batched over the
 mesh: the primary interface is `evaluate`, which takes `(n_elements, d, d)`
-gradients and returns an `EnergyDerivatives` bundle with a leading element axis
-on each array.
+gradients and returns a `StrainEnergyDerivatives` bundle with a leading element
+axis on each array.
 
 Two strain measures share one energy function W(S):
 
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class EnergyDerivatives:
+class StrainEnergyDerivatives:
     """The derivative chain of a strain energy, batched over elements.
 
     Every array has a leading `(n_elements,)` axis.  `EnergyForm` contracts
@@ -69,7 +69,7 @@ class StVenantKirchhoff:
     def __init__(self, E: float, nu: float) -> None:
         self.mu, self.lamb = Enu_to_Lame(E, nu)
 
-    def evaluate(self, grad_u: FloatArray) -> EnergyDerivatives:
+    def evaluate(self, grad_u: FloatArray) -> StrainEnergyDerivatives:
         """Evaluate the full derivative chain at `(n_elements, d, d)` gradients."""
         d = grad_u.shape[-1]
         eye = np.eye(d)
@@ -77,7 +77,7 @@ class StVenantKirchhoff:
         S = self._strain(F, eye)
         dW_dS = self._dW_dS(S, eye)
         dS_dF = self._dS_dF(F, d)
-        return EnergyDerivatives(
+        return StrainEnergyDerivatives(
             W=self._energy(S),
             dW_dF=np.einsum('eij,eijmn->emn', dW_dS, dS_dF),
             dW_dS=dW_dS,
@@ -196,7 +196,7 @@ class NeohookeanEnergyDensity:
     def __init__(self, E: float, nu: float) -> None:
         self.mu, self.lamb = Enu_to_Lame(E, nu)
 
-    def evaluate(self, grad_u: FloatArray) -> EnergyDerivatives:
+    def evaluate(self, grad_u: FloatArray) -> StrainEnergyDerivatives:
         raise NotImplementedError(
             "NeohookeanEnergyDensity is not implemented yet; "
             "use StVenantKirchhoff for now."
