@@ -27,6 +27,7 @@ from typing import Protocol
 import numpy as np
 
 from fem.elements import ElementGeometry
+from fem.energies import StrainEnergyDerivatives
 from fem.materials import LinearElasticMaterial
 from fem.typing import FloatArray
 
@@ -126,6 +127,14 @@ class LinearElasticForm:
         return np.einsum('eji,ejk,ekl,e->eil', B, D, B, geometry.volumes, optimize=True)
 
 
+class EnergyDensity(Protocol):
+    '''The material law an `EnergyForm` integrates: `fem.energies` implements it.'''
+
+    def evaluate(self, grad_u: FloatArray) -> StrainEnergyDerivatives:
+        '''Derivative chain at `(n_elements, d, d)` displacement gradients.'''
+        ...
+
+
 @dataclass(frozen=True)
 class EnergyForm:
     '''The nonlinear (hyperelastic) sibling of `Form`.
@@ -149,7 +158,7 @@ class EnergyForm:
     contracts those against `dF_dx` (the shape-function contribution to the
     deformation gradient) to produce the assembly-ready element quantities.
     '''
-    energy_density: object
+    energy_density: EnergyDensity
 
     def _dF_dx(self, geometry: ElementGeometry) -> FloatArray:
         '''(n_el, d, d, N, d) -- dF/dx = I ⊗ grad_phiᵀ, batched.'''

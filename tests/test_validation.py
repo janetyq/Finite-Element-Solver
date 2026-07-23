@@ -152,6 +152,19 @@ def test_energy_solver_accepts_a_3d_mesh():
     assert solver.n_components == 3
 
 
+def test_energy_solver_rejects_a_per_element_modulus(make_unit_square):
+    """A density carries one pair of Lame parameters for the whole mesh, so an
+    array E broadcasts wrongly against the constant d2W/dS2 rather than giving
+    per-element moduli. `Solver` is the path that supports them."""
+    mesh = make_unit_square(6)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+
+    E = np.full(len(mesh.elements), 200.0)
+    with pytest.raises(NotImplementedError):
+        EnergySolver(mesh, LinearElastic(E=E, nu=0.4), bc, verbose=False)
+
+
 def test_robin_is_gated(make_unit_square):
     """Robin conditions need a left-hand-side term that is not wired up yet."""
     mesh = make_unit_square(6)

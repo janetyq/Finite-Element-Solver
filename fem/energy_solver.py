@@ -58,10 +58,18 @@ class EnergySolver:
         # check_hessian(self.energy_gradient, self.energy_hessian, len(self.mesh.vertices) * self.n_components)
 
     def _select_energy(self, equation: Equation) -> StVenantKirchhoff:
-        if isinstance(equation, LinearElastic):
-            return StVenantKirchhoff(equation.E, equation.nu)
-        else:
+        if not isinstance(equation, LinearElastic):
             raise ValueError(f"Unsupported equation type: {type(equation).__name__}")
+        # `LinearElastic.E` may be per-element -- TopologyOptimizer sets a
+        # density-scaled modulus -- but a density carries one pair of Lame
+        # parameters for the whole mesh, and an array lamb broadcasts wrongly
+        # against the constant d2W/dS2. `Solver` is the path for varying moduli.
+        if not isinstance(equation.E, int | float):
+            raise NotImplementedError(
+                'EnergySolver needs a scalar Youngs modulus, got a per-element '
+                'array. Use Solver for density-scaled moduli.'
+            )
+        return StVenantKirchhoff(equation.E, equation.nu)
 
     # energy / gradient / hessian are the raw, unconstrained quantities: the total
     # energy Pi(u), its gradient (nonzero at fixed DOFs -- the reaction forces),
