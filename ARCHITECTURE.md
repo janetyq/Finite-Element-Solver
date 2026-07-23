@@ -64,7 +64,7 @@ working, `Equation` holding `dt` is the defect list.
 | `Mesh` | █ | | | | | | | | |
 | `Element` / `ElementGeometry` | | ▒ | | | | | | | |
 | `FunctionSpace` | | ▒ | | █ | | | | | ▒ |
-| `FieldShape` (`Scalar` / `Vector`) | | ▒ | | | | | | | |
+| `FieldShape` (`Scalar` / `Vector`) | | | ▒ | | | | | | |
 | `Form` / `EnergyForm` | | | █ | ▒ | | | | | |
 | `Material` / energy densities | | | █ | | | | | | |
 | `Equation` | | | █ | | | | ◧ | | |
@@ -87,8 +87,11 @@ strain, stress, and compliance — constitutive code in a driver. `EnergySolver.
 makes the same kind of choice, mapping `LinearElastic` to `StVenantKirchhoff`.
 
 Read the columns: layer 5 (constraints) has exactly one owner, and so does layer 6 (algebra).
-Layer 2 (space) is split three ways but cleanly — the element supplies the reference basis,
-`FieldShape` the component count, `FunctionSpace` the numbering. Layer 4 (assembly) is likewise
+Layer 2 (space) is split two ways but cleanly — the element supplies the reference basis,
+`FunctionSpace` the binding and the numbering. (`FieldShape` sits in layer 3, not here:
+`FunctionSpace` takes a plain `n_components: int`, and `components_for` is called at the solver
+boundary. It is a spec that *resolves into* layer 2, the way `BoundaryConditions` resolves into
+`ResolvedBC`.) Layer 4 (assembly) is likewise
 a clean split, `FunctionSpace` owning the scatter and `Form` the integrand; the only thing out
 of place in that column is the solver's inline load vector. Layer 3 (physics) is *placed*:
 `Form`/`Material`/energy densities own it and `Equation` names it, with only the solver
