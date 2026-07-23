@@ -3,14 +3,14 @@ import logging
 import numpy as np
 
 from fem.boundary import BoundaryConditions
-from fem.energies import StVenantKirchhoffEnergyDensity
+from fem.energies import StVenantKirchhoff
 from fem.forms import EnergyForm
 from fem.mesh.mesh import Mesh
 from fem.system import DiscreteSystem
 from fem.solution import Solution
 from fem.solver import Equation, LinearElastic
 from fem.space import FunctionSpace
-from fem.typing import DofVector, FloatArray, SparseMatrix
+from fem.typing import DofVector, SparseMatrix
 
 logger = logging.getLogger(__name__)
 
@@ -31,19 +31,6 @@ class EnergySolver:
         self.n_components = self.equation.field.components_for(mesh.spatial_dim)
         self.space = FunctionSpace(mesh, n_components=self.n_components)
         self.solution = Solution(mesh, self.n_components)
-        # Not an assert: this is a real capability boundary (the energy densities
-        # are 2D-only), so it must hold even under `python -O`.
-        #
-        # Checked against the mesh, not the component count: those are different
-        # quantities and only the mesh knows this one. The guard used to compare the
-        # component count against 2, which for LinearElastic is unconditionally 2, so
-        # it never fired -- a tet mesh reached StVenantKirchhoffEnergyDensity.set_grad_u
-        # and failed there on its (3, 2) gradient instead.
-        if mesh.spatial_dim != 2:
-            raise NotImplementedError(
-                f'EnergySolver only supports 2D for now '
-                f'(got a mesh with spatial_dim={mesh.spatial_dim})'
-            )
         # This solver minimizes the internal elastic energy and never builds a
         # load vector, so a source term would be accepted and then quietly
         # ignored -- the answer would just be the unforced one.
@@ -67,30 +54,22 @@ class EnergySolver:
 
         # TODO: flat u + bc handling weird
 
-        # elt_idx = 10
-        # check_gradient(lambda u: self.element_energy(elt_idx, u), lambda u: self.element_gradient(elt_idx, u), (3, 2))
-        # check_hessian(lambda u: self.element_gradient(elt_idx, u), lambda u: self.element_hessian(elt_idx, u), (3, 2))
+        # check_gradient(self.energy, self.energy_gradient, len(self.mesh.vertices) * self.n_components)
+        # check_hessian(self.energy_gradient, self.energy_hessian, len(self.mesh.vertices) * self.n_components)
 
-        # check_gradient(self.energy, self.energy_gradient, len(self.mesh.vertices)*2)
-        # check_hessian(self.energy_gradient, self.energy_hessian, len(self.mesh.vertices)*2)
-
-    def _select_energy(self, equation: Equation) -> StVenantKirchhoffEnergyDensity:
-        if isinstance(equation, LinearElastic):
-            return StVenantKirchhoffEnergyDensity(equation.E, equation.nu)
-        else:
+    def _select_energy(self, equation: Equation) -> StVenantKirchhoff:
+        if not isinstance(equation, LinearElastic):
             raise ValueError(f"Unsupported equation type: {type(equation).__name__}")
-
-    # Per-element quantities delegate to the EnergyForm, which owns the tensor
-    # assembly. Kept as methods (rather than inlined at the call sites) so the
-    # parked gradient/hessian checks in __init__ still have something to point at.
-    def element_energy(self, e_idx: int, u_element: FloatArray) -> float:
-        return self.form.element_energy(self.space.element_objs[e_idx], u_element)
-
-    def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
-        return self.form.element_residual(self.space.element_objs[e_idx], u_element)
-
-    def element_hessian(self, e_idx: int, u_element: FloatArray) -> FloatArray:
-        return self.form.element_tangent(self.space.element_objs[e_idx], u_element)
+        # `LinearElastic.E` may be per-element -- TopologyOptimizer sets a
+        # density-scaled modulus -- but a density carries one pair of Lame
+        # parameters for the whole mesh, and an array lamb broadcasts wrongly
+        # against the constant d2W/dS2. `Solver` is the path for varying moduli.
+        if not isinstance(equation.E, int | float):
+            raise NotImplementedError(
+                'EnergySolver needs a scalar Youngs modulus, got a per-element '
+                'array. Use Solver for density-scaled moduli.'
+            )
+        return StVenantKirchhoff(equation.E, equation.nu)
 
     # energy / gradient / hessian are the raw, unconstrained quantities: the total
     # energy Pi(u), its gradient (nonzero at fixed DOFs -- the reaction forces),

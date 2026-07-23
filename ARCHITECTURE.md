@@ -125,29 +125,32 @@ path for no gain. The duplication is a two-line closed form checked against its 
 drift risk. The other axis is **kinematics**: the two solver paths
 differ only in the strain measure fed to that one `W` — `energies.py` uses Green–Lagrange
 `S = ½(FᵀF − I)` (geometrically nonlinear — St-VK), the linear path the small-strain
-`ε = ½(∇u + ∇uᵀ)`. Both measures are now named (`SmallStrainEnergyDensity`,
-`StVenantKirchhoffEnergyDensity`), pinned in `tests/test_elasticity_models.py`, but selecting
+`ε = ½(∇u + ∇uᵀ)`. Both measures are now named (`SmallStrain`,
+`StVenantKirchhoff`), pinned in `tests/test_elasticity_models.py`, but selecting
 between them is not yet an equation-level choice.
 
 So the physics layer decomposes as **material** (the energy `W`) × **kinematics** (the strain
 measure), and `Form` is where selecting a point in that product becomes declarative.
 
-### `Element` — now pure geometry, but stateful and per-instance
+### `Element` — stateless types, batched geometry
 
-`Element` holds `grad_phi`, `volume`, and `dF_dx` and nothing physical. One issue remains,
-and it is performance, not layering. `FunctionSpace` builds one object
-per element, each caching `vertices`, `volume`, `grad_phi`, and `dF_dx` — a rank-4 tensor
-built by a 4-deep Python loop, needed only by `EnergySolver`, computed unconditionally in
-`LinearElement.__init__`. On a 40×40 mesh that is 3200 objects and 3200 unnecessary tensors.
-The list itself is a `cached_property` now, so nothing is paid until something asks; the
-waste is per-element rather than per-mesh.
+Element types are stateless: `LinearTetrahedralElement` describes a shape and holds no
+per-element data, so there is one of them in a program rather than one per tet. The
+per-element data lives in `ElementGeometry`, which holds it for the whole mesh at once — one
+`(n_elements, N, spatial_dim)` array of `grad_phi`, one `(n_elements,)` array of measures —
+and `Form.element_matrices` computes every element matrix in a single vectorized pass.
 
-The scalable alternative is element *types* as stateless strategies plus batched geometry:
-one `(n_elements, …)` array of `grad_phi`, one array of volumes, the element matrices computed
-vectorized. This is **now the top cost**: with the matrices sparse, the linear algebra has
-stopped dominating and the per-element Python loop has taken its place —
-`examples/benchmark_assembly.py` shows a 3D solve at n=17 spending ~14s assembling against
-~2.4s to factor and solve. Batched assembly is the next effort.
+This was the last of the scaling work. Assembling a 3D elastic solve at n=17 went from
+18.7s to 0.48s, and the 3D MMS test now asserts a real O(h²) rate instead of an approach to
+one. `examples/benchmark_assembly.py` measures the split; the cost is back on the sparse
+factorization, which is the natural next target (see the iterative-solver item in
+`BACKLOG.md`).
+
+`EnergyForm` is batched too: the energy densities (`fem/energies.py`) evaluate the full
+derivative chain — W, dW/dF, dS/dF, d²S/dF², d²W/dS² — over all elements at once, and
+the form contracts those tensors against `dF_dx` in vectorized einsum calls. The densities
+are dimension-general (parameterized on `d = grad_u.shape[-1]`, not a fixed DIM = 2), so
+`EnergySolver` now accepts 3D meshes.
 
 ### `Equation` — four roles in one object
 
@@ -246,6 +249,7 @@ against — dead parameters stay invisible precisely because nothing types them.
 | Time-varying loads / BCs | `evaluate_field` takes position only, no `t` |
 | Nonlinear materials | two unrelated constitutive representations, no common interface |
 | Sparse matrices | dense `np.zeros` hardcoded in `FunctionSpace._assemble`, per-element Python objects |
+| Batched assembly | stateful per-instance `Element` objects; forms evaluated one element at a time |
 
 Note the pattern: the unused flexibility is all *lateral* (more string options on existing
 operations), while the needed flexibility is all *vertical* (new layers between existing
@@ -317,26 +321,26 @@ passing without modification.
    landable:
    - **1a. Pin `D = ∂²W/∂ε²`.** *Done.* `Material` keeps `D` in its Lamé-parameter closed
      form — correct and dimension-general — and a test cross-checks it against the small-strain
-     energy density in 2D. Deriving `D` from `W` was considered and rejected: `energies.py` is
-     fixed-rank-2, so it would forfeit the 3D path to remove a checked two-line closed form.
-   - **1b. Make kinematics selectable.** `SmallStrainEnergyDensity` and
-     `StVenantKirchhoffEnergyDensity` are the two members today; `Form`/`EnergyForm` is where
+     energy density in 2D. Deriving `D` from `W` was considered and rejected: it would trade a
+     checked two-line closed form for a contraction of the energy's rank-4 Hessian.
+   - **1b. Make kinematics selectable.** `SmallStrain` and
+     `StVenantKirchhoff` are the two members today; `Form`/`EnergyForm` is where
      choosing between them becomes an equation-level choice rather than the test-only injection
      it is now.
 2. **`DiscreteSystem` + dense→sparse.** *Done.* Both solvers eliminate constraints through
    `DiscreteSystem`, the time-steppers factor their constant LHS once, assembly emits sparse
    CSR, and the factorization is `splu`. The linear algebra is off the critical path; the
-   per-element assembly loop is now the top cost (see `Element`, above) -- **batched assembly**
-   is the load-bearing remainder of the scaling work.
+   per-element assembly loop that replaced it as the top cost has been batched too (see
+   `Element`, above). The scaling work is done; the remaining limit is the direct sparse
+   factorization.
 3. **Typed `Solution`,** together with the `io.py` rework they jointly require.
 4. **Extract `TimeIntegrator`;** move `dt`/`iters` off `Heat`/`Wave`. Breaking API change —
    worth batching with (3).
 5. **Uniform drivers:** `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
    problem factory rather than mutating an equation.
 
-Steps 1 and 2 are done; batched assembly is the load-bearing remainder of the scaling work.
-Steps 3–5 are independent and can be done
-any time.
+Steps 1 and 2 are done, batched assembly with them. Steps 3–5 are independent and can be
+done any time.
 
 The pattern from the completed work is worth keeping: a mechanical rename that makes two
 concepts unspellable as one name is cheap and buys more than it looks like, and the checkpoint

@@ -97,9 +97,9 @@ class TestMassMatrix:
 
     @pytest.mark.parametrize('element_type, vertices, n_components', ELEMENTS)
     def test_is_scalar_matrix_per_component(self, element_type, vertices, n_components):
-        element = element_type(vertices)
-        scalar = element.calculate_mass_matrix()
-        vector = MassForm(n_components).element_matrix(element, 0)
+        geometry = element_type.geometry(vertices[None])
+        scalar = element_type.reference_mass_matrix() * geometry.volumes[0]
+        vector = MassForm(n_components).element_matrices(geometry)[0]
         assert np.allclose(vector, np.kron(scalar, np.eye(n_components)))
 
     @pytest.mark.parametrize('element_type, vertices, n_components', ELEMENTS)
@@ -107,12 +107,12 @@ class TestMassMatrix:
         self, element_type, vertices, n_components,
     ):
         # int_element 1 dV == volume, componentwise.
-        element = element_type(vertices)
-        mass = MassForm(n_components).element_matrix(element, 0)
+        geometry = element_type.geometry(vertices[None])
+        mass = MassForm(n_components).element_matrices(geometry)[0]
         for component in range(n_components):
-            load = np.zeros((element.N, n_components))
+            load = np.zeros((element_type.N, n_components))
             load[:, component] = 1.0
-            assert (mass @ load.flatten()).sum() == pytest.approx(element.volume)
+            assert (mass @ load.flatten()).sum() == pytest.approx(geometry.volumes[0])
 
 
 class TestDimensions:
@@ -125,12 +125,14 @@ class TestDimensions:
     def test_planar_triangle_mesh(self):
         mesh = Mesh([[0, 0], [1, 0], [0, 1]], [[0, 1, 2]], [[0, 1], [1, 2], [2, 0]])
         assert mesh.spatial_dim == 2
-        assert LinearTriangleElement(mesh.vertices).reference_dim == 2
+        geometry = LinearTriangleElement.geometry(mesh.vertices[mesh.elements])
+        assert (geometry.reference_dim, geometry.spatial_dim) == (2, 2)
 
     def test_tet_element(self):
-        assert LinearTetrahedralElement.N - 1 == 3
-        tet = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])
-        assert LinearTetrahedralElement(tet).reference_dim == 3
+        assert LinearTetrahedralElement.reference_dim() == 3
+        tet = np.array([[[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]]])
+        geometry = LinearTetrahedralElement.geometry(tet)
+        assert (geometry.reference_dim, geometry.spatial_dim) == (3, 3)
 
     def test_surface_mesh_separates_them(self):
         # A triangle embedded in 3D: 3 ambient coordinates, still a 2D element.
@@ -138,4 +140,8 @@ class TestDimensions:
             [[0, 0, 0], [1, 0, 0], [0, 1, 1]], [[0, 1, 2]], [[0, 1], [1, 2], [2, 0]],
         )
         assert mesh.spatial_dim == 3
-        assert LinearTriangleElement.N - 1 == 2
+        geometry = LinearTriangleElement.geometry(mesh.vertices[mesh.elements])
+        # The gradients carry all three ambient components, but the element is
+        # still 2D -- this is the pair that a single `dim` used to conflate.
+        assert (geometry.reference_dim, geometry.spatial_dim) == (2, 3)
+        assert geometry.grad_phi.shape == (1, 3, 3)
