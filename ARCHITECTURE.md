@@ -146,12 +146,11 @@ one. `examples/benchmark_assembly.py` measures the split; the cost is back on th
 factorization, which is the natural next target (see the iterative-solver item in
 `BACKLOG.md`).
 
-One caller still works element-at-a-time: `EnergyForm`, whose integrand depends on the
-current state through an energy density written for a single element. It reads
-`ElementGeometry.at(i)`, a *view* onto the batched arrays rather than a second
-representation, so there is still one source of geometric truth. `dF_dx` — the rank-4
-tensor that used to be built eagerly for every element by a 4-deep Python loop — now hangs
-lazily off that view, so a mesh that never touches the nonlinear path never builds one.
+`EnergyForm` is batched too: the energy densities (`fem/energies.py`) evaluate the full
+derivative chain — W, dW/dF, dS/dF, d²S/dF², d²W/dS² — over all elements at once, and
+the form contracts those tensors against `dF_dx` in vectorized einsum calls. The densities
+are dimension-general (parameterized on `d = grad_u.shape[-1]`, not a fixed DIM = 2), so
+`EnergySolver` now accepts 3D meshes.
 
 ### `Equation` — four roles in one object
 

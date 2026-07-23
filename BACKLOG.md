@@ -59,14 +59,6 @@ matrix would scale far better and is a near drop-in.
 `fem/mesh/generation.py` still has linear-scan bottlenecks in vertex deduplication
 and neighbour lookups during mesh construction.
 
-### 🟠 `EnergyForm` is still evaluated one element at a time
-The bilinear forms are batched, but `EnergyForm` is not: its integrand depends on the current
-state through an energy density (`fem/energies.py`) whose tensor chain is written for a single
-element. It reads geometry through `ElementGeometry.at(i)`, a view onto the batched arrays, and
-scatters through the batched path -- so only the middle step is still a loop. Batching it means
-giving the energy densities a leading element axis, which is the same change that would lift
-their fixed-rank-2 limit. Worth doing: the tangent is re-assembled every Newton iteration.
-
 ---
 
 ## 3. Open-Ended Suggestions & Future Ideas

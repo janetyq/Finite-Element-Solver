@@ -150,7 +150,7 @@ class FunctionSpace:
 
     def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
         '''Gradient of a field over one element, from its nodal values.'''
-        return self.geometry.at(e_idx).calculate_gradient(u_element)
+        return self.geometry.grad_phi[e_idx].T @ u_element
 
     # -- integrals ----------------------------------------------------------
 
@@ -216,35 +216,23 @@ class FunctionSpace:
 
     def total_energy(self, form: EnergyForm, u: DofVector) -> float:
         '''Sum an EnergyForm's element energies at state `u`: the scalar Pi(u).'''
-        u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
-        return sum(
-            # u_nodal[element] is the element's (N, n_components) local state.
-            form.element_energy(self.geometry.at(e_idx), u_nodal[element])
-            for e_idx, element in enumerate(self.mesh.elements)
-        )
+        u_elements = u.reshape(-1, self.n_components)[self.mesh.elements]
+        return float(form.element_energies(self.geometry, u_elements).sum())
 
     def assemble_residual(self, form: EnergyForm, u: DofVector) -> DofVector:
         '''Scatter element residuals at `u` into grad Pi(u), shape (n_dofs,).'''
-        u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
+        u_elements = u.reshape(-1, self.n_components)[self.mesh.elements]
+        residuals = form.element_residuals(self.geometry, u_elements)
+        dofs = dof_indices(self.mesh.elements, self.n_components)
         r = np.zeros(self.n_dofs)
-        for e_idx, element in enumerate(self.mesh.elements):
-            # (N, n_components) -> flatten to (N*n_components,), added into the
-            # element's global DOF slots.
-            contribution = form.element_residual(self.geometry.at(e_idx), u_nodal[element])
-            r[self.dof_indices(element)] += contribution.flatten()
+        np.add.at(r, dofs, residuals.reshape(len(self.mesh.elements), -1))
         return r
 
     def assemble_tangent(self, form: EnergyForm, u: DofVector) -> SparseMatrix:
         '''Scatter element tangents at `u` into grad^2 Pi(u), shape (n_dofs, n_dofs).'''
-        u_nodal = u.reshape(-1, self.n_components)  # (n_vertices, n_components)
+        u_elements = u.reshape(-1, self.n_components)[self.mesh.elements]
         k = self.element_type.N * self.n_components
-        tangents = np.empty((len(self.mesh.elements), k, k))
-        for e_idx, element in enumerate(self.mesh.elements):
-            # (N, n_components, N, n_components) -> (k, k) local stiffness, ordered
-            # to match the scatter's DOF numbering.
-            tangents[e_idx] = form.element_tangent(
-                self.geometry.at(e_idx), u_nodal[element]
-            ).reshape(k, k)
+        tangents = form.element_tangents(self.geometry, u_elements).reshape(-1, k, k)
         return self._assemble(tangents)
 
     # -- the scatter -------------------------------------------------------

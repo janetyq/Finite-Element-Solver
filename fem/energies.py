@@ -1,164 +1,194 @@
+"""Hyperelastic strain energy densities: the material law for nonlinear FEM.
+
+An energy density maps the deformation gradient F = I + grad u to a scalar
+energy W and the derivative chain the Newton solver needs (dW/dF, d²W/dF²
+decomposed through the strain tensor S).  Every quantity is batched over the
+mesh: the primary interface is `evaluate`, which takes `(n_elements, d, d)`
+gradients and returns a `Tensors` bundle with a leading element axis on each
+array.
+
+Two strain measures share one energy function W(S):
+
+    Green-Lagrange  S = ½(FᵀF - I)   geometrically exact, frame indifferent
+    small strain    ε = ½(F + Fᵀ) - I  linearisation, constant Hessian
+
+They differ only in how S depends on F, so the derivative chain factorises as
+dW/dF = dW/dS : dS/dF, and the parent–child split below mirrors that exactly:
+`StVenantKirchhoff` owns the S-to-F map, `SmallStrain` overrides it with the
+linear one.
+
+Dimension-general: every tensor is built from `d = grad_u.shape[-1]`, not a
+fixed DIM = 2. The constant tensors (d²S/dF² for Green-Lagrange, d²W/dS²) are
+precomputed once at construction and broadcast over elements.
+"""
 import logging
+from dataclasses import dataclass
 
 import numpy as np
+
 from fem.materials import Enu_to_Lame
-from fem.numerics import check_gradient
+from fem.typing import FloatArray
 
 logger = logging.getLogger(__name__)
 
-class StVenantKirchhoffEnergyDensity: # TODO: inheritance
-    '''
-    St Venant-Kirchhoff strain energy density on 2D triangular elements
 
-    F: deformation gradient dx/dX (2, 2)
-    S: strain tensor (2, 2)
-    W: strain energy density (1)
+@dataclass(frozen=True)
+class Tensors:
+    """The derivative chain of a strain energy, batched over elements.
 
-    Not linear elasticity, despite pairing the same W with the same Lame
-    parameters. The strain measure here is Green-Lagrange, S = 1/2 (F^T F - I),
-    which keeps the quadratic grad_u^T grad_u term that infinitesimal strain
-    theory drops. That makes the model *geometrically* nonlinear: it is frame
-    indifferent (a rigid rotation produces no strain, where small strain
-    produces a spurious ~theta^2/2 compression) at the cost of a Newton solve.
+    Every array has a leading `(n_elements,)` axis.  `EnergyForm` contracts
+    these against the shape-function-derived `dF_dx` to assemble the element
+    energy, residual, and tangent in one vectorised pass.
+    """
+    W: FloatArray          # (n_el,)
+    dW_dF: FloatArray      # (n_el, d, d)
+    dW_dS: FloatArray      # (n_el, d, d)
+    dS_dF: FloatArray      # (n_el, d, d, d, d)
+    d2S_dF2: FloatArray    # (d, d, d, d, d, d)  -- constant, broadcast
+    d2W_dS2: FloatArray    # (d, d, d, d)         -- constant, broadcast
 
-    Small strain is its linearization, so the two agree to O(||grad_u||^2) --
-    see tests/test_elasticity_models.py, which pins both halves of that
-    statement.
 
-    2D only: every tensor below is built at a fixed rank (np.eye(2), (2,2,2,2),
-    (2,2,2,2,2,2)) rather than from a `n_components` parameter. `set_grad_u` rejects
-    anything else so the limit surfaces as an explicit error rather than a
-    numpy broadcast failure deep in an einsum.
-    '''
-    DIM = 2
+class StVenantKirchhoff:
+    """St Venant-Kirchhoff strain energy density.
 
-    def __init__(self, E, nu):
-        self.E = E
-        self.nu = nu
-        self.mu, self.lamb = Enu_to_Lame(self.E, self.nu)
+    Green-Lagrange strain S = ½(FᵀF - I) paired with the isotropic energy
+    W = ½λ tr(S)² + μ tr(SᵀS).  Geometrically nonlinear (frame indifferent)
+    at the cost of a Newton solve.  Small strain is its linearisation — the
+    two agree to O(‖grad u‖²).
+    """
 
-    # Calculate grad_u -> F, S, W, dS_dF, dW_dS, dW_dF
-    def set_grad_u(self, grad_u):
-        expected = (self.DIM, self.DIM)
-        if np.shape(grad_u) != expected:
-            raise NotImplementedError(
-                f'StVenantKirchhoffEnergyDensity is {self.DIM}D-only: expected grad_u of '
-                f'shape {expected}, got {np.shape(grad_u)}'
-            )
-        self.F = np.eye(2) + grad_u
-        self.S = self.calculate_S_from_F(self.F)
-        self.W = self.calculate_W_from_S(self.S)
-        self.dS_dF = self.calculate_dS_dF(self.F)
-        self.dW_dS = self.calculate_dW_dS(self.S)
-        self.dW_dF = np.einsum('ij,ijmn->mn', self.dW_dS, self.dS_dF)
-        self.d2S_dF2 = self.calculate_d2S_dF2(self.F)
-        self.d2W_dS2 = self.calculate_d2W_dS2(self.S)
-    
-    def calculate_S_from_F(self, F):
-        # Green-Lagrange. The quadratic term is what makes this nonlinear in u,
-        # so Newton takes several iterations rather than the single step a
-        # quadratic energy would need.
-        return 0.5 * (F.T @ F - np.eye(2))
+    def __init__(self, E: float, nu: float) -> None:
+        self.mu, self.lamb = Enu_to_Lame(E, nu)
 
-    def calculate_W_from_S(self, S):
-        return 0.5 * (self.lamb * np.trace(S)**2 + 2 * self.mu * np.trace(S.T @ S))
+    def evaluate(self, grad_u: FloatArray) -> Tensors:
+        """Evaluate the full derivative chain at `(n_elements, d, d)` gradients."""
+        d = grad_u.shape[-1]
+        eye = np.eye(d)
+        F = eye + grad_u
+        S = self._strain(F, eye)
+        return Tensors(
+            W=self._energy(S),
+            dW_dF=np.einsum('eij,eijmn->emn', self._dW_dS(S, eye), self._dS_dF(F, d)),
+            dW_dS=self._dW_dS(S, eye),
+            dS_dF=self._dS_dF(F, d),
+            d2S_dF2=self._d2S_dF2(d),
+            d2W_dS2=self._d2W_dS2(d),
+        )
 
-    def calculate_dS_dF(self, F):
-        dS_dF = np.zeros((2, 2, 2, 2))
-        for i in range(2):
-            for j in range(2):
-                for m in range(2):
-                    for n in range(2):
-                        if j == n:
-                            dS_dF[i, j, m, n] += 0.5 * F[m, i]
-                        if i == n:
-                            dS_dF[i, j, m, n] += 0.5 * F[m, j]
-        return dS_dF
+    # -- strain measure (overridden by SmallStrain) -------------------------
 
-    def calculate_d2S_dF2(self, F):
-        d2S_dF2 = np.zeros((2, 2, 2, 2, 2, 2))
-        for i in range(2):
-            for j in range(2):
-                for m in range(2):
-                    for n in range(2):
-                        for k in range(2):
-                            for q in range(2):
-                                if j == n and k == m and i == q:
-                                    d2S_dF2[i, j, m, n, k, q] += 0.5
-                                if i == n and k == m and j == q:
-                                    d2S_dF2[i, j, m, n, k, q] += 0.5
-        return d2S_dF2
+    def _strain(self, F: FloatArray, eye: FloatArray) -> FloatArray:
+        return 0.5 * (np.einsum('eji,ejk->eik', F, F) - eye)
 
-    def calculate_dW_dS(self, S):
-        return self.lamb * np.trace(S) * np.eye(2) + 2 * self.mu * S
+    def _dS_dF(self, F: FloatArray, d: int) -> FloatArray:
+        # dS_dF[e,i,j,m,n] = ½(F[e,m,i]δ(j,n) + F[e,m,j]δ(i,n))
+        eye = np.eye(d)
+        return 0.5 * (
+            np.einsum('emi,jn->eijmn', F, eye) +
+            np.einsum('emj,in->eijmn', F, eye)
+        )
 
-    def calculate_W_from_F(self, F):
-        return self.calculate_W_from_S(self.calculate_S_from_F(F))
+    def _d2S_dF2(self, d: int) -> FloatArray:
+        # d²S/dF²[i,j,m,n,k,q] = ½(δ(j,n)δ(k,m)δ(i,q) + δ(i,n)δ(k,m)δ(j,q))
+        eye = np.eye(d)
+        return 0.5 * (
+            np.einsum('jn,km,iq->ijmnkq', eye, eye, eye) +
+            np.einsum('in,km,jq->ijmnkq', eye, eye, eye)
+        )
 
-    def calculate_dW_dF(self, F):
-        S = self.calculate_S_from_F(F)
-        return np.einsum('ij,ijmn->mn', self.calculate_dW_dS(S), self.calculate_dS_dF(F))
+    # -- energy function (shared by both strain measures) -------------------
 
-    def calculate_d2W_dS2(self, S):
-        d2W_dS2 = np.zeros((2, 2, 2, 2))
-        for i in range(2):
-            for j in range(2):
-                for m in range(2):
-                    for n in range(2):
-                        if i == j and m == n:
-                            d2W_dS2[i, j, m, n] += self.lamb
-                        if i == m and j == n:
-                            d2W_dS2[i, j, m, n] += 2 * self.mu
-        return d2W_dS2
+    def _energy(self, S: FloatArray) -> FloatArray:
+        tr = np.einsum('eii->e', S)
+        tr_STS = np.einsum('eij,eij->e', S, S)
+        return 0.5 * (self.lamb * tr ** 2 + 2 * self.mu * tr_STS)
 
-    def check_gradients(self):
+    def _dW_dS(self, S: FloatArray, eye: FloatArray) -> FloatArray:
+        tr = np.einsum('eii->e', S)
+        return self.lamb * tr[:, None, None] * eye + 2 * self.mu * S
+
+    def _d2W_dS2(self, d: int) -> FloatArray:
+        eye = np.eye(d)
+        return (self.lamb * np.einsum('ij,mn->ijmn', eye, eye)
+                + 2 * self.mu * np.einsum('im,jn->ijmn', eye, eye))
+
+    # -- single-element interface for gradient checks -----------------------
+
+    def calculate_S_from_F(self, F: FloatArray) -> FloatArray:
+        """Single-element S(F), for the parked gradient checks."""
+        d = F.shape[-1]
+        return self._strain(F[None], np.eye(d))[0]
+
+    def calculate_W_from_S(self, S: FloatArray) -> float:
+        return float(self._energy(S[None])[0])
+
+    def calculate_W_from_F(self, F: FloatArray) -> float:
+        d = F.shape[-1]
+        return self.calculate_W_from_S(self._strain(F[None], np.eye(d))[0])
+
+    def calculate_dS_dF(self, F: FloatArray) -> FloatArray:
+        d = F.shape[-1]
+        return self._dS_dF(F[None], d)[0]
+
+    def calculate_dW_dS(self, S: FloatArray) -> FloatArray:
+        d = S.shape[-1]
+        return self._dW_dS(S[None], np.eye(d))[0]
+
+    def calculate_dW_dF(self, F: FloatArray) -> FloatArray:
+        d = F.shape[-1]
+        eye = np.eye(d)
+        S = self._strain(F[None], eye)
+        return np.einsum('ij,ijmn->mn', self._dW_dS(S, eye)[0], self._dS_dF(F[None], d)[0])
+
+    def calculate_d2S_dF2(self, F: FloatArray) -> FloatArray:
+        return self._d2S_dF2(F.shape[-1])
+
+    def calculate_d2W_dS2(self, S: FloatArray) -> FloatArray:
+        return self._d2W_dS2(S.shape[-1])
+
+    def check_gradients(self) -> None:
+        from fem.numerics import check_gradient
         check_gradient(self.calculate_S_from_F, self.calculate_dS_dF, (2, 2))
         check_gradient(self.calculate_W_from_S, self.calculate_dW_dS, (2, 2))
         check_gradient(self.calculate_W_from_F, self.calculate_dW_dF, (2, 2))
         logger.info("Gradient checks completed")
 
 
-class SmallStrainEnergyDensity(StVenantKirchhoffEnergyDensity):
-    '''Linear (infinitesimal-strain) elasticity: St-VK with eps = 1/2 (F + F^T) - I.
+class SmallStrain(StVenantKirchhoff):
+    """Infinitesimal-strain elasticity: St-VK with ε = ½(F + Fᵀ) - I.
 
-    Green-Lagrange's linearization -- the same energy W and Lame parameters as
-    the parent, dropping only the quadratic grad_u^T grad_u term. The strain is
-    then affine in F, so dS/dF is constant and d2S/dF2 vanishes: the energy is
-    quadratic in u, its Hessian is the constant K that `Solver` assembles, and
-    Newton converges in one step from any start.
+    The linearisation of Green-Lagrange.  The strain is affine in F, so dS/dF
+    is constant, d²S/dF² vanishes, the energy is quadratic in u, and Newton
+    converges in one step.  This is the same physics `Solver` solves by direct
+    assembly — its value is as the independent cross-check and as the
+    small-strain member of the strain-measure axis.
+    """
 
-    This is the same physics `Solver` solves by direct assembly. Minimizing it
-    is therefore the slower route to that answer -- its value is as the second,
-    independent derivation `Solver` is checked against, and as the small-strain
-    member of the strain-measure axis (see tests/test_elasticity_models.py). It
-    trades frame indifference for that constant Hessian: a rigid rotation reads
-    as a spurious strain, which is exactly why the nonlinear parent exists.
-    '''
+    def _strain(self, F: FloatArray, eye: FloatArray) -> FloatArray:
+        return 0.5 * (F + np.swapaxes(F, -2, -1)) - eye
 
-    def calculate_S_from_F(self, F):
-        return 0.5 * (F + F.T) - np.eye(2)
+    def _dS_dF(self, F: FloatArray, d: int) -> FloatArray:
+        n = F.shape[0]
+        eye = np.eye(d)
+        single = 0.5 * (np.einsum('im,jn->ijmn', eye, eye)
+                        + np.einsum('jm,in->ijmn', eye, eye))
+        return np.broadcast_to(single, (n, d, d, d, d))
 
-    def calculate_dS_dF(self, F):
-        dS_dF = np.zeros((2, 2, 2, 2))
-        for i in range(2):
-            for j in range(2):
-                for m in range(2):
-                    for n in range(2):
-                        dS_dF[i, j, m, n] = 0.5 * ((i == m) * (j == n) + (j == m) * (i == n))
-        return dS_dF
-
-    def calculate_d2S_dF2(self, F):
-        return np.zeros((2, 2, 2, 2, 2, 2))
+    def _d2S_dF2(self, d: int) -> FloatArray:
+        return np.zeros((d, d, d, d, d, d))
 
 
 class NeohookeanEnergyDensity:
-    def __init__(self, E, nu):
-        self.E = E
-        self.nu = nu
-        self.mu, self.lamb = Enu_to_Lame(self.E, self.nu)
+    def __init__(self, E: float, nu: float) -> None:
+        self.mu, self.lamb = Enu_to_Lame(E, nu)
 
-    def set_grad_u(self, grad_u):
+    def evaluate(self, grad_u: FloatArray) -> Tensors:
         raise NotImplementedError(
             "NeohookeanEnergyDensity is not implemented yet; "
-            "use StVenantKirchhoffEnergyDensity for now."
+            "use StVenantKirchhoff for now."
         )
+
+
+# Backwards-compatible aliases for the old names used by tests.
+StVenantKirchhoffEnergyDensity = StVenantKirchhoff
+SmallStrainEnergyDensity = SmallStrain

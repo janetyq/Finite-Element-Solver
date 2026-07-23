@@ -11,11 +11,6 @@ at once: a single `(n_elements, N, spatial_dim)` array of `grad_phi` and a singl
 every element matrix in one vectorized pass instead of a Python loop -- assembly
 was the dominant cost of a 3D solve when this was a loop over per-element objects.
 
-`ElementGeometry.at` returns a single-element view for the one caller that still
-works element-at-a-time, the nonlinear `EnergyForm`. The view reads slices of the
-batched arrays rather than recomputing anything, so there is still one source of
-geometric truth.
-
 Two quantities are easy to confuse and are kept distinct throughout:
 `reference_dim` is the dimension of the element itself (2 for a triangle), while
 `spatial_dim` is the dimension it is embedded in. They differ exactly for the
@@ -23,7 +18,6 @@ boundary facets of a 3D mesh -- a triangle in 3D -- which is why the Jacobian
 below is not assumed square.
 """
 from dataclasses import dataclass
-from functools import cached_property
 from math import factorial
 from typing import ClassVar
 
@@ -178,52 +172,3 @@ class ElementGeometry:
         '''
         return np.einsum('eni,en...->ei...', self.grad_phi, u_elements)
 
-    def at(self, e_idx: int) -> 'ElementView':
-        '''A single-element view onto the batched arrays.
-
-        For the nonlinear `EnergyForm`, which is still evaluated one element at a
-        time inside a Newton loop. A view, not a copy: nothing is recomputed, so
-        this cannot drift from the batched arrays it reads.
-        '''
-        return ElementView(
-            element_type=self.element_type,
-            grad_phi=self.grad_phi[e_idx],
-            volume=float(self.volumes[e_idx]),
-        )
-
-
-class ElementView:
-    '''One element's geometry, read out of an `ElementGeometry`.'''
-
-    def __init__(
-        self, element_type: type[LinearElement], grad_phi: FloatArray, volume: float
-    ) -> None:
-        self.element_type = element_type
-        self.grad_phi = grad_phi  # (N, spatial_dim)
-        self.volume = volume
-
-    @property
-    def reference_dim(self) -> int:
-        return self.element_type.reference_dim()
-
-    # TODO: haven't checked if these make sense for 1D, 3D
-    def deformation_gradient(self, u_element: FloatArray) -> FloatArray:
-        # F = I + grad_u = I + grad_phi^T @ u
-        return np.eye(self.reference_dim) + self.calculate_gradient(u_element)
-
-    @cached_property
-    def dF_dx(self) -> FloatArray:
-        '''dF/dx = I (x) grad_phi^T, shape (d, d, N, d) for d = reference_dim.
-
-        Lazy, and only ever reached through `EnergyForm`. It used to be built
-        eagerly for every element by a 4-deep Python loop, which made it the
-        single largest cost of assembling a mesh that never touched the nonlinear
-        path at all.
-        '''
-        d = self.reference_dim
-        # dF_dx[i, j, m, n] = grad_phi[m, i] * delta[j, n]
-        return np.einsum('mi,jn->ijmn', self.grad_phi[:, :d], np.eye(d))
-
-    def calculate_gradient(self, u_element: FloatArray) -> FloatArray:
-        # grad_u = grad_phi^T @ u
-        return self.grad_phi.T @ u_element
