@@ -4,7 +4,7 @@ A structural read of the package, deliberately skipping the sparse-matrix and pe
 items already covered in `BACKLOG.md` §2. Claims about what is dead or uncalled were
 verified by grepping for callers and definitions, not inferred.
 
-Nothing here is a known-broken path any more; what remains is design and dead weight.
+These are design and dead-weight items, not bugs — priorities, not a defect list.
 
 Line references are against `0d8b3ba`. They drift; the symbol names are the durable anchor,
 and `ARCHITECTURE.md` deliberately uses those alone.

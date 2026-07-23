@@ -9,22 +9,18 @@ one job. Anchored on symbol names rather than line numbers, which drift with eve
 ## The thesis in one paragraph
 
 The package was missing **one object** — the discretization, or function space — and most of
-its role conflations were downstream of that absence. `FunctionSpace` now exists, and the two
-conflations that depended on it are gone with it: the mesh no longer owns assembly, and the
-`dim` that meant both components-per-node and spatial dimension is now two named quantities.
-
-**All three of the original conflations are now closed.** The last — `Element` owning the
-constitutive law — is gone: `Form` + `Material` exist, `D` and the strain-displacement matrix
-`B` moved off the element, and assembly runs through a typed `Form` rather than an untyped
-material bag. `Element` is pure geometry.
+its role conflations were downstream of that absence. With `FunctionSpace` in place, all three
+of the original conflations are closed: the mesh no longer owns assembly, the `dim` that meant
+both components-per-node and spatial dimension is two named quantities, and the constitutive
+law is off `Element` (which is now pure geometry) and onto `Form` + `Material`.
 
 Two smaller, independent problems remain, and are the subject of most of what follows:
 `Equation` still carries time-step parameters (a Time-layer split), and the physics layer,
 though no longer on the element, is not yet *complete* — the strain measure is named but not
 a selectable axis, and the linear solver still reaches for `B` and `D` directly to recover
-stresses. (Deriving `D` from the energy `W` was the third item here and has been deliberately
-closed the other way — see §3.) The package contains a **worked example of the right pattern**
-in three places now — see "The layer that is already right" at the end.
+stresses. (Deriving `D` from the energy `W` was a third candidate here and has been deliberately
+closed the other way — see §3.) The **worked example of the right pattern** those fixes follow
+is at the end, in "The layer that is already right".
 
 ---
 
@@ -53,11 +49,8 @@ four files.
 ## 2. Where the current classes sit
 
 `█` = owns the layer · `▒` = shares it cleanly with another owner · `◧` = holds a piece it
-should not — the conflation
-
-Three symbols rather than two because the second and third had been collapsed into one, and
-they read as opposite things: `DiscreteSystem` and `Solver` splitting layer 6 is the design
-working, `Equation` holding `dt` is the defect list.
+should not — the conflation. The last two read as opposites: `DiscreteSystem` and `Solver`
+splitting layer 6 is the design working; `Equation` holding `dt` is the defect list.
 
 | Class | 1 Geom | 2 Space | 3 Phys | 4 Asm | 5 Cons | 6 Alg | 7 Time | 8 Drive | 9 Post |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -112,10 +105,8 @@ designed deliberately.
 mesh and owns the discretization — element geometry, DOF numbering, cached operators. Two
 spaces can share one domain, which is the property that made the split necessary.
 `assemble` takes a `Form` rather than an untyped material bag, so the space forwards nothing
-it cannot interpret.
-
-`Mesh.plot` is gone — it had no callers and was the last core → plot dependency, so `fem/mesh`
-no longer imports `fem/plot` at all. Plotting is entirely the plot layer's to initiate.
+it cannot interpret. `fem/mesh` imports no plot code, so the geometry layer is clean of the
+core → plot dependency (the remaining ones are in the review).
 
 ### `Form` / `Material` — placed, not yet unified
 
@@ -167,13 +158,9 @@ Element types are stateless: `LinearTetrahedralElement` describes a shape and ho
 per-element data, so there is one of them in a program rather than one per tet. The
 per-element data lives in `ElementGeometry`, which holds it for the whole mesh at once — one
 `(n_elements, N, spatial_dim)` array of `grad_phi`, one `(n_elements,)` array of measures —
-and `Form.element_matrices` computes every element matrix in a single vectorized pass.
-
-This was the last of the scaling work. Assembling a 3D elastic solve at n=17 went from
-18.7s to 0.48s, and the 3D MMS test now asserts a real O(h²) rate instead of an approach to
-one. `examples/benchmark_assembly.py` measures the split; the cost is back on the sparse
-factorization, which is the natural next target (see the iterative-solver item in
-`BACKLOG.md`).
+and `Form.element_matrices` computes every element matrix in a single vectorized pass. The
+type/instance split *is* the batching: bind the shape-function math to a mesh and it becomes
+the per-element Python objects whose cost the batching removed.
 
 `EnergyForm` is batched too: the energy densities (`fem/energies.py`) evaluate the full
 derivative chain — W, dW/dF, dS/dF, d²S/dF², d²W/dS² — over all elements at once, and
@@ -212,17 +199,10 @@ specification. Separating a `Material` (or a per-element coefficient field owned
 is what removes the mutation itself; handing the driver a fresh `Material` each iteration is
 the shape of the fix.
 
-Two pieces of machinery that had grown around the mutation are gone. It used to clone the whole
-equation to remember one number, which forced a bespoke `Equation.copy` built on `__new__` to
-dodge subclass constructor signatures; storing `base_E` directly retired both. And the SIMP
-exponent, previously the literal `3` in `set_rho` *and* a second literal `3` in
-`compliance_gradient` — a correctness coupling with nothing stating it — is now one `penalty`
-argument feeding both.
+### `Solver` — many layers, and an inverted driver
 
-### `Solver` — seven layers, and an inverted driver
-
-Covered in the review: god class, exact-type dispatch, temporal coupling on `self.mu`. Three
-additional structural notes.
+Covered in the review: god class, exact-type dispatch, temporal coupling on `self.material`.
+Three additional structural notes.
 
 **`adaptive_refinement` is a driver living inside the thing it drives.** It mutates
 `self.mesh`, re-resolves BCs, replaces `self.solution`, and loops. Compare
@@ -234,10 +214,8 @@ awkwardness that it has to rebuild BC resolution by hand after each remesh.
 **Time integration is inline and duplicated.** `solve_heat` hardcodes backward Euler;
 `solve_wave` hardcodes Crank–Nicolson, hand-builds a `2N` block system with `block_array`, and
 needs `_wave_block_constraints` to lift nodal Dirichlet indices into block-DOF space.
-
-`DiscreteSystem` was predicted here as the fix and only partly delivered: `solve_wave` hands it
-the block operator and reuses one factorization, but the blocking and the constraint lifting are
-still written out in the solver.
+`DiscreteSystem` reuses one factorization across steps but composes nothing — the blocking and
+the lifting are written out in the solver.
 
 **Whether that is a defect depends on an unmade decision.** The `2N` system is not a requirement
 of the wave equation — it is a consequence of reducing a second-order equation to first order in
@@ -248,9 +226,6 @@ blocks — Newmark solves an `N`-sized `(M + β dt²c²K) a = …` — and delet
 Leaning to the second: that operator is SPD where the block one is not (`A_left`'s off-diagonals
 are `-dt/2·M` against `+c²dt/2·K`, not transposes), so it stays inside the CG/preconditioning
 story that is the top backlog item. Worth settling before step 4, not during.
-
-The second Newton loop is gone: `Solver.solve_nonlinear_system` had no callers and has been
-deleted, leaving `EnergySolver.newton_solve` as the only one.
 
 ### `Solution` — result, field container, and time series
 
@@ -277,8 +252,6 @@ happened, and rigidity exactly where extension is on the roadmap.
 | `Solution.get_values(name, iter_idx, mode)` | three-axis generality; the `mode` axis is now covered by `tests/test_regressions.py` but still has no caller outside them |
 | `quadrature.py` | five rules, zero callers — and shaped wrong for the layer that would replace them: they take `(func, polygon_vertices)`, where a real quadrature layer needs reference-element points and weights |
 
-`Solver.solve_nonlinear_system` was the fourth row and has been deleted.
-
 Each of these is a *string-or-kwargs-parameterized* extension point. That is the shape
 flexibility takes when it is added speculatively, and it is the shape `AGENTS.md` warns
 against — dead parameters stay invisible precisely because nothing types them.
@@ -295,11 +268,6 @@ against — dead parameters stay invisible precisely because nothing types them.
 | Time-varying loads / BCs | `evaluate_field` takes position only, no `t` |
 | Nonlinear materials | the two representations are now pinned as one energy `W`, but there is still no common interface to select a material through |
 | Selectable kinematics | `SmallStrain` and `StVenantKirchhoff` exist and are tested, but choosing between them is a test-only injection, not an equation-level choice |
-
-Two rows have been struck since this table was written, both by the performance work: sparse
-matrices (assembly now emits COO triplets into a `csr_array`) and batched assembly
-(`ElementGeometry` holds the whole mesh at once). Robin BCs kept its row but changed its
-blocker — "assembly has no concept of a form" stopped being true when `Form` landed.
 
 Note the pattern: the unused flexibility is all *lateral* (more string options on existing
 operations), while the needed flexibility is all *vertical* (new layers between existing
@@ -339,11 +307,11 @@ TopologyOptimizer(problem_factory, objective=MinCompliance()).run()
 
 What each move buys, concretely:
 
-- **`Form` + `Material`** — *done*: removed `**kwargs` from assembly and the
-  `n_components == 1` physics branch from `Element`, which is now pure geometry. *Remaining*:
-  make the strain measure a selectable axis; move stress recovery off `Solver` onto the form;
-  give Robin conditions a boundary form to contribute to; retire `TopologyOptimizer`'s mutation
-  of `equation.E` in favour of handing the driver a fresh `Material` each iteration.
+- **`Form` + `Material`** — *done*; assembly is typed and `Element` is pure geometry.
+  *Remaining*: make the strain measure a selectable axis; move stress recovery off `Solver`
+  onto the form; give Robin conditions a boundary form to contribute to; retire
+  `TopologyOptimizer`'s mutation of `equation.E` in favour of handing the driver a fresh
+  `Material` each iteration.
 - **`DiscreteSystem`** — *mostly done*: it is the one place that knows "matrix + rhs + which
   DOFs are fixed", and it was the single seam where dense became sparse. *Remaining*: it does
   not compose or block itself, so the wave system is still hand-built with `block_array` — but
@@ -354,8 +322,7 @@ What each move buys, concretely:
 
 `Equation` as typed data survives all of this — it just sheds `dt`, `iters`, and its
 mutable material, ending up as the *identity* of the PDE plus its genuinely physical
-constants. That is what the docstring already claims it is. It has already shed `copy`,
-which existed only to service the mutation.
+constants. That is what the docstring already claims it is.
 
 ---
 
@@ -365,15 +332,11 @@ The convergence tests in `tests/test_convergence.py` and
 `tests/test_convergence_elasticity.py` are the safety net; each step below should leave them
 passing without modification.
 
-1. **Extract `Form` + `Material`, and make every assembly path a form.** *Done.* `Form` owns
-   the bilinear integrand, `EnergyForm` the nonlinear one, `Material` owns `D`, `Element` is
-   pure geometry, and the load is the mass form applied to the source. `EnergySolver` scatters
-   through the space like `Solver` does. Three follow-ons remain, all smaller and independently
-   landable:
-   - **1a. Pin `D = ∂²W/∂ε²`.** *Done.* `Material` keeps `D` in its Lamé-parameter closed
-     form — correct and dimension-general — and a test cross-checks it against the small-strain
-     energy density in 2D. Deriving `D` from `W` was considered and rejected: it would trade a
-     checked two-line closed form for a contraction of the energy's rank-4 Hessian.
+1. **Extract `Form` + `Material`, and make every assembly path a form.** *Done.* Three
+   follow-ons remain, all smaller and independently landable:
+   - **1a. Pin `D = ∂²W/∂ε²`.** *Done* — cross-checked against the small-strain energy in 2D.
+     Deriving `D` from `W` was considered and rejected: it would trade a checked two-line
+     closed form for a contraction of the energy's rank-4 Hessian, and forfeit the 3D path.
    - **1b. Make kinematics selectable.** `SmallStrain` and
      `StVenantKirchhoff` are the two members today; `Form`/`EnergyForm` is where
      choosing between them becomes an equation-level choice rather than the test-only injection
@@ -381,25 +344,17 @@ passing without modification.
    - **1c. Move stress recovery onto the form.** `solve_linear_elastic` rebuilds `B` and `D`
      to compute strain, stress, and compliance — the last constitutive code outside the
      physics layer, and the cheapest of the three.
-2. **`DiscreteSystem` + dense→sparse.** *Done.* Both solvers eliminate constraints through
-   `DiscreteSystem`, the time-steppers factor their constant LHS once, assembly emits sparse
-   CSR, and the factorization is `splu`. The linear algebra is off the critical path; the
-   per-element assembly loop that replaced it as the top cost has been batched too (see
-   `Element`, above). The scaling work is done; the remaining limit is the direct sparse
-   factorization.
+2. **`DiscreteSystem` + dense→sparse.** *Done*; the remaining scaling limit is the direct
+   sparse factorization, now a `BACKLOG.md` item rather than an architectural one.
 3. **Typed `Solution`,** together with the `io.py` rework they jointly require.
 4. **Extract `TimeIntegrator`;** move `dt`/`iters` off `Heat`/`Wave`. Breaking API change —
    worth batching with (3). Settle the fork in §3 first.
 5. **Uniform drivers:** `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
    problem factory rather than mutating an equation.
 
-Steps 1 and 2 are done, batched assembly with them. Steps 3–5 are independent and can be
-done any time.
-
-The pattern from the completed work is worth keeping: a mechanical rename that makes two
-concepts unspellable as one name is cheap and buys more than it looks like, and the checkpoint
-for each step should be a test the old architecture *could not have passed* — the 3D
-elasticity MMS test played that role for `FunctionSpace`.
+Steps 3–5 are independent and can be done any time. The pattern worth keeping from steps 1–2:
+the checkpoint for each step should be a test the old architecture *could not have passed* —
+the 3D elasticity MMS test played that role for `FunctionSpace`.
 
 ---
 
