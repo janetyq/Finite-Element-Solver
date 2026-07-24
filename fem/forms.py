@@ -126,6 +126,30 @@ class LinearElasticForm:
         # forms an (n_elements, k, s) intermediate and runs ~60x slower here.
         return np.einsum('eji,ejk,ekl,e->eil', B, D, B, geometry.volumes, optimize=True)
 
+    def derived_fields(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> tuple[FloatArray, FloatArray, FloatArray]:
+        '''Element strain, stress (both Voigt), and compliance from nodal displacements.
+
+        The mirror of `element_matrices`: the same B and D, contracted against the
+        solved displacement instead of assembled into a stiffness. These derived
+        fields live on the form so the constitutive law (B, D) stays in the physics
+        layer rather than being rebuilt by whatever solved the system.
+
+        `u_elements` is `(n_elements, N*n_components)` -- each element's nodal DOFs,
+        interleaved per node to match B's columns. Callers reduce the returned Voigt
+        vectors to scalars (e.g. their norm) as a presentation choice; the physics is
+        the full strain and stress.
+        '''
+        B = strain_displacement(geometry.grad_phi)
+        D = self.material.constitutive_matrices(
+            geometry.reference_dim, geometry.n_elements
+        )
+        strain = np.einsum('esk,ek->es', B, u_elements)
+        stress = np.einsum('est,et->es', D, strain)
+        compliance = np.einsum('es,es,e->e', stress, strain, geometry.volumes)
+        return strain, stress, compliance
+
 
 class EnergyDensity(Protocol):
     '''The material law an `EnergyForm` integrates: `fem.energies` implements it.'''
