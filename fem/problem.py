@@ -24,7 +24,7 @@ from typing import Protocol
 import numpy as np
 
 from fem.boundary import BoundaryConditions
-from fem.forms import EnergyForm, Form, LaplacianForm, LinearElasticForm, MassForm, Scaled
+from fem.forms import EnergyForm, Form, LaplacianForm, LinearElasticForm, MassForm, ScaledForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.regions import evaluate_field
@@ -197,8 +197,8 @@ def heat(mesh: Mesh, source: FieldValue = None, bc: BoundaryConditions | None = 
 def wave(mesh: Mesh, c: float, bc: BoundaryConditions | None = None, source: FieldValue = None) -> LinearProblem:
     '''Transient wave with speed `c`: the Laplacian scaled by c², to be Newmark-stepped.
 
-    The wave speed lives in the operator (`Scaled(c², …)`), so the integrator sees
+    The wave speed lives in the operator (`ScaledForm(c², …)`), so the integrator sees
     only c²K and never learns `c`.
     '''
     space = FunctionSpace(mesh, n_components=1)
-    return LinearProblem(space, Scaled(c**2, LaplacianForm()), source, bc)
+    return LinearProblem(space, ScaledForm(c**2, LaplacianForm()), source, bc)

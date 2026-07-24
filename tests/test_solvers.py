@@ -12,7 +12,7 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane
 from fem.solver import Solver, Projection, Poisson, LinearElastic
 from fem.problem import heat, wave
-from fem.integrators import Newmark, ThetaMethod, wave_energy
+from fem.integrators import NewmarkMethod, ThetaMethod, wave_energy
 
 
 def test_heat_conserves_mean_temperature(make_unit_square):
@@ -75,7 +75,7 @@ def test_wave_holds_static_equilibrium_under_load(make_unit_square):
 
     problem = wave(mesh, c=1, bc=bc, source=source)
     v0 = np.zeros(len(u_static))
-    u_values = Newmark(dt=0.01, steps=20).run(problem, u_static.copy(), v0).get_values("u_values")
+    u_values = NewmarkMethod(dt=0.01, steps=20).run(problem, u_static.copy(), v0).get_values("u_values")
 
     assert np.allclose(u_values[-1], u_static, atol=1e-8), "equilibrium drifted"
 
@@ -87,7 +87,7 @@ def test_wave_honors_dirichlet_bcs(make_unit_square):
     u0[mesh.boundary_idxs] = 0.0
 
     problem = wave(mesh, c=1, bc=bc)
-    u_values = Newmark(dt=0.01, steps=20).run(problem, u0.copy(), np.zeros(len(u0))).get_values("u_values")
+    u_values = NewmarkMethod(dt=0.01, steps=20).run(problem, u0.copy(), np.zeros(len(u0))).get_values("u_values")
 
     for step, u in enumerate(u_values):
         assert np.allclose(u[mesh.boundary_idxs], 0.0, atol=1e-10), \
@@ -107,7 +107,7 @@ def test_wave_conserves_energy(make_unit_square):
     u0[mesh.boundary_idxs] = 0.0
 
     problem = wave(mesh, c=2, bc=bc)
-    solution = Newmark(dt=0.005, steps=40).run(problem, u0.copy(), np.zeros(len(u0)))
+    solution = NewmarkMethod(dt=0.005, steps=40).run(problem, u0.copy(), np.zeros(len(u0)))
 
     energies = [
         wave_energy(problem, u, v)
@@ -125,7 +125,7 @@ def test_wave_rejects_inconsistent_initial_state(make_unit_square):
 
     problem = wave(mesh, c=1, bc=bc)
     with pytest.raises(ValueError):
-        Newmark(dt=0.01, steps=2).run(problem, u0, np.zeros(n))
+        NewmarkMethod(dt=0.01, steps=2).run(problem, u0, np.zeros(n))
 
 
 def test_linear_elastic_stretches_under_tension(make_unit_square):

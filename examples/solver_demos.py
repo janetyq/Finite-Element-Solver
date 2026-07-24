@@ -13,7 +13,7 @@ from fem.plot.plotter import Plotter
 from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
 from fem.solver import Solver, Projection, Poisson, LinearElastic
 from fem.problem import heat, wave
-from fem.integrators import Newmark, ThetaMethod
+from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
 
@@ -82,7 +82,7 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     u_initial = bump_function(mesh.vertices, wave_center, size=0.25*min(w, h))
     dudt_initial = np.zeros(len(mesh.vertices))
 
-    solution = Newmark(dt=0.03, steps=20).run(wave(mesh, c=1), u_initial, dudt_initial)
+    solution = NewmarkMethod(dt=0.03, steps=20).run(wave(mesh, c=1), u_initial, dudt_initial)
     u_values = solution.get_values('u_values')
     t_values = solution.get_values('t_values')
 

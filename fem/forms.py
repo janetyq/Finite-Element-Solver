@@ -152,7 +152,7 @@ class LinearElasticForm:
 
 
 @dataclass(frozen=True)
-class Scaled:
+class ScaledForm:
     '''A form scaled by a constant coefficient -- c² for the wave operator.
 
     The first operator-side combinator, and it earns its place exactly where the

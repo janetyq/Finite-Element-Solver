@@ -62,7 +62,7 @@ class ThetaMethod:
         return _history(problem, t_values, u_values)
 
 
-class Newmark:
+class NewmarkMethod:
     '''Second-order integrator for M u'' + K u = b.
 
     β = ¼, γ = ½ is the average-acceleration scheme: unconditionally stable and, for

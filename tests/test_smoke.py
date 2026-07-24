@@ -12,7 +12,7 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.regions import on_plane
 from fem.solver import LinearElastic
 from fem.problem import wave
-from fem.integrators import Newmark
+from fem.integrators import NewmarkMethod
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
 from fem.mesh.refinement import RedGreenRefiner
@@ -22,7 +22,7 @@ def test_wave_solver_runs(make_unit_square):
     mesh = make_unit_square(15)
     u0 = bump_function(mesh.vertices, mesh.vertices.mean(axis=0), mag=1, size=0.3)
     problem = wave(mesh, c=1)
-    solution = Newmark(dt=0.02, steps=5).run(problem, u0, np.zeros(len(mesh.vertices)))
+    solution = NewmarkMethod(dt=0.02, steps=5).run(problem, u0, np.zeros(len(mesh.vertices)))
     u_values = solution.get_values("u_values")
     assert len(u_values) == 6
     assert np.all(np.isfinite(u_values[-1]))
