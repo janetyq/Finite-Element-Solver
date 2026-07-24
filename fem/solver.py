@@ -12,7 +12,7 @@ from fem.fields import FieldShape, Scalar, Vector
 from fem.regions import evaluate_field
 from fem.solution import Solution
 from fem.space import FunctionSpace, dof_indices
-from fem.forms import LaplacianForm, LinearElasticForm, strain_displacement
+from fem.forms import Form, LaplacianForm, LinearElasticForm
 from fem.materials import LinearElasticMaterial
 from fem.system import DiscreteSystem
 from fem.typing import (
@@ -108,6 +108,21 @@ class LinearElastic(Equation):
         self.E = E
         self.nu = nu
 
+
+def stiffness_form(equation: Equation) -> Form:
+    '''The bilinear stiffness form for an equation.
+
+    LinearElastic carries material data, so its form is built from a
+    LinearElasticMaterial; the scalar diffusion family (Projection / Poisson /
+    Heat / Wave) shares the material-free Laplacian. This is the one
+    equation-specific choice the steady solve makes -- selecting the operator --
+    named and lifted out of the solve so the solve itself stays PDE-agnostic.
+    '''
+    if isinstance(equation, LinearElastic):
+        return LinearElasticForm(LinearElasticMaterial(equation.E, equation.nu))
+    return LaplacianForm()
+
+
 class Solver:
     def __init__(
         self,
@@ -154,11 +169,11 @@ class Solver:
         self.solution.reset()
         
         equation_solvers = {
-            Projection: self.solve_projection,
-            Poisson: self.solve_poisson,
+            Projection: self.solve_steady,
+            Poisson: self.solve_steady,
             Heat: self.solve_heat,
             Wave: self.solve_wave,
-            LinearElastic: self.solve_linear_elastic,
+            LinearElastic: self.solve_steady,
         }
 
         solver_fn = equation_solvers.get(type(self.equation))
@@ -175,11 +190,8 @@ class Solver:
         # is also why it cannot be a property of a material-free space.
         self.M = self.space.mass_matrix
         self.M_b = self.space.boundary_mass_matrix
-        if isinstance(self.equation, LinearElastic):
-            self.material = LinearElasticMaterial(self.equation.E, self.equation.nu)
-            self.K = self.space.assemble(LinearElasticForm(self.material))
-        else:
-            self.K = self.space.assemble(LaplacianForm())
+        self.stiffness = stiffness_form(self.equation)
+        self.K = self.space.assemble(self.stiffness)
 
         # RHS: the linear form L(v) = int f.v over the volume plus int t.v over the
         # boundary. M @ f is the *exact* integral of f's P1 interpolant (M_ij =
@@ -223,15 +235,25 @@ class Solver:
             constraints = (bc.free_idxs, bc.fixed_idxs, bc.fixed_values)
         return DiscreteSystem(A, constraints).solve(b)
 
-    def solve_projection(self) -> None:
-        logger.info('Solving L2 projection...')  # M @ u = b
-        u = self.solve_linear_system(self.M, self.b)
+    def solve_steady(self) -> None:
+        '''Steady linear solve A u = b.
+
+        The three steady equations differ only in the operator: an L2 projection
+        solves against the mass matrix, Poisson and elasticity against the
+        stiffness. LinearElastic additionally recovers stress fields -- keyed off
+        the stiffness form actually being elastic, which is the same condition.
+        '''
+        logger.info('Solving steady system...')
+        A = self.M if isinstance(self.equation, Projection) else self.K
+        u = self.solve_linear_system(A, self.b)
         self.solution.set_values("u", u)
-    
-    def solve_poisson(self) -> None:
-        logger.info('Solving Poisson equation...')  # K @ u = b
-        u = self.solve_linear_system(self.K, self.b)
-        self.solution.set_values("u", u)
+
+        if isinstance(self.stiffness, LinearElasticForm):
+            u_elements = u[dof_indices(self.mesh.elements, self.n_components)]
+            strain, stress, compliance = self.stiffness.derived_fields(self.space.geometry, u_elements)
+            self.solution.set_values("strain", np.linalg.norm(strain, axis=-1))
+            self.solution.set_values("stress", np.linalg.norm(stress, axis=-1))
+            self.solution.set_values("compliance", compliance)
 
     def solve_heat(self) -> None:
         logger.info('Solving heat equation...')  # M @ u' + K @ u = b
@@ -322,27 +344,6 @@ class Solver:
         self.solution.set_values("t_values", t_values)
         self.solution.set_values("u_values", u_values)
         self.solution.set_values("dudt_values", dudt_values)
-
-    def solve_linear_elastic(self) -> None:
-        u = self.solve_linear_system(self.K, self.b)
-
-        # Recovered stresses, batched over the mesh for the same reason assembly
-        # is: one einsum beats a Python loop of 3x6 matrix products.
-        geometry = self.space.geometry
-        B = strain_displacement(geometry.grad_phi)
-        D = self.material.constitutive_matrices(
-            geometry.reference_dim, geometry.n_elements
-        )
-        u_elements = u[dof_indices(self.mesh.elements, self.n_components)]
-
-        eps = np.einsum('esk,ek->es', B, u_elements)
-        sigma = np.einsum('est,et->es', D, eps)
-        compliance = np.einsum('es,es,e->e', sigma, eps, geometry.volumes)
-
-        self.solution.set_values("u", u)
-        self.solution.set_values("strain", np.linalg.norm(eps, axis=-1))
-        self.solution.set_values("stress", np.linalg.norm(sigma, axis=-1))
-        self.solution.set_values("compliance", compliance)
 
     def adaptive_refinement(
         self,
