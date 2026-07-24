@@ -1,26 +1,29 @@
-# Architecture — current model, target model, and the gap
+# Architecture — the object model
 
 Companion to `ARCHITECTURE_REVIEW.md`. That document lists defects; this one is about the
-object model: which concepts exist, which are missing, and which objects are doing more than
-one job. Anchored on symbol names rather than line numbers, which drift with every refactor.
+object model: which concepts exist and which object owns each job. Anchored on symbol names
+rather than line numbers, which drift with every refactor.
+
+This document describes the model *as built*. An earlier revision framed it as "current model,
+target model, and the gap"; the migration that closed the gap has landed, so the target and the
+current model are now the same thing, and the framing below is the achieved design rather than a
+plan. The numeric roadmap that remains — quadrature, higher-order elements, iterative solvers,
+an error estimator — lives in `BACKLOG.md`.
 
 ---
 
 ## The thesis in one paragraph
 
-The package was missing **one object** — the discretization, or function space — and most of
-its role conflations were downstream of that absence. With `FunctionSpace` in place, all three
-of the original conflations are closed: the mesh no longer owns assembly, the `dim` that meant
-both components-per-node and spatial dimension is two named quantities, and the constitutive
-law is off `Element` (which is now pure geometry) and onto `Form` + `Material`.
-
-Two smaller, independent problems remain, and are the subject of most of what follows:
-`Equation` still carries time-step parameters (a Time-layer split), and the physics layer,
-though no longer on the element, is not yet *complete* — the strain measure is named but not
-a selectable axis, and the linear solver still reaches for `B` and `D` directly to recover
-stresses. (Deriving `D` from the energy `W` was a third candidate here and has been deliberately
-closed the other way — see §3.) The **worked example of the right pattern** those fixes follow
-is at the end, in "The layer that is already right".
+A solve is not a method you look up by PDE — it is a **composition** you assemble from parts.
+The package has the parts (`FunctionSpace`, `Form`, `Material`, `DiscreteSystem`, `ResolvedBC`),
+the object that *holds* a composition (`Problem`), the strategies that *consume* one
+(`LinearSolve`, `NewtonSolve`, the time integrators), and the drivers that *wrap* a strategy to
+re-solve (`AdaptiveRefinement`, `TopologyOptimizer`). The god `Solver` that used to hide the
+composition — `solve_heat` writing `M + dt·K` by hand, `assemble_everything` writing
+`M @ f + M_b @ neumann` by hand — is dissolved: `Heat` and `Wave` were never PDEs, just a steady
+operator paired with a time integrator, so they are gone as types; `Equation` is back to the
+*identity* of a PDE plus its physical constants. The line the `Equation` docstring always drew —
+"*what* to solve" vs "*how*" — is now the `Problem` / strategy boundary, made structural.
 
 ---
 
@@ -41,16 +44,34 @@ version of this, not by fashion but because each layer varies independently of t
 | 8 | **Drivers** | Outer loops that re-solve: adaptivity, optimization | the study being run |
 | 9 | **Post-processing** | Derived quantities, I/O, plotting | what you want to see |
 
-The test of a layering is substitution: you should be able to swap a layer without touching
-its neighbours. Swap dense→sparse (6) without touching physics (3). Swap P1→P2 (2) without
-touching boundary conditions (5). Right now most of these swaps require edits in three or
-four files.
+The test of a layering is substitution: you should be able to swap a layer without touching its
+neighbours. Swap dense→sparse (6) without touching physics (3); swap heat's θ-method for
+backward Euler (7) without touching the operator (3); remesh (1) without re-resolving constraints
+by hand (5). Each of these is now a local change — the point of the object model that follows.
 
-## 2. Where the current classes sit
+## 2. The four tiers of a solve
+
+The layers above are the *concepts*; the tiers below are how the objects stack. Each tier
+consumes the one beneath it and varies independently.
+
+| Tier | Role | Objects |
+|---|---|---|
+| **1 · Primitives** | the parts a composition is built from | `Form` / `EnergyForm` (+ `ScaledForm`, `MaskedMassForm`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` |
+| **2 · `Problem`** | a composition: space + operator + load + constraints ("what to solve") | `LinearProblem`, `EnergyProblem`; named factories `poisson`, `linear_elastic`, `heat`, `wave`, `projection` |
+| **3 · Solve strategy** | consumes a `Problem`, returns the solution ("how") | `LinearSolve`, `NewtonSolve`; time integrators `ThetaMethod`, `NewmarkMethod` |
+| **4 · Driver** | wraps a strategy, re-solving | `AdaptiveRefinement`, `TopologyOptimizer` |
+
+Named PDEs survive as **factory functions**, not dispatch keys: `poisson(mesh, f, bc)` builds the
+space and returns `LinearProblem(space, LaplacianForm(), f, bc)`. You do not *dispatch* Poisson; you *are* Poisson
+when your operator is a Laplacian and your load is a source. A PDE with no name in any taxonomy
+(advection–diffusion, a Robin-loaded plate) is just a different composition, not a new registry
+entry — and the composition is still fully typed, so nothing is given up against the repo's
+"typed over stringly-typed" rule.
+
+## 3. Where the classes sit
 
 `█` = owns the layer · `▒` = shares it cleanly with another owner · `◧` = holds a piece it
-should not — the conflation. The last two read as opposites: `DiscreteSystem` and `Solver`
-splitting layer 6 is the design working; `Equation` holding `dt` is the defect list.
+should not.
 
 | Class | 1 Geom | 2 Space | 3 Phys | 4 Asm | 5 Cons | 6 Alg | 7 Time | 8 Drive | 9 Post |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -58,327 +79,237 @@ splitting layer 6 is the design working; `Equation` holding `dt` is the defect l
 | `Element` / `ElementGeometry` | | ▒ | | | | | | | |
 | `FunctionSpace` | | ▒ | | █ | | | | | ▒ |
 | `FieldShape` (`Scalar` / `Vector`) | | | ▒ | | | | | | |
-| `Form` / `EnergyForm` | | | █ | ▒ | | | | | |
+| `Form` / `EnergyForm` (+ `ScaledForm`, `MaskedMassForm`) | | | █ | ▒ | | | | | |
 | `Material` / energy densities | | | █ | | | | | | |
-| `Equation` | | | █ | | | | ◧ | | |
+| `Equation` | | | █ | | | | | | |
 | `BoundaryConditions` / `ResolvedBC` | | | | | █ | | | | |
+| `Problem` (`LinearProblem` / `EnergyProblem`) | | | ▒ | ▒ | █ | | | | |
 | `DiscreteSystem` | | | | | ▒ | █ | | | |
-| `Solver` | | | ◧ | ◧ | ▒ | ▒ | █ | ◧ | ▒ |
+| `LinearSolve` / `NewtonSolve` | | | | | | ▒ | | | |
+| `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
+| `Solver` (steady facade) | | | ◧ | | ▒ | ▒ | | | |
 | `EnergySolver` | | | ◧ | | ▒ | ▒ | | | |
-| `TopologyOptimizer` | | | ◧ | | | | | █ | ▒ |
-| `Solution` | | | | | | | ▒ | | █ |
+| `AdaptiveRefinement` / `TopologyOptimizer` | | | | | | | | █ | ▒ |
+| `Solution` (typed) | | | | | | | ▒ | | █ |
 | `RedGreenRefiner` | █ | | | | | | | | |
 | `Plotter` / `io` | | | | | | | | | █ |
 
-Read the rows: both solvers have dropped out of *most* of physics and assembly — they build a
-form and hand it to the space — and out of the algebra too: the constrained solve lives in
-`DiscreteSystem`, so `Solver` shares that layer rather than owning it. What they have not
-dropped is marked `◧` and is small but real. `Solver.assemble_everything` `isinstance`-
-dispatches the equation to a form and constructs the `LinearElasticMaterial` itself, and it
-builds the load vector inline. (Stress recovery was a third leftover here; it has since moved —
-`solve_linear_elastic` now calls `LinearElasticForm.derived_fields` rather than rebuilding `B`
-and `D` in the driver.) `EnergySolver._select_energy` makes the same kind of choice, mapping
-`LinearElastic` to `StVenantKirchhoff`.
+Read the columns. Constraints (5) has one clear owner now: the `Problem`, whose constructor
+resolves the boundary conditions against the space and folds the Dirichlet partition into its
+`constraints`, the Neumann load into its load vector, and any Robin contribution into *both*
+sides. Algebra (6) belongs to `DiscreteSystem`, and every solve strategy sits on it rather than
+re-deriving elimination. Time (7) is owned by the integrators, not smeared across `Equation` and
+`Solver` as it once was. Drivers (8) are uniform — both own a solver rather than one being a
+method on the thing it drives.
 
-Read the columns: layer 5 (constraints) has exactly one owner, and so does layer 6 (algebra).
-Layer 2 (space) is split two ways but cleanly — the element supplies the reference basis,
-`FunctionSpace` the binding and the numbering. (`FieldShape` sits in layer 3, not here:
-`FunctionSpace` takes a plain `n_components: int`, and `components_for` is called at the solver
-boundary. It is a spec that *resolves into* layer 2, the way `BoundaryConditions` resolves into
-`ResolvedBC`.) Layer 4 (assembly) is likewise
-a clean split, `FunctionSpace` owning the scatter and `Form` the integrand; the only thing out
-of place in that column is the solver's inline load vector. Layer 3 (physics) is *placed*:
-`Form`/`Material`/energy densities own it and `Equation` names it, with only the solver
-leftovers above outstanding. Layer 7 (time) is still split between `Equation` (holds `dt`,
-`iters`) and `Solver` (holds the scheme), and layer 8 still has one driver inside the thing it
-drives.
-
-That layers 2, 4, 5, and 6 came out with clean ownership is not a coincidence: each got
-designed deliberately.
+Two `◧` remain, both small and both in the physics column. `stiffness_form` (a module function
+`Solver` calls) still constructs the `LinearElasticMaterial` when it builds the elastic form, and
+`EnergySolver._select_energy` still maps `LinearElastic` to a `StVenantKirchhoff` density. Each is
+the last thread of "which material does this equation mean?" left in a solver rather than in the
+physics layer. Neither is a conflation of *jobs* — both solvers have otherwise dropped out of
+physics, assembly, and time entirely.
 
 ---
 
-## 3. Role-by-role
+## 4. Role-by-role
 
-### `Mesh` / `FunctionSpace` — clean
+### `Mesh` / `FunctionSpace` — geometry vs discretization
 
-`Mesh` is geometry: vertices, elements, boundary, topology queries. `FunctionSpace` has a
-mesh and owns the discretization — element geometry, DOF numbering, cached operators. Two
-spaces can share one domain, which is the property that made the split necessary.
-`assemble` takes a `Form` rather than an untyped material bag, so the space forwards nothing
-it cannot interpret. `fem/mesh` imports no plot code, so the geometry layer is clean of the
-core → plot dependency (the remaining ones are in the review).
+`Mesh` is geometry: vertices, elements, boundary, topology queries. `FunctionSpace` has a mesh
+and owns the discretization — element geometry, DOF numbering, cached operators. Two spaces can
+share one domain, which is the property that made the split necessary. `assemble` takes a `Form`
+rather than an untyped material bag, so the space forwards nothing it cannot interpret. `fem/mesh`
+imports no plot code, so the geometry layer is clean of the core → plot dependency.
 
-### `Form` / `Material` — placed, not yet unified
+### `Form` / `Material` — the physics, and its one open axis
 
-The constitutive law is off the element, and **every assembly path now goes through a form**:
+The constitutive law is off the element, and **every assembly path goes through a form**:
 
 - **Bilinear forms** — `MassForm` (`∫u·v`), `LaplacianForm` and `LinearElasticForm` (the
   `Gᵀ C G · volume` stiffness family) — scatter through `FunctionSpace.assemble`, one loop that
-  no longer knows what it is scattering.
+  no longer knows what it is scattering. `ScaledForm(c², form)` and `MaskedMassForm(mask)` are the
+  two combinators that exist because a term needed them (the wave operator's `c²K`, the Robin
+  boundary integral); no speculative `OperatorSum` waits ahead of a second use.
 - **The nonlinear energy path** is `EnergyForm`, the sibling that maps an element *and a state*
-  to an energy, residual, and tangent; `EnergySolver` scatters it through
-  `assemble_residual`/`assemble_tangent`. A quadratic energy has a constant tangent, so the
+  to an energy, residual, and tangent; the energy path scatters it through
+  `FunctionSpace.assemble_residual`/`assemble_tangent`, which `EnergyProblem` calls. A quadratic energy has a constant tangent, so the
   bilinear `Form` is `EnergyForm`'s state-independent special case.
-- **The load** `L(v) = ∫f·v` is the mass form applied to the nodal source (`M @ f`), which is
-  the exact integral of `f`'s P1 interpolant — form-assembled, a load operator rather than a
-  system matrix. A first-class `LinearForm` waits on quadrature, which is what lets `f` vary
-  *within* an element (a time-varying `f(·, t)` needs only per-step re-evaluation, not
-  quadrature).
+- **Stress recovery is on the form.** `LinearElasticForm.derived_fields(geometry, u_elements)`
+  returns strain, stress, and compliance from the same `B` and `D` it assembles from — the mirror
+  of `element_matrices`, contracting against the solved displacement instead of assembling a
+  stiffness. It is the reason a driver never rebuilds `B` and `D` to recover stresses.
 
 `Material` owns `D`, and the strain-displacement matrix `B` sits in `fem/forms.py` next to the
 form that contracts it against `D`. That split is what let `Element` drop to pure geometry.
 
-The two constitutive representations are the same material, and this is now *pinned* rather
-than merely asserted: `energies.py`'s `calculate_W_from_S` and the `½εᵀDε` implied by `Material`
-are one energy `W(ε) = ½λ(tr ε)² + μ tr(εᵀε)`, and `test_hooke_matrix_is_the_second_derivative_of_the_small_strain_energy`
-checks that `D = ∂²W/∂ε²` in 2D. `D` is *left* in its Lamé-parameter closed form rather than
-derived from `W` on purpose: that closed form is correct and dimension-general, whereas
-`energies.py` is fixed-rank-2, so deriving `D` from the energy density would forfeit the 3D
-path for no gain. The duplication is a two-line closed form checked against its source, not a
-drift risk. The other axis is **kinematics**: the two solver paths
-differ only in the strain measure fed to that one `W` — `energies.py` uses Green–Lagrange
-`S = ½(FᵀF − I)` (geometrically nonlinear — St-VK), the linear path the small-strain
-`ε = ½(∇u + ∇uᵀ)`. Both measures are now named (`SmallStrain`,
-`StVenantKirchhoff`), pinned in `tests/test_elasticity_models.py`, but selecting
-between them is not yet an equation-level choice.
-
-So the physics layer decomposes as **material** (the energy `W`) × **kinematics** (the strain
-measure), and `Form` is where selecting a point in that product becomes declarative.
-
-That last piece of the layer has now moved: `LinearElasticForm.derived_fields(geometry, u_elements)`
-returns strain, stress, and compliance from the same `B` and `D` it assembles from, and
-`solve_linear_elastic` calls it instead of rebuilding them — so `solver.py` drops its
-`strain_displacement` import. The constitutive code that used to live in the driver is now in
-the form. What keeps "the solvers own no physics" from being fully true is the one remaining
-`◧`: `stiffness_form` still constructs the `LinearElasticMaterial` when it builds the form.
+The two constitutive representations are the same material, *pinned* rather than asserted:
+`energies.py`'s `calculate_W_from_S` and the `½εᵀDε` implied by `Material` are one energy
+`W(ε) = ½λ(tr ε)² + μ tr(εᵀε)`, and a test checks `D = ∂²W/∂ε²` in 2D. `D` is left in its
+Lamé-parameter closed form rather than derived from `W` on purpose: the closed form is
+dimension-general, whereas `energies.py` is fixed-rank-2, so deriving `D` from the density would
+forfeit the 3D path. The other axis is **kinematics**: the two solver paths differ only in the
+strain measure fed to that one `W` — Green–Lagrange `S = ½(FᵀF − I)` (St-VK) versus the
+small-strain `ε`. Both are named (`SmallStrain`, `StVenantKirchhoff`) and pinned in
+`tests/test_elasticity_models.py`. So the physics layer decomposes as **material** (the energy
+`W`) × **kinematics** (the strain measure) — and choosing the kinematics point is the one axis
+still made by test-only injection rather than an equation-level choice. It is the last thing the
+physics layer wants; see `BACKLOG.md`.
 
 ### `Element` — stateless types, batched geometry
 
 Element types are stateless: `LinearTetrahedralElement` describes a shape and holds no
-per-element data, so there is one of them in a program rather than one per tet. The
-per-element data lives in `ElementGeometry`, which holds it for the whole mesh at once — one
-`(n_elements, N, spatial_dim)` array of `grad_phi`, one `(n_elements,)` array of measures —
-and `Form.element_matrices` computes every element matrix in a single vectorized pass. The
-type/instance split *is* the batching: bind the shape-function math to a mesh and it becomes
-the per-element Python objects whose cost the batching removed.
+per-element data, so there is one of them in a program rather than one per tet. The per-element
+data lives in `ElementGeometry`, which holds it for the whole mesh at once — one
+`(n_elements, N, spatial_dim)` array of `grad_phi`, one `(n_elements,)` array of measures — and
+`Form.element_matrices` computes every element matrix in a single vectorized pass. The
+type/instance split *is* the batching. `EnergyForm` is batched too: the densities evaluate the
+full derivative chain over all elements at once, and are dimension-general (parameterized on
+`d = grad_u.shape[-1]`), so `EnergySolver` accepts 3D meshes.
 
-`EnergyForm` is batched too: the energy densities (`fem/energies.py`) evaluate the full
-derivative chain — W, dW/dF, dS/dF, d²S/dF², d²W/dS² — over all elements at once, and
-the form contracts those tensors against `dF_dx` in vectorized einsum calls. The densities
-are dimension-general (parameterized on `d = grad_u.shape[-1]`, not a fixed DIM = 2), so
-`EnergySolver` now accepts 3D meshes.
+### `Problem` — the narrow waist between physics and algebra
 
-### `Equation` — four roles in one object
+A `Problem` is the assembly-ready composition for **one mesh**: a space, an operator, a load, and
+constraints. It is to a composition what `ResolvedBC` is to a `BoundaryConditions` — the resolved,
+immutable view of a declarative spec. Two shapes share one protocol, mirroring the `Form` /
+`EnergyForm` split:
 
-`Heat(u_initial, dt, iters, source)` carries:
+- `LinearProblem` — `tangent(u) = A` (constant), `residual(u) = A·u − b`. Its constructor
+  assembles the operator, folds the Neumann load into `b`, and folds each Robin contribution into
+  *both* `A` (`κ·` boundary mass) and `b` (the `∫g·v` term) — the two-sided operator/load algebra,
+  used for real by Robin.
+- `EnergyProblem` — `tangent(u) = ∇²Π(u)`, `residual(u) = ∇Π(u)`, the state-dependent sibling.
 
-1. **PDE identity** — that this is the heat equation (the class itself)
-2. **Material / physical data** — `c` on `Wave`, `E`/`nu` on `LinearElastic`
-3. **Initial conditions** — `u_initial`, `dudt_initial`
-4. **Time-discretization parameters** — `dt`, `iters`
+The `Problem` **owns its constraints**: nothing index-keyed is carried across a mesh change,
+because a driver that remeshes just builds a new `Problem`. That is what took the "re-resolve BCs
+after every remesh" dance out of the solver — the class of bug the old `adaptive_refinement`
+carried. `LinearProblem` is the special case of `EnergyProblem` where the tangent does not depend
+on `u`, exactly the relationship `Form` has to `EnergyForm`.
 
-Only (1) and arguably (2) belong. `dt` and `iters` describe *how you numerically integrate*,
-not what the equation is: the heat equation is `∂u/∂t = ∇²u + f` whether you take 10 steps or
-10000. The class docstring is explicit that `Equation` is "what to solve" and `Solver` is
-"how" — `dt` is unambiguously "how", and it is on the wrong side of a line the file itself
-draws.
+### Solve strategies — `LinearSolve`, `NewtonSolve`, one engine
 
-This is exactly why the `TimeIntegrator` abstraction in the backlog is awkward to add: the
-parameters it would own are currently constructor arguments of the equation, so introducing it
-is a breaking change to the public API rather than an additive one.
+Every strategy sits on the one algebra atom, `DiscreteSystem` (matrix + Dirichlet partition +
+factor-once solve), and knows nothing about which PDE produced the `Problem`. `LinearSolve`
+assembles once and solves once; `NewtonSolve` iterates, re-factoring the tangent each step and
+checking convergence before applying the increment. A `LinearProblem` has a constant tangent and
+an affine residual, so `NewtonSolve` reaches its solution in a single applied step from any seed —
+`LinearSolve` is that step done directly. The two are one engine: `EnergySolver` delegates its
+Newton loop to `NewtonSolve(EnergyProblem(...))` rather than carrying a second copy. `SolveStrategy`
+is the protocol both satisfy, and `TopologyOptimizer` takes one as an injectable parameter — a
+driver that accepts any strategy, which is the protocol earning its place.
 
-There is also a **mutation problem**. `TopologyOptimizer.set_rho` does:
+### Time integration — a strategy per ODE order
 
-```python
-self.equation.E = self.rho**self.penalty * self.base_E
-```
+The domain has **two ODE orders** — heat is first (`M u̇ + K u = b`), wave is second
+(`M ü + c²K u = b`) — and that split is the real structure, so there is one integrator family per
+order rather than one first-order interface for both. `dt` and the step count are constructor data
+of the integrator, not fields on an equation; initial conditions arrive through `run(...)`. Each
+forms a *constant* effective operator from the problem's mass and stiffness, factors it once
+through `DiscreteSystem`, and steps by updating only the right-hand side.
 
-It reaches into the solver's equation and rewrites its material parameter every iteration. The
-equation is being used as a mutable parameter carrier while also being the immutable problem
-specification. Separating a `Material` (or a per-element coefficient field owned by the form)
-is what removes the mutation itself; handing the driver a fresh `Material` each iteration is
-the shape of the fix.
+- `ThetaMethod` (θ=½ Crank–Nicolson default, θ=1 backward Euler) solves `(M + θ dt K) u_{n+1} = …`.
+- `NewmarkMethod` (β=¼, γ=½ average-acceleration) solves for the acceleration against the SPD,
+  N-sized `M + β dt² K` — **not** a 2N first-order block. The wave speed lives in the operator as
+  `ScaledForm(c², …)`, so the integrator sees only `c²K` and never learns `c`; constant Dirichlet
+  displacement means zero velocity and acceleration at fixed nodes, so those DOFs are the ordinary
+  constraint, with no lifting into a block DOF space. That the operator is SPD (where the old block
+  system was not) is what keeps it inside the CG/preconditioning story that is the top backlog
+  item. `wave_energy` is the invariant this scheme conserves for a linear system, kept as a
+  diagnostic.
 
-### `Solver` — many layers, and an inverted driver
+### `Equation` — identity plus physical constants
 
-Covered in the review: god class, exact-type dispatch, temporal coupling on `self.material`.
-Three additional structural notes.
+`Equation` is typed data: it says *what* to solve and carries the genuinely physical parameters
+(`E`/`nu` on `LinearElastic`), while a strategy owns *how*. `Projection`, `Poisson`, and
+`LinearElastic` are the members; `Heat` and `Wave` are **not** among them, because a transient
+problem is a steady operator paired with an integrator (`problem.heat(...)`, `problem.wave(...)`),
+not a distinct PDE type. The `dt`/`iters` that used to sit on `Heat`/`Wave` are gone from the
+equation, and `TopologyOptimizer` no longer mutates `equation.E` — it builds a fresh material each
+iteration — so the equation is immutable specification again, which is what its docstring always
+claimed.
 
-**`adaptive_refinement` is a driver living inside the thing it drives.** It mutates
-`self.mesh`, re-resolves BCs, replaces `self.solution`, and loops. Compare
-`TopologyOptimizer`: the *same* kind of outer loop, but correctly implemented as a separate
-class that *owns* a `Solver`. Two outer loops, two opposite structures. `adaptive_refinement`
-should be an `AdaptiveRefinement` driver taking a solver factory — which also fixes the
-awkwardness that it has to rebuild BC resolution by hand after each remesh.
+### `Solver` / `EnergySolver` — thin facades over the core
 
-**Time integration is inline and duplicated.** `solve_heat` hardcodes backward Euler;
-`solve_wave` hardcodes Crank–Nicolson, hand-builds a `2N` block system with `block_array`, and
-needs `_wave_block_constraints` to lift nodal Dirichlet indices into block-DOF space.
-`DiscreteSystem` reuses one factorization across steps but composes nothing — the blocking and
-the lifting are written out in the solver.
+`Solver` is now a steady-solve facade: it holds a mesh, an equation, and boundary conditions;
+`solve()` builds a `LinearProblem` and hands it to `LinearSolve`, returning a typed `Solution`.
+Its one remaining job beyond composition is `remesh(mesh)`, which rebuilds the space and
+re-resolves the BC spec — the seam an `AdaptiveRefinement` driver uses to advance it across meshes
+without reaching into its state. `EnergySolver` is the analogous facade for the nonlinear energy
+path, delegating to `NewtonSolve(EnergyProblem(...))`. Both keep the one physics `◧` noted in §3
+(`stiffness_form` / `_select_energy`), and nothing else.
 
-**Whether that is a defect depends on an unmade decision.** The `2N` system is not a requirement
-of the wave equation — it is a consequence of reducing a second-order equation to first order in
-`[u; u']`. So `TimeIntegrator` forks: either *one first-order interface* for both PDEs, which
-needs `DiscreteSystem` to compose and block itself and generalizes `_wave_block_constraints`; or
-*one integrator per order* (θ-method for heat, Newmark/generalized-α for wave), which never
-blocks — Newmark solves an `N`-sized `(M + β dt²c²K) a = …` — and deletes the lifting outright.
-Leaning to the second: that operator is SPD where the block one is not (`A_left`'s off-diagonals
-are `-dt/2·M` against `+c²dt/2·K`, not transposes), so it stays inside the CG/preconditioning
-story that is the top backlog item. Worth settling before step 4, not during.
+### Drivers — uniform outer loops
 
-### `Solution` — result, field container, and time series
+`AdaptiveRefinement` and `TopologyOptimizer` are the two studies, and they now have the *same*
+shape: each owns a solver (or strategy) and re-solves. `AdaptiveRefinement` owns a `Solver` and
+advances it across meshes via `remesh`; `TopologyOptimizer` owns a `SolveStrategy` and rebuilds a
+fresh `LinearProblem` from the current density each iteration. `TopologyOptimizer`'s objective is
+an injected object (`MinCompliance`, `TargetCompliance`), not a string resolved through a
+`_select_*` dispatch, and its result is a typed `TopologyHistory` rather than a `_list`-suffixed
+dict. The old `adaptive_refinement` — a driver living *inside* the `Solver` it drove, mutating
+`self.mesh` and re-resolving BCs by hand — is gone.
 
-Three roles in one dict-backed object: the output of a solve, a bag of named post-processing
-fields, and — via `combine_solutions` and the `_list` suffix convention — an iteration series.
-The typed-dataclass fix is in the review; the architectural point here is the **coupling to
-`io.py`**. `save_solution` walks `solution.values` and writes each entry as an npz array. Any
-move to typed solutions has to land together with an I/O change, so sequence them as one
-effort rather than discovering it midway.
+### `Solution` — typed, one dataclass per shape
+
+The result is a typed dataclass, not a dict of named arrays: `FieldSolution` (the field `u`),
+`ElasticSolution` (adds recovered strain/stress/compliance), `TransientSolution` (a time series),
+`WaveSolution` (adds the velocity series). A steady field and a time series are now different
+*types* rather than both being `values[...]` told apart by guessing at a length. `save`/`load`
+round-trip any of them through `fem/io`, which reflects over the dataclass fields and stores the
+class name — so the I/O follows the type rather than a naming convention. `TopologyHistory` is
+deliberately *not* in this hierarchy: it is a driver-layer trajectory of designs (its axis is
+optimization iteration, and `rho` is a design variable, not a solved field), so it stays a
+standalone record that aggregates the per-iteration `ElasticSolution`s rather than being one.
 
 ---
 
-## 4. Flexibility in the wrong places
+## 5. Flexibility, and where it now lives
 
-Your instinct that it "needs and lacks flexibility in some areas" is well-founded — and they
-are *different* areas. There is a fair amount of machinery built for extension that never
-happened, and rigidity exactly where extension is on the roadmap.
+The old model had generality built for extensions that never happened and rigidity where
+extension was actually wanted. The speculative machinery is gone: the `TopologyOptimizer._select_*`
+plugin system (one method, an ignored args bag, an objective value never evaluated) and
+`Solution.get_values(name, iter_idx, mode)` (three-axis generality with one real axis) are both
+replaced by typed objects. `quadrature.py` remains the one piece of unused generality — five rules,
+zero callers, and shaped wrong for the layer that would replace them; its fate is a `BACKLOG.md`
+decision.
 
-**Generality that is not paying rent:**
+What the composition model bought is that the roadmap items are now *additive* rather than
+blocked:
 
-| Mechanism | Reality |
+| Wanted (from `BACKLOG.md`) | Status |
 |---|---|
-| `TopologyOptimizer._select_objective` / `_select_optimization` | a plugin system with one optimization method, an ignored args bag, and an objective value that is never evaluated |
-| `Solution.get_values(name, iter_idx, mode)` | three-axis generality; the `mode` axis is now covered by `tests/test_regressions.py` but still has no caller outside them |
-| `quadrature.py` | five rules, zero callers — and shaped wrong for the layer that would replace them: they take `(func, polygon_vertices)`, where a real quadrature layer needs reference-element points and weights |
+| Robin BCs | **done** — the two-sided operator/load algebra, folded by `LinearProblem` |
+| Time-integrator abstraction | **done** — `ThetaMethod` / `NewmarkMethod`, `dt` off the equation |
+| Uniform drivers | **done** — `AdaptiveRefinement` is a class, `TopologyOptimizer` mutates nothing |
+| Selectable kinematics | `SmallStrain` / `StVenantKirchhoff` exist and are tested; choosing between them is still a test-only injection, not an equation-level axis |
+| Quadratic / higher-order elements | DOFs assumed one-per-vertex; needs a real quadrature layer |
+| Variable coefficients / a `LinearForm` | assembly uses closed-form linear-simplex integrals; needs the quadrature hook |
+| Time-varying loads / BCs | loads are built once; the field callables take position only, no `t` |
+| Iterative solvers + preconditioning | the SPD operators are in place; the direct sparse factorization is now the scaling limit |
 
-Each of these is a *string-or-kwargs-parameterized* extension point. That is the shape
-flexibility takes when it is added speculatively, and it is the shape `AGENTS.md` warns
-against — dead parameters stay invisible precisely because nothing types them.
-
-**Rigidity where the roadmap actually goes:**
-
-| Wanted (from `BACKLOG.md`) | Blocked by |
-|---|---|
-| Quadratic / higher-order elements | DOFs assumed one-per-vertex (`dof_indices`, `Mesh._get_all_edges`, `n_dofs`); needs real quadrature |
-| Time-integrator abstraction | `dt`/`iters` live on `Equation`; schemes inlined in `Solver`; and an unmade design decision about its shape (see the fork in §3) |
-| Mixed / saddle-point formulations | `DiscreteSystem` does not compose or block itself; no DOF map naming which block is which |
-| Robin BCs | needs a *boundary stiffness* form and somewhere in `assemble_everything` for it to contribute to the LHS — the space assembles only a boundary mass matrix today |
-| Variable coefficients | assembly uses closed-form linear-simplex integrals, no quadrature hook |
-| Time-varying loads / BCs | `evaluate_field` takes position only, no `t` |
-| Nonlinear materials | the two representations are now pinned as one energy `W`, but there is still no common interface to select a material through |
-| Selectable kinematics | `SmallStrain` and `StVenantKirchhoff` exist and are tested, but choosing between them is a test-only injection, not an equation-level choice |
-
-Note the pattern: the unused flexibility is all *lateral* (more string options on existing
-operations), while the needed flexibility is all *vertical* (new layers between existing
-ones). Speculative generality tends to widen; real extension tends to deepen.
+The pattern still holds: the flexibility that was added speculatively was all *lateral* (more
+string options on existing operations), while the extension that remains is *vertical* (new layers
+— quadrature, higher-order — between existing ones). Speculative generality widens; real extension
+deepens.
 
 ---
 
-## 5. Target model
+## The pattern, found repeatedly
 
-The first two layers exist; the rest is the gap.
+`fem/regions.py` + `fem/boundary.py` is the original model: a **mesh-independent specification**
+(`BoundaryConditions`, a list of `(type, region, value)`) cleanly separated from its **resolution
+against one discretization** (`ResolvedBC`, frozen, keyed by mesh *and* component count). It
+detects conflicts rather than letting last-write-win, refuses what it cannot honour, and its
+docstring explains *why* the split exists.
 
-```python
-# 1. geometry — pure, immutable                                    [done]
-mesh = Mesh(vertices, elements, boundary)
+The same shape — a derived, immutable object keyed by the discretization, replacing mutable state
+that used to drift — has since been arrived at independently four more times, which is the argument
+that it is the right shape here rather than a stylistic preference:
 
-# 2. discretization — owns DOF numbering, element geometry, operators   [done]
-V = FunctionSpace(mesh, element=P1Triangle, n_components=2)
+- `FunctionSpace` is `ResolvedBC` for the discretization.
+- `Form` is the resolved, assembly-ready view of an `Equation`'s physics — `LinearElasticForm(material)`
+  derived from a `LinearElastic`, holding no mutable state.
+- `Problem` is the resolved view of a whole composition, and `Solution` is the typed, immutable
+  result the strategy hands back.
 
-# 3. physics — material separate from form, form owns the weak statement   [done]
-material = LinearElasticMaterial(E=210e9, nu=0.3)   # or ElementField for SIMP
-form     = LinearElasticForm(material)
-
-# 4. problem — space + form + constraints + data
-problem = Problem(V, form, bcs=bc, source=f)
-
-# 5. assembly + algebra — substitutable independently
-system = assemble(problem)                        # -> DiscreteSystem(A, b, constraints)
-u      = DirectSolve().solve(system)              # or SparseSolve(), NewtonSolve()
-
-# 7. time — a scheme applied to a system, not a field on the equation
-history = BackwardEuler(dt=1e-3, steps=100).run(problem, u0=u_initial)
-
-# 8. drivers — own solvers, uniformly
-AdaptiveRefinement(problem_factory, estimator).run()
-TopologyOptimizer(problem_factory, objective=MinCompliance()).run()
-```
-
-What each move buys, concretely:
-
-- **`Form` + `Material`** — *done*; assembly is typed and `Element` is pure geometry.
-  *Remaining*: make the strain measure a selectable axis; move stress recovery off `Solver`
-  onto the form; give Robin conditions a boundary form to contribute to; retire
-  `TopologyOptimizer`'s mutation of `equation.E` in favour of handing the driver a fresh
-  `Material` each iteration.
-- **`DiscreteSystem`** — *mostly done*: it is the one place that knows "matrix + rhs + which
-  DOFs are fixed", and it was the single seam where dense became sparse. *Remaining*: it does
-  not compose or block itself, so the wave system is still hand-built with `block_array` — but
-  whether that needs fixing depends on the `TimeIntegrator` fork in §3.
-- **`TimeIntegrator`** — deduplicates backward Euler / Crank–Nicolson; moves `dt`/`iters` off
-  `Equation`; makes θ-method / generalized-α additive.
-- **Uniform drivers** — `adaptive_refinement` stops being a method on the thing it drives.
-
-`Equation` as typed data survives all of this — it just sheds `dt`, `iters`, and its
-mutable material, ending up as the *identity* of the PDE plus its genuinely physical
-constants. That is what the docstring already claims it is.
-
----
-
-## 6. A migration order that keeps the MMS test green
-
-The convergence tests in `tests/test_convergence.py` and
-`tests/test_convergence_elasticity.py` are the safety net; each step below should leave them
-passing without modification.
-
-1. **Extract `Form` + `Material`, and make every assembly path a form.** *Done.* Three
-   follow-ons remain, all smaller and independently landable:
-   - **1a. Pin `D = ∂²W/∂ε²`.** *Done* — cross-checked against the small-strain energy in 2D.
-     Deriving `D` from `W` was considered and rejected: it would trade a checked two-line
-     closed form for a contraction of the energy's rank-4 Hessian, and forfeit the 3D path.
-   - **1b. Make kinematics selectable.** `SmallStrain` and
-     `StVenantKirchhoff` are the two members today; `Form`/`EnergyForm` is where
-     choosing between them becomes an equation-level choice rather than the test-only injection
-     it is now.
-   - **1c. Move stress recovery onto the form.** *Done* — `LinearElasticForm.derived_fields`
-     returns strain, stress, and compliance from the `B` and `D` it already assembles from;
-     `solve_linear_elastic` calls it and drops its `strain_displacement` import.
-2. **`DiscreteSystem` + dense→sparse.** *Done*; the remaining scaling limit is the direct
-   sparse factorization, now a `BACKLOG.md` item rather than an architectural one.
-3. **Typed `Solution`,** together with the `io.py` rework they jointly require.
-4. **Extract `TimeIntegrator`;** move `dt`/`iters` off `Heat`/`Wave`. Breaking API change —
-   worth batching with (3). Settle the fork in §3 first.
-5. **Uniform drivers:** `adaptive_refinement` becomes a class; `TopologyOptimizer` takes a
-   problem factory rather than mutating an equation.
-
-Steps 3–5 are independent and can be done any time. The pattern worth keeping from steps 1–2:
-the checkpoint for each step should be a test the old architecture *could not have passed* —
-the 3D elasticity MMS test played that role for `FunctionSpace`.
-
----
-
-## The layer that is already right
-
-`fem/regions.py` + `fem/boundary.py` is the model. It cleanly separates a **mesh-independent
-specification** (`BoundaryConditions`, a list of `(type, region, value)`) from a **resolution
-against one particular discretization** (`ResolvedBC`, frozen, keyed by mesh *and*
-component count). It
-detects conflicts rather than letting last-write-win. It refuses what it cannot honour
-(`check_remeshable`, `BCType.ROBIN`). Its module docstring explains *why* the split exists.
-`FunctionSpace` is now the second instance of the same pattern: a derived, immutable object
-keyed by the discretization, replacing mutable state that used to drift. That it was arrived
-at independently, and ended up shaped like `ResolvedBC`, is the argument that the pattern is
-the right one here rather than a stylistic preference.
-
-`Form` is now the third instance of the same pattern:
-
-- `Form` is to `Equation` what `ResolvedBC` is to `BoundaryConditions` — the resolved,
-  assembly-ready view of a specification that stays declarative. `LinearElasticForm(material)`
-  is derived from a `LinearElastic` equation, produces element matrices, and holds no mutable
-  state of its own.
-
-You found the right shape once and it has now been applied three times. Stress recovery has
-since been pulled out of `Solver` and onto `LinearElasticForm.derived_fields`, so what remains in the
-physics layer is not a missing object: it is making the kinematics axis selectable.
+You found the right shape once, and the composition model is that shape applied all the way up the
+stack.
