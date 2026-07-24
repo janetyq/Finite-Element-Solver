@@ -15,15 +15,22 @@ can never run code from it. ``np.load`` is called with the default
 ``allow_pickle=False``, which enforces that.
 
 Value arrays must be numeric and non-ragged (lists of equal-length arrays, such
-as the per-timestep ``u_values``, are fine -- they stack). A ragged value fails
-at save time rather than silently becoming a pickled object array.
+as a per-timestep ``u`` series, are fine -- they stack). A ragged value fails at
+save time rather than silently becoming a pickled object array.
+
+Solutions are typed dataclasses (:mod:`fem.solution`), so the archive stores the
+class name and reflects over the dataclass fields; ``load`` reconstructs the same
+class. ``mesh`` and ``n_components`` are handled separately as the shared header.
 """
+import dataclasses
 import json
 import logging
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_SOLUTION_HEADER = ('mesh', 'n_components')
 
 # npz key namespacing: solution values are user-named, so they get a prefix to
 # keep them from colliding with the mesh/component-count metadata in the same archive.
@@ -35,6 +42,7 @@ _MESH_BOUNDARY = '__mesh_boundary__'
 # The on-disk key keeps its original spelling: renaming the Python name is free,
 # renaming the archive key would strand every .npz already written.
 _N_COMPONENTS = '__dim__'
+_SOLUTION_CLASS = '__solution_class__'
 
 
 # --- meshes -----------------------------------------------------------------
@@ -85,11 +93,21 @@ def _mesh_from_arrays(data):
 
 
 def save_solution(solution, path='solution.npz'):
-    '''Write a solution (values + mesh + component count) to a single npz archive.'''
+    '''Write a typed solution (its fields + mesh + component count) to one npz archive.'''
     arrays = _mesh_to_arrays(solution.mesh)
     arrays[_N_COMPONENTS] = np.asarray(solution.n_components)
-    for name, value in solution.values.items():
-        arrays[_VALUE_PREFIX + name] = np.asarray(value)
+    arrays[_SOLUTION_CLASS] = np.array(type(solution).__name__)
+    for f in dataclasses.fields(solution):
+        if f.name in _SOLUTION_HEADER:
+            continue
+        value = np.asarray(getattr(solution, f.name))
+        if value.dtype == object:
+            # A ragged field (e.g. unequal-length time steps) can only be stored as
+            # an object array, which means pickle -- refuse it rather than degrade.
+            raise ValueError(
+                f'solution field {f.name!r} is ragged and cannot be saved without pickle'
+            )
+        arrays[_VALUE_PREFIX + f.name] = value
     # Pass a handle rather than the path so numpy doesn't append its own .npz.
     with open(path, 'wb') as f:
         np.savez(f, **arrays)
@@ -97,8 +115,8 @@ def save_solution(solution, path='solution.npz'):
 
 
 def load_solution(path='solution.npz'):
-    '''Read a solution written by `save_solution`.'''
-    from fem.solution import Solution
+    '''Read a solution written by `save_solution`, reconstructing its dataclass.'''
+    import fem.solution as solution_module
 
     with np.load(path) as data:
         # A Solution is defined over geometry alone -- it reads vertices and
@@ -106,8 +124,11 @@ def load_solution(path='solution.npz'):
         # enough. Element geometry and operators belong to a FunctionSpace,
         # which a solve builds for itself.
         mesh = _mesh_from_arrays(data)
-        solution = Solution(mesh, int(data[_N_COMPONENTS]))
-        for key in data.files:
-            if key.startswith(_VALUE_PREFIX):
-                solution.values[key[len(_VALUE_PREFIX):]] = data[key]
-    return solution
+        n_components = int(data[_N_COMPONENTS])
+        cls = getattr(solution_module, str(data[_SOLUTION_CLASS]))
+        fields = {
+            f.name: data[_VALUE_PREFIX + f.name]
+            for f in dataclasses.fields(cls)
+            if f.name not in _SOLUTION_HEADER
+        }
+        return cls(mesh, n_components, **fields)

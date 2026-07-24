@@ -29,7 +29,7 @@ def test_heat_conserves_mean_temperature(make_unit_square):
     problem = heat(mesh)  # no source, no BC -> natural (no-flux) boundaries
     solution = ThetaMethod(dt=0.01, steps=5).run(problem, u0.copy())
 
-    means = [problem.space.mean_value(u) for u in solution.get_values("u_values")]
+    means = [problem.space.mean_value(u) for u in solution.u]
     assert np.allclose(means, means[0], rtol=1e-6), f"mean temperature drifted: {means}"
 
 
@@ -47,7 +47,7 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
 
     solution = Solver(mesh, Projection(source=linear_field)).solve()
 
-    u = solution.get_values("u")
+    u = solution.u
     expected = np.array([linear_field(v)[0] for v in mesh.vertices])
     assert np.allclose(u, expected, atol=1e-8), "linear field not reproduced exactly"
 
@@ -70,12 +70,12 @@ def test_wave_holds_static_equilibrium_under_load(make_unit_square):
     mesh, bc = _pinned_square(make_unit_square)
     source = 1.0
 
-    u_static = Solver(mesh, Poisson(source=source), bc).solve().get_values("u")
+    u_static = Solver(mesh, Poisson(source=source), bc).solve().u
     assert np.abs(u_static).max() > 0, "static solution is trivial; test proves nothing"
 
     problem = wave(mesh, c=1, bc=bc, source=source)
     v0 = np.zeros(len(u_static))
-    u_values = NewmarkMethod(dt=0.01, steps=20).run(problem, u_static.copy(), v0).get_values("u_values")
+    u_values = NewmarkMethod(dt=0.01, steps=20).run(problem, u_static.copy(), v0).u
 
     assert np.allclose(u_values[-1], u_static, atol=1e-8), "equilibrium drifted"
 
@@ -87,7 +87,7 @@ def test_wave_honors_dirichlet_bcs(make_unit_square):
     u0[mesh.boundary_idxs] = 0.0
 
     problem = wave(mesh, c=1, bc=bc)
-    u_values = NewmarkMethod(dt=0.01, steps=20).run(problem, u0.copy(), np.zeros(len(u0))).get_values("u_values")
+    u_values = NewmarkMethod(dt=0.01, steps=20).run(problem, u0.copy(), np.zeros(len(u0))).u
 
     for step, u in enumerate(u_values):
         assert np.allclose(u[mesh.boundary_idxs], 0.0, atol=1e-10), \
@@ -111,7 +111,7 @@ def test_wave_conserves_energy(make_unit_square):
 
     energies = [
         wave_energy(problem, u, v)
-        for u, v in zip(solution.get_values("u_values"), solution.get_values("dudt_values"))
+        for u, v in zip(solution.u, solution.dudt)
     ]
     drift = max(abs(e - energies[0]) for e in energies) / energies[0]
     assert drift < 1e-9, f"energy drifted by {drift:.2e}: {energies}"
@@ -149,7 +149,7 @@ def test_linear_elastic_stretches_under_tension(make_unit_square):
     bx = mesh.vertices[bidx, 0]
     left, right = bidx[np.isclose(bx, 0.0)], bidx[np.isclose(bx, 1.0)]
 
-    u = solution.get_values("u").reshape(-1, 2)
+    u = solution.u.reshape(-1, 2)
     assert np.all(np.isfinite(u)), "displacement field has non-finite entries"
     assert np.allclose(u[left], 0.0, atol=1e-10), "fixed edge moved"
     assert u[right, 0].mean() > 0, "right edge did not elongate in +x"

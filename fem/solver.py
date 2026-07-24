@@ -1,13 +1,11 @@
 import logging
-from collections.abc import Callable
 
 import numpy as np
 
-from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
 from fem.fields import FieldShape, Scalar, Vector
-from fem.solution import Solution
+from fem.solution import ElasticSolution, FieldSolution, Solution
 from fem.space import FunctionSpace, dof_indices
 from fem.forms import Form, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
@@ -93,7 +91,8 @@ class Solver:
         # solving is not constructible here.
         self.n_components = self.equation.field.components_for(mesh.spatial_dim)
         self.space = FunctionSpace(mesh, n_components=self.n_components)
-        self.solution = Solution(mesh, self.n_components)
+        # The most recent solve, so an adaptive-refinement estimator can read it.
+        self.solution: Solution | None = None
 
         self._resolve_bc()
 
@@ -105,13 +104,24 @@ class Solver:
         '''
         self.resolved_bc = self.boundary_conditions.resolve(self.mesh, self.n_components)
 
+    def remesh(self, mesh: Mesh) -> None:
+        '''Rebind the solver to a new mesh, rebuilding the space and re-resolving BCs.
+
+        A refined mesh renumbers vertices, so every derived, index-keyed object is
+        rebuilt from its specification rather than carried over: the space owns
+        cached operators sized to the old mesh, and the resolved BC is keyed by it.
+        This is what lets an outer driver (AdaptiveRefinement) advance the solver
+        across meshes without reaching into its state.
+        '''
+        self.mesh = mesh
+        self.space = FunctionSpace(mesh, n_components=self.n_components)
+        self._resolve_bc()
+
     def solve(self) -> Solution:
-        self.solution.reset()
         if isinstance(self.equation, (Projection, Poisson, LinearElastic)):
-            self._solve_steady()
-        else:
-            raise ValueError(f"No solver for equation type: {type(self.equation).__name__}")
-        return self.solution
+            self.solution = self._solve_steady()
+            return self.solution
+        raise ValueError(f"No solver for equation type: {type(self.equation).__name__}")
 
     def _steady_problem(self) -> LinearProblem:
         '''The composition for a steady equation: operator + source + constraints.
@@ -127,71 +137,28 @@ class Solver:
         )
         return LinearProblem(self.space, operator, self.equation.source, self.boundary_conditions)
 
-    def _solve_steady(self) -> None:
+    def _solve_steady(self) -> Solution:
         '''Steady linear solve, through the composition core.
 
         A LinearProblem hands a matrix, a load, and the constraints to LinearSolve;
         an elastic problem additionally recovers stress fields from the same form
-        that assembled its operator.
+        that assembled its operator, returning an ElasticSolution rather than a bare
+        FieldSolution.
         '''
         logger.info('Solving steady system...')
         problem = self._steady_problem()
         u = LinearSolve().solve(problem)
-        self.solution.set_values("u", u)
 
         if isinstance(problem.operator, LinearElasticForm):
             u_elements = u[dof_indices(self.mesh.elements, self.n_components)]
             strain, stress, compliance = problem.operator.derived_fields(self.space.geometry, u_elements)
-            self.solution.set_values("strain", np.linalg.norm(strain, axis=-1))
-            self.solution.set_values("stress", np.linalg.norm(stress, axis=-1))
-            self.solution.set_values("compliance", compliance)
-
-    def adaptive_refinement(
-        self,
-        estimator: Callable[['Solver'], ElementField],
-        max_triangles: int = 1000,
-        max_iters: int = 20,
-        refine_fraction: float = 0.9,
-    ) -> Solution:
-        '''Refine where the error estimate is largest, re-solving on each new mesh.
-
-        `estimator(solver) -> per-element error` is a parameter rather than a key
-        read out of `self.solution` because the estimate has to be recomputed
-        every round: once elements have been split, the previous array is both
-        stale and the wrong length, so indexing it selects unrelated elements.
-        That was the "bug somewhere" this method used to carry.
-
-        Elements whose estimate is within `refine_fraction` of the largest are
-        refined. Returns the solution on the final mesh.
-        '''
-        self.boundary_conditions.check_remeshable()
-
-        refiner = RedGreenRefiner(self.mesh)
-        for _ in range(max_iters):
-            if len(self.mesh.elements) >= max_triangles:
-                break
-
-            residuals = np.asarray(estimator(self), dtype=float)
-            if len(residuals) != len(self.mesh.elements):
-                raise ValueError(
-                    f'estimator returned {len(residuals)} values for '
-                    f'{len(self.mesh.elements)} elements'
-                )
-            refine_idxs = np.flatnonzero(residuals >= refine_fraction * residuals.max())
-            if len(refine_idxs) == 0:
-                break
-
-            self.mesh = refiner.refine([int(i) for i in refine_idxs])
-            # The refined mesh renumbers vertices, so anything index-keyed has to
-            # be rebuilt from its specification rather than carried over. The
-            # space owns cached operators sized to the old mesh, so it is
-            # replaced rather than refreshed.
-            self.space = FunctionSpace(self.mesh, n_components=self.n_components)
-            self._resolve_bc()
-            self.solution = Solution(self.mesh, self.n_components)
-            self.solve()
-
-        return self.solution
+            return ElasticSolution(
+                self.mesh, self.n_components, u,
+                np.linalg.norm(strain, axis=-1),
+                np.linalg.norm(stress, axis=-1),
+                compliance,
+            )
+        return FieldSolution(self.mesh, self.n_components, u)
 
     # # residuals
     # def calculate_residuals(self):

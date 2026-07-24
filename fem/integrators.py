@@ -14,20 +14,19 @@ and needs no lifting of Dirichlet indices into a block DOF space.
 import numpy as np
 
 from fem.problem import Problem
-from fem.solution import Solution
+from fem.solution import Solution, TransientSolution, WaveSolution
 from fem.system import DiscreteSystem
 from fem.typing import DofVector
 
 
 def _history(problem: Problem, t_values: list[float], u_values: list[DofVector],
              dudt_values: list[DofVector] | None = None) -> Solution:
-    '''Package a time series into a Solution (the transient result container).'''
-    solution = Solution(problem.space.mesh, problem.space.n_components)
-    solution.set_values("t_values", t_values)
-    solution.set_values("u_values", u_values)
+    '''Package a time series into the matching transient solution type.'''
+    mesh, n_components = problem.space.mesh, problem.space.n_components
+    t = np.asarray(t_values)
     if dudt_values is not None:
-        solution.set_values("dudt_values", dudt_values)
-    return solution
+        return WaveSolution(mesh, n_components, t, u_values, dudt_values)
+    return TransientSolution(mesh, n_components, t, u_values)
 
 
 class ThetaMethod:
