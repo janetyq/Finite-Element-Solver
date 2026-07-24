@@ -24,7 +24,7 @@ from typing import Protocol
 import numpy as np
 
 from fem.boundary import BoundaryConditions
-from fem.forms import EnergyForm, Form, LaplacianForm, LinearElasticForm, MassForm
+from fem.forms import EnergyForm, Form, LaplacianForm, LinearElasticForm, MassForm, Scaled
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.regions import evaluate_field
@@ -182,3 +182,23 @@ def linear_elastic(
     '''Small-strain linear elasticity; a vector field, one component per spatial dim.'''
     space = FunctionSpace(mesh, n_components=mesh.spatial_dim)
     return LinearProblem(space, LinearElasticForm(material), source, bc)
+
+
+def heat(mesh: Mesh, source: FieldValue = None, bc: BoundaryConditions | None = None) -> LinearProblem:
+    '''Transient heat: the same Laplacian operator Poisson uses, to be time-stepped.
+
+    A heat problem is not a distinct operator -- it is Poisson's, integrated in
+    time -- so this is `poisson` under another name, paired with a `ThetaMethod`.
+    '''
+    space = FunctionSpace(mesh, n_components=1)
+    return LinearProblem(space, LaplacianForm(), source, bc)
+
+
+def wave(mesh: Mesh, c: float, bc: BoundaryConditions | None = None, source: FieldValue = None) -> LinearProblem:
+    '''Transient wave with speed `c`: the Laplacian scaled by c², to be Newmark-stepped.
+
+    The wave speed lives in the operator (`Scaled(c², …)`), so the integrator sees
+    only c²K and never learns `c`.
+    '''
+    space = FunctionSpace(mesh, n_components=1)
+    return LinearProblem(space, Scaled(c**2, LaplacianForm()), source, bc)

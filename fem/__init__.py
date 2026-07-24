@@ -44,10 +44,19 @@ from fem.solver import (
     Equation,
     Projection,
     Poisson,
-    Heat,
-    Wave,
     LinearElastic,
 )
+from fem.problem import (
+    LinearProblem,
+    EnergyProblem,
+    projection,
+    poisson,
+    linear_elastic,
+    heat,
+    wave,
+)
+from fem.solve import LinearSolve, NewtonSolve
+from fem.integrators import ThetaMethod, Newmark
 from fem.solution import Solution
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
@@ -78,9 +87,18 @@ __all__ = [
     "Equation",
     "Projection",
     "Poisson",
-    "Heat",
-    "Wave",
     "LinearElastic",
+    "LinearProblem",
+    "EnergyProblem",
+    "projection",
+    "poisson",
+    "linear_elastic",
+    "heat",
+    "wave",
+    "LinearSolve",
+    "NewtonSolve",
+    "ThetaMethod",
+    "Newmark",
     "Solution",
     "EnergySolver",
     "TopologyOptimizer",

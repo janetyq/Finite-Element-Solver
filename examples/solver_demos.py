@@ -11,7 +11,9 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
-from fem.solver import Solver, Projection, Poisson, Heat, Wave, LinearElastic
+from fem.solver import Solver, Projection, Poisson, LinearElastic
+from fem.problem import heat, wave
+from fem.integrators import Newmark, ThetaMethod
 from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
 
@@ -64,9 +66,7 @@ def demo_heat_equation(mesh):
     heat_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.5*min(w, h)) + 300
 
-    equation = Heat(u_initial=u_initial.copy(), iters=5, dt=0.01)
-    solver = Solver(mesh, equation)
-    solution = solver.solve()
+    solution = ThetaMethod(dt=0.01, steps=5).run(heat(mesh), u_initial.copy())
     u_values = solution.get_values('u_values')
     t_values = solution.get_values('t_values')
 
@@ -82,9 +82,7 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     u_initial = bump_function(mesh.vertices, wave_center, size=0.25*min(w, h))
     dudt_initial = np.zeros(len(mesh.vertices))
 
-    equation = Wave(u_initial=u_initial, dudt_initial=dudt_initial, c=1, dt=0.03, iters=20)
-    solver = Solver(mesh, equation)
-    solution = solver.solve()
+    solution = Newmark(dt=0.03, steps=20).run(wave(mesh, c=1), u_initial, dudt_initial)
     u_values = solution.get_values('u_values')
     t_values = solution.get_values('t_values')
 
@@ -220,9 +218,7 @@ def demo_3d():
     heat_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.3*w) + 300
 
-    equation = Heat(u_initial=u_initial.copy(), iters=20, dt=0.04)
-    solver = Solver(mesh, equation)
-    solution = solver.solve()
+    solution = ThetaMethod(dt=0.04, steps=20).run(heat(mesh), u_initial.copy())
     u_values = solution.get_values('u_values')
     solution.get_values('t_values')
 

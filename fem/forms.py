@@ -151,6 +151,23 @@ class LinearElasticForm:
         return strain, stress, compliance
 
 
+@dataclass(frozen=True)
+class Scaled:
+    '''A form scaled by a constant coefficient -- c² for the wave operator.
+
+    The first operator-side combinator, and it earns its place exactly where the
+    composition-algebra design said it would: the wave equation's stiffness is
+    c²K, so `problem.tangent` returns the scaled operator and the integrator never
+    has to know the wave speed. Kept minimal on purpose -- an `OperatorSum` waits
+    for a second operator term (Robin, advection).
+    '''
+    factor: float
+    form: Form
+
+    def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        return self.factor * self.form.element_matrices(geometry)
+
+
 class EnergyDensity(Protocol):
     '''The material law an `EnergyForm` integrates: `fem.energies` implements it.'''
 
