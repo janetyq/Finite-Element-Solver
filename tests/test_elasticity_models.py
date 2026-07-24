@@ -26,7 +26,7 @@ import pytest
 from fem.boundary import BoundaryConditions, BCType
 from fem.materials import LinearElasticMaterial
 from fem.regions import on_plane
-from fem.solver import Solver, LinearElastic
+from fem.solver import Solver, LinearElastic, StrainMeasure
 from fem.energy_solver import EnergySolver
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.forms import EnergyForm
@@ -78,16 +78,14 @@ def _stretched_square(make_unit_square, stretch=0.1, n=8):
     return mesh, bc
 
 
-def _energy_solver(mesh, bc, density_cls):
-    """An EnergySolver whose strain energy density is `density_cls`.
+def _energy_solver(mesh, bc, kinematics):
+    """An EnergySolver on a LinearElastic with the given strain measure.
 
-    `_select_energy` maps `LinearElastic` to St-VK and has no knob for the
-    strain measure, so the test swaps in its own energy form after construction.
+    The kinematics is an equation-level choice, so it flows through construction
+    (`_select_energy` maps it to the density) rather than being swapped in after.
     """
-    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
-    solver.energy_density = density_cls(200, 0.4)
-    solver.form = EnergyForm(solver.energy_density)
-    return solver
+    equation = LinearElastic(E=200, nu=0.4, kinematics=kinematics)
+    return EnergySolver(mesh, equation, bc, verbose=False)
 
 
 def _one_newton_step(solver):
@@ -95,6 +93,24 @@ def _one_newton_step(solver):
     u = np.zeros(len(solver.mesh.vertices) * solver.n_components)
     u[solver.fixed] = solver.fixed_values
     return solver.newton_solve(u, max_iters=1)
+
+
+def test_kinematics_is_an_equation_level_choice(make_unit_square):
+    """The strain measure is selected on the equation, not injected into the
+    solver: EnergySolver reads LinearElastic.kinematics to pick the density, and
+    defaults to small strain (matching the equation's name and the linear path)."""
+    mesh = make_unit_square(4)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+
+    small = EnergySolver(mesh, LinearElastic(200, 0.4, kinematics=StrainMeasure.SMALL), bc, verbose=False)
+    finite = EnergySolver(mesh, LinearElastic(200, 0.4, kinematics=StrainMeasure.GREEN_LAGRANGE), bc, verbose=False)
+    default = EnergySolver(mesh, LinearElastic(200, 0.4), bc, verbose=False)
+
+    assert isinstance(small.energy_density, SmallStrain)
+    assert isinstance(default.energy_density, SmallStrain)
+    # SmallStrain subclasses StVenantKirchhoff, so pin the finite member by exact type.
+    assert type(finite.energy_density) is StVenantKirchhoff
 
 
 def test_energy_solver_matches_recorded_solution(make_unit_square):
@@ -107,7 +123,8 @@ def test_energy_solver_matches_recorded_solution(make_unit_square):
     catches drift, it does not prove correctness.
     """
     mesh, bc = _stretched_square(make_unit_square)
-    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    solver = EnergySolver(mesh, equation, bc, verbose=False)
     u = solver.solve().u
 
     np.testing.assert_allclose(np.linalg.norm(u), 0.503442620332, rtol=1e-9)
@@ -129,7 +146,7 @@ def test_small_strain_energy_equals_direct_solve(make_unit_square):
     mesh, bc = _stretched_square(make_unit_square)
 
     u_direct = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().u.flatten()
-    u_energy = _one_newton_step(_energy_solver(mesh, bc, SmallStrain))
+    u_energy = _one_newton_step(_energy_solver(mesh, bc, StrainMeasure.SMALL))
 
     np.testing.assert_allclose(u_energy, u_direct, atol=1e-12)
 
@@ -141,7 +158,8 @@ def test_stvk_needs_more_than_one_newton_step(make_unit_square):
     a property of the solver.
     """
     mesh, bc = _stretched_square(make_unit_square)
-    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    solver = EnergySolver(mesh, equation, bc, verbose=False)
 
     u_one = _one_newton_step(solver)
     u_converged = solver.solve().u
@@ -159,8 +177,8 @@ def test_models_agree_to_second_order_in_strain(make_unit_square):
     gaps = []
     for stretch in (0.08, 0.04, 0.02, 0.01):
         mesh, bc = _stretched_square(make_unit_square, stretch=stretch)
-        u_small = _energy_solver(mesh, bc, SmallStrain).solve().u
-        u_stvk = _energy_solver(mesh, bc, StVenantKirchhoff).solve().u
+        u_small = _energy_solver(mesh, bc, StrainMeasure.SMALL).solve().u
+        u_stvk = _energy_solver(mesh, bc, StrainMeasure.GREEN_LAGRANGE).solve().u
         gaps.append(np.linalg.norm(u_small - u_stvk))
 
     ratios = [a / b for a, b in zip(gaps[:-1], gaps[1:])]

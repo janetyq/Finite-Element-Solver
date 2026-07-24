@@ -146,9 +146,10 @@ forfeit the 3D path. The other axis is **kinematics**: the two solver paths diff
 strain measure fed to that one `W` — Green–Lagrange `S = ½(FᵀF − I)` (St-VK) versus the
 small-strain `ε`. Both are named (`SmallStrain`, `StVenantKirchhoff`) and pinned in
 `tests/test_elasticity_models.py`. So the physics layer decomposes as **material** (the energy
-`W`) × **kinematics** (the strain measure) — and choosing the kinematics point is the one axis
-still made by test-only injection rather than an equation-level choice. It is the last thing the
-physics layer wants; see `BACKLOG.md`.
+`W`) × **kinematics** (the strain measure), and choosing the kinematics point is an equation-level
+choice: `LinearElastic(kinematics=StrainMeasure.SMALL | GREEN_LAGRANGE)`, which `EnergySolver`
+maps to the density (the linear `Solver` path assembles a constant stiffness, so it takes only
+`SMALL` and rejects finite strain rather than silently linearising it).
 
 ### `Element` — stateless types, batched geometry
 
@@ -265,7 +266,6 @@ against the composition model rather than blocked by it:
 
 | Wanted (from `BACKLOG.md`) | Where it sits |
 |---|---|
-| Selectable kinematics | `SmallStrain` / `StVenantKirchhoff` exist and are tested; choosing between them is a test-only injection, not an equation-level axis |
 | Quadratic / higher-order elements | DOFs assumed one-per-vertex; needs a real quadrature layer |
 | Variable coefficients / a `LinearForm` | assembly uses closed-form linear-simplex integrals; needs the quadrature hook |
 | Time-varying loads / BCs | loads are built once; the field callables take position only, no `t` |

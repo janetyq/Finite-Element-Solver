@@ -10,7 +10,7 @@ from fem.energies import NeohookeanEnergyDensity
 from fem.energy_solver import EnergySolver
 from fem.boundary import BoundaryConditions, BCType
 from fem.mesh.mesh import Mesh
-from fem.solver import LinearElastic
+from fem.solver import LinearElastic, Solver, StrainMeasure
 from fem.regions import everywhere, on_plane, at_indices
 from fem.plot.plotter import PlotMode
 
@@ -163,6 +163,19 @@ def test_energy_solver_rejects_a_per_element_modulus(make_unit_square):
     E = np.full(len(mesh.elements), 200.0)
     with pytest.raises(NotImplementedError):
         EnergySolver(mesh, LinearElastic(E=E, nu=0.4), bc, verbose=False)
+
+
+def test_solver_rejects_finite_strain_elasticity(make_unit_square):
+    """The linear Solver assembles a constant small-strain stiffness. A
+    Green-Lagrange energy is not quadratic, so it has no constant stiffness --
+    the finite-strain equation must be rejected here, not silently linearised."""
+    mesh = make_unit_square(6)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+
+    eq = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    with pytest.raises(NotImplementedError):
+        Solver(mesh, eq, bc).solve()
 
 
 def test_add_rejects_robin_pointing_to_add_robin():
