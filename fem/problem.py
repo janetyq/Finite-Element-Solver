@@ -24,7 +24,9 @@ from typing import Protocol
 import numpy as np
 
 from fem.boundary import BoundaryConditions
-from fem.forms import EnergyForm, Form, LaplacianForm, LinearElasticForm, MassForm, ScaledForm
+from fem.forms import (
+    EnergyForm, Form, LaplacianForm, LinearElasticForm, MaskedMassForm, MassForm, ScaledForm,
+)
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.regions import evaluate_field
@@ -94,6 +96,13 @@ class LinearProblem:
         # so callers pass only the volume source; the BC resolution supplies the rest.
         self._b = Source(source).vector(space) + Traction(self._resolved.neumann_load).vector(space)
 
+        # A Robin condition contributes to both sides: κ∫_∂Ω_R u·v on the operator
+        # and ∫_∂Ω_R g·v on the load, each the region-restricted boundary mass.
+        for robin in self._resolved.robin:
+            boundary_mass = space.assemble(MaskedMassForm(space.n_components, robin.facet_mask), boundary=True)
+            self._A = self._A + robin.kappa * boundary_mass
+            self._b = self._b + np.asarray(boundary_mass @ robin.g.flatten()).flatten()
+
     @property
     def constraints(self) -> Constraints:
         r = self._resolved
@@ -134,6 +143,11 @@ class EnergyProblem:
         self.space = space
         self.operator = operator
         self._resolved = bc.resolve(space.mesh, space.n_components)
+        if self._resolved.robin:
+            raise NotImplementedError(
+                'EnergyProblem does not support Robin conditions: the energy path has '
+                'no boundary term for them. Use a LinearProblem.'
+            )
 
     @property
     def constraints(self) -> Constraints:

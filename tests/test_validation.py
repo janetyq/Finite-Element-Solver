@@ -165,13 +165,12 @@ def test_energy_solver_rejects_a_per_element_modulus(make_unit_square):
         EnergySolver(mesh, LinearElastic(E=E, nu=0.4), bc, verbose=False)
 
 
-def test_robin_is_gated(make_unit_square):
-    """Robin conditions need a left-hand-side term that is not wired up yet."""
-    mesh = make_unit_square(6)
+def test_add_rejects_robin_pointing_to_add_robin():
+    """Robin is two-sided and needs a coefficient, so it goes through add_robin,
+    not the value-on-region add()."""
     bc = BoundaryConditions()
-    bc.add(BCType.ROBIN, everywhere(), 0)
-    with pytest.raises(NotImplementedError):
-        bc.resolve(mesh, n_components=1)
+    with pytest.raises(ValueError, match='add_robin'):
+        bc.add(BCType.ROBIN, everywhere(), 0)
 
 
 def test_plotmode_rejects_typo():

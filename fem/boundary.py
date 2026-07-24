@@ -19,6 +19,7 @@ import numpy as np
 
 from fem.regions import evaluate_field, is_mesh_bound
 from fem.typing import (
+    BoolArray,
     DofIndices,
     FieldValue,
     FloatArray,
@@ -36,12 +37,28 @@ logger = logging.getLogger(__name__)
 class BCType(Enum):
     DIRICHLET = "dirichlet"
     NEUMANN = "neumann"
-    # Robin (a*u + b*du/dn = g) contributes a term to the *left-hand side*, unlike
-    # the other two. Accepted by `add` so the intent can be expressed, refused by
-    # `resolve` until it is wired up -- the hook is the already-assembled but
-    # currently unused boundary matrices K_b / M_b, added to the system in
-    # Solver.assemble_everything.
+    # Robin (∂u/∂n + κu = g) contributes to *both* sides, unlike the other two: a
+    # boundary term κ∫u·v to the operator and ∫g·v to the load. Its value is the
+    # pair (kappa, g); `resolve` turns it into a RobinContribution that LinearProblem
+    # assembles through a MaskedMassForm over the region's boundary facets.
     ROBIN = "robin"
+
+
+@dataclass(frozen=True)
+class RobinContribution:
+    '''One resolved Robin condition (∂u/∂n + κu = g on a region).
+
+    It contributes to *both* sides of the system: the boundary term κ∫_∂Ω_R u·v to
+    the operator and ∫_∂Ω_R g·v to the load. `facet_mask` marks which of the mesh's
+    boundary facets lie in the region, so a `MaskedMassForm` over them assembles the
+    region-restricted boundary integral; `kappa` scales the operator term and `g`
+    (nonzero on the Robin nodes) drives the load. The assembly itself waits for a
+    FunctionSpace, so this carries only the data, keyed to the mesh -- the same
+    spec-then-resolve split the rest of the BC layer uses.
+    '''
+    facet_mask: BoolArray       # one entry per boundary facet
+    kappa: float
+    g: VertexField              # (n_vertices, n_components), nonzero on the Robin nodes
 
 
 @dataclass(frozen=True)
@@ -58,6 +75,7 @@ class ResolvedBC:
     neumann_load: VertexField   # (n_vertices, n_components) traction field
     dirichlet_vertices: VertexIndices
     neumann_vertices: VertexIndices
+    robin: tuple[RobinContribution, ...] = ()   # boundary terms for the operator + load
 
 
 class BoundaryConditions:
@@ -65,27 +83,48 @@ class BoundaryConditions:
 
     def __init__(self) -> None:
         self.conditions: list[tuple[BCType, Region, FieldValue]] = []
+        # Robin is stored apart: it carries a coefficient kappa as well as data g,
+        # and contributes to both sides of the system, so it does not fit the
+        # (type, region, value) shape the value-on-region conditions share.
+        self.robin_conditions: list[tuple[Region, float, FieldValue]] = []
 
-    def add(self, bc_type: BCType | str, region: Region, value: FieldValue) -> None:
-        '''Apply `value` of type `bc_type` on `region`.
-
-        `region` is a callable over point coordinates (see fem.regions); `value`
-        is either a constant or a callable of position. Both are resolved lazily,
-        so a condition means the same thing on any mesh.
-        '''
-        bc_type = BCType(bc_type)  # accepts BCType or its value; unknown raises ValueError
+    def _check_region(self, region: Region) -> None:
         if not callable(region):
             raise TypeError(
                 'region must be a callable over point coordinates -- pass a helper '
                 'from fem.regions (e.g. on_plane(0, 0.0)), or at_indices([...]) for '
                 f'specific nodes. Got {type(region).__name__}.'
             )
+
+    def add(self, bc_type: BCType | str, region: Region, value: FieldValue) -> None:
+        '''Apply `value` of type `bc_type` on `region`.
+
+        `region` is a callable over point coordinates (see fem.regions); `value`
+        is either a constant or a callable of position. Both are resolved lazily,
+        so a condition means the same thing on any mesh. For Robin conditions use
+        `add_robin`, which also takes the coefficient.
+        '''
+        bc_type = BCType(bc_type)  # accepts BCType or its value; unknown raises ValueError
+        if bc_type is BCType.ROBIN:
+            raise ValueError('use add_robin(region, kappa, g) for Robin conditions')
+        self._check_region(region)
         self.conditions.append((bc_type, region, value))
+
+    def add_robin(self, region: Region, kappa: float, g: FieldValue) -> None:
+        '''Apply a Robin condition ∂u/∂n + kappa*u = g on `region`.
+
+        `kappa` is a constant coefficient; `g` is a constant or a callable of
+        position. Contributes the boundary term kappa*int u*v to the operator and
+        int g*v to the load, both over the region's boundary facets.
+        '''
+        self._check_region(region)
+        self.robin_conditions.append((region, float(kappa), g))
 
     def is_mesh_bound(self) -> bool:
         '''Whether any condition is tied to one mesh's vertex numbering, and so
         cannot be carried across a remesh.'''
-        return any(is_mesh_bound(region) for _, region, _ in self.conditions)
+        regions = [r for _, r, _ in self.conditions] + [r for r, _, _ in self.robin_conditions]
+        return any(is_mesh_bound(region) for region in regions)
 
     def check_remeshable(self) -> None:
         if self.is_mesh_bound():
@@ -124,13 +163,18 @@ class BoundaryConditions:
         Region resolution only -- no DOF numbering, so this needs no `n_components` and is
         what inspection and plotting use.
         '''
+        def resolved_values(idxs, value):
+            return np.array([np.atleast_1d(np.asarray(
+                value(mesh.vertices[i]) if callable(value) else value, dtype=float
+            )) for i in idxs]) if len(idxs) else np.zeros((0, 1))
+
         out = []
         for bc_type, region, value in self.conditions:
             idxs = self.select(mesh, region)
-            values = np.array([np.atleast_1d(np.asarray(
-                value(mesh.vertices[i]) if callable(value) else value, dtype=float
-            )) for i in idxs]) if len(idxs) else np.zeros((0, 1))
-            out.append((bc_type, idxs, values))
+            out.append((bc_type, idxs, resolved_values(idxs, value)))
+        for region, _kappa, g in self.robin_conditions:
+            idxs = self.select(mesh, region)
+            out.append((BCType.ROBIN, idxs, resolved_values(idxs, g)))
         return out
 
     def resolve(self, mesh: 'Mesh', n_components: int) -> ResolvedBC:
@@ -138,16 +182,10 @@ class BoundaryConditions:
         n = len(mesh.vertices)
         dirichlet: dict[int, FloatArray] = {}
         neumann = np.zeros((n, n_components))
+        robin: list[RobinContribution] = []
         dirichlet_vertices, neumann_vertices = [], []
 
         for bc_type, region, value in self.conditions:
-            if bc_type is BCType.ROBIN:
-                raise NotImplementedError(
-                    'Robin conditions are not implemented yet: they add a term to the '
-                    'system matrix (via the boundary matrices K_b / M_b in '
-                    'Solver.assemble_everything), not just to the load.'
-                )
-
             idxs = self.select(mesh, region)
             values = evaluate_field(value, mesh.vertices[idxs], n_components)
 
@@ -166,6 +204,15 @@ class BoundaryConditions:
             else:
                 neumann[idxs] += values
                 neumann_vertices.extend(int(i) for i in idxs)
+
+        for region, kappa, g_field in self.robin_conditions:
+            idxs = self.select(mesh, region)
+            g = np.zeros((n, n_components))
+            g[idxs] = evaluate_field(g_field, mesh.vertices[idxs], n_components)
+            # A boundary facet is in the region iff all its nodes are -- the
+            # all-nodes rule that keeps the boundary integral crisp.
+            facet_mask = np.asarray(np.isin(mesh.boundary, idxs).all(axis=1), dtype=bool)
+            robin.append(RobinContribution(facet_mask, kappa, g))
 
         dirichlet_vertices = np.unique(dirichlet_vertices).astype(int)
         neumann_vertices = np.unique(neumann_vertices).astype(int)
@@ -194,4 +241,5 @@ class BoundaryConditions:
             neumann_load=neumann,
             dirichlet_vertices=dirichlet_vertices,
             neumann_vertices=neumann_vertices,
+            robin=tuple(robin),
         )
