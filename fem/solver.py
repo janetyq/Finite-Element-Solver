@@ -12,8 +12,10 @@ from fem.fields import FieldShape, Scalar, Vector
 from fem.regions import evaluate_field
 from fem.solution import Solution
 from fem.space import FunctionSpace, dof_indices
-from fem.forms import Form, LaplacianForm, LinearElasticForm
+from fem.forms import Form, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
+from fem.problem import LinearProblem
+from fem.solve import LinearSolve
 from fem.system import DiscreteSystem
 from fem.typing import (
     Constraints,
@@ -165,33 +167,27 @@ class Solver:
         return self.equation
 
     def solve(self) -> Solution:
-        self.assemble_everything() # TODO: don't call this every time
         self.solution.reset()
-        
-        equation_solvers = {
-            Projection: self.solve_steady,
-            Poisson: self.solve_steady,
-            Heat: self.solve_heat,
-            Wave: self.solve_wave,
-            LinearElastic: self.solve_steady,
-        }
-
-        solver_fn = equation_solvers.get(type(self.equation))
-        if solver_fn is None:
+        if isinstance(self.equation, Heat):
+            self.assemble_everything()  # TODO: don't call this every time
+            self.solve_heat()
+        elif isinstance(self.equation, Wave):
+            self.assemble_everything()
+            self.solve_wave()
+        elif isinstance(self.equation, (Projection, Poisson, LinearElastic)):
+            self._solve_steady()
+        else:
             raise ValueError(f"No solver for equation type: {type(self.equation).__name__}")
-
-        solver_fn()
-
         return self.solution
 
     def assemble_everything(self) -> None:
-        # The mass matrices are geometry only, so the space caches them. Stiffness
-        # takes material data for the elastic case, so it is rebuilt here -- which
-        # is also why it cannot be a property of a material-free space.
+        # Transient path only: the steppers need the mass and stiffness matrices and
+        # the load separately. The steady path builds its operator through a
+        # LinearProblem instead. Heat and Wave are scalar diffusion, so the
+        # stiffness is the material-free Laplacian.
         self.M = self.space.mass_matrix
         self.M_b = self.space.boundary_mass_matrix
-        self.stiffness = stiffness_form(self.equation)
-        self.K = self.space.assemble(self.stiffness)
+        self.K = self.space.assemble(stiffness_form(self.equation))
 
         # RHS: the linear form L(v) = int f.v over the volume plus int t.v over the
         # boundary. M @ f is the *exact* integral of f's P1 interpolant (M_ij =
@@ -235,22 +231,35 @@ class Solver:
             constraints = (bc.free_idxs, bc.fixed_idxs, bc.fixed_values)
         return DiscreteSystem(A, constraints).solve(b)
 
-    def solve_steady(self) -> None:
-        '''Steady linear solve A u = b.
+    def _steady_problem(self) -> LinearProblem:
+        '''The composition for a steady equation: operator + source + constraints.
 
-        The three steady equations differ only in the operator: an L2 projection
-        solves against the mass matrix, Poisson and elasticity against the
-        stiffness. LinearElastic additionally recovers stress fields -- keyed off
-        the stiffness form actually being elastic, which is the same condition.
+        The operator is the only equation-specific choice -- the mass matrix for an
+        L2 projection, the stiffness otherwise. Built on the solver's own space so
+        adaptive refinement (which rebuilds the space) is picked up on the next solve.
+        '''
+        operator: Form = (
+            MassForm(self.n_components)
+            if isinstance(self.equation, Projection)
+            else stiffness_form(self.equation)
+        )
+        return LinearProblem(self.space, operator, self.equation.source, self.boundary_conditions)
+
+    def _solve_steady(self) -> None:
+        '''Steady linear solve, through the composition core.
+
+        A LinearProblem hands a matrix, a load, and the constraints to LinearSolve;
+        an elastic problem additionally recovers stress fields from the same form
+        that assembled its operator.
         '''
         logger.info('Solving steady system...')
-        A = self.M if isinstance(self.equation, Projection) else self.K
-        u = self.solve_linear_system(A, self.b)
+        problem = self._steady_problem()
+        u = LinearSolve().solve(problem)
         self.solution.set_values("u", u)
 
-        if isinstance(self.stiffness, LinearElasticForm):
+        if isinstance(problem.operator, LinearElasticForm):
             u_elements = u[dof_indices(self.mesh.elements, self.n_components)]
-            strain, stress, compliance = self.stiffness.derived_fields(self.space.geometry, u_elements)
+            strain, stress, compliance = problem.operator.derived_fields(self.space.geometry, u_elements)
             self.solution.set_values("strain", np.linalg.norm(strain, axis=-1))
             self.solution.set_values("stress", np.linalg.norm(stress, axis=-1))
             self.solution.set_values("compliance", compliance)

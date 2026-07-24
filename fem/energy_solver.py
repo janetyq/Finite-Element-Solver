@@ -6,7 +6,8 @@ from fem.boundary import BoundaryConditions
 from fem.energies import StVenantKirchhoff
 from fem.forms import EnergyForm
 from fem.mesh.mesh import Mesh
-from fem.system import DiscreteSystem
+from fem.problem import EnergyProblem
+from fem.solve import NewtonSolve
 from fem.solution import Solution
 from fem.solver import Equation, LinearElastic
 from fem.space import FunctionSpace
@@ -94,17 +95,12 @@ class EnergySolver:
         return self.solution
 
     def newton_solve(self, u: DofVector, max_iters: int = 100) -> DofVector:
-        # The increment is pinned to zero at the fixed DOFs -- u already holds
-        # their Dirichlet values -- and DiscreteSystem eliminates them, so the
-        # tangent needs no special-casing and the free block is non-singular.
-        step_constraints = (self.free, self.fixed, np.zeros(len(self.fixed)))
-        for iter in range(max_iters):
-            if self.verbose:
-                logger.info("%d %s", iter, self.energy(u))
-            system = DiscreteSystem(self.energy_hessian(u), step_constraints)
-            newton_step = system.solve(-self.energy_gradient(u))
-            if np.linalg.norm(newton_step) < 1e-6:
-                break
-            u += newton_step
+        '''Minimise the internal energy from the seed `u` via the shared Newton engine.
 
-        return u
+        The one-line body is the point: this solver's assembly (residual = energy
+        gradient, tangent = energy Hessian) is exactly `EnergyProblem`'s, so the
+        Newton loop is `NewtonSolve` rather than a second copy of it. The Dirichlet
+        values on `u` are preserved; the increment is pinned to zero at those DOFs.
+        '''
+        problem = EnergyProblem(self.space, self.form, self.boundary_conditions)
+        return NewtonSolve(max_iters=max_iters).solve(problem, u0=u)
