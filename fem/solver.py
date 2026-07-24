@@ -1,4 +1,5 @@
 import logging
+from enum import Enum
 
 import numpy as np
 
@@ -46,9 +47,24 @@ class Poisson(Equation):
     '''Poisson equation (K u = b).'''
 
 
+class StrainMeasure(Enum):
+    '''Which strain the elastic energy is built on -- the kinematics axis.
+
+    The material `W` is one function; the two paths differ only in the strain fed
+    to it (see `fem.energies`). SMALL is the infinitesimal `ε = ½(∇u + ∇uᵀ)`,
+    solved directly by `Solver`; GREEN_LAGRANGE is the geometrically exact
+    `S = ½(FᵀF − I)` (St-Venant–Kirchhoff), which only `EnergySolver` can solve
+    because its energy is not quadratic.
+    '''
+    SMALL = 'small'
+    GREEN_LAGRANGE = 'green_lagrange'
+
+
 class LinearElastic(Equation):
-    '''Small-strain linear elasticity. E may be a scalar or a per-element array
-    (TopologyOptimizer sets a density-scaled modulus).'''
+    '''Elasticity with a selectable strain measure. `kinematics` is SMALL by
+    default (infinitesimal strain, the linear `Solver` path); GREEN_LAGRANGE
+    selects the St-Venant–Kirchhoff model, which needs `EnergySolver`. E may be a
+    scalar or a per-element array (TopologyOptimizer sets a density-scaled modulus).'''
     field: FieldShape = Vector()
 
     def __init__(
@@ -56,22 +72,34 @@ class LinearElastic(Equation):
         E: float | ElementField,
         nu: float,
         source: FieldValue = None,
+        kinematics: StrainMeasure = StrainMeasure.SMALL,
     ) -> None:
         super().__init__(source)
         self.E = E
         self.nu = nu
+        self.kinematics = kinematics
 
 
 def stiffness_form(equation: Equation) -> Form:
     '''The bilinear stiffness form for an equation.
 
     LinearElastic carries material data, so its form is built from a
-    LinearElasticMaterial; the scalar diffusion family (Projection / Poisson /
-    Heat / Wave) shares the material-free Laplacian. This is the one
-    equation-specific choice the steady solve makes -- selecting the operator --
-    named and lifted out of the solve so the solve itself stays PDE-agnostic.
+    LinearElasticMaterial; the scalar diffusion family (Projection / Poisson, and
+    the Laplacian behind the heat / wave problems) shares the material-free
+    Laplacian. This is the one equation-specific choice the steady solve makes --
+    selecting the operator -- named and lifted out of the solve so the solve itself
+    stays PDE-agnostic.
+
+    The bilinear form exists only for the small-strain measure: a Green-Lagrange
+    energy is not quadratic, so it has no constant stiffness. A finite-strain
+    LinearElastic is rejected here rather than silently linearised.
     '''
     if isinstance(equation, LinearElastic):
+        if equation.kinematics is not StrainMeasure.SMALL:
+            raise NotImplementedError(
+                f'Solver is small-strain only; {equation.kinematics.name} kinematics '
+                'has no constant stiffness. Use EnergySolver.'
+            )
         return LinearElasticForm(LinearElasticMaterial(equation.E, equation.nu))
     return LaplacianForm()
 

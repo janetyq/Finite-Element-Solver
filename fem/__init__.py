@@ -45,6 +45,7 @@ from fem.solver import (
     Projection,
     Poisson,
     LinearElastic,
+    StrainMeasure,
 )
 from fem.problem import (
     LinearProblem,
@@ -95,6 +96,7 @@ __all__ = [
     "Projection",
     "Poisson",
     "LinearElastic",
+    "StrainMeasure",
     "LinearProblem",
     "EnergyProblem",
     "projection",

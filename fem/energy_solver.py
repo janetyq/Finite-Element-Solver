@@ -3,13 +3,13 @@ import logging
 import numpy as np
 
 from fem.boundary import BoundaryConditions
-from fem.energies import StVenantKirchhoff
+from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.forms import EnergyForm
 from fem.mesh.mesh import Mesh
 from fem.problem import EnergyProblem
 from fem.solve import NewtonSolve
 from fem.solution import FieldSolution, Solution
-from fem.solver import Equation, LinearElastic
+from fem.solver import Equation, LinearElastic, StrainMeasure
 from fem.space import FunctionSpace
 from fem.typing import DofVector, SparseMatrix
 
@@ -70,7 +70,14 @@ class EnergySolver:
                 'EnergySolver needs a scalar Youngs modulus, got a per-element '
                 'array. Use Solver for density-scaled moduli.'
             )
-        return StVenantKirchhoff(equation.E, equation.nu)
+        # The kinematics axis: same W, different strain measure. SmallStrain is a
+        # subclass of StVenantKirchhoff (it overrides only the strain), so both
+        # satisfy the return type.
+        density = {
+            StrainMeasure.SMALL: SmallStrain,
+            StrainMeasure.GREEN_LAGRANGE: StVenantKirchhoff,
+        }[equation.kinematics]
+        return density(equation.E, equation.nu)
 
     # energy / gradient / hessian are the raw, unconstrained quantities: the total
     # energy Pi(u), its gradient (nonzero at fixed DOFs -- the reaction forces),
