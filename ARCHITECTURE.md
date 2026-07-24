@@ -331,17 +331,10 @@ should be importable without a plotting backend installed. (The other core → p
 `numerics` importing `matplotlib` at module scope, is closed: those imports are local to the
 `check_gradient` / `check_hessian` dev tools.)
 
-### Smaller items
-
-- 🟢 `Mesh.convert_element_values_to_vertex_values` is last-writer-wins at shared vertices, while
-  its inverse (`convert_vertex_values_to_element_values`) averages. The asymmetry is probably
-  unintended — an area-weighted average is the usual choice.
-
 ### Suggested order
 
 1. **Quadrature, then `LinearForm`** — a real quadrature layer is what lets `f` vary within an
    element; the linear form (and variable-coefficient bilinear forms) follow from it. This is the
    top of the numeric roadmap in `BACKLOG.md`.
 2. **Clear the unused modules** — decide `quadrature.py`'s fate, delete `color` / `timer`.
-3. **Fix the Mesh averaging asymmetry** — small and self-contained.
-4. **Clear the remaining core → plot re-export** — only if headless import becomes a goal.
+3. **Clear the remaining core → plot re-export** — only if headless import becomes a goal.
