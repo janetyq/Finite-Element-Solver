@@ -9,43 +9,7 @@ import numpy as np
 import pytest
 
 from fem.mesh.refinement import RedGreenRefiner
-from fem.solution import Solution
 from fem.topology import TargetCompliance
-
-
-def test_get_values_converts_vertex_field_to_element_field(make_unit_square):
-    """get_values(mode=...) called self._convert_*, which never existed -- the
-    conversions live on the mesh, without the underscore."""
-    mesh = make_unit_square(6)
-    solution = Solution(mesh, n_components=1)
-    solution.set_values('u', np.ones(len(mesh.vertices)))
-
-    element_values = solution.get_values('u', mode='element')
-
-    assert len(element_values) == len(mesh.elements)
-    assert np.allclose(element_values, 1.0)
-
-
-def test_get_values_converts_element_field_to_vertex_field(make_unit_square):
-    mesh = make_unit_square(6)
-    solution = Solution(mesh, n_components=1)
-    solution.set_values('rho', np.ones(len(mesh.elements)))
-
-    vertex_values = solution.get_values('rho', mode='vertex')
-
-    assert len(vertex_values) == len(mesh.vertices)
-    assert np.allclose(vertex_values, 1.0)
-
-
-def test_get_values_rejects_an_unknown_mode(make_unit_square):
-    """An unrecognised mode fell out of the if/elif chain as None, which only
-    failed wherever the caller went on to index it."""
-    mesh = make_unit_square(4)
-    solution = Solution(mesh, n_components=1)
-    solution.set_values('u', np.ones(len(mesh.vertices)))
-
-    with pytest.raises(ValueError, match='unknown mode'):
-        solution.get_values('u', mode='nodal')
 
 
 def test_target_compliance_objective_gradient_is_well_formed():

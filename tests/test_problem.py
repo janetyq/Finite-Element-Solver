@@ -54,7 +54,7 @@ def test_poisson_factory_matches_the_solver_facade(make_unit_square):
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
 
     u_factory = LinearSolve().solve(poisson(mesh, _mms_source, bc))
-    u_solver = Solver(mesh, Poisson(source=_mms_source), bc).solve().get_values("u")
+    u_solver = Solver(mesh, Poisson(source=_mms_source), bc).solve().u
     np.testing.assert_allclose(u_factory, u_solver, atol=1e-12)
 
 
@@ -65,7 +65,7 @@ def test_linear_elastic_factory_matches_the_solver_facade(make_unit_square):
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
 
     u_factory = LinearSolve().solve(linear_elastic(mesh, LinearElasticMaterial(200, 0.4), bc))
-    u_solver = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().get_values("u")
+    u_solver = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().u
     np.testing.assert_allclose(u_factory, u_solver, atol=1e-12)
 
 

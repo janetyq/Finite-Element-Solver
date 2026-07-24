@@ -25,11 +25,11 @@ from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.numerics import calculate_smoothing_matrix
 from fem.problem import LinearProblem
-from fem.solution import Solution
+from fem.solution import ElasticSolution
 from fem.solve import LinearSolve, SolveStrategy
 from fem.solver import LinearElastic
 from fem.space import FunctionSpace, dof_indices
-from fem.typing import ElementField, FieldValue
+from fem.typing import DofVector, ElementField, FieldValue
 
 
 class Objective(Protocol):
@@ -58,6 +58,20 @@ class TargetCompliance:
     def gradient(self, compliance: ElementField, rho: ElementField, penalty: float) -> ElementField:
         residual = compliance.sum() - self.target
         return (compliance * penalty / rho) * 2 * residual
+
+
+@dataclass(frozen=True, eq=False)
+class TopologyHistory:
+    '''The per-iteration series a topology optimization produces.
+
+    Replaces the old `Solution.combine_solutions` `_list`-suffix convention: the
+    quantities that vary across iterations are typed, discoverable lists rather
+    than string keys probed with try/except.
+    '''
+    rho: list[ElementField]
+    u: list[DofVector]
+    stress: list[ElementField]
+    compliance: list[ElementField]
 
 
 logger = logging.getLogger(__name__)
@@ -107,8 +121,8 @@ class TopologyOptimizer:
         self.rho: ElementField = np.full(len(self.mesh.elements), self.volume_frac)
         self.smoothing_matrix = calculate_smoothing_matrix(self.mesh, r=smoothing_radius)
 
-        self._last: Solution | None = None      # most recent single-iteration solve
-        self.solution: Solution | None = None    # the combined iteration series
+        self._last: ElasticSolution | None = None   # most recent single-iteration solve
+        self.history: TopologyHistory | None = None  # the per-iteration series
 
     @property
     def scaled_modulus(self) -> ElementField:
@@ -123,7 +137,7 @@ class TopologyOptimizer:
         volumes = self.space.element_volumes
         return float((volumes * rho).sum() / volumes.sum())
 
-    def _solve(self) -> Solution:
+    def _solve(self) -> ElasticSolution:
         '''Solve the elastic problem at the current density and recover compliance.
 
         A fresh material and problem each call -- the density scales the modulus,
@@ -138,13 +152,13 @@ class TopologyOptimizer:
         u_elements = u[dof_indices(self.mesh.elements, self.mesh.spatial_dim)]
         strain, stress, compliance = form.derived_fields(self.space.geometry, u_elements)
 
-        solution = Solution(self.mesh, self.mesh.spatial_dim)
-        solution.set_values('u', u)
-        solution.set_values('stress', np.linalg.norm(stress, axis=-1))
-        solution.set_values('compliance', compliance)
-        solution.set_values('rho', self.rho)
-        self._last = solution
-        return solution
+        self._last = ElasticSolution(
+            self.mesh, self.mesh.spatial_dim, u,
+            np.linalg.norm(strain, axis=-1),
+            np.linalg.norm(stress, axis=-1),
+            compliance,
+        )
+        return self._last
 
     def oc_density(
         self,
@@ -172,11 +186,17 @@ class TopologyOptimizer:
                 break
         return rho_new
 
-    def solve(self, on_iteration: Callable[[int, Solution], None] | None = None) -> Solution:
-        solution_list = []
+    def solve(self, on_iteration: Callable[[int, ElasticSolution], None] | None = None) -> TopologyHistory:
+        rho_series: list[ElementField] = []
+        u_series: list[DofVector] = []
+        stress_series: list[ElementField] = []
+        compliance_series: list[ElementField] = []
         for i in range(self.iters):
             solution = self._solve()
-            solution_list.append(solution)
+            rho_series.append(self.rho)
+            u_series.append(solution.u)
+            stress_series.append(solution.stress)
+            compliance_series.append(solution.compliance)
 
             # Log and, if the caller wants it, hand off to their own visualization --
             # this class has no business knowing how (or whether) to plot itself.
@@ -184,16 +204,16 @@ class TopologyOptimizer:
             if on_iteration is not None:
                 on_iteration(i, solution)
 
-            sensitivity = self.objective.gradient(solution.get_values('compliance'), self.rho, self.penalty)
+            sensitivity = self.objective.gradient(solution.compliance, self.rho, self.penalty)
             smoothed = self.smoothing_matrix @ sensitivity
             self.set_rho(self.oc_density(smoothed, self.volume_frac))
 
-        self.solution = Solution.combine_solutions(solution_list)
-        return self.solution
+        self.history = TopologyHistory(rho_series, u_series, stress_series, compliance_series)
+        return self.history
 
-    def _log_iteration(self, iteration: int, solution: Solution) -> None:
-        max_displacement = np.max(solution.values['u'], axis=0)
-        compliance = solution.values['compliance'].sum()
+    def _log_iteration(self, iteration: int, solution: ElasticSolution) -> None:
+        max_displacement = np.max(solution.u, axis=0)
+        compliance = solution.compliance.sum()
         volume_fraction = self._volume_fraction(self.rho)
         logger.info('Iteration %d: total compliance = %.4f, max displacement = %s, volume fraction = %.4f',
                     iteration, compliance, max_displacement, volume_fraction)
@@ -202,4 +222,4 @@ class TopologyOptimizer:
         '''The deformed mesh from the most recent solve (for post-processing).'''
         if self._last is None:
             raise RuntimeError('no solve yet; call solve() first')
-        return self._last.get_deformed_mesh(self._last.get_values('u'))
+        return self._last.deformed_mesh()

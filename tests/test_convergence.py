@@ -44,7 +44,7 @@ def _solve_poisson_mms(n):
 
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    u_h = solution.get_values("u")
+    u_h = solution.u
 
     error = u_h - _exact(mesh.vertices)
     # ||e||_L2^2 = e^T M e, with M the space's mass matrix

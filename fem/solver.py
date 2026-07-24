@@ -7,7 +7,7 @@ from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
 from fem.fields import FieldShape, Scalar, Vector
-from fem.solution import Solution
+from fem.solution import ElasticSolution, FieldSolution, Solution
 from fem.space import FunctionSpace, dof_indices
 from fem.forms import Form, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
@@ -93,7 +93,8 @@ class Solver:
         # solving is not constructible here.
         self.n_components = self.equation.field.components_for(mesh.spatial_dim)
         self.space = FunctionSpace(mesh, n_components=self.n_components)
-        self.solution = Solution(mesh, self.n_components)
+        # The most recent solve, so an adaptive-refinement estimator can read it.
+        self.solution: Solution | None = None
 
         self._resolve_bc()
 
@@ -106,12 +107,10 @@ class Solver:
         self.resolved_bc = self.boundary_conditions.resolve(self.mesh, self.n_components)
 
     def solve(self) -> Solution:
-        self.solution.reset()
         if isinstance(self.equation, (Projection, Poisson, LinearElastic)):
-            self._solve_steady()
-        else:
-            raise ValueError(f"No solver for equation type: {type(self.equation).__name__}")
-        return self.solution
+            self.solution = self._solve_steady()
+            return self.solution
+        raise ValueError(f"No solver for equation type: {type(self.equation).__name__}")
 
     def _steady_problem(self) -> LinearProblem:
         '''The composition for a steady equation: operator + source + constraints.
@@ -127,24 +126,28 @@ class Solver:
         )
         return LinearProblem(self.space, operator, self.equation.source, self.boundary_conditions)
 
-    def _solve_steady(self) -> None:
+    def _solve_steady(self) -> Solution:
         '''Steady linear solve, through the composition core.
 
         A LinearProblem hands a matrix, a load, and the constraints to LinearSolve;
         an elastic problem additionally recovers stress fields from the same form
-        that assembled its operator.
+        that assembled its operator, returning an ElasticSolution rather than a bare
+        FieldSolution.
         '''
         logger.info('Solving steady system...')
         problem = self._steady_problem()
         u = LinearSolve().solve(problem)
-        self.solution.set_values("u", u)
 
         if isinstance(problem.operator, LinearElasticForm):
             u_elements = u[dof_indices(self.mesh.elements, self.n_components)]
             strain, stress, compliance = problem.operator.derived_fields(self.space.geometry, u_elements)
-            self.solution.set_values("strain", np.linalg.norm(strain, axis=-1))
-            self.solution.set_values("stress", np.linalg.norm(stress, axis=-1))
-            self.solution.set_values("compliance", compliance)
+            return ElasticSolution(
+                self.mesh, self.n_components, u,
+                np.linalg.norm(strain, axis=-1),
+                np.linalg.norm(stress, axis=-1),
+                compliance,
+            )
+        return FieldSolution(self.mesh, self.n_components, u)
 
     def adaptive_refinement(
         self,
@@ -167,6 +170,7 @@ class Solver:
         self.boundary_conditions.check_remeshable()
 
         refiner = RedGreenRefiner(self.mesh)
+        solution = self.solve()  # solve the initial mesh, so an estimator can read self.solution
         for _ in range(max_iters):
             if len(self.mesh.elements) >= max_triangles:
                 break
@@ -188,10 +192,9 @@ class Solver:
             # replaced rather than refreshed.
             self.space = FunctionSpace(self.mesh, n_components=self.n_components)
             self._resolve_bc()
-            self.solution = Solution(self.mesh, self.n_components)
-            self.solve()
+            solution = self.solve()
 
-        return self.solution
+        return solution
 
     # # residuals
     # def calculate_residuals(self):

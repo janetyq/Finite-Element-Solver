@@ -42,7 +42,7 @@ def test_min_compliance_sensitivity_uses_the_configured_penalty(make_unit_square
     optimizer = _optimizer(make_unit_square(5), penalty=penalty)
     solution = optimizer._solve()
 
-    compliance = solution.get_values('compliance')
+    compliance = solution.compliance
     sensitivity = optimizer.objective.gradient(compliance, optimizer.rho, optimizer.penalty)
 
     assert np.allclose(sensitivity, compliance * penalty / optimizer.rho)

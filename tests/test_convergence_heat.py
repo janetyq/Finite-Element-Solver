@@ -37,7 +37,7 @@ def _temporal_error(mesh, bc, u0, T, n_steps, theta):
     """M-weighted L2 error of a theta-method against the semi-discrete exact at T."""
     problem = heat(mesh, bc=bc)
     integrator = ThetaMethod(dt=T / n_steps, steps=n_steps, theta=theta)
-    u_h = integrator.run(problem, u0.copy()).get_values("u_values")[-1]
+    u_h = integrator.run(problem, u0.copy()).u[-1]
     error = u_h - _semidiscrete_exact(problem, u0, T)
     return float(np.sqrt(error @ problem.space.mass_matrix @ error))
 

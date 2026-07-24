@@ -33,7 +33,7 @@ def test_adaptive_refinement_grows_mesh_and_resolves(make_unit_square):
 
     assert len(solver.mesh.elements) > n_before, "mesh never grew"
     # The solution must belong to the *final* mesh, not the one we started on.
-    u = solution.get_values("u")
+    u = solution.u
     assert solution.mesh is solver.mesh
     assert len(u) == len(solver.mesh.vertices)
     assert np.all(np.isfinite(u))
@@ -80,7 +80,7 @@ def test_adaptive_refinement_carries_geometric_dirichlet_bcs(make_unit_square):
 
     final = solver.mesh
     assert len(final.vertices) > n_before, "mesh never grew"
-    u = solution.get_values("u")
+    u = solution.u
     # Every boundary node of the *refined* mesh is pinned, including the new ones.
     assert np.allclose(u[final.boundary_idxs], 0.0, atol=1e-12)
     assert np.abs(u).max() > 0, "solution is trivially zero"
