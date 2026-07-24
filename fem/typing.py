@@ -61,20 +61,20 @@ VertexIndices: TypeAlias = IntArray
 # small dense system in a test.
 Matrix: TypeAlias = FloatArray
 
-# An assembled global operator -- mass, stiffness, tangent, or a Crank-Nicolson
-# block. Sparse (CSR): FEM matrices have a handful of nonzeros per row, so the
-# dense (n_dofs, n_dofs) form is O(N^2) memory and never assembled.
+# An assembled global operator -- mass, stiffness, or tangent. Sparse (CSR): FEM
+# matrices have a handful of nonzeros per row, so the dense (n_dofs, n_dofs) form
+# is O(N^2) memory and never assembled.
 SparseMatrix: TypeAlias = csr_array
 
-# What a DiscreteSystem factors and solve_linear_system takes: a sparse assembled
-# operator in production, or a small dense one in a test (csc_array converts either).
-# Loose on purpose -- scipy.sparse ships no stubs, so block_array's return union and
-# sparse subscripting fight a precise type more than it documents.
+# What a DiscreteSystem factors: a sparse assembled operator in production, or a
+# small dense one in a test (csc_array converts either). Loose on purpose --
+# scipy.sparse ships no stubs, so sparse subscripting fights a precise type more
+# than it documents.
 Operator: TypeAlias = Any
 
 # (free_idxs, fixed_idxs, fixed_values) -- the DOF partition a solve works in.
-# Passed explicitly where the unknown is not one value per node, as in the wave
-# solver's stacked [u; du/dt] block.
+# Passed explicitly when the fixed values differ from the field's own, as in the
+# Newton increment and the Newmark acceleration solve (both pinned to zero there).
 Constraints: TypeAlias = tuple[DofIndices, DofIndices, FloatArray]
 
 # A region: (n_vertices, spatial_dim) coordinates -> (n_vertices,) membership mask.
