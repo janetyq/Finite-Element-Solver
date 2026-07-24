@@ -29,7 +29,7 @@ import numpy as np
 from fem.elements import ElementGeometry
 from fem.energies import StrainEnergyDerivatives
 from fem.materials import LinearElasticMaterial
-from fem.typing import FloatArray
+from fem.typing import BoolArray, FloatArray
 
 
 def strain_displacement(grad_phi: FloatArray) -> FloatArray:
@@ -100,6 +100,24 @@ class MassForm:
         reference = geometry.element_type.reference_mass_matrix()
         block = np.kron(reference, np.eye(self.n_components))
         return geometry.volumes[:, None, None] * block
+
+
+@dataclass(frozen=True)
+class MaskedMassForm:
+    '''A mass form zeroed on the facets outside `mask` -- a boundary mass over a
+    subset of the boundary.
+
+    Used for the Robin term ∫_∂Ω_R u·v, restricted to its region: `mask` marks the
+    boundary facets that lie in the region, and the element matrices of the rest
+    are zeroed before scatter, so the assembled matrix integrates over the region
+    alone. `mask` is aligned with the facets `element_matrices` is called on.
+    '''
+    n_components: int
+    mask: BoolArray  # one entry per facet
+
+    def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        base = MassForm(self.n_components).element_matrices(geometry)
+        return base * np.asarray(self.mask, dtype=float)[:, None, None]
 
 
 @dataclass(frozen=True)
