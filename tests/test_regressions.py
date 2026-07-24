@@ -8,12 +8,9 @@ marks a path worth keeping covered now that it works.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, BCType
 from fem.mesh.refinement import RedGreenRefiner
-from fem.regions import on_plane
 from fem.solution import Solution
-from fem.solver import LinearElastic
-from fem.topology import TopologyOptimizer
+from fem.topology import TargetCompliance
 
 
 def test_get_values_converts_vertex_field_to_element_field(make_unit_square):
@@ -51,23 +48,22 @@ def test_get_values_rejects_an_unknown_mode(make_unit_square):
         solution.get_values('u', mode='nodal')
 
 
-def test_target_compliance_objective_is_callable(make_unit_square):
-    """target_compliance_objective/gradient called self.compliance() with no
-    argument, so selecting the objective was a guaranteed TypeError."""
-    mesh = make_unit_square(5)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [0.0, -1.0])
+def test_target_compliance_objective_gradient_is_well_formed():
+    """The target-compliance objective yields a finite per-element sensitivity.
 
-    optimizer = TopologyOptimizer(
-        mesh, LinearElastic(E=1.0, nu=0.3), bc, iters=1, volume_frac=0.5
-    )
-    optimizer.solver.solve()
+    It replaces the old target_compliance_objective/gradient, which called
+    self.compliance() with no argument through a string-dispatched _select_objective
+    -- a guaranteed TypeError. As an injected object it is just a gradient formula.
+    """
+    rng = np.random.default_rng(0)
+    n = 12
+    compliance = rng.random(n) + 0.1
+    rho = rng.random(n) + 0.1
 
-    objective, gradient = optimizer._select_objective('target_compliance')
+    gradient = TargetCompliance(target=1.0).gradient(compliance, rho, penalty=3.0)
 
-    assert np.isfinite(objective([0.0]))
-    assert len(gradient([0.0])) == len(mesh.elements)
+    assert np.all(np.isfinite(gradient))
+    assert len(gradient) == n
 
 
 def test_refinement_plot_draws(make_unit_square):

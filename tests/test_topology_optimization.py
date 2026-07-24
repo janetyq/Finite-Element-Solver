@@ -23,25 +23,26 @@ def _optimizer(mesh, penalty):
 
 def test_simp_penalty_drives_the_modulus_scaling(make_unit_square):
     """E(rho) = rho^p E_0, with p the configured exponent rather than a
-    literal 3 buried in set_rho."""
+    literal 3 buried in the density update."""
     optimizer = _optimizer(make_unit_square(5), penalty=2.0)
     rho = np.full(len(optimizer.mesh.elements), 0.5)
 
     optimizer.set_rho(rho)
 
-    assert np.allclose(optimizer.equation.E, 0.5**2.0 * 1.0)
+    assert np.allclose(optimizer.scaled_modulus, 0.5**2.0 * 1.0)
 
 
-def test_compliance_gradient_uses_the_same_penalty_as_set_rho(make_unit_square):
-    """The sensitivity p/rho * c is only the derivative of the compliance if p
-    is the exponent set_rho actually raised rho to. The two were independent
-    literal 3s, so changing the penalty would have silently left the optimizer
-    descending the wrong gradient."""
+def test_min_compliance_sensitivity_uses_the_configured_penalty(make_unit_square):
+    """The sensitivity p/rho * c is only the derivative of the compliance if p is
+    the exponent the modulus scaling used. Both the scaled modulus and the
+    objective's gradient read self.penalty, so one configured exponent drives
+    both -- they can no longer be independent literal 3s descending different
+    gradients."""
     penalty = 2.0
     optimizer = _optimizer(make_unit_square(5), penalty=penalty)
-    optimizer.solver.solve()
+    solution = optimizer._solve()
 
-    compliance = optimizer.solver.solution.values['compliance']
-    expected = compliance * penalty / optimizer.rho
+    compliance = solution.get_values('compliance')
+    sensitivity = optimizer.objective.gradient(compliance, optimizer.rho, optimizer.penalty)
 
-    assert np.allclose(optimizer.compliance_gradient(None), expected)
+    assert np.allclose(sensitivity, compliance * penalty / optimizer.rho)
