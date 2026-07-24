@@ -108,7 +108,7 @@ def test_energy_solver_matches_recorded_solution(make_unit_square):
     """
     mesh, bc = _stretched_square(make_unit_square)
     solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
-    u = solver.solve().get_values("u")
+    u = solver.solve().u
 
     np.testing.assert_allclose(np.linalg.norm(u), 0.503442620332, rtol=1e-9)
     np.testing.assert_allclose(u.max(), 0.1, rtol=1e-12)
@@ -128,7 +128,7 @@ def test_small_strain_energy_equals_direct_solve(make_unit_square):
     """
     mesh, bc = _stretched_square(make_unit_square)
 
-    u_direct = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().get_values("u").flatten()
+    u_direct = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().u.flatten()
     u_energy = _one_newton_step(_energy_solver(mesh, bc, SmallStrain))
 
     np.testing.assert_allclose(u_energy, u_direct, atol=1e-12)
@@ -144,7 +144,7 @@ def test_stvk_needs_more_than_one_newton_step(make_unit_square):
     solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
 
     u_one = _one_newton_step(solver)
-    u_converged = solver.solve().get_values("u")
+    u_converged = solver.solve().u
 
     rel = np.linalg.norm(u_one - u_converged) / np.linalg.norm(u_converged)
     assert rel > 0.1, f"one step should be far from converged, got rel={rel:.2e}"
@@ -159,8 +159,8 @@ def test_models_agree_to_second_order_in_strain(make_unit_square):
     gaps = []
     for stretch in (0.08, 0.04, 0.02, 0.01):
         mesh, bc = _stretched_square(make_unit_square, stretch=stretch)
-        u_small = _energy_solver(mesh, bc, SmallStrain).solve().get_values("u")
-        u_stvk = _energy_solver(mesh, bc, StVenantKirchhoff).solve().get_values("u")
+        u_small = _energy_solver(mesh, bc, SmallStrain).solve().u
+        u_stvk = _energy_solver(mesh, bc, StVenantKirchhoff).solve().u
         gaps.append(np.linalg.norm(u_small - u_stvk))
 
     ratios = [a / b for a, b in zip(gaps[:-1], gaps[1:])]

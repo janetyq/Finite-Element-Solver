@@ -40,7 +40,7 @@ def demo_l2_projection(mesh):
     solution = solver.solve()
 
     plotter = Plotter(title='L2 Projection')
-    plotter.plot(mesh, solution.get_values('u'), mode='surface')
+    plotter.plot(mesh, solution.u, mode='surface')
     return plotter
 
 def demo_poisson_equation(mesh):
@@ -52,10 +52,10 @@ def demo_poisson_equation(mesh):
 
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    gradient = solver.space.gradient(solution.get_values('u'))
+    gradient = solver.space.gradient(solution.u)
 
     plotter = Plotter(1, 3, title='Poisson Equation')
-    plotter.plot(mesh, solution.get_values('u'), mode='surface', title='Solution', idx=(0, 0))
+    plotter.plot(mesh, solution.u, mode='surface', title='Solution', idx=(0, 0))
     plotter.plot(mesh, gradient, mode='arrows', title='Gradient', idx=(0, 1))
     plotter.plot(mesh, np.linalg.norm(gradient, axis=1), mode='surface', title='Gradient Norm', idx=(0, 2))
     return plotter
@@ -67,8 +67,8 @@ def demo_heat_equation(mesh):
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.5*min(w, h)) + 300
 
     solution = ThetaMethod(dt=0.01, steps=5).run(heat(mesh), u_initial.copy())
-    u_values = solution.get_values('u_values')
-    t_values = solution.get_values('t_values')
+    u_values = solution.u
+    t_values = solution.t
 
     plotter = Plotter(1, 2, title='Heat Equation')
     plotter.plot_animation(mesh, u_values, mode='colored', titles=[f'Color t={t}' for t in t_values], idx=(0, 0))
@@ -83,8 +83,8 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     dudt_initial = np.zeros(len(mesh.vertices))
 
     solution = NewmarkMethod(dt=0.03, steps=20).run(wave(mesh, c=1), u_initial, dudt_initial)
-    u_values = solution.get_values('u_values')
-    t_values = solution.get_values('t_values')
+    u_values = solution.u
+    t_values = solution.t
 
     plotter = Plotter(1, 1, title='Wave Equation')
     plotter.plot_animation(mesh, u_values, mode='surface', titles=[f'Surface t={t}' for t in t_values], idx=(0, 0))
@@ -110,11 +110,11 @@ def demo_linear_elastic(mesh):
     equation = LinearElastic(E=200, nu=0.4)
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    deformed_mesh = solution.get_deformed_mesh()
-    displacements = np.linalg.norm(solution.get_values('u').reshape(-1, 2), axis=1)
+    deformed_mesh = solution.deformed_mesh()
+    displacements = np.linalg.norm(solution.u.reshape(-1, 2), axis=1)
 
     plotter = Plotter(1, 2, title='Linear Elasticity')
-    plotter.plot(deformed_mesh, solution.get_values('stress'), mode='colored', title='Stress', idx=(0, 0))
+    plotter.plot(deformed_mesh, solution.stress, mode='colored', title='Stress', idx=(0, 0))
     plotter.plot(mesh, displacements, mode='colored', title='Displacement', idx=(0, 1))
     return plotter
 
@@ -125,14 +125,14 @@ def demo_topology_optimization(mesh, iters=10):
 
     equation = LinearElastic(E=200, nu=0.4, source=[0, -0.5])
     topopt = TopologyOptimizer(mesh, equation, bc, iters=iters, volume_frac=0.5)
-    solution = topopt.solve(plot=False)
+    history = topopt.solve()
     deformed_mesh = topopt._get_deformed_mesh()
 
     animation_plotter = Plotter(title='Topology Optimization')
-    animation_plotter.plot_animation(mesh, solution.get_values('rho_list'), mode='colored') # TODO: have mesh deform during animation, title
+    animation_plotter.plot_animation(mesh, history.rho, mode='colored') # TODO: have mesh deform during animation, title
 
-    rho_final = solution.get_values('rho_list', iter_idx=-1)
-    stress_final = solution.get_values('stress_list', iter_idx=-1)
+    rho_final = history.rho[-1]
+    stress_final = history.stress[-1]
     final_plotter = Plotter(1, 2, title='Topology Optimization')
     final_plotter.plot(deformed_mesh, rho_final, mode='colored', title='Topology Optimized Structure', idx=(0, 0), empty=True)
     final_plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final Stress', idx=(0, 1))
@@ -153,7 +153,7 @@ def demo_adaptive_refinement(mesh):
     bc.add(BCType.DIRICHLET, everywhere(), 0)
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    u = solution.get_values('u')
+    u = solution.u
     u_gradient = solver.space.gradient(u)
 
     plotter = Plotter(1, 2, title='Adaptive Refinement')
@@ -161,20 +161,19 @@ def demo_adaptive_refinement(mesh):
     plotter.plot(mesh, u_gradient, mode='arrows', title='Gradient', idx=(0, 1))
     plotter.show()  # shown directly: this demo always raises below, so there's no return to show it via
 
-    # solver.adaptive_refinement now drives the loop correctly, but this demo is
-    # still blocked on two open pieces: a real a-posteriori error estimator to
-    # pass in, and position-based Dirichlet conditions (the ones added above are
-    # index-based, so they cannot survive the vertex renumbering a refinement
-    # does). See BACKLOG.md.
+    # AdaptiveRefinement(solver, estimator).run() drives the loop correctly, but
+    # this demo is still blocked on two open pieces: a real a-posteriori error
+    # estimator to pass in, and position-based Dirichlet conditions (the ones added
+    # above are index-based, so they cannot survive the vertex renumbering a
+    # refinement does). See BACKLOG.md.
     raise NotImplementedError(
         'Adaptive refinement demo needs an error estimator and remeshable Dirichlet BCs'
     )
 
-    # solution_init = solver.solve()
-    # solver.adaptive_refinement()
-    # solution_final = solver.solve()
-    # u_init = solution_init.get_values('u')
-    # u_final = solution_final.get_values('u')
+    # from fem.adaptivity import AdaptiveRefinement
+    # solution_final = AdaptiveRefinement(solver, estimator).run()
+    # u_init = solution_init.u
+    # u_final = solution_final.u
     # r_init = solution_init.get_values('residuals')
     # r_final = solution_final.get_values('residuals')
 
@@ -201,7 +200,7 @@ def demo_energy_solver(mesh):  # displacement-driven: EnergySolver rejects a sou
 
     energy_solver = EnergySolver(mesh, equation, bc)
     solution = energy_solver.solve()
-    vertices = mesh.vertices + solution.get_values('u').reshape(-1, 2)
+    vertices = mesh.vertices + solution.u.reshape(-1, 2)
     mesh_final = mesh.with_topology(vertices, mesh.elements, mesh.boundary)
     solution.get_values('energy')
     stresses = np.linalg.norm(solution.get_values('gradient').reshape(-1, 2), axis=1)
@@ -219,8 +218,8 @@ def demo_3d():
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.3*w) + 300
 
     solution = ThetaMethod(dt=0.04, steps=20).run(heat(mesh), u_initial.copy())
-    u_values = solution.get_values('u_values')
-    solution.get_values('t_values')
+    u_values = solution.u
+    solution.t
 
     plot_tetmesh_animation(mesh, np.array(u_values), title='Heat Diffusion')
 

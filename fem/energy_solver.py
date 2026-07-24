@@ -8,7 +8,7 @@ from fem.forms import EnergyForm
 from fem.mesh.mesh import Mesh
 from fem.problem import EnergyProblem
 from fem.solve import NewtonSolve
-from fem.solution import Solution
+from fem.solution import FieldSolution, Solution
 from fem.solver import Equation, LinearElastic
 from fem.space import FunctionSpace
 from fem.typing import DofVector, SparseMatrix
@@ -31,7 +31,7 @@ class EnergySolver:
         self.boundary_conditions = boundary_conditions
         self.n_components = self.equation.field.components_for(mesh.spatial_dim)
         self.space = FunctionSpace(mesh, n_components=self.n_components)
-        self.solution = Solution(mesh, self.n_components)
+        self.solution: Solution | None = None
         # This solver minimizes the internal elastic energy and never builds a
         # load vector, so a source term would be accepted and then quietly
         # ignored -- the answer would just be the unforced one.
@@ -91,7 +91,7 @@ class EnergySolver:
         u[self.fixed] = self.fixed_values
         logger.info("Initial energy: %s", self.energy(u))
         u = self.newton_solve(u, max_iters)
-        self.solution.set_values("u", u)
+        self.solution = FieldSolution(self.mesh, self.n_components, u)
         return self.solution
 
     def newton_solve(self, u: DofVector, max_iters: int = 100) -> DofVector:

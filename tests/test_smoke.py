@@ -23,7 +23,7 @@ def test_wave_solver_runs(make_unit_square):
     u0 = bump_function(mesh.vertices, mesh.vertices.mean(axis=0), mag=1, size=0.3)
     problem = wave(mesh, c=1)
     solution = NewmarkMethod(dt=0.02, steps=5).run(problem, u0, np.zeros(len(mesh.vertices)))
-    u_values = solution.get_values("u_values")
+    u_values = solution.u
     assert len(u_values) == 6
     assert np.all(np.isfinite(u_values[-1]))
 
@@ -36,7 +36,7 @@ def test_energy_solver_runs(make_unit_square):
 
     eq = LinearElastic(E=200, nu=0.4)
     solution = EnergySolver(mesh, eq, bc, verbose=False).solve()
-    assert np.all(np.isfinite(solution.get_values("u")))
+    assert np.all(np.isfinite(solution.u))
 
 
 def test_topology_optimizer_runs(make_unit_square):
