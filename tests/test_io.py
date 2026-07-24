@@ -8,11 +8,12 @@ falls back to pickle.
 import numpy as np
 import pytest
 
+from fem.integrators import ThetaMethod
 from fem.io import load_mesh, save_mesh, save_solution
 from fem.mesh.mesh import Mesh
 from fem.numerics import bump_function
+from fem.problem import heat
 from fem.solution import Solution
-from fem.solver import Heat, Solver
 
 
 def test_mesh_json_round_trip(make_unit_square, tmp_path):
@@ -62,7 +63,7 @@ def test_solution_round_trip_after_solve(make_unit_square, tmp_path):
     """Per-timestep values (a list of arrays) stack and reload intact."""
     mesh = make_unit_square(8)
     u0 = bump_function(mesh.vertices, mesh.vertices.max(axis=0), mag=50, size=0.3) + 300
-    solution = Solver(mesh, Heat(u_initial=u0.copy(), iters=3, dt=0.01)).solve()
+    solution = ThetaMethod(dt=0.01, steps=3).run(heat(mesh), u0.copy())
     path = tmp_path / "heat.npz"
 
     solution.save(path)
