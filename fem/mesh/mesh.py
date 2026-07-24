@@ -41,12 +41,20 @@ class Mesh:
         return element_values
 
     def convert_element_values_to_vertex_values(self, element_values: ElementField) -> VertexField:
+        '''Average of the incident elements' values at each vertex.
+
+        A vertex belongs to several elements, so the projection has to combine their
+        values -- the plain mean here, the mirror of the vertex->element mean above.
+        (An earlier version assigned rather than accumulated, so a shared vertex kept
+        only the last element to touch it -- an order-dependent, silently wrong field.)
+        '''
         assert len(element_values) == len(self.elements)
-        vertex_values = np.zeros(len(self.vertices))
-        for e_idx, element in enumerate(self.elements):
-            for v_idx in element:
-                vertex_values[v_idx] = element_values[e_idx]
-        return vertex_values
+        flat_vertices = self.elements.ravel()
+        per_vertex = np.repeat(np.asarray(element_values, dtype=float), self.elements.shape[1])
+        sums = np.bincount(flat_vertices, weights=per_vertex, minlength=len(self.vertices))
+        counts = np.bincount(flat_vertices, minlength=len(self.vertices))
+        # Vertices on no element keep 0; every meshed vertex belongs to >= 1 element.
+        return sums / np.maximum(counts, 1)
 
     # TODO: Save and load to better formats - off, obj
     def save(self, path: str = 'test_mesh.json') -> None:
