@@ -66,6 +66,7 @@ from fem.solution import (
 )
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
+from fem.adaptivity import AdaptiveRefinement
 from fem.plot.plotter import Plotter, PlotMode
 
 # Library-quiet by default: emit nothing unless the application configures a
@@ -112,6 +113,7 @@ __all__ = [
     "WaveSolution",
     "EnergySolver",
     "TopologyOptimizer",
+    "AdaptiveRefinement",
     "Plotter",
     "PlotMode",
 ]

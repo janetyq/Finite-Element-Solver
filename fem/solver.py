@@ -1,9 +1,7 @@
 import logging
-from collections.abc import Callable
 
 import numpy as np
 
-from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
 from fem.fields import FieldShape, Scalar, Vector
@@ -106,6 +104,19 @@ class Solver:
         '''
         self.resolved_bc = self.boundary_conditions.resolve(self.mesh, self.n_components)
 
+    def remesh(self, mesh: Mesh) -> None:
+        '''Rebind the solver to a new mesh, rebuilding the space and re-resolving BCs.
+
+        A refined mesh renumbers vertices, so every derived, index-keyed object is
+        rebuilt from its specification rather than carried over: the space owns
+        cached operators sized to the old mesh, and the resolved BC is keyed by it.
+        This is what lets an outer driver (AdaptiveRefinement) advance the solver
+        across meshes without reaching into its state.
+        '''
+        self.mesh = mesh
+        self.space = FunctionSpace(mesh, n_components=self.n_components)
+        self._resolve_bc()
+
     def solve(self) -> Solution:
         if isinstance(self.equation, (Projection, Poisson, LinearElastic)):
             self.solution = self._solve_steady()
@@ -148,53 +159,6 @@ class Solver:
                 compliance,
             )
         return FieldSolution(self.mesh, self.n_components, u)
-
-    def adaptive_refinement(
-        self,
-        estimator: Callable[['Solver'], ElementField],
-        max_triangles: int = 1000,
-        max_iters: int = 20,
-        refine_fraction: float = 0.9,
-    ) -> Solution:
-        '''Refine where the error estimate is largest, re-solving on each new mesh.
-
-        `estimator(solver) -> per-element error` is a parameter rather than a key
-        read out of `self.solution` because the estimate has to be recomputed
-        every round: once elements have been split, the previous array is both
-        stale and the wrong length, so indexing it selects unrelated elements.
-        That was the "bug somewhere" this method used to carry.
-
-        Elements whose estimate is within `refine_fraction` of the largest are
-        refined. Returns the solution on the final mesh.
-        '''
-        self.boundary_conditions.check_remeshable()
-
-        refiner = RedGreenRefiner(self.mesh)
-        solution = self.solve()  # solve the initial mesh, so an estimator can read self.solution
-        for _ in range(max_iters):
-            if len(self.mesh.elements) >= max_triangles:
-                break
-
-            residuals = np.asarray(estimator(self), dtype=float)
-            if len(residuals) != len(self.mesh.elements):
-                raise ValueError(
-                    f'estimator returned {len(residuals)} values for '
-                    f'{len(self.mesh.elements)} elements'
-                )
-            refine_idxs = np.flatnonzero(residuals >= refine_fraction * residuals.max())
-            if len(refine_idxs) == 0:
-                break
-
-            self.mesh = refiner.refine([int(i) for i in refine_idxs])
-            # The refined mesh renumbers vertices, so anything index-keyed has to
-            # be rebuilt from its specification rather than carried over. The
-            # space owns cached operators sized to the old mesh, so it is
-            # replaced rather than refreshed.
-            self.space = FunctionSpace(self.mesh, n_components=self.n_components)
-            self._resolve_bc()
-            solution = self.solve()
-
-        return solution
 
     # # residuals
     # def calculate_residuals(self):

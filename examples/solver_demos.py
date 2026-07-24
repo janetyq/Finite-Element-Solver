@@ -161,18 +161,17 @@ def demo_adaptive_refinement(mesh):
     plotter.plot(mesh, u_gradient, mode='arrows', title='Gradient', idx=(0, 1))
     plotter.show()  # shown directly: this demo always raises below, so there's no return to show it via
 
-    # solver.adaptive_refinement now drives the loop correctly, but this demo is
-    # still blocked on two open pieces: a real a-posteriori error estimator to
-    # pass in, and position-based Dirichlet conditions (the ones added above are
-    # index-based, so they cannot survive the vertex renumbering a refinement
-    # does). See BACKLOG.md.
+    # AdaptiveRefinement(solver, estimator).run() drives the loop correctly, but
+    # this demo is still blocked on two open pieces: a real a-posteriori error
+    # estimator to pass in, and position-based Dirichlet conditions (the ones added
+    # above are index-based, so they cannot survive the vertex renumbering a
+    # refinement does). See BACKLOG.md.
     raise NotImplementedError(
         'Adaptive refinement demo needs an error estimator and remeshable Dirichlet BCs'
     )
 
-    # solution_init = solver.solve()
-    # solver.adaptive_refinement()
-    # solution_final = solver.solve()
+    # from fem.adaptivity import AdaptiveRefinement
+    # solution_final = AdaptiveRefinement(solver, estimator).run()
     # u_init = solution_init.u
     # u_final = solution_final.u
     # r_init = solution_init.get_values('residuals')
