@@ -76,8 +76,8 @@ form and hand it to the space — and out of the algebra too: the constrained so
 dropped is marked `◧` and is small but real. `Solver.assemble_everything` `isinstance`-
 dispatches the equation to a form and constructs the `LinearElasticMaterial` itself, and it
 builds the load vector inline. (Stress recovery was a third leftover here; it has since moved —
-`solve_linear_elastic` now calls `LinearElasticForm.recover` rather than rebuilding `B` and `D`
-in the driver.) `EnergySolver._select_energy` makes the same kind of choice, mapping
+`solve_linear_elastic` now calls `LinearElasticForm.derived_fields` rather than rebuilding `B`
+and `D` in the driver.) `EnergySolver._select_energy` makes the same kind of choice, mapping
 `LinearElastic` to `StVenantKirchhoff`.
 
 Read the columns: layer 5 (constraints) has exactly one owner, and so does layer 6 (algebra).
@@ -146,7 +146,7 @@ between them is not yet an equation-level choice.
 So the physics layer decomposes as **material** (the energy `W`) × **kinematics** (the strain
 measure), and `Form` is where selecting a point in that product becomes declarative.
 
-That last piece of the layer has now moved: `LinearElasticForm.recover(geometry, u_elements)`
+That last piece of the layer has now moved: `LinearElasticForm.derived_fields(geometry, u_elements)`
 returns strain, stress, and compliance from the same `B` and `D` it assembles from, and
 `solve_linear_elastic` calls it instead of rebuilding them — so `solver.py` drops its
 `strain_displacement` import. The constitutive code that used to live in the driver is now in
@@ -342,8 +342,8 @@ passing without modification.
      `StVenantKirchhoff` are the two members today; `Form`/`EnergyForm` is where
      choosing between them becomes an equation-level choice rather than the test-only injection
      it is now.
-   - **1c. Move stress recovery onto the form.** *Done* — `LinearElasticForm.recover` returns
-     strain, stress, and compliance from the `B` and `D` it already assembles from;
+   - **1c. Move stress recovery onto the form.** *Done* — `LinearElasticForm.derived_fields`
+     returns strain, stress, and compliance from the `B` and `D` it already assembles from;
      `solve_linear_elastic` calls it and drops its `strain_displacement` import.
 2. **`DiscreteSystem` + dense→sparse.** *Done*; the remaining scaling limit is the direct
    sparse factorization, now a `BACKLOG.md` item rather than an architectural one.
@@ -380,5 +380,5 @@ the right one here rather than a stylistic preference.
   state of its own.
 
 You found the right shape once and it has now been applied three times. Stress recovery has
-since been pulled out of `Solver` and onto `LinearElasticForm.recover`, so what remains in the
+since been pulled out of `Solver` and onto `LinearElasticForm.derived_fields`, so what remains in the
 physics layer is not a missing object: it is making the kinematics axis selectable.

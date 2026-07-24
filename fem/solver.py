@@ -250,7 +250,7 @@ class Solver:
 
         if isinstance(self.stiffness, LinearElasticForm):
             u_elements = u[dof_indices(self.mesh.elements, self.n_components)]
-            strain, stress, compliance = self.stiffness.recover(self.space.geometry, u_elements)
+            strain, stress, compliance = self.stiffness.derived_fields(self.space.geometry, u_elements)
             self.solution.set_values("strain", np.linalg.norm(strain, axis=-1))
             self.solution.set_values("stress", np.linalg.norm(stress, axis=-1))
             self.solution.set_values("compliance", compliance)

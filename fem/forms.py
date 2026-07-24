@@ -126,15 +126,15 @@ class LinearElasticForm:
         # forms an (n_elements, k, s) intermediate and runs ~60x slower here.
         return np.einsum('eji,ejk,ekl,e->eil', B, D, B, geometry.volumes, optimize=True)
 
-    def recover(
+    def derived_fields(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> tuple[FloatArray, FloatArray, FloatArray]:
         '''Element strain, stress (both Voigt), and compliance from nodal displacements.
 
         The mirror of `element_matrices`: the same B and D, contracted against the
-        solved displacement instead of assembled into a stiffness. Recovery lives on
-        the form so the constitutive law (B, D) stays in the physics layer rather than
-        being rebuilt by whatever solved the system.
+        solved displacement instead of assembled into a stiffness. These derived
+        fields live on the form so the constitutive law (B, D) stays in the physics
+        layer rather than being rebuilt by whatever solved the system.
 
         `u_elements` is `(n_elements, N*n_components)` -- each element's nodal DOFs,
         interleaved per node to match B's columns. Callers reduce the returned Voigt
