@@ -12,7 +12,7 @@ from fem.fields import FieldShape, Scalar, Vector
 from fem.regions import evaluate_field
 from fem.solution import Solution
 from fem.space import FunctionSpace, dof_indices
-from fem.forms import LaplacianForm, LinearElasticForm, strain_displacement
+from fem.forms import LaplacianForm, LinearElasticForm
 from fem.materials import LinearElasticMaterial
 from fem.system import DiscreteSystem
 from fem.typing import (
@@ -176,8 +176,9 @@ class Solver:
         self.M = self.space.mass_matrix
         self.M_b = self.space.boundary_mass_matrix
         if isinstance(self.equation, LinearElastic):
-            self.material = LinearElasticMaterial(self.equation.E, self.equation.nu)
-            self.K = self.space.assemble(LinearElasticForm(self.material))
+            material = LinearElasticMaterial(self.equation.E, self.equation.nu)
+            self.elastic_form = LinearElasticForm(material)
+            self.K = self.space.assemble(self.elastic_form)
         else:
             self.K = self.space.assemble(LaplacianForm())
 
@@ -326,22 +327,15 @@ class Solver:
     def solve_linear_elastic(self) -> None:
         u = self.solve_linear_system(self.K, self.b)
 
-        # Recovered stresses, batched over the mesh for the same reason assembly
-        # is: one einsum beats a Python loop of 3x6 matrix products.
-        geometry = self.space.geometry
-        B = strain_displacement(geometry.grad_phi)
-        D = self.material.constitutive_matrices(
-            geometry.reference_dim, geometry.n_elements
-        )
+        # Strain, stress, and compliance come from the form that assembled K -- the
+        # same B and D, contracted against the solved displacement. Keeping the
+        # recovery on the form is what keeps constitutive code out of the solver.
         u_elements = u[dof_indices(self.mesh.elements, self.n_components)]
-
-        eps = np.einsum('esk,ek->es', B, u_elements)
-        sigma = np.einsum('est,et->es', D, eps)
-        compliance = np.einsum('es,es,e->e', sigma, eps, geometry.volumes)
+        strain, stress, compliance = self.elastic_form.recover(self.space.geometry, u_elements)
 
         self.solution.set_values("u", u)
-        self.solution.set_values("strain", np.linalg.norm(eps, axis=-1))
-        self.solution.set_values("stress", np.linalg.norm(sigma, axis=-1))
+        self.solution.set_values("strain", np.linalg.norm(strain, axis=-1))
+        self.solution.set_values("stress", np.linalg.norm(stress, axis=-1))
         self.solution.set_values("compliance", compliance)
 
     def adaptive_refinement(
