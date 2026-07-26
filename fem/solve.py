@@ -11,6 +11,7 @@ from typing import Protocol
 
 import numpy as np
 
+from fem.linalg import LinearAlgebra
 from fem.problem import Problem
 from fem.system import DiscreteSystem
 from fem.typing import DofVector
@@ -21,10 +22,18 @@ class SolveStrategy(Protocol):
 
 
 class LinearSolve:
-    '''Assemble once, solve once: for a `Problem` with a state-independent tangent.'''
+    '''Assemble once, solve once: for a `Problem` with a state-independent tangent.
+
+    `backend` selects the linear algebra for the one solve -- direct by default,
+    or an `IterativeBackend` for a large SPD system (Poisson, small-strain elasticity).
+    '''
+
+    def __init__(self, backend: LinearAlgebra | None = None) -> None:
+        self.backend = backend
 
     def solve(self, problem: Problem, u0: DofVector | None = None) -> DofVector:
-        return DiscreteSystem(problem.tangent(None), problem.constraints).solve(problem.load)
+        system = DiscreteSystem(problem.tangent(None), problem.constraints, self.backend)
+        return system.solve(problem.load)
 
 
 class NewtonSolve:
