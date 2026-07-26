@@ -14,8 +14,8 @@ pytest.importorskip("pyamg")  # the 'iterative' extra; skip the module without i
 from fem.boundary import BCType, BoundaryConditions
 from fem.forms import LinearElasticForm
 from fem.linalg import DirectBackend, IterativeBackend, rigid_body_modes
-from fem.materials import LinearElasticMaterial
-from fem.mesh.generation import create_rect_mesh
+from fem.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.mesh.generation import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere, on_plane
 from fem.solver import LinearElastic, Poisson, Solver
 from fem.space import FunctionSpace
@@ -83,6 +83,51 @@ def test_iterative_backend_preserves_second_order_convergence():
     ]
     for p in orders:
         assert 1.7 < p < 2.3, f"expected ~2nd order under CG, got {orders}"
+
+
+def test_amg_reaches_asymptotic_order_on_a_fine_3d_mesh():
+    """AMG-CG carries 3D vector elasticity to its asymptotic O(h^2) rate.
+
+    The base-install convergence net (test_convergence_elasticity) stops at n=21 on
+    the direct backend, where the observed order is still climbing (1.94) and has not
+    reached 2. A direct n=29 solve is too slow to keep in that net, but AMG-CG makes
+    it cheap -- so this pyamg-gated test does what the speedup unlocks: refine far
+    enough that the order actually arrives near 2, confirming the preconditioned solve
+    does not degrade accuracy at scale. It lives here, not in the core net, because it
+    needs the optional 'iterative' extra and must skip without it rather than silently
+    drop 3D coverage from a base test run.
+    """
+    mu, lamb = Enu_to_Lame(200.0, 0.3)
+    pi = np.pi
+
+    def solve_3d(n):
+        mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
+
+        def source(p):
+            x, y, z = p
+            return [
+                pi**2 * (4 * mu + lamb) * np.sin(pi * x) * np.sin(pi * y) * np.sin(pi * z),
+                -(mu + lamb) * pi**2 * np.cos(pi * x) * np.cos(pi * y) * np.sin(pi * z),
+                -(mu + lamb) * pi**2 * np.cos(pi * x) * np.sin(pi * y) * np.cos(pi * z),
+            ]
+
+        bc = BoundaryConditions()
+        bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0, 0.0])
+        solver = Solver(mesh, LinearElastic(E=200.0, nu=0.3, source=source), bc, backend=IterativeBackend())
+        u = solver.solve().u
+        v = mesh.vertices
+        exact = np.zeros((len(v), 3))
+        exact[:, 0] = np.sin(pi * v[:, 0]) * np.sin(pi * v[:, 1]) * np.sin(pi * v[:, 2])
+        error = (u.reshape(exact.shape) - exact).flatten()
+        return 1.0 / (n - 1), float(np.sqrt(error @ solver.space.mass_matrix @ error))
+
+    # The base net already shows the order *climbing* through n<=21; the one claim it
+    # cannot afford is that the rate actually *arrives* near 2. The n=21->29 pair reads
+    # ~1.96, so two solves make that statement -- keeping this heavy (fine 3D mesh) test
+    # to the single thing it uniquely adds.
+    (h1, e1), (h2, e2) = solve_3d(21), solve_3d(29)
+    order = np.log(e1 / e2) / np.log(h1 / h2)
+    assert order > 1.95, f"finest order did not reach the asymptotic rate: {order:.3f}"
 
 
 def test_backends_agree_on_a_constrained_dense_system():
