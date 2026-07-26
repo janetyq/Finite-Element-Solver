@@ -104,13 +104,13 @@ class IterativeBackend:
         self,
         rtol: float = 1e-10,
         maxiter: int | None = None,
-        near_null_space: np.ndarray | None = None,
+        near_null_space: FloatArray | None = None,
     ) -> None:
         self.rtol = rtol
         self.maxiter = maxiter
         self.near_null_space = near_null_space
 
-    def with_near_null_space(self, B: np.ndarray) -> 'IterativeBackend':
+    def with_near_null_space(self, B: FloatArray) -> 'IterativeBackend':
         '''A copy carrying near-kernel `B`, leaving this instance's config intact.
 
         Config is immutable, so the elasticity-aware layer derives a mode-carrying
