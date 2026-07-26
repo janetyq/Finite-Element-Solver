@@ -8,7 +8,7 @@ what motivated the iterative backend, so it now times both: the direct `splu`
 factor+solve against AMG-preconditioned CG. The direct cost grows super-linearly
 with fill-in; the AMG-CG cost should overtake it as the mesh grows.
 
-    uv run --extra iterative python -m examples.benchmark_assembly
+    uv run python -m examples.benchmark_assembly
 """
 import logging
 import time

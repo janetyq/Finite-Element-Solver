@@ -66,11 +66,11 @@ and neighbour lookups during mesh construction.
   residual scaffolding is already sketched in `fem/solver.py`. `Solver.adaptive_refinement`
   takes the estimator as a callable `(solver) -> per-element error`, so this drops straight in.
 - 💡 **Hand-rolled geometric two-grid V-cycle preconditioner.** The SPD iterative path
-  (`fem/linalg.py:IterativeBackend`, AMG-CG) currently gets its multigrid from `pyamg`, the
-  optional `iterative` extra. A geometric two-grid V-cycle built on the adaptive-refinement
-  mesh hierarchy would drop in behind the same `LinearAlgebra` seam without touching a caller,
-  removing the dependency and being a genuinely instructive build. Full AMG is thousands of
-  lines and not worth reimplementing; a two-grid cycle is small and teaches the same ideas.
+  (`fem/linalg.py:IterativeBackend`, AMG-CG) currently gets its multigrid from `pyamg`. A
+  geometric two-grid V-cycle built on the adaptive-refinement mesh hierarchy would drop in
+  behind the same `LinearAlgebra` seam without touching a caller, removing the dependency and
+  being a genuinely instructive build. Full AMG is thousands of lines and not worth
+  reimplementing; a two-grid cycle is small and teaches the same ideas.
 
 **Features**
 - 💡 The README's roadmap (thermal expansion, transport, fluid mechanics, nonlinear

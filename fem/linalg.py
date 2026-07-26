@@ -32,6 +32,7 @@ without touching a caller -- see BACKLOG.md.
 from typing import Protocol
 
 import numpy as np
+import pyamg
 from scipy.sparse import csc_array, csr_array
 from scipy.sparse.linalg import cg, splu
 
@@ -90,7 +91,7 @@ class _CGSolver:
 
 
 class IterativeBackend:
-    '''AMG-preconditioned CG for SPD systems. Opt-in; needs the `iterative` extra.
+    '''AMG-preconditioned CG for SPD systems. Opt-in per solve; the default is direct.
 
     `near_null_space` is the AMG near-kernel `B` (shape `(n_free, n_modes)`): the
     low-energy modes the smoother cannot damp, which the coarse levels must
@@ -118,14 +119,6 @@ class IterativeBackend:
         return IterativeBackend(self.rtol, self.maxiter, B)
 
     def factor(self, A: Operator) -> LinearSolver:
-        try:
-            import pyamg
-        except ImportError as exc:  # pragma: no cover - exercised only without the extra
-            raise ImportError(
-                "IterativeBackend needs pyamg; install the optional 'iterative' extra "
-                '(`uv sync --extra iterative`).'
-            ) from exc
-
         A_csr = _pyamg_csr(A)
         ml = pyamg.smoothed_aggregation_solver(A_csr, B=self.near_null_space)
         return _CGSolver(A_csr, ml.aspreconditioner(), self.rtol, self.maxiter)
