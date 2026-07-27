@@ -447,33 +447,33 @@ class EnergyForm:
         The strain returned is the one the energy is built on (Green-Lagrange, or
         its small-strain linearisation), so it is the density's own measure rather
         than a second one recomputed here.
+
+        Two conventions this has to reconcile -- the gradient orientation
+        `fem.energies` works in, and the plane-strain reduction a 2D solve makes --
+        are explained in that module's docstring under "Solving versus reporting".
         '''
         grad_u = geometry.gradients(u_elements)
         t = self.energy_density.evaluate(grad_u)
         d = grad_u.shape[-1]
 
-        # `gradients` returns the transpose of the usual displacement gradient
-        # (entry [i, c] is du_c/dx_i), so the chain's F -- and hence its dW_dF --
-        # are transposed relative to the standard convention. The energy is blind
-        # to that; a reported stress tensor is not. Both are put the right way
-        # round here, once, before anything contracts them.
+        # Put F and dW_dF into the standard orientation before anything contracts
+        # them; fem.energies works in the transposed one, which the energy cannot
+        # tell apart but a reported tensor can.
         F = np.eye(d) + np.swapaxes(grad_u, -2, -1)
         P = np.swapaxes(t.dW_dF, -2, -1)
 
         J = np.linalg.det(F)
         cauchy = np.einsum('e,eij,ekj->eik', 1.0 / J, P, F)
 
-        # The strain measure the density itself uses: Green-Lagrange for St-VK,
-        # eps for its linearisation. Asked of the density rather than branched on
-        # here, so the class that owns the choice is the one that answers.
+        # The density's own measure -- Green-Lagrange for St-VK, eps for its
+        # linearisation -- asked for rather than branched on here, so the class
+        # that owns the choice is the one that answers.
         strain = self.energy_density.strain(grad_u)
 
         if d == 2:
-            # A 2D energy is a plane-strain reduction, so S_zz vanishes and the
-            # material develops a stress there. The density owns the constants, so
-            # it supplies the component; dividing by J is the push-forward to
-            # Cauchy, F_zz being 1. Without this the nonlinear path would report a
-            # different von Mises than the linear one for the same material.
+            # Restore the stress in the restrained direction, which the 2D Voigt
+            # vector omits. Without it the nonlinear path would report a different
+            # von Mises than the linear one for the same material.
             sigma_zz = self.energy_density.out_of_plane_stress(strain) / J
             strain = _with_out_of_plane(strain, np.zeros(len(strain)))
             cauchy = _with_out_of_plane(cauchy, sigma_zz)

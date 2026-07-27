@@ -20,6 +20,39 @@ linear one.
 Dimension-general: every tensor is built from `d = grad_u.shape[-1]`, not a
 fixed DIM = 2. The constant tensors (d²S/dF² for Green-Lagrange, d²W/dS²) are
 precomputed once at construction and broadcast over elements.
+
+
+Solving versus reporting
+------------------------
+
+`evaluate` feeds a Newton solve, which only ever consumes W and its derivatives.
+`strain` and `out_of_plane_stress` feed post-processing, which shows a tensor to
+a reader. Two details below matter for the second job and not the first, so they
+went unnoticed while this module only did the first.
+
+**1. Gradient orientation.** `ElementGeometry.gradients` returns the transpose of
+the usual displacement gradient -- its `[i, c]` entry is `du_c/dx_i`, not
+`du_i/dx_c` -- so the `F` built throughout this module is really `F_standardᵀ`.
+
+That has never affected a solve. W reads S only through `tr S` and `tr(SᵀS)`, and
+the two orientations give `S = ½(FFᵀ - I)` and `S = ½(FᵀF - I)` respectively.
+Those are genuinely different tensors, but `FFᵀ` and `FᵀF` are similar matrices --
+identical eigenvalues -- so both scalars agree exactly, and so does W.
+
+It does affect a *reported* tensor, which can be inspected component by
+component. So `strain` transposes back before building F and returns the textbook
+`½(FᵀF - I)`. `evaluate` is deliberately left in the original orientation: it is
+correct, heavily tested, and the energy cannot tell the difference.
+
+**2. Plane strain.** A 2D density is not a two-dimensional world. It is a 3D body
+restrained in z -- a dam, a tunnel cross-section -- so `S_zz = 0` by assumption.
+
+Zero strain there does not mean zero stress; it is the reason there *is* one.
+Material compressed in x and y tries to expand in z, the restraint prevents it,
+and the law develops `sigma_zz = lambda * tr(S)` doing so. That component falls
+outside the 3-entry Voigt vector a 2D assembly produces, so any invariant built
+from the in-plane components alone -- von Mises, the pressure -- is computed on
+an incomplete stress state. `out_of_plane_stress` supplies it.
 """
 import logging
 from dataclasses import dataclass
@@ -89,39 +122,27 @@ class StVenantKirchhoff:
     # -- strain measure (overridden by SmallStrain) -------------------------
 
     def strain(self, grad_u: FloatArray) -> FloatArray:
-        """This density's own strain measure at `(n_elements, d, d)` gradients.
+        """This density's own strain measure, for reporting rather than solving.
 
-        The public, *reporting* face of `_strain`, so post-processing shows the
-        measure the energy was differentiated with respect to rather than
-        recomputing one and risking a different choice. Subclasses override
-        `_strain`, so both members of the kinematics axis answer through this.
+        Post-processing shows the measure the energy was differentiated with
+        respect to, instead of recomputing one and risking a different choice.
+        Subclasses override `_strain`, so both kinematics answer through this.
 
-        One orientation subtlety. `ElementGeometry.gradients` returns the
-        transpose of the usual displacement gradient -- its `[i, c]` entry is
-        `du_c/dx_i` -- so the `F` the derivative chain in `evaluate` works with is
-        `F_standard^T`. The *energy* cannot tell: W depends on S only through
-        `tr S` and `tr(S^T S)`, and `F F^T` and `F^T F` share both. A reported
-        tensor can tell, so this builds F the standard way round and the returned
-        Green-Lagrange strain is the textbook `½(F^T F − I)`.
+        Builds F in the standard orientation -- see "Gradient orientation" in the
+        module docstring for why that differs from what `evaluate` uses.
         """
         d = grad_u.shape[-1]
         eye = np.eye(d)
         return self._strain(eye + np.swapaxes(grad_u, -2, -1), eye)
 
     def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
-        """The through-thickness stress a 2D energy does not carry, from its strain.
+        """Second Piola-Kirchhoff `S_zz = lambda * tr(S)`, for a 2D solve.
 
-        A 2D energy density *is* a plane-strain reduction: the third direction is
-        restrained, so `S_zz = 0`, and the isotropic law then develops
-        `lambda * tr(S)` there. Reporting it is what makes the nonlinear path's
-        stress state agree with the linear path's for the same material -- without
-        it the two solvers would return different von Mises stresses for identical
-        physics, purely because one reconstructed the component and the other did
-        not.
+        The stress in the restrained direction, which a 2D Voigt vector omits --
+        see "Plane strain" in the module docstring. `EnergyForm` pushes it forward
+        to Cauchy, which under plane strain (`F_zz = 1`) is a division by J alone.
 
-        This is the second Piola-Kirchhoff component; `EnergyForm` pushes it
-        forward to Cauchy. `F_zz` is 1 under plane strain, so that push-forward is
-        just the division by J.
+        `'eii->e'` is a batched trace: sum the diagonal, per element.
         """
         return self.lamb * np.einsum('eii->e', strain)
 
