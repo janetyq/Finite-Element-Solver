@@ -13,7 +13,7 @@ from fem.boundary import BoundaryConditions
 from fem.equations import Equation, LinearElastic
 from fem.solution import ElasticSolution, FieldSolution, Solution
 from fem.space import FunctionSpace
-from fem.forms import recovers_fields
+from fem.forms import DerivedFields
 from fem.backends import Backend, IterativeBackend, rigid_body_modes
 from fem.problem import LinearProblem
 from fem.solve import LinearSolve
@@ -102,7 +102,7 @@ class Solver:
         problem = self._steady_problem()
         u = LinearSolve(self._backend_for(problem)).solve(problem)
 
-        if recovers_fields(problem.operator):
+        if isinstance(problem.operator, DerivedFields):
             return ElasticSolution.from_solve(
                 self.mesh, self.n_components, u, problem.operator, self.space.geometry,
             )

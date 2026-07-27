@@ -22,7 +22,7 @@ supply `grad_phi`, and the form knows what physics to build from it.
 match `fem.materials.hooke_matrix`; the two are contracted together.
 """
 from dataclasses import dataclass
-from typing import Protocol, TypeGuard, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
@@ -138,12 +138,17 @@ class DerivedElementFields:
 class DerivedFields(Protocol):
     '''A form that can recover element fields from a solved displacement.
 
-    The capability post-processing dispatches on. Separate from `Form` because
-    recovery is not universal -- the Laplacian family has no stress -- and a form
-    that cannot do it should be unable to claim it, rather than raising from a
-    method it was obliged to declare. `LinearElasticForm` and `EnergyForm`
-    implement it; asking for the capability rather than naming those two classes
-    is what lets a third participate without editing a solver.
+    Separate from `Form` because recovery is not universal -- the Laplacian
+    family has no stress -- so a form that cannot do it should be unable to claim
+    it, rather than raising from a method it was obliged to declare.
+    `LinearElasticForm` and `EnergyForm` both implement it.
+
+    It is `runtime_checkable` so `Solver` can ask `isinstance(form, DerivedFields)`
+    before deciding which `Solution` to build. Asking for the capability rather
+    than naming those two classes is what lets a third form report stresses
+    without a solver being edited to know about it. Note the check only tests that
+    a `derived_fields` attribute exists, not that its signature matches -- enough
+    to pick a branch, not a substitute for the type checker.
     '''
 
     def derived_fields(
@@ -158,17 +163,6 @@ class DerivedFields(Protocol):
         node-major, component-minor order `dof_indices` emits.
         '''
         ...
-
-
-def recovers_fields(form: object) -> TypeGuard[DerivedFields]:
-    '''Whether `form` can recover derived fields, for a caller that must branch.
-
-    A capability test, not a class test: `isinstance` against a runtime-checkable
-    protocol asks whether the method is there. That is what keeps the branch from
-    enumerating form types -- the failure mode where adding a form means editing
-    every solver that might meet it.
-    '''
-    return isinstance(form, DerivedFields)
 
 
 class Form(Protocol):
