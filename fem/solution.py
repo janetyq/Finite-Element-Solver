@@ -95,11 +95,9 @@ class ElasticSolution(FieldSolution):
         rotation invariant came to be written twice. The typed result owning its
         own derivation is the same shape `Problem` has to a specification.
 
-        Takes the `space`, not a mesh and a component count and an element
-        geometry: those are three views of one discretization, and passing them
-        separately would let a caller hand over a geometry built for a different
-        mesh than the one it names. That is the stale-index failure the rest of
-        the package is built to prevent, so it is made unrepresentable here too.
+        Takes the `space` rather than a mesh, a component count, and a geometry:
+        those are three views of one discretization, and passing them separately
+        would let a geometry built for one mesh arrive beside another.
 
         `form` is anything satisfying `RecoversElasticFields`, so the linear and
         energy elastic paths build their solution the same way.

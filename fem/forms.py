@@ -77,11 +77,10 @@ def voigt_to_tensor(voigt: FloatArray, shear_factor: float = 1.0) -> FloatArray:
     tensor's, since the off-diagonal entries appear once in one and twice in the
     other.
 
-    `shear_factor` is what the packed shear entry is divided by to recover the
-    tensor component -- 1 for stress, which packs the plain component, and 2 for
-    strain, which packs engineering shear `gamma = 2 eps`. That asymmetry makes
-    the Voigt dot product equal the tensor contraction, and this is where it
-    stops.
+    `shear_factor` divides the packed shear entry to recover the tensor
+    component: 1 for stress, 2 for strain, which packs engineering shear
+    `gamma = 2 eps`. That asymmetry is what makes the Voigt dot product equal the
+    tensor contraction.
     '''
     voigt = np.asarray(voigt, dtype=float)
     n_elements, n_strains = voigt.shape
@@ -110,11 +109,8 @@ def voigt_to_tensor(voigt: FloatArray, shear_factor: float = 1.0) -> FloatArray:
 def _with_out_of_plane(tensor: FloatArray, zz: FloatArray) -> FloatArray:
     '''Embed `(n_elements, 2, 2)` in-plane tensors into full 3x3 ones.
 
-    A 2D solve is a reduction of a three-dimensional state, not a
-    two-dimensional world: the third direction still carries a component, and
-    which one is a property of the reduction (see
-    `LinearElasticMaterial.out_of_plane_stress`). Restoring it is what lets a
-    caller take an invariant without asking how many dimensions were assembled.
+    A 2D solve reduces a 3D state; the third direction still carries a component,
+    and which one is a property of the reduction (see `out_of_plane_stress`).
     '''
     n = len(tensor)
     full = np.zeros((n, 3, 3))
@@ -127,14 +123,10 @@ def _with_out_of_plane(tensor: FloatArray, zz: FloatArray) -> FloatArray:
 class ElasticFields:
     '''What an elastic form recovers from a solved displacement, per element.
 
-    A named bundle rather than a bare tuple, so a caller unpacks by attribute and
-    a new quantity can be added without breaking positional unpacking at every
-    call site. Strain and stress are full `(n_elements, 3, 3)` tensors -- see
-    `voigt_to_tensor` for why they are not the Voigt vectors assembly uses.
-
-    Deliberately named for elasticity rather than as a generic derived-field
-    bundle. These three quantities are what an elastic form has; a scalar-family
-    recovery (Poisson's flux `-grad u`) has none of them and wants its own shape.
+    A named bundle rather than a tuple, so callers unpack by attribute and a new
+    quantity does not break positional unpacking. Strain and stress are full
+    tensors -- see `voigt_to_tensor`. Named for elasticity on purpose: a
+    scalar-family recovery (Poisson flux) has none of these and wants its own shape.
     '''
     strain: FloatArray       # (n_elements, 3, 3)
     stress: FloatArray       # (n_elements, 3, 3)
@@ -146,20 +138,13 @@ class RecoversElasticFields(Protocol):
     '''A form that can recover an elastic state from a solved displacement.
 
     Separate from `Form` because recovery is not universal -- the Laplacian
-    family has no stress -- so a form that cannot do it should be unable to claim
-    it, rather than raising from a method it was obliged to declare.
+    family has no stress. What it abstracts over is linear-versus-energy
+    elasticity, not physics in general: a form for different physics does not fit,
+    because `ElasticFields` is not its shape.
 
-    What it abstracts over is **linear versus energy elasticity**, not physics in
-    general: `LinearElasticForm` and `EnergyForm` produce the same three
-    quantities by different routes, and this is what lets one solver, one
-    `Solution` type, and one recovery path serve both. A form for a different
-    physics does not fit through here, because `ElasticFields` is not its shape.
-
-    It is `runtime_checkable` so `Solver` can ask
-    `isinstance(form, RecoversElasticFields)` before deciding which `Solution` to
-    build. The check only tests that a `derived_fields` attribute exists, not that
-    its signature matches -- enough to pick a branch, not a substitute for the
-    type checker.
+    `runtime_checkable` so `Solver` can branch on it before choosing a `Solution`
+    type. The check only tests that the attribute exists, not that its signature
+    matches -- enough to pick a branch, not a substitute for the type checker.
     '''
 
     def derived_fields(
@@ -265,14 +250,10 @@ class LinearElasticForm:
         `u_elements` is `(n_elements, N, n_components)`; flattening its last two
         axes gives the interleaved DOF order B's columns are written in.
 
-        Strain and stress come back as full `(n_elements, 3, 3)` **tensors**, not
-        the Voigt vectors the assembly works in. Voigt is a packing that makes
-        `B^T D B` a matrix product, and every operation outside that contraction --
-        a norm, an eigenvalue, a rotation -- is wrong on the packed form. Unpacking
-        here confines the convention to this file. A 2D solve is lifted to the full
-        three-dimensional state its plane-strain assumption implies, so the result
-        is a stress tensor a caller can take invariants of without knowing which
-        reduction produced it.
+        Returns full `(n_elements, 3, 3)` tensors rather than the Voigt vectors
+        assembly works in (see `voigt_to_tensor`), and lifts a 2D result to the
+        3D state its plane-strain assumption implies -- so a caller can take
+        invariants without knowing which reduction produced it.
         '''
         B = strain_displacement(geometry.grad_phi)
         D = self.material.constitutive_matrices(
@@ -282,16 +263,13 @@ class LinearElasticForm:
         strain_voigt = np.einsum('esk,ek->es', B, u_flat)
         stress_voigt = np.einsum('est,et->es', D, strain_voigt)
 
-        # Strain packs engineering shear (gamma = 2 eps), stress packs the plain
-        # component -- the asymmetry that makes the Voigt dot product equal the
-        # tensor contraction, and that a norm on either would get wrong.
         strain = voigt_to_tensor(strain_voigt, shear_factor=2.0)
         stress = voigt_to_tensor(stress_voigt, shear_factor=1.0)
 
         if strain.shape[-1] == 2:
-            # Plane strain: restrained in z, so eps_zz vanishes by definition and
-            # the material develops sigma_zz to hold it there. Dropping that stress
-            # would leave von Mises computed on a state that is not the physical one.
+            # Plane strain: eps_zz is zero by definition, and the material
+            # develops sigma_zz holding it there. von Mises without it is computed
+            # on the wrong state.
             sigma_zz = self.material.out_of_plane_stress(strain)
             strain = _with_out_of_plane(strain, np.zeros(len(strain)))
             stress = _with_out_of_plane(stress, sigma_zz)
@@ -480,13 +458,9 @@ class EnergyForm:
             strain = _with_out_of_plane(strain, np.zeros(len(strain)))
             cauchy = _with_out_of_plane(cauchy, sigma_zz)
 
-        # Twice the stored energy, which for a quadratic W is exactly the
-        # work-conjugate contraction S:E of second Piola-Kirchhoff stress with
-        # Green-Lagrange strain. Contracting the *reported* pair instead would be
-        # wrong: Cauchy stress is conjugate to the rate of deformation over the
-        # deformed volume, not to E over the reference one, and the two disagree by
-        # tens of percent once the strain is genuinely finite. Going through W also
-        # sidesteps the orientation question -- S:E depends on E only through its
-        # invariants, which both orientations share.
+        # Twice the stored energy, which for a quadratic W is exactly S:E -- the
+        # work-conjugate pair. Contracting the *reported* Cauchy stress with E
+        # instead mixes measures and runs ~30% wrong at finite strain. Going
+        # through W also avoids having to pick an orientation.
         compliance = 2.0 * t.W * geometry.volumes
         return ElasticFields(strain, cauchy, compliance)
