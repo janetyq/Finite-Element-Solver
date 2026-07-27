@@ -57,21 +57,14 @@ class FieldSolution(Solution):
 class ElasticSolution(FieldSolution):
     '''A displacement field plus the stress state recovered from it.
 
-    `strain` and `stress` are full `(n_elements, 3, 3)` tensors, not pre-reduced
-    scalars. Storing the tensor is what keeps every invariant available: a
-    Frobenius norm cannot be turned back into a von Mises stress, so reducing at
-    construction would decide, permanently and on the caller's behalf, which
-    question the result can answer. The scalars are properties instead.
+    Stress and strain are stored as tensors; the scalar measures are properties.
     '''
     strain: FloatArray       # (n_elements, 3, 3)
     stress: FloatArray       # (n_elements, 3, 3)
     compliance: ElementField  # (n_elements,)
 
     def __post_init__(self) -> None:
-        # Every invariant below indexes the last two axes, so a field of the wrong
-        # rank would be read as if it were a tensor field and quietly return
-        # nonsense. `fem.io` reconstructs this class from stored arrays without
-        # checking their shape, which is the path that makes the guard worth having.
+        # `fem.io` rebuilds this from stored arrays without checking their rank.
         for name in ('strain', 'stress'):
             value = getattr(self, name)
             if np.ndim(value) != 3:
@@ -87,24 +80,10 @@ class ElasticSolution(FieldSolution):
         u: DofVector,
         form: 'RecoversElasticFields',
     ) -> 'ElasticSolution':
-        '''Recover the elastic fields for `u` and package them.
-
-        The one place a solved displacement becomes an `ElasticSolution`. Both a
-        facade (`Solver`) and a driver (`TopologyOptimizer`) need this, and they
-        used to each spell it out -- which is how a reduction that was not
-        rotation invariant came to be written twice. The typed result owning its
-        own derivation is the same shape `Problem` has to a specification.
-
-        Takes the `space` rather than a mesh, a component count, and a geometry:
-        those are three views of one discretization, and passing them separately
-        would let a geometry built for one mesh arrive beside another.
-
-        `form` is anything satisfying `RecoversElasticFields`, so the linear and
-        energy elastic paths build their solution the same way.
-        '''
+        '''Recover the elastic fields for `u` and package them.'''
         mesh, n_components = space.mesh, space.n_components
-        # (n_elements, N, n_components) -- the layout RecoversElasticFields is
-        # written against, and the same one FunctionSpace.assemble_residual gathers.
+        # (n_elements, N, n_components) -- the layout RecoversElasticFields takes,
+        # and the same one FunctionSpace.assemble_residual gathers.
         u_elements = np.asarray(u).reshape(-1, n_components)[mesh.elements]
         fields = form.derived_fields(space.geometry, u_elements)
         return cls(mesh, n_components, u, fields.strain, fields.stress, fields.compliance)

@@ -100,14 +100,8 @@ class LinearElasticMaterial:
         computed on an incomplete tensor.
 
         Takes the in-plane strain tensor, matching the same method on the energy
-        densities -- one signature for one quantity, so the two elastic paths are
-        visibly doing the same thing. (The equivalent `nu(sigma_xx + sigma_yy)` is
-        the same number; `tests/test_materials.py` pins both against the 3D law.)
-
-        Plane *stress* -- a thin plate free to contract in z, so `sigma_zz = 0` --
-        is the other reduction. It needs a different D as well and is not
-        implemented; see BACKLOG.md. Naming the assumption here keeps it from
-        staying buried in a Lame conversion.
+        densities. The equivalent `nu(sigma_xx + sigma_yy)` is the same number;
+        `tests/test_materials.py` pins both against the 3D law.
         '''
         _, lamb = Enu_to_Lame(self.E, self.nu)
         trace = np.einsum('eii->e', np.asarray(strain))

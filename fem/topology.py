@@ -70,10 +70,7 @@ class TopologyHistory:
     '''
     rho: list[ElementField]
     u: list[DofVector]
-    # Von Mises equivalent stress, one scalar per element per iteration -- named
-    # for the invariant it is rather than a generic `stress`, since a history is
-    # a monitoring series and the reduction has already been chosen.
-    von_mises: list[ElementField]
+    von_mises: list[ElementField]   # one scalar per element, per iteration
     compliance: list[ElementField]
 
 
@@ -190,10 +187,8 @@ class TopologyOptimizer:
             solution = self._solve()
             rho_series.append(self.rho)
             u_series.append(solution.u)
-            # A scalar per element, not the full tensor: this is a monitoring
-            # trajectory over iterations, and the whole stress state per iteration
-            # is both large and more than anything reads. The last solve keeps its
-            # tensors on `_last`.
+            # A scalar per iteration, not the whole stress state; `_last` keeps
+            # the tensors from the final solve.
             von_mises_series.append(solution.von_mises)
             compliance_series.append(solution.compliance)
 

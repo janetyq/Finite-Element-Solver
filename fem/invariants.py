@@ -6,16 +6,10 @@ result must be **rotation invariant**. A material does not know which way the
 axes point, so a scalar that changes when the frame turns describes the
 bookkeeping, not the state.
 
-Everything here takes full `(n_elements, d, d)` tensors, never Voigt vectors.
-Voigt packing stores a symmetric tensor as a vector so assembly can use a matrix
-product, and folds a factor of two into strain's shear terms so a dot product
-reproduces the tensor contraction. It is right for that contraction and wrong for
-anything else: `norm` of a packed stress counts the off-diagonal terms once where
-the tensor holds them twice, and packed strain double-counts them. Neither error
-shows until you rotate the frame.
-
-So Voigt stays inside `fem.forms` and tensors come out; nothing here knows the
-convention. `tests/test_invariants.py` checks invariance by rotating the input.
+Everything here takes full `(n_elements, d, d)` tensors, never the Voigt vectors
+assembly packs -- a norm or eigenvalue of the packed form is not the tensor's
+(see `fem.forms.voigt_to_tensor`). `tests/test_invariants.py` checks invariance
+by rotating the input.
 """
 import numpy as np
 
@@ -25,9 +19,7 @@ from fem.typing import ElementField, FloatArray
 def frobenius(tensor: FloatArray) -> ElementField:
     '''The Frobenius norm sqrt(A:A), batched over `(n_elements, d, d)`.
 
-    The most basic invariant -- the root of the sum of every squared component,
-    which counts each off-diagonal entry the two times it appears in a symmetric
-    tensor. Unlike a norm taken over Voigt components it is genuinely invariant.
+    Counts each off-diagonal entry the two times it appears in a symmetric tensor.
     '''
     return np.sqrt(np.einsum('eij,eij->e', tensor, tensor))
 

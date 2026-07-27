@@ -25,25 +25,21 @@ precomputed once at construction and broadcast over elements.
 Solving versus reporting
 ------------------------
 
-`evaluate` feeds the Newton solve, which uses only W and its derivatives.
-`strain` and `out_of_plane_stress` feed post-processing, which shows tensors to a
-reader. Two details matter for the second job and not the first.
+`evaluate` feeds the Newton solve; `strain` and `out_of_plane_stress` feed
+post-processing. Two conventions differ between the two jobs.
 
 **Gradient orientation.** `ElementGeometry.gradients` puts `du_c/dx_i` at entry
 `[i, c]`, the transpose of the usual convention, so the `F` built here is
-`F_standardᵀ`. The two orientations give `½(FFᵀ - I)` and `½(FᵀF - I)`: different
-tensors, same eigenvalues. W uses S only through `tr S` and `tr(SᵀS)`, so it
-cannot tell them apart -- which is why no solve has ever been affected. A
-reported tensor is read component by component, so `strain` transposes back and
-returns the textbook `½(FᵀF - I)`. `evaluate` keeps the original orientation,
-being correct and well tested as it stands.
+`F_standardᵀ` and `evaluate`'s whole chain works in that orientation. W is blind
+to it -- it uses S only through `tr S` and `tr(SᵀS)`, which `½(FFᵀ - I)` and
+`½(FᵀF - I)` share -- but a reported tensor is not, so `strain` transposes back
+and returns the textbook `½(FᵀF - I)`.
 
 **Plane strain.** A 2D density models a 3D body held fixed in z, so `S_zz = 0`.
-That is exactly why a stress appears there: material squeezed in x and y pushes
-outward in z, the restraint pushes back, and the law gives
-`sigma_zz = lambda * tr(S)`. A 2D assembly produces only the three in-plane Voigt
-components, so von Mises built from those alone is missing this one and is wrong.
-`out_of_plane_stress` supplies it.
+That is why a stress appears there: material squeezed in x and y pushes outward
+in z, the restraint pushes back, and the law gives `sigma_zz = lambda * tr(S)`.
+A 2D assembly produces only the three in-plane Voigt components, so von Mises
+built from those alone is missing this one. `out_of_plane_stress` supplies it.
 """
 import logging
 from dataclasses import dataclass
@@ -115,11 +111,8 @@ class StVenantKirchhoff:
     def strain(self, grad_u: FloatArray) -> FloatArray:
         """This density's own strain measure -- for reporting, not for solving.
 
-        Post-processing shows the measure the energy actually uses rather than
-        recomputing one, which could differ. Subclasses override `_strain`, so
-        both strain measures answer through this.
-
-        F is built in the standard orientation; see "Gradient orientation" above.
+        Subclasses override `_strain`, so both strain measures answer through
+        this. F is built in the standard orientation; see "Gradient orientation".
         """
         d = grad_u.shape[-1]
         eye = np.eye(d)

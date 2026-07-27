@@ -121,13 +121,7 @@ def _with_out_of_plane(tensor: FloatArray, zz: FloatArray) -> FloatArray:
 
 @dataclass(frozen=True)
 class ElasticFields:
-    '''What an elastic form recovers from a solved displacement, per element.
-
-    A named bundle rather than a tuple, so callers unpack by attribute and a new
-    quantity does not break positional unpacking. Strain and stress are full
-    tensors -- see `voigt_to_tensor`. Named for elasticity on purpose: a
-    scalar-family recovery (Poisson flux) has none of these and wants its own shape.
-    '''
+    '''What an elastic form recovers from a solved displacement, per element.'''
     strain: FloatArray       # (n_elements, 3, 3)
     stress: FloatArray       # (n_elements, 3, 3)
     compliance: ElementField  # (n_elements,)
@@ -137,14 +131,8 @@ class ElasticFields:
 class RecoversElasticFields(Protocol):
     '''A form that can recover an elastic state from a solved displacement.
 
-    Separate from `Form` because recovery is not universal -- the Laplacian
-    family has no stress. What it abstracts over is linear-versus-energy
-    elasticity, not physics in general: a form for different physics does not fit,
-    because `ElasticFields` is not its shape.
-
-    `runtime_checkable` so `Solver` can branch on it before choosing a `Solution`
-    type. The check only tests that the attribute exists, not that its signature
-    matches -- enough to pick a branch, not a substitute for the type checker.
+    `runtime_checkable`, so a caller can branch on it. The check only tests that
+    the attribute exists, not that its signature matches.
     '''
 
     def derived_fields(
@@ -242,18 +230,12 @@ class LinearElasticForm:
     ) -> ElasticFields:
         '''Element strain, stress, and compliance from nodal displacements.
 
-        The mirror of `element_matrices`: the same B and D, contracted against the
-        solved displacement instead of assembled into a stiffness. These derived
-        fields live on the form so the constitutive law (B, D) stays in the physics
-        layer rather than being rebuilt by whatever solved the system.
-
         `u_elements` is `(n_elements, N, n_components)`; flattening its last two
         axes gives the interleaved DOF order B's columns are written in.
 
-        Returns full `(n_elements, 3, 3)` tensors rather than the Voigt vectors
-        assembly works in (see `voigt_to_tensor`), and lifts a 2D result to the
-        3D state its plane-strain assumption implies -- so a caller can take
-        invariants without knowing which reduction produced it.
+        Returns full `(n_elements, 3, 3)` tensors, not the Voigt vectors assembly
+        works in (see `voigt_to_tensor`); a 2D result is lifted to the 3D state
+        its plane-strain assumption implies.
         '''
         B = strain_displacement(geometry.grad_phi)
         D = self.material.constitutive_matrices(
@@ -305,22 +287,11 @@ class EnergyDensity(Protocol):
         ...
 
     def strain(self, grad_u: FloatArray) -> FloatArray:
-        '''The strain measure this density is built on, at those gradients.
-
-        Part of the protocol because the strain a density reports and the strain
-        its energy differentiates must be the same one: a post-processing layer
-        that recomputed it would be free to pick a different measure than the
-        solve used, which is exactly the drift the physics layer owns.
-        '''
+        '''The strain measure this density is built on, at those gradients.'''
         ...
 
     def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
-        '''The through-thickness stress component a 2D reduction implies.
-
-        On the protocol because only the density knows its own material
-        constants, and leaving the component out would make a 2D nonlinear solve
-        report a different stress state than the linear one for identical physics.
-        '''
+        '''Second Piola-Kirchhoff `S_zz` for a 2D (plane-strain) reduction.'''
         ...
 
 
@@ -412,25 +383,14 @@ class EnergyForm:
     ) -> ElasticFields:
         '''Element strain, Cauchy stress, and compliance at a solved displacement.
 
-        The nonlinear path already computes stress on every Newton iteration --
-        `dW_dF` *is* the first Piola-Kirchhoff stress P -- and used to discard it,
-        so a finite-strain solve returned displacement and nothing else while the
-        small-strain one returned stress. This recovers it through the same
-        interface `LinearElasticForm` uses.
+        Stress is **Cauchy**, `sigma = J^-1 P F^T`, not the first Piola-Kirchhoff
+        `P = dW_dF` the energy derivative gives: P is measured per unit undeformed
+        area, so it is not comparable with the small-strain path's stress. The two
+        agree to O(||grad u||). Strain is the density's own measure.
 
-        Reported as **Cauchy** stress, `sigma = J^-1 P F^T`. P is what the energy
-        derivative gives, but it is measured per unit *undeformed* area, so it is
-        neither comparable with the small-strain path's stress nor what a yield
-        criterion wants. Cauchy is the true stress in the deformed shape, and the
-        two agree to O(||grad u||) -- which is what makes the linear and nonlinear
-        paths comparable at small strain.
-
-        The strain returned is the density's own measure, not a second one
-        recomputed here.
-
-        Two conventions this reconciles -- the gradient orientation `fem.energies`
-        works in, and the plane-strain reduction a 2D solve makes -- are explained
-        there under "Solving versus reporting".
+        Reconciles two conventions from `fem.energies` -- the gradient orientation
+        it works in and the plane-strain reduction a 2D solve makes -- both
+        explained there under "Solving versus reporting".
         '''
         grad_u = geometry.gradients(u_elements)
         t = self.energy_density.evaluate(grad_u)
