@@ -14,10 +14,15 @@ them through `fem.io`, which reflects over the dataclass fields.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import numpy as np
+
+from fem import invariants
 from fem.typing import DofVector, ElementField, FloatArray
 
 if TYPE_CHECKING:
+    from fem.forms import RecoversElasticFields
     from fem.mesh.mesh import Mesh
+    from fem.space import FunctionSpace
 
 
 @dataclass(frozen=True, eq=False)
@@ -50,10 +55,58 @@ class FieldSolution(Solution):
 
 @dataclass(frozen=True, eq=False)
 class ElasticSolution(FieldSolution):
-    '''A displacement field plus the stresses recovered from it.'''
-    strain: ElementField
-    stress: ElementField
-    compliance: ElementField
+    '''A displacement field plus the stress state recovered from it.
+
+    Stress and strain are stored as tensors; the scalar measures are properties.
+    '''
+    strain: FloatArray       # (n_elements, 3, 3)
+    stress: FloatArray       # (n_elements, 3, 3)
+    compliance: ElementField  # (n_elements,)
+
+    def __post_init__(self) -> None:
+        # `fem.io` rebuilds this from stored arrays without checking their rank.
+        for name in ('strain', 'stress'):
+            value = getattr(self, name)
+            if np.ndim(value) != 3:
+                raise ValueError(
+                    f'{type(self).__name__}.{name} must be an (n_elements, 3, 3) '
+                    f'tensor field, got shape {np.shape(value)}'
+                )
+
+    @classmethod
+    def from_solve(
+        cls,
+        space: 'FunctionSpace',
+        u: DofVector,
+        form: 'RecoversElasticFields',
+    ) -> 'ElasticSolution':
+        '''Recover the elastic fields for `u` and package them.'''
+        mesh, n_components = space.mesh, space.n_components
+        # (n_elements, N, n_components) -- the layout RecoversElasticFields takes,
+        # and the same one FunctionSpace.assemble_residual gathers.
+        u_elements = np.asarray(u).reshape(-1, n_components)[mesh.elements]
+        fields = form.derived_fields(space.geometry, u_elements)
+        return cls(mesh, n_components, u, fields.strain, fields.stress, fields.compliance)
+
+    @property
+    def von_mises(self) -> ElementField:
+        '''Von Mises equivalent stress per element -- the usual scalar to plot.'''
+        return invariants.von_mises(self.stress)
+
+    @property
+    def pressure(self) -> ElementField:
+        '''Hydrostatic pressure per element, positive in compression.'''
+        return invariants.pressure(self.stress)
+
+    @property
+    def principal_stress(self) -> FloatArray:
+        '''(n_elements, 3) principal stresses, ascending.'''
+        return invariants.principal(self.stress)
+
+    @property
+    def max_shear(self) -> ElementField:
+        '''Maximum shear stress per element.'''
+        return invariants.max_shear(self.stress)
 
 
 @dataclass(frozen=True, eq=False)

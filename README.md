@@ -41,27 +41,76 @@ bc.add(BCType.DIRICHLET, everywhere(), 0)
 solution = Solver(mesh, equation, bc).solve()
 
 plotter = Plotter(title="Poisson")
-plotter.plot(mesh, solution.get_values("u"), mode="surface")
+plotter.plot(mesh, solution.u, mode="surface")
 plotter.show()
 ```
 
+A solution is a typed dataclass, so its fields are attributes rather than string
+keys. An elastic solve returns an `ElasticSolution`, which carries the recovered
+stress and strain as full tensors and derives the scalar measures on demand:
+
+```python
+solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
+
+solution.u                 # (n_vertices * n_components,) displacement
+solution.stress            # (n_elements, 3, 3) Cauchy stress tensors
+solution.von_mises         # (n_elements,) equivalent stress -- the usual plot
+solution.principal_stress  # (n_elements, 3) principal values, ascending
+solution.compliance        # (n_elements,) strain energy per element
+```
+
+The tensors are stored and the scalars computed, not the other way round: a
+reduction to one number is a choice, and reducing at construction would fix
+which question the result can answer. `fem/invariants.py` holds those
+reductions; each is rotation-invariant, which a norm taken over the packed Voigt
+components used in assembly is not.
+
 ## Project Structure
+
+A solve is a composition assembled from parts, not a method looked up by PDE
+name, so the package is grouped by the job each object does. `ARCHITECTURE.md`
+is the full account; this is the map.
 
 ```
 fem/                 # the solver package
-├── mesh/            # Mesh, red-green refinement, mesh generation
+├── mesh/            # Mesh geometry, generation, red-green refinement, SVG outlines
 ├── plot/            # Plotter, 2D drawing helpers, 3D tet rendering
-├── elements.py      # linear line/triangle/tetrahedral elements
-├── boundary.py      # BoundaryConditions spec -> ResolvedBC for a given mesh
+│
+│   # discretization -- what functions can be represented
+├── elements.py      # stateless element types + batched ElementGeometry
+├── space.py         # FunctionSpace: DOF numbering, cached operators, assembly
+│
+│   # physics -- what equation, what material
+├── equations.py     # Equation: Projection, Poisson, LinearElastic
+├── forms.py         # Form/EnergyForm integrands; derived-field recovery
+├── materials.py     # Hooke's law, Lame conversions (2D is plane strain)
+├── energies.py      # hyperelastic strain-energy densities and their derivatives
+├── fields.py        # Scalar/Vector: components per node, resolved against the mesh
+│
+│   # constraints
+├── boundary.py      # BoundaryConditions spec -> ResolvedBC for one mesh
 ├── regions.py       # position-based regions and fields (on_plane, in_box, ...)
-├── space.py         # FunctionSpace: DOF numbering, element geometry, operators
-├── solver.py        # Equation + Solver (Poisson, heat, wave, elasticity)
-├── solution.py      # solution container
-├── energies.py, energy_solver.py   # nonlinear (hyperelastic) energy solver
-├── topology.py      # SIMP topology optimization
-├── geometry.py, materials.py, numerics.py   # math helpers
-├── quadrature.py    # quadrature rules (not yet wired into assembly)
-└── svg.py           # SVG outline -> planar straight-line graph
+│
+│   # composition and algebra
+├── problem.py       # Problem: space + operator + load + constraints
+├── solve.py         # LinearSolve / NewtonSolve strategies
+├── system.py        # DiscreteSystem: Dirichlet elimination, factor once
+├── backends.py      # DirectBackend (sparse LU) / IterativeBackend (AMG-CG)
+├── integrators.py   # ThetaMethod (1st order), NewmarkMethod (2nd order)
+│
+│   # facades and drivers
+├── solver.py        # Solver: the steady linear facade
+├── energy_solver.py # EnergySolver: the nonlinear facade
+├── adaptivity.py    # AdaptiveRefinement driver
+├── topology.py      # SIMP topology optimization driver
+│
+│   # results
+├── solution.py      # typed Solution hierarchy; ElasticSolution.from_solve
+├── invariants.py    # rotation-invariant tensor reductions (von Mises, ...)
+├── io.py            # mesh JSON, solution npz (no pickle)
+│
+├── geometry.py, numerics.py, typing.py   # helpers and semantic array aliases
+└── quadrature.py    # standalone rules, not yet wired into assembly
 tests/               # pytest suite (unit, convergence, integration smoke)
 examples/            # runnable demo scripts
 files/               # example meshes and SVG outlines
@@ -138,7 +187,9 @@ Note: This example shows extreme displacement, in reality, the object would no l
 
 ## Adaptive Refinement
 
-The solver can also perform adaptive mesh refinement to increase the accuracy of the solution. It works by calculating the a posteriori error estimate of each element and refining the elements with the largest error. We maintain the triangle quality of the mesh with regular (red-green) refinement.
+The solver can also perform adaptive mesh refinement to increase the accuracy of the solution. It works by taking a per-element error estimate and refining the elements with the largest error, maintaining triangle quality with regular (red-green) refinement.
+
+`AdaptiveRefinement` takes the estimate as an injected callable `(solver) -> per-element error`, and the refine/remesh loop around it is complete. **The estimator itself is not yet implemented** — the images below were produced by an earlier version, and the `adaptive_refinement` demo is currently gated behind a deliberate `NotImplementedError` until a real estimate lands. See `BACKLOG.md`.
 
 Here, we show adaptive refinement on solving Poisson's equation.
 
@@ -165,22 +216,37 @@ The solver starts with a uniform density field and iteratively updates the densi
 
 
 ## Methods
- - Galerkin Finite Element Method
- - Boundary conditions: Dirichlet, Neumann
- - Partial Differential Equations (PDEs): L2 projection, Poisson's equation, Heat equation, Wave equation, Navier-Cauchy equation (linear elastics), hyperelasticity
- - Integration: Forward/Backward Euler, Crank-Nicolson
- - Energy measures: Dirichlet energy, Kinetic energy
- - Error estimates: A posteriori error residuals
- - Optimization: Gradient descent, Newton-Raphson method, Optimality criteria method (SIMP)
- - Mesh algorithms: Delaunay triangulation, Ruppert's algorithm (line segments -> triangle mesh), Red-Green refinement, half-edge data structure
+ - Galerkin Finite Element Method, P1 (linear) basis on triangles and tetrahedra
+ - Boundary conditions: Dirichlet, Neumann, Robin
+ - PDEs: L2 projection, Poisson, heat, wave, Navier-Cauchy (linear elasticity),
+   St Venant-Kirchhoff hyperelasticity
+ - Kinematics: infinitesimal strain, or geometrically exact Green-Lagrange
+   (2D elasticity is **plane strain**)
+ - Time integration: theta-method (backward Euler, Crank-Nicolson) for first-order
+   systems; Newmark average-acceleration for second-order
+ - Linear algebra: sparse throughout -- direct (`splu`) by default, or
+   AMG-preconditioned CG for large SPD systems, with rigid-body near-kernel for
+   elasticity
+ - Derived fields: Cauchy stress and strain tensors, von Mises, principal stresses,
+   compliance
+ - Optimization: Newton-Raphson, optimality criteria (SIMP topology optimization)
+ - Mesh algorithms: Delaunay triangulation, Ruppert's algorithm (line segments ->
+   triangle mesh), red-green refinement
 
 
 ## Next Steps (in progress)
-- Nonlinear elements: quadratic basis functions
-- More PDEs: time-dependent dynamics, thermal expansion, transport equations, fluid mechanics, etc.
-- Error estimates: a posteriori error estimates for adaptive refinement
-- Efficiency: sparse solver
-- Interesting Applications: cage-based shape optimization, inverse spring design
+- **A posteriori error estimator**, so adaptive refinement is closed-loop. The
+  driver and its refine/remesh loop are done and take the estimate as an injected
+  callable; the estimate itself is the missing piece, which is why the adaptive
+  demo is gated.
+- **Quadrature layer**, and the quadratic (P2) basis functions that depend on it.
+  Assembly currently uses closed-form linear-simplex integrals.
+- **More PDEs**: thermal expansion, transport equations, fluid mechanics;
+  Neo-Hookean hyperelasticity is stubbed.
+- **Time-varying loads and boundary data** -- sources and BC values are functions
+  of position only today.
+
+See `BACKLOG.md` for the full list and `ARCHITECTURE.md` for the object model.
 
 
 ### References

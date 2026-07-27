@@ -43,11 +43,17 @@ def test_elastic_solution_round_trip_preserves_fields_mesh_and_dim(make_unit_squ
     """An ElasticSolution comes back the same class, with identical fields."""
     mesh = make_unit_square(6)
     n_el = len(mesh.elements)
+    rng = np.random.default_rng(0)
+    # Symmetric tensor fields, the shape a solve actually produces -- a 3-D array
+    # per field, so this also pins that npz round-trips rank-3 values.
+    stress = rng.random((n_el, 3, 3))
+    stress = stress + np.swapaxes(stress, -2, -1)
+    strain = 0.1 * stress
     solution = ElasticSolution(
         mesh, 2,
         np.arange(len(mesh.vertices) * 2, dtype=float),
-        np.linspace(0, 1, n_el),
-        np.linspace(1, 2, n_el),
+        strain,
+        stress,
         np.linspace(2, 3, n_el),
     )
     path = tmp_path / "solution.npz"
@@ -60,9 +66,29 @@ def test_elastic_solution_round_trip_preserves_fields_mesh_and_dim(make_unit_squ
     assert np.allclose(loaded.u, solution.u)
     assert np.allclose(loaded.compliance, solution.compliance)
     assert np.allclose(loaded.stress, solution.stress)
+    assert loaded.stress.shape == (n_el, 3, 3)
+    # Derived scalars are properties, so they are recomputed rather than stored --
+    # and must agree with what the original reported.
+    assert np.allclose(loaded.von_mises, solution.von_mises)
     assert type(loaded.mesh) is Mesh
     assert np.allclose(loaded.mesh.vertices, mesh.vertices)
     assert np.array_equal(loaded.mesh.elements, mesh.elements)
+
+
+def test_loading_a_pre_tensor_elastic_solution_fails_loudly(make_unit_square):
+    """Solutions saved when stress was a scalar per element cannot be read as
+    tensors. The archive has no format version, so the shape is the only signal --
+    and a silently-wrong axis is worse than a refusal."""
+    mesh = make_unit_square(4)
+    n_el = len(mesh.elements)
+    with pytest.raises(ValueError, match='tensor field'):
+        ElasticSolution(
+            mesh, 2,
+            np.zeros(len(mesh.vertices) * 2),
+            np.zeros(n_el),   # the old scalar shape
+            np.zeros(n_el),
+            np.zeros(n_el),
+        )
 
 
 def test_transient_solution_round_trip_after_solve(make_unit_square, tmp_path):
