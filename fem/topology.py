@@ -27,7 +27,7 @@ from fem.numerics import calculate_smoothing_matrix
 from fem.problem import LinearProblem
 from fem.solution import ElasticSolution
 from fem.solve import LinearSolve, SolveStrategy
-from fem.solver import LinearElastic
+from fem.equations import LinearElastic
 from fem.space import FunctionSpace, dof_indices
 from fem.typing import DofVector, ElementField, FieldValue
 

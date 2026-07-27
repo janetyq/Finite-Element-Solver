@@ -1,108 +1,26 @@
+"""The steady-solve facade: mesh + equation + boundary conditions -> Solution.
+
+`Solver` composes rather than computes. It holds the three things a steady solve
+needs, builds a `LinearProblem` from them, and hands it to `LinearSolve`. The
+physics is the equation's (`Equation.operator`), the algebra is the backend's, and
+the constraints are the problem's; what is left here is the composition itself plus
+`remesh`, the seam an `AdaptiveRefinement` driver advances the solver through.
+"""
 import logging
-from enum import Enum
 
 import numpy as np
 
 from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
-from fem.fields import FieldShape, Scalar, Vector
+from fem.equations import Equation, LinearElastic, Poisson, Projection
 from fem.solution import ElasticSolution, FieldSolution, Solution
 from fem.space import FunctionSpace, dof_indices
-from fem.forms import Form, LaplacianForm, LinearElasticForm, MassForm
-from fem.materials import LinearElasticMaterial
+from fem.forms import LinearElasticForm
 from fem.backends import Backend, IterativeBackend, rigid_body_modes
 from fem.problem import LinearProblem
 from fem.solve import LinearSolve
-from fem.typing import ElementField, FieldValue
 
 logger = logging.getLogger(__name__)
-
-class Equation:
-    '''Base class for a PDE to solve.
-
-    An Equation is typed data: it says *what* to solve and carries the physical
-    parameters, while the Solver owns *how* to solve it (the same equation, e.g.
-    LinearElastic, may be handled by several solvers). Transient problems are not
-    equation types: heat and wave are a steady operator paired with a time
-    integrator (see fem.problem.heat / .wave and fem.integrators).
-
-    `field` says what kind of value the unknown takes; the DOFs per node follow
-    from it and the mesh, so no subclass writes the count down. Not a ClassVar:
-    a system of k equations would carry its count as constructor data.
-
-    `source` is the PDE's right-hand side f (a body force for elasticity), given
-    as a constant or a callable of position. It lives here rather than on
-    BoundaryConditions because it is data of the equation, not of the boundary.
-    '''
-    field: FieldShape = Scalar()
-
-    def __init__(self, source: FieldValue = None) -> None:
-        self.source = source
-
-
-class Projection(Equation):
-    '''L2 projection of the source field onto the FE space (M u = b).'''
-
-
-class Poisson(Equation):
-    '''Poisson equation (K u = b).'''
-
-
-class StrainMeasure(Enum):
-    '''Which strain the elastic energy is built on -- the kinematics axis.
-
-    The material `W` is one function; the two paths differ only in the strain fed
-    to it (see `fem.energies`). SMALL is the infinitesimal `ε = ½(∇u + ∇uᵀ)`,
-    solved directly by `Solver`; GREEN_LAGRANGE is the geometrically exact
-    `S = ½(FᵀF − I)` (St-Venant–Kirchhoff), which only `EnergySolver` can solve
-    because its energy is not quadratic.
-    '''
-    SMALL = 'small'
-    GREEN_LAGRANGE = 'green_lagrange'
-
-
-class LinearElastic(Equation):
-    '''Elasticity with a selectable strain measure. `kinematics` is SMALL by
-    default (infinitesimal strain, the linear `Solver` path); GREEN_LAGRANGE
-    selects the St-Venant–Kirchhoff model, which needs `EnergySolver`. E may be a
-    scalar or a per-element array (TopologyOptimizer sets a density-scaled modulus).'''
-    field: FieldShape = Vector()
-
-    def __init__(
-        self,
-        E: float | ElementField,
-        nu: float,
-        source: FieldValue = None,
-        kinematics: StrainMeasure = StrainMeasure.SMALL,
-    ) -> None:
-        super().__init__(source)
-        self.E = E
-        self.nu = nu
-        self.kinematics = kinematics
-
-
-def stiffness_form(equation: Equation) -> Form:
-    '''The bilinear stiffness form for an equation.
-
-    LinearElastic carries material data, so its form is built from a
-    LinearElasticMaterial; the scalar diffusion family (Projection / Poisson, and
-    the Laplacian behind the heat / wave problems) shares the material-free
-    Laplacian. This is the one equation-specific choice the steady solve makes --
-    selecting the operator -- named and lifted out of the solve so the solve itself
-    stays PDE-agnostic.
-
-    The bilinear form exists only for the small-strain measure: a Green-Lagrange
-    energy is not quadratic, so it has no constant stiffness. A finite-strain
-    LinearElastic is rejected here rather than silently linearised.
-    '''
-    if isinstance(equation, LinearElastic):
-        if equation.kinematics is not StrainMeasure.SMALL:
-            raise NotImplementedError(
-                f'Solver is small-strain only; {equation.kinematics.name} kinematics '
-                'has no constant stiffness. Use EnergySolver.'
-            )
-        return LinearElasticForm(LinearElasticMaterial(equation.E, equation.nu))
-    return LaplacianForm()
 
 
 class Solver:
@@ -160,15 +78,11 @@ class Solver:
     def _steady_problem(self) -> LinearProblem:
         '''The composition for a steady equation: operator + source + constraints.
 
-        The operator is the only equation-specific choice -- the mass matrix for an
-        L2 projection, the stiffness otherwise. Built on the solver's own space so
-        adaptive refinement (which rebuilds the space) is picked up on the next solve.
+        The equation supplies its own operator, so this stays free of any "which
+        PDE is this?" branch. Built on the solver's own space, so adaptive
+        refinement (which rebuilds the space) is picked up on the next solve.
         '''
-        operator: Form = (
-            MassForm(self.n_components)
-            if isinstance(self.equation, Projection)
-            else stiffness_form(self.equation)
-        )
+        operator = self.equation.operator(self.n_components)
         return LinearProblem(self.space, operator, self.equation.source, self.boundary_conditions)
 
     def _backend_for(self, problem: LinearProblem) -> Backend | None:

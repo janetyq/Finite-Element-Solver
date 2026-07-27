@@ -10,7 +10,8 @@ import pytest
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane
-from fem.solver import Solver, Projection, Poisson, LinearElastic
+from fem.equations import Projection, Poisson, LinearElastic
+from fem.solver import Solver
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod, wave_energy
 

@@ -10,8 +10,10 @@ import pytest
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
-from fem.regions import everywhere, at_indices
-from fem.solver import Solver, Projection, Poisson
+from fem.regions import everywhere, at_indices, on_plane
+from fem.equations import LinearElastic, Projection, Poisson
+from fem.energy_solver import EnergySolver
+from fem.solver import Solver
 
 
 def refine_near_centre(solver):
@@ -113,3 +115,41 @@ def test_bc_spec_is_reusable_across_meshes(make_unit_square):
     coarse, fine = make_unit_square(4), make_unit_square(9)
     assert len(bc.resolve(coarse, n_components=1).fixed_idxs) == len(coarse.boundary_idxs)
     assert len(bc.resolve(fine, n_components=1).fixed_idxs) == len(fine.boundary_idxs)
+
+
+def test_adaptive_refinement_drives_the_energy_solver(make_unit_square):
+    """The driver takes a RefinableSolver, not a concrete Solver, so the nonlinear
+    facade can be refined too. Before EnergySolver had `remesh` this was
+    unreachable: the driver was typed to Solver and the energy path had no seam."""
+    mesh = make_unit_square(5)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
+    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.02, 0.0])
+    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.3), bc)
+
+    n_before = len(mesh.elements)
+    solution = AdaptiveRefinement(solver, refine_near_centre, max_triangles=200, max_iters=2).run()
+
+    assert len(solver.mesh.elements) > n_before, "mesh never grew"
+    assert solution.mesh is solver.mesh
+    assert len(solution.u) == len(solver.mesh.vertices) * 2
+    assert np.all(np.isfinite(solution.u))
+
+
+def test_energy_solver_remesh_rebuilds_derived_state(make_unit_square):
+    """`remesh` must rebuild the space, not just swap the mesh: a stale space is
+    sized to the old vertex count and would silently solve the wrong system."""
+    coarse, fine = make_unit_square(4), make_unit_square(7)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
+    solver = EnergySolver(coarse, LinearElastic(E=200, nu=0.3), bc)
+
+    solver.remesh(fine)
+
+    assert solver.mesh is fine
+    assert solver.space.mesh is fine
+    assert solver.space.n_dofs == len(fine.vertices) * 2
+    # The constraints follow the new mesh because the problem resolves them per
+    # solve, rather than the solver holding a partition from the old one.
+    _, fixed, _ = solver.problem().constraints
+    assert len(fixed) == 2 * sum(1 for v in fine.vertices[fine.boundary_idxs] if v[0] == 0.0)

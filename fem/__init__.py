@@ -39,14 +39,14 @@ from fem.regions import (
     union,
     at_indices,
 )
-from fem.solver import (
-    Solver,
+from fem.equations import (
     Equation,
     Projection,
     Poisson,
     LinearElastic,
     StrainMeasure,
 )
+from fem.solver import Solver
 from fem.problem import (
     LinearProblem,
     EnergyProblem,

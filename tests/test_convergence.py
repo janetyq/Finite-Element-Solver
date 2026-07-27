@@ -20,7 +20,8 @@ import pytest
 from fem.mesh.generation import create_rect_mesh
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere
-from fem.solver import Solver, Poisson
+from fem.equations import Poisson
+from fem.solver import Solver
 
 
 def _exact(vertices):

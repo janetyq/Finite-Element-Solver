@@ -1,25 +1,47 @@
 """Adaptive mesh refinement: a driver that refines where the error is largest.
 
 The outer loop that re-solves on progressively finer meshes, sitting *above* the
-Solver it drives rather than inside it -- the same shape as TopologyOptimizer,
-where the old version was a method on the thing it drove. It owns a Solver, reads
+solver it drives rather than inside it -- the same shape as TopologyOptimizer,
+where the old version was a method on the thing it drove. It owns a solver, reads
 an error estimate each round, refines the marked elements, and advances the solver
-onto the new mesh via `Solver.remesh` (which rebuilds the space and re-resolves the
-boundary conditions from their mesh-independent spec). Holding the Solver is what
-lets the driver call `check_remeshable` on the BC spec up front -- a bare
-problem-factory would hide it.
+onto the new mesh via `remesh` (which rebuilds the space from the mesh-independent
+spec). Holding the solver is what lets the driver call `check_remeshable` on the BC
+spec up front -- a bare problem-factory would hide it.
+
+The solver is a `RefinableSolver`, so this drives the linear and nonlinear facades
+alike.
 """
 import logging
 from collections.abc import Callable
+from typing import Protocol
 
 import numpy as np
 
+from fem.boundary import BoundaryConditions
+from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.solution import Solution
-from fem.solver import Solver
 from fem.typing import ElementField
 
 logger = logging.getLogger(__name__)
+
+
+class RefinableSolver(Protocol):
+    '''What this driver needs from the solver it advances across meshes.
+
+    A protocol rather than a concrete `Solver` because both facades satisfy it:
+    the linear `Solver` and the nonlinear `EnergySolver` each hold a mesh and a
+    mesh-independent BC spec, rebuild their derived state through `remesh`, and
+    return a typed `Solution` from `solve`. Adaptive refinement is a property of
+    that shape, not of which physics is being solved.
+    '''
+    mesh: Mesh
+    boundary_conditions: BoundaryConditions
+    solution: Solution | None
+
+    def remesh(self, mesh: Mesh) -> None: ...
+
+    def solve(self) -> Solution: ...
 
 
 class AdaptiveRefinement:
@@ -27,8 +49,8 @@ class AdaptiveRefinement:
 
     def __init__(
         self,
-        solver: Solver,
-        estimator: Callable[[Solver], ElementField],
+        solver: RefinableSolver,
+        estimator: Callable[[RefinableSolver], ElementField],
         max_triangles: int = 1000,
         max_iters: int = 20,
         refine_fraction: float = 0.9,

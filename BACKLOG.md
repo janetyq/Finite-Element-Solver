@@ -20,6 +20,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | A-posteriori error estimator | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Globalize Newton (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit, README refresh | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
@@ -78,6 +79,26 @@ and neighbour lookups during mesh construction.
   reimplementing; a two-grid cycle is small and teaches the same ideas. The yardstick to hold is
   `examples/benchmark_assembly.py`: on the 3D elastic benchmark AMG-CG overtakes `splu` at n≈13
   and is ~10× faster by n=21.
+- 💡 **Globalize Newton, so the nonlinear path can reach the iterative backend.** `NewtonSolve`
+  takes no `Backend` and `EnergySolver` therefore cannot either: CG is SPD-only, and a Newton
+  tangent is the Hessian `∇²Π(u)` at the current iterate, which is SPD only where the energy is
+  locally strictly convex. The St-Venant–Kirchhoff energy is not convex in `F` — it loses
+  ellipticity under compression — so the tangent can be indefinite at the `u = 0` seed, at an
+  intermediate iterate, or near a buckling configuration. Large 3D nonlinear solves pay the
+  direct factorization's fill-in as a result, on the same curve where AMG-CG wins by ~10×.
+
+  The fix is to make the tangent SPD by construction rather than to let a caller opt in and hope.
+  Two standard routes, both fitting behind the existing `SolveStrategy` / `Backend` seams:
+  - **Regularized (modified) Newton** — solve `(H + τI) Δu = −r`, raising `τ` until the operator
+    is positive definite. Gives a descent direction even at a saddle, and makes CG safe every
+    iteration.
+  - **Truncated / Steihaug CG** — run CG on the tangent and stop at the first direction of
+    negative curvature (`pᵀAp ≤ 0`), using the iterate reached so far. CG deliberately
+    repurposed for indefinite systems, normally inside a trust region.
+
+  Either also closes a gap that is already open: `NewtonSolve` takes a full step every iteration
+  with no line search or trust region, so convergence currently depends on the seed being close
+  enough.
 
 **Features**
 - 💡 The README's roadmap (thermal expansion, transport, fluid mechanics, nonlinear
@@ -113,9 +134,8 @@ and neighbour lookups during mesh construction.
   exercises them, which is the real problem, since they are the only thing exercising the plot
   layer.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
-  the prose half is still open, but narrowly: `solver.py`, `energy_solver.py`,
-  `mesh/mesh.py`, `mesh/generation.py` and `plot/plotter.py` are the modules left with no
-  module docstring. The rest of the core has one.
+  the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/generation.py` and
+  `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.
 - 💡 **Tighten pyright to `standard`.** It runs in `basic`, which infers types for the
   unannotated internals rather than demanding annotations. Annotating the internals
   (`refinement`, `generation`, `energies`, `plot`) would let the mode step up.

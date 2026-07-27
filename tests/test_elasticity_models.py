@@ -26,8 +26,10 @@ import pytest
 from fem.boundary import BoundaryConditions, BCType
 from fem.materials import LinearElasticMaterial
 from fem.regions import on_plane
-from fem.solver import Solver, LinearElastic, StrainMeasure
+from fem.equations import LinearElastic, StrainMeasure
+from fem.solver import Solver
 from fem.energy_solver import EnergySolver
+from fem.solve import NewtonSolve
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.forms import EnergyForm
 
@@ -82,35 +84,34 @@ def _energy_solver(mesh, bc, kinematics):
     """An EnergySolver on a LinearElastic with the given strain measure.
 
     The kinematics is an equation-level choice, so it flows through construction
-    (`_select_energy` maps it to the density) rather than being swapped in after.
+    (`LinearElastic.energy_density` maps it to the density) rather than being
+    swapped in after.
     """
     equation = LinearElastic(E=200, nu=0.4, kinematics=kinematics)
-    return EnergySolver(mesh, equation, bc, verbose=False)
+    return EnergySolver(mesh, equation, bc)
 
 
 def _one_newton_step(solver):
     """Displacement after a single Newton step from the zero initial guess."""
-    u = np.zeros(len(solver.mesh.vertices) * solver.n_components)
-    u[solver.fixed] = solver.fixed_values
-    return solver.newton_solve(u, max_iters=1)
+    problem = solver.problem()
+    _, fixed, fixed_values = problem.constraints
+    u = np.zeros(solver.space.n_dofs)
+    u[fixed] = fixed_values
+    return NewtonSolve(max_iters=1).solve(problem, u0=u)
 
 
-def test_kinematics_is_an_equation_level_choice(make_unit_square):
-    """The strain measure is selected on the equation, not injected into the
-    solver: EnergySolver reads LinearElastic.kinematics to pick the density, and
-    defaults to small strain (matching the equation's name and the linear path)."""
-    mesh = make_unit_square(4)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+def test_kinematics_is_an_equation_level_choice():
+    """The strain measure selects the density on the equation itself, not in a
+    solver: LinearElastic.energy_density owns the mapping, and defaults to small
+    strain (matching the equation's name and the linear path)."""
+    small = LinearElastic(200, 0.4, kinematics=StrainMeasure.SMALL)
+    finite = LinearElastic(200, 0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    default = LinearElastic(200, 0.4)
 
-    small = EnergySolver(mesh, LinearElastic(200, 0.4, kinematics=StrainMeasure.SMALL), bc, verbose=False)
-    finite = EnergySolver(mesh, LinearElastic(200, 0.4, kinematics=StrainMeasure.GREEN_LAGRANGE), bc, verbose=False)
-    default = EnergySolver(mesh, LinearElastic(200, 0.4), bc, verbose=False)
-
-    assert isinstance(small.energy_density, SmallStrain)
-    assert isinstance(default.energy_density, SmallStrain)
+    assert isinstance(small.energy_density(), SmallStrain)
+    assert isinstance(default.energy_density(), SmallStrain)
     # SmallStrain subclasses StVenantKirchhoff, so pin the finite member by exact type.
-    assert type(finite.energy_density) is StVenantKirchhoff
+    assert type(finite.energy_density()) is StVenantKirchhoff
 
 
 def test_energy_solver_matches_recorded_solution(make_unit_square):
@@ -124,7 +125,7 @@ def test_energy_solver_matches_recorded_solution(make_unit_square):
     """
     mesh, bc = _stretched_square(make_unit_square)
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    solver = EnergySolver(mesh, equation, bc, verbose=False)
+    solver = EnergySolver(mesh, equation, bc)
     u = solver.solve().u
 
     np.testing.assert_allclose(np.linalg.norm(u), 0.503442620332, rtol=1e-9)
@@ -159,7 +160,7 @@ def test_stvk_needs_more_than_one_newton_step(make_unit_square):
     """
     mesh, bc = _stretched_square(make_unit_square)
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    solver = EnergySolver(mesh, equation, bc, verbose=False)
+    solver = EnergySolver(mesh, equation, bc)
 
     u_one = _one_newton_step(solver)
     u_converged = solver.solve().u
@@ -205,7 +206,7 @@ def test_green_lagrange_is_frame_indifferent(make_unit_square):
     # since the energies are evaluated on an imposed field rather than solved.
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc)
 
     def total_energy(density, u_nodal):
         return solver.space.total_energy(EnergyForm(density), u_nodal.flatten())
