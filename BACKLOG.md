@@ -21,7 +21,9 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Numerics | A-posteriori error estimator | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize Newton (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit, README refresh | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Post-proc | Poisson flux, transient derived fields | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
 
@@ -70,7 +72,32 @@ and neighbour lookups during mesh construction.
   are still wanted: the *a priori* bound `||e|| <= C h² ||f''||`, which needs only the mesh and
   the source, and the *a posteriori* element residual, which needs the computed solution. They
   are per-equation — the Poisson residual is not the elasticity one — so the natural home is a
-  method on the `Equation` subclass rather than a dispatch table in a driver.
+  method on the `Equation` subclass rather than a dispatch table in a driver. The seam is
+  deliberately *not* pre-declared: an abstract `Equation.error_estimate` with no implementations
+  would be the speculative generality `ARCHITECTURE.md` §5 argues against. Write the first
+  estimator and the method together.
+
+**Post-processing coverage**
+
+The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3), but only elasticity
+recovers anything. Each item below is an implementation of a seam that already exists.
+
+- 💡 **Poisson flux `-∇u`.** The natural derived field for the scalar family, and the quantity a
+  residual error estimator needs. `FunctionSpace.gradient` already computes the gradient; what is
+  missing is the packaging — and it needs a **new** result shape, not the existing one.
+  `RecoversElasticFields` returns strain, stress, and compliance, none of which a scalar field has,
+  so that protocol abstracts over linear-vs-energy *elasticity* rather than over physics. Expect a
+  sibling capability with its own bundle, and a `Solution` subclass to carry it; the reusable part
+  is the pattern, not the protocol.
+- 💡 **Derived fields for transient solves.** `TransientSolution` carries a per-step series of `u`
+  and nothing derived from it, so a time-stepped heat problem has no flux history.
+- 💡 **Plane stress as an alternative 2D reduction.** 2D elasticity is plane strain throughout, now
+  named rather than implicit (`LinearElasticMaterial.out_of_plane_stress`, and the matching
+  `out_of_plane_stress` on the energy densities). Plane stress — a thin plate free to contract in
+  z, so `sigma_zz = 0` and `eps_zz = -nu/(1-nu) (eps_xx + eps_yy)` — needs a different `D` as well
+  as a different out-of-plane component, so it is a second branch in both places plus a way for a
+  caller to choose. Worth doing when a thin-plate problem actually appears; a single-member enum
+  ahead of that is generality with no second case.
 - 💡 **Hand-rolled geometric two-grid V-cycle preconditioner.** The SPD iterative path
   (`fem/backends.py:IterativeBackend`, AMG-CG) currently gets its multigrid from `pyamg`. A
   geometric two-grid V-cycle built on the adaptive-refinement mesh hierarchy would drop in
@@ -132,7 +159,8 @@ and neighbour lookups during mesh construction.
   a deliberate `NotImplementedError` pending the error estimator; `3d` needs the `viz3d` extra.
   `rupperts` runs but takes over two minutes. The pass/fail count is unverified — nothing in CI
   exercises them, which is the real problem, since they are the only thing exercising the plot
-  layer.
+  layer. The call sites touched by the post-processing work (`solution.von_mises`,
+  `topopt.deformed_mesh()`, `history.von_mises`) were updated for consistency but not run.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
   the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/generation.py` and
   `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.
@@ -140,8 +168,6 @@ and neighbour lookups during mesh construction.
   unannotated internals rather than demanding annotations. Annotating the internals
   (`refinement`, `generation`, `energies`, `plot`) would let the mode step up.
 - 💡 **pre-commit hooks** (ruff + whitespace) so the CI checks run locally before each commit.
-- 💡 **README refresh.** The "Project Structure" section and described capabilities have
-  drifted from the code.
 - 💡 **Mesh formats.** `fem/io.py` writes meshes as JSON; `.off`/`.obj` export would make them
   loadable by standard tools.
 - 💡 **Derivative checks on the assembled energy path.** `fem/numerics.py` has

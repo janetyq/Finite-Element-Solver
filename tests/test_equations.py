@@ -63,3 +63,20 @@ def test_per_element_modulus_has_no_single_energy_density():
 
     with pytest.raises(NotImplementedError, match='scalar Youngs modulus'):
         equation.energy_density()
+
+
+def test_solver_refuses_finite_strain_through_the_equation_itself(make_unit_square):
+    """`Solver.solve` used to gate on an isinstance whitelist of equation types.
+
+    That branch is gone: the equation is asked for its operator, and one that has
+    no constant stiffness refuses. The refusal is both louder and more specific
+    than the whitelist's -- it names the reason and points at EnergySolver --
+    which is why the whitelist was redundant rather than protective.
+    """
+    from fem.solver import Solver
+
+    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    solver = Solver(make_unit_square(4), equation)
+
+    with pytest.raises(NotImplementedError, match='EnergySolver'):
+        solver.solve()

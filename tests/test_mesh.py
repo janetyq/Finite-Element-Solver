@@ -1,21 +1,18 @@
-"""Mesh geometry helpers -- the element<->vertex field projections.
+"""Mesh geometry: topology queries over vertices, elements, and facets.
 
-`convert_element_values_to_vertex_values` used to assign each element's value into
-its vertices, so a vertex shared by several elements kept only whichever element was
-visited last -- an order-dependent, silently wrong field. These pin the averaging.
+The element<->vertex field projections that used to live here moved to
+`FunctionSpace` (see `tests/test_space.py`). They are discretization operations
+rather than geometric ones, and the correct projection is weighted by element
+measure -- which the space owns and the mesh does not.
 """
 import numpy as np
+import pytest
 
 from fem.mesh.mesh import Mesh
 
 
 def _two_triangle_square() -> Mesh:
-    """The unit square as two triangles sharing the diagonal 0--2.
-
-    Vertices 0 and 2 lie on the shared diagonal (in both elements); 1 and 3 each
-    belong to a single element -- exactly the configuration a last-writer bug
-    corrupts.
-    """
+    """The unit square as two triangles sharing the diagonal 0--2."""
     return Mesh(
         vertices=[[0, 0], [1, 0], [1, 1], [0, 1]],
         elements=[[0, 1, 2], [0, 2, 3]],
@@ -23,35 +20,39 @@ def _two_triangle_square() -> Mesh:
     )
 
 
-def test_shared_vertex_gets_the_mean_of_its_elements():
+def test_edges_are_every_vertex_pair_of_each_simplex():
+    """For a linear simplex the edge set is exactly the pairs of its nodes, so
+    two triangles give five distinct edges -- four sides plus the shared diagonal."""
     mesh = _two_triangle_square()
-    vertex_values = mesh.convert_element_values_to_vertex_values(np.array([10.0, 20.0]))
-
-    # Vertices 0 and 2 are in both elements -> mean; 1 and 3 in one each -> that value.
-    assert vertex_values[0] == 15.0
-    assert vertex_values[2] == 15.0
-    assert vertex_values[1] == 10.0
-    assert vertex_values[3] == 20.0
+    assert len(mesh.edges) == 5
+    assert (0, 2) in {tuple(e) for e in mesh.edges}
 
 
-def test_order_of_elements_does_not_change_the_result():
-    """The last-writer bug made the answer depend on element ordering; averaging
-    is order-independent, so reversing the elements must leave the field unchanged."""
+def test_interior_edge_maps_to_both_its_elements():
+    """The shared diagonal belongs to two elements; a boundary side to one."""
     mesh = _two_triangle_square()
-    reversed_mesh = Mesh(
-        vertices=mesh.vertices,
-        elements=mesh.elements[::-1],
-        boundary=mesh.boundary,
-    )
-    forward = mesh.convert_element_values_to_vertex_values(np.array([10.0, 20.0]))
-    backward = reversed_mesh.convert_element_values_to_vertex_values(np.array([20.0, 10.0]))
-    assert np.allclose(forward, backward)
+    assert sorted(mesh.edge_to_elements[(0, 2)]) == [0, 1]
+    assert mesh.edge_to_elements[(0, 1)] == [0]
 
 
-def test_constant_element_field_is_reproduced_at_every_vertex(make_unit_square):
-    """A constant per-element field averages to the same constant at every vertex,
-    whatever the valence -- the patch test for a nodal projection."""
-    mesh = make_unit_square(6)
-    constant = np.full(len(mesh.elements), 3.5)
-    vertex_values = mesh.convert_element_values_to_vertex_values(constant)
-    assert np.allclose(vertex_values, 3.5)
+def test_element_neighbours_are_those_sharing_an_edge():
+    mesh = _two_triangle_square()
+    assert mesh.element_neighbours == [[1], [0]]
+
+
+def test_edge_extraction_refuses_non_simplex_elements():
+    """Pairing every node only spells out the edges for a linear simplex -- a
+    quadratic element's midside nodes would invent edges that do not exist."""
+    with pytest.raises(NotImplementedError, match='linear simplices'):
+        Mesh(
+            vertices=np.zeros((6, 2)),
+            elements=[[0, 1, 2, 3, 4, 5]],
+            boundary=[[0, 1]],
+        )
+
+
+def test_copy_is_independent_of_its_source():
+    mesh = _two_triangle_square()
+    duplicate = mesh.copy()
+    duplicate.vertices[0] = [9.0, 9.0]
+    assert np.allclose(mesh.vertices[0], [0.0, 0.0])

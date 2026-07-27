@@ -8,14 +8,12 @@ the constraints are the problem's; what is left here is the composition itself p
 """
 import logging
 
-import numpy as np
-
 from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
-from fem.equations import Equation, LinearElastic, Poisson, Projection
+from fem.equations import Equation, LinearElastic
 from fem.solution import ElasticSolution, FieldSolution, Solution
-from fem.space import FunctionSpace, dof_indices
-from fem.forms import LinearElasticForm
+from fem.space import FunctionSpace
+from fem.forms import RecoversElasticFields
 from fem.backends import Backend, IterativeBackend, rigid_body_modes
 from fem.problem import LinearProblem
 from fem.solve import LinearSolve
@@ -46,34 +44,22 @@ class Solver:
         # The most recent solve, so an adaptive-refinement estimator can read it.
         self.solution: Solution | None = None
 
-        self._resolve_bc()
-
-    def _resolve_bc(self) -> None:
-        '''Bind the boundary-condition spec to the current mesh and component count.
-
-        Called again whenever the mesh changes (adaptive refinement), which is
-        the whole reason the spec is kept separate from its resolution.
-        '''
-        self.resolved_bc = self.boundary_conditions.resolve(self.mesh, self.n_components)
-
     def remesh(self, mesh: Mesh) -> None:
         '''Rebind the solver to a new mesh, rebuilding the space and re-resolving BCs.
 
-        A refined mesh renumbers vertices, so every derived, index-keyed object is
-        rebuilt from its specification rather than carried over: the space owns
-        cached operators sized to the old mesh, and the resolved BC is keyed by it.
-        This is what lets an outer driver (AdaptiveRefinement) advance the solver
+        A refined mesh renumbers vertices, so the space -- which owns cached
+        operators sized to the old mesh -- is rebuilt from its specification
+        rather than carried over. Nothing index-keyed survives here: the boundary
+        conditions are resolved by the `LinearProblem` built for each solve. This
+        is what lets an outer driver (AdaptiveRefinement) advance the solver
         across meshes without reaching into its state.
         '''
         self.mesh = mesh
         self.space = FunctionSpace(mesh, n_components=self.n_components)
-        self._resolve_bc()
 
     def solve(self) -> Solution:
-        if isinstance(self.equation, (Projection, Poisson, LinearElastic)):
-            self.solution = self._solve_steady()
-            return self.solution
-        raise ValueError(f"No solver for equation type: {type(self.equation).__name__}")
+        self.solution = self._solve_steady()
+        return self.solution
 
     def _steady_problem(self) -> LinearProblem:
         '''The composition for a steady equation: operator + source + constraints.
@@ -107,21 +93,15 @@ class Solver:
         '''Steady linear solve, through the composition core.
 
         A LinearProblem hands a matrix, a load, and the constraints to LinearSolve;
-        an elastic problem additionally recovers stress fields from the same form
-        that assembled its operator, returning an ElasticSolution rather than a bare
-        FieldSolution.
+        a form that can recover derived fields additionally yields an
+        ElasticSolution rather than a bare FieldSolution. The capability is asked
+        for rather than the class named, so a form this facade has never heard of
+        reports its stresses through the same path.
         '''
         logger.info('Solving steady system...')
         problem = self._steady_problem()
         u = LinearSolve(self._backend_for(problem)).solve(problem)
 
-        if isinstance(problem.operator, LinearElasticForm):
-            u_elements = u[dof_indices(self.mesh.elements, self.n_components)]
-            strain, stress, compliance = problem.operator.derived_fields(self.space.geometry, u_elements)
-            return ElasticSolution(
-                self.mesh, self.n_components, u,
-                np.linalg.norm(strain, axis=-1),
-                np.linalg.norm(stress, axis=-1),
-                compliance,
-            )
+        if isinstance(problem.operator, RecoversElasticFields):
+            return ElasticSolution.from_solve(self.space, u, problem.operator)
         return FieldSolution(self.mesh, self.n_components, u)

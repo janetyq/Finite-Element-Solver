@@ -9,6 +9,10 @@ a material law, not element geometry, so it belongs here rather than on the shap
 strain-displacement matrix B in `fem.forms` must order its strain rows the same
 way, since D and B are contracted against each other. The two are the shared
 convention referred to in both files.
+
+In 2D the law is **plane strain** throughout. `LinearElasticMaterial.out_of_plane_stress`
+names that assumption and supplies the `sigma_zz` a 2D Voigt vector omits, which
+post-processing needs to build a complete stress tensor.
 """
 from dataclasses import dataclass
 
@@ -84,6 +88,24 @@ class LinearElasticMaterial:
     '''
     E: float | ElementField
     nu: float
+
+    def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
+        '''The stress in the restrained z direction, which a 2D solve omits.
+
+        **2D here means plane strain**, the assumption `hooke_matrix(2, ...)`
+        already encodes: the body is held fixed in z, so `epsilon_zz = 0` and the
+        material develops `sigma_zz = lambda * tr(epsilon)` resisting that. The
+        stress is real, but it falls outside the three Voigt components a 2D
+        assembly produces, so von Mises or pressure built from those alone is
+        computed on an incomplete tensor.
+
+        Takes the in-plane strain tensor, matching the same method on the energy
+        densities. The equivalent `nu(sigma_xx + sigma_yy)` is the same number;
+        `tests/test_materials.py` pins both against the 3D law.
+        '''
+        _, lamb = Enu_to_Lame(self.E, self.nu)
+        trace = np.einsum('eii->e', np.asarray(strain))
+        return np.asarray(lamb) * trace
 
     def constitutive_matrices(self, reference_dim: int, n_elements: int) -> FloatArray:
         '''(n_elements, s, s) Voigt D, one per element -- the batched assembly path.

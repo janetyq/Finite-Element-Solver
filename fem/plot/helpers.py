@@ -66,7 +66,11 @@ def plot_surface(ax, mesh, values):
     if values.shape == (len(mesh.vertices),):
         pass
     elif values.shape == (len(mesh.elements),):
-        values = mesh.convert_element_values_to_vertex_values(values)
+        # A surface plot interpolates between nodes, so an element-constant field
+        # has to be projected first. The projection is volume-weighted and lives
+        # on the space, which is cheap to build -- nothing assembles until asked.
+        from fem.space import FunctionSpace
+        values = FunctionSpace(mesh).element_to_vertex(values)
     else:
         raise ValueError(f'Invalid values shape: {values.shape}')
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)

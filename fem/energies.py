@@ -20,6 +20,26 @@ linear one.
 Dimension-general: every tensor is built from `d = grad_u.shape[-1]`, not a
 fixed DIM = 2. The constant tensors (d²S/dF² for Green-Lagrange, d²W/dS²) are
 precomputed once at construction and broadcast over elements.
+
+
+Solving versus reporting
+------------------------
+
+`evaluate` feeds the Newton solve; `strain` and `out_of_plane_stress` feed
+post-processing. Two conventions differ between the two jobs.
+
+**Gradient orientation.** `ElementGeometry.gradients` puts `du_c/dx_i` at entry
+`[i, c]`, the transpose of the usual convention, so the `F` built here is
+`F_standardᵀ` and `evaluate`'s whole chain works in that orientation. W is blind
+to it -- it uses S only through `tr S` and `tr(SᵀS)`, which `½(FFᵀ - I)` and
+`½(FᵀF - I)` share -- but a reported tensor is not, so `strain` transposes back
+and returns the textbook `½(FᵀF - I)`.
+
+**Plane strain.** A 2D density models a 3D body held fixed in z, so `S_zz = 0`.
+That is why a stress appears there: material squeezed in x and y pushes outward
+in z, the restraint pushes back, and the law gives `sigma_zz = lambda * tr(S)`.
+A 2D assembly produces only the three in-plane Voigt components, so von Mises
+built from those alone is missing this one. `out_of_plane_stress` supplies it.
 """
 import logging
 from dataclasses import dataclass
@@ -87,6 +107,27 @@ class StVenantKirchhoff:
         )
 
     # -- strain measure (overridden by SmallStrain) -------------------------
+
+    def strain(self, grad_u: FloatArray) -> FloatArray:
+        """This density's own strain measure -- for reporting, not for solving.
+
+        Subclasses override `_strain`, so both strain measures answer through
+        this. F is built in the standard orientation; see "Gradient orientation".
+        """
+        d = grad_u.shape[-1]
+        eye = np.eye(d)
+        return self._strain(eye + np.swapaxes(grad_u, -2, -1), eye)
+
+    def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
+        """The stress in the restrained z direction, which a 2D solve omits.
+
+        See "Plane strain" above. This is the second Piola-Kirchhoff component;
+        `EnergyForm` converts it to Cauchy, which here is just a division by J
+        since the material does not move in z.
+
+        `'eii->e'` is a batched trace: sum each element's diagonal.
+        """
+        return self.lamb * np.einsum('eii->e', strain)
 
     def _strain(self, F: FloatArray, eye: FloatArray) -> FloatArray:
         # Green-Lagrange. The quadratic term is what makes this nonlinear in u,
