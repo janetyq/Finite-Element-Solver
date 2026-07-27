@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, BCType
+from fem.backends import IterativeBackend
 from fem.materials import Enu_to_Lame
 from fem.mesh.generation import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere
@@ -112,7 +113,11 @@ def _solve_3d(n):
 
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0, 0.0])
-    solver = Solver(mesh, LinearElastic(E=E, nu=NU, source=source), bc)
+    # AMG-preconditioned CG, not the direct factorization: it solves the same SPD
+    # system (proven equivalent in test_linalg) but stays cheap on the fine meshes
+    # this sequence needs, and it is what the convergence measures -- the assembly --
+    # regardless of how the block is solved.
+    solver = Solver(mesh, LinearElastic(E=E, nu=NU, source=source), bc, backend=IterativeBackend())
     solution = solver.solve()
 
     v = mesh.vertices
@@ -123,7 +128,7 @@ def _solve_3d(n):
 
 @pytest.fixture(scope='module')
 def convergence_3d():
-    # h = 1/8, 1/12, 1/16, 1/20.
+    # h = 1/8, 1/12, 1/16, 1/20, 1/28.
     #
     # The coarse end is deliberately dropped. Kuhn tets are distorted enough that
     # the error constant is large, so h = 1/4 and 1/6 are still pre-asymptotic
@@ -131,10 +136,10 @@ def convergence_3d():
     # on the whole sequence. Starting at h = 1/8 is not cherry-picking the answer:
     # it is declining to measure an asymptotic rate outside the asymptotic regime.
     #
-    # Batched assembly is what makes this affordable -- assembling n=21 took ~28s
-    # and now takes under a second. The cost is back on the sparse factorization,
-    # which is most of the ~14s that n=21 spends.
-    return [_solve_3d(n) for n in (9, 13, 17, 21)]
+    # The fine end (n=29) is what AMG-CG buys: a direct n=29 solve is too slow to
+    # keep here, but AMG makes it cheap, and it is where the observed order finally
+    # arrives near 2 rather than merely climbing toward it.
+    return [_solve_3d(n) for n in (9, 13, 17, 21, 29)]
 
 
 def test_3d_error_decreases(convergence_3d):
@@ -144,7 +149,7 @@ def test_3d_error_decreases(convergence_3d):
 
 
 def test_3d_second_order(convergence_3d):
-    """The same O(h^2) band the 2D case asserts -- observed orders 1.82, 1.90, 1.94."""
+    """The same O(h^2) band the 2D case asserts -- observed orders 1.82, 1.90, 1.94, 1.96."""
     orders = _observed_orders(convergence_3d)
     for p in orders:
         assert 1.7 < p < 2.3, f'expected ~2nd order, got {orders}'
@@ -161,3 +166,15 @@ def test_3d_order_climbs_toward_two(convergence_3d):
     orders = _observed_orders(convergence_3d)
     for coarse, fine in zip(orders, orders[1:]):
         assert fine > coarse, f'order should climb toward 2, got {orders}'
+
+
+def test_3d_order_reaches_two_on_the_fine_mesh(convergence_3d):
+    """The finest pair actually arrives near 2, not merely climbing toward it.
+
+    The direct net stopped at n=21 (order 1.94), where the rate had not yet reached
+    its asymptotic value; the n=21->29 pair AMG-CG affords reads ~1.96, which is the
+    statement that the P1 method is genuinely second order here rather than something
+    slightly less that happens to sit inside the band.
+    """
+    orders = _observed_orders(convergence_3d)
+    assert orders[-1] > 1.95, f'finest order did not reach the asymptotic rate: {orders}'

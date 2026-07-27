@@ -13,7 +13,6 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
-| Scaling | Iterative solvers + preconditioning — **now the bottleneck** | 🔴 | [§2](#2-performance--scaling) |
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify the smoothing matrix (topology) | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | O(n²) linear scans in meshing | 🟡 | [§2](#2-performance--scaling) |
@@ -33,15 +32,6 @@ estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
 ---
 
 ## 2. Performance & Scaling
-
-### 🟠 The sparse factorization is the bottleneck
-Both earlier limits are gone: matrices are sparse, and assembly is batched (a 3D solve at
-n=17 assembles in 0.48s, down from 18.7s). `examples/benchmark_assembly.py` now shows the
-cost sitting almost entirely in `splu` -- 2.5s against 0.48s at n=17, and ~13s at n=21,
-where fill-in on a 3D tet mesh is what dominates. This is the "iterative solvers +
-preconditioning" idea, promoted out of §3: the systems are SPD for Poisson and elasticity,
-so CG with a Jacobi or AMG preconditioner should beat a direct factorization well before
-n=21. It is the last thing standing between the solver and genuinely large 3D meshes.
 
 ### 🟠 `assemble_everything` runs on every `solve()`
 `fem/solver.py:Solver.solve` even flags it: `# TODO: don't call this every time`. For
@@ -75,6 +65,12 @@ and neighbour lookups during mesh construction.
 - 💡 **A posteriori error estimator** so adaptive refinement is fully closed-loop — the
   residual scaffolding is already sketched in `fem/solver.py`. `Solver.adaptive_refinement`
   takes the estimator as a callable `(solver) -> per-element error`, so this drops straight in.
+- 💡 **Hand-rolled geometric two-grid V-cycle preconditioner.** The SPD iterative path
+  (`fem/backends.py:IterativeBackend`, AMG-CG) currently gets its multigrid from `pyamg`. A
+  geometric two-grid V-cycle built on the adaptive-refinement mesh hierarchy would drop in
+  behind the same `Backend` seam without touching a caller, removing the dependency and
+  being a genuinely instructive build. Full AMG is thousands of lines and not worth
+  reimplementing; a two-grid cycle is small and teaches the same ideas.
 
 **Features**
 - 💡 The README's roadmap (thermal expansion, transport, fluid mechanics, nonlinear
@@ -129,8 +125,12 @@ and neighbour lookups during mesh construction.
 
 ## Suggested Priority Order
 
-1. **Iterative solvers + preconditioning** (§2) — now the top cost, after batched assembly
-   moved the last Python loop off the critical path. Unblocks 3D meshes past n≈21.
-2. **Coverage + type hints** (§3) — deepen the safety net before the bigger numerics work.
-3. **Then the numerics roadmap** — quadrature → higher-order elements → time-integrator →
+1. **Coverage + type hints** (§3) — deepen the safety net before the bigger numerics work.
+2. **Then the numerics roadmap** — quadrature → higher-order elements → time-integrator →
    adaptive refinement.
+
+*(Done: iterative solvers + preconditioning. `fem/backends.py` adds an AMG-preconditioned CG
+backend behind a `Backend` seam under `DiscreteSystem`; direct `splu` stays the default
+and the indefinite-system fallback. On the 3D elastic benchmark AMG-CG overtakes the direct
+factorization by n≈13 and is ~10× faster at n=21. `examples/benchmark_assembly.py` times the
+crossover.)*
