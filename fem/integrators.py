@@ -13,6 +13,7 @@ and needs no lifting of Dirichlet indices into a block DOF space.
 """
 import numpy as np
 
+from fem.backends import Backend
 from fem.problem import Problem
 from fem.solution import Solution, TransientSolution, WaveSolution
 from fem.system import DiscreteSystem
@@ -37,10 +38,12 @@ class ThetaMethod:
     is constant, so it is factored once and reused.
     '''
 
-    def __init__(self, dt: float, steps: int, theta: float = 0.5) -> None:
+    def __init__(self, dt: float, steps: int, theta: float = 0.5,
+                 backend: Backend | None = None) -> None:
         self.dt = dt
         self.steps = steps
         self.theta = theta
+        self.backend = backend
 
     def run(self, problem: Problem, u0: DofVector) -> Solution:
         M = problem.space.mass_matrix
@@ -48,7 +51,7 @@ class ThetaMethod:
         b = problem.load
         dt, theta = self.dt, self.theta
 
-        system = DiscreteSystem(M + theta * dt * K, problem.constraints)
+        system = DiscreteSystem(M + theta * dt * K, problem.constraints, self.backend)
         rhs_operator = M - (1 - theta) * dt * K
 
         u = np.asarray(u0, dtype=float)
@@ -72,11 +75,13 @@ class NewmarkMethod:
     constraint, no lifting into a 2N block.
     '''
 
-    def __init__(self, dt: float, steps: int, beta: float = 0.25, gamma: float = 0.5) -> None:
+    def __init__(self, dt: float, steps: int, beta: float = 0.25, gamma: float = 0.5,
+                 backend: Backend | None = None) -> None:
         self.dt = dt
         self.steps = steps
         self.beta = beta
         self.gamma = gamma
+        self.backend = backend
 
     def run(self, problem: Problem, u0: DofVector, v0: DofVector) -> Solution:
         M = problem.space.mass_matrix
@@ -97,8 +102,8 @@ class NewmarkMethod:
         accel_constraints = (free, fixed, np.zeros(len(fixed)))
 
         # Initial acceleration from M a0 = b − K u0, pinned to zero at fixed DOFs.
-        a = DiscreteSystem(M, accel_constraints).solve(b - K @ u)
-        effective = DiscreteSystem(M + beta * dt**2 * K, accel_constraints)
+        a = DiscreteSystem(M, accel_constraints, self.backend).solve(b - K @ u)
+        effective = DiscreteSystem(M + beta * dt**2 * K, accel_constraints, self.backend)
 
         t_values: list[float] = [0.0]
         u_values: list[DofVector] = [u.copy()]

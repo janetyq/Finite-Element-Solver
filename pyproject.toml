@@ -14,6 +14,11 @@ dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
+    # AMG-preconditioned CG for large SPD systems (fem.backends.IterativeBackend), the
+    # solver's answer to 3D factorization fill-in. Base, not an extra: it needs only
+    # numpy/scipy (already here), so it adds no transitive weight, and it is the core
+    # scaling path rather than a niche feature like the meshing/rendering extras below.
+    "pyamg",
 ]
 
 [project.optional-dependencies]

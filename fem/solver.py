@@ -10,6 +10,7 @@ from fem.solution import ElasticSolution, FieldSolution, Solution
 from fem.space import FunctionSpace, dof_indices
 from fem.forms import Form, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
+from fem.backends import Backend, IterativeBackend, rigid_body_modes
 from fem.problem import LinearProblem
 from fem.solve import LinearSolve
 from fem.typing import ElementField, FieldValue
@@ -110,10 +111,15 @@ class Solver:
         mesh: Mesh,
         equation: Equation,
         boundary_conditions: BoundaryConditions | None = None,
+        backend: Backend | None = None,
     ) -> None:
         self.mesh = mesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions()
+        # The linear-algebra backend for the steady solve: direct by default, or an
+        # IterativeBackend for a large SPD system. A steady LinearElastic / Poisson is
+        # SPD; the facade forwards it to LinearSolve untouched.
+        self.backend = backend
         # Derived, never passed: the component count follows from the equation's
         # field and the mesh, so a space that disagrees with the equation it is
         # solving is not constructible here.
@@ -165,6 +171,24 @@ class Solver:
         )
         return LinearProblem(self.space, operator, self.equation.source, self.boundary_conditions)
 
+    def _backend_for(self, problem: LinearProblem) -> Backend | None:
+        '''The solve backend, giving an elastic AMG solve its rigid-body near-kernel.
+
+        A vector elasticity stiffness has the rigid-body modes as its low-energy
+        near-kernel; AMG needs them to keep CG's iteration count flat under
+        refinement. This is the one solve detail that depends on *which* equation is
+        being solved, so the equation-aware facade supplies it -- restricted to the
+        free DOFs, to match the block the backend factors -- rather than the
+        physics-agnostic backend guessing. An explicit near-kernel the caller set is
+        left untouched; the scalar Laplacian family needs none.
+        '''
+        if isinstance(self.equation, LinearElastic) and isinstance(self.backend, IterativeBackend) \
+                and self.backend.near_null_space is None:
+            free = problem.constraints[0]
+            modes = rigid_body_modes(self.mesh.vertices, self.n_components)[free]
+            return self.backend.with_near_null_space(modes)
+        return self.backend
+
     def _solve_steady(self) -> Solution:
         '''Steady linear solve, through the composition core.
 
@@ -175,7 +199,7 @@ class Solver:
         '''
         logger.info('Solving steady system...')
         problem = self._steady_problem()
-        u = LinearSolve().solve(problem)
+        u = LinearSolve(self._backend_for(problem)).solve(problem)
 
         if isinstance(problem.operator, LinearElasticForm):
             u_elements = u[dof_indices(self.mesh.elements, self.n_components)]
