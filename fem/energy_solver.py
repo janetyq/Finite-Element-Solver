@@ -55,9 +55,6 @@ class EnergySolver:
 
         # TODO: flat u + bc handling weird
 
-        # check_gradient(self.energy, self.energy_gradient, len(self.mesh.vertices) * self.n_components)
-        # check_hessian(self.energy_gradient, self.energy_hessian, len(self.mesh.vertices) * self.n_components)
-
     def _select_energy(self, equation: Equation) -> StVenantKirchhoff:
         if not isinstance(equation, LinearElastic):
             raise ValueError(f"Unsupported equation type: {type(equation).__name__}")

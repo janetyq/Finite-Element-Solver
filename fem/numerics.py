@@ -39,7 +39,6 @@ def check_gradient(function, gradient, input_shape):
             eval_m = function(u - eps * direction)
             numerical_gradient.append((eval_p - eval_m) / (2 * eps))
         numerical_gradient = np.array(numerical_gradient).reshape(computed_gradient.shape)
-        # print(f'numerical_gradient: {numerical_gradient} \ncomputed_gradient: {computed_gradient}')
         errors_list.append(np.linalg.norm(numerical_gradient - computed_gradient))
 
     plt.title('Gradient check')

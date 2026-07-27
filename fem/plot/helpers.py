@@ -50,10 +50,6 @@ def plot_colored(ax, mesh, values, cbar_info=None):
 
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
     ax.tripcolor(triangulation, values, cmap=cbar_info[0], norm=cbar_info[1])
-
-    # TODO: check contour
-    # if contour > 0:
-    #     ax.tricontour(triangulation, values, levels=np.linspace(min(values), max(values), contour), colors='k', linestyles='solid')
     return cbar_info
 
 
