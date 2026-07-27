@@ -14,9 +14,14 @@ them through `fem.io`, which reflects over the dataclass fields.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import numpy as np
+
+from fem import invariants
 from fem.typing import DofVector, ElementField, FloatArray
 
 if TYPE_CHECKING:
+    from fem.elements import ElementGeometry
+    from fem.forms import DerivedFields
     from fem.mesh.mesh import Mesh
 
 
@@ -50,10 +55,76 @@ class FieldSolution(Solution):
 
 @dataclass(frozen=True, eq=False)
 class ElasticSolution(FieldSolution):
-    '''A displacement field plus the stresses recovered from it.'''
-    strain: ElementField
-    stress: ElementField
-    compliance: ElementField
+    '''A displacement field plus the stress state recovered from it.
+
+    `strain` and `stress` are full `(n_elements, 3, 3)` tensors, not pre-reduced
+    scalars. Storing the tensor is what keeps every invariant available: a
+    Frobenius norm cannot be turned back into a von Mises stress, so reducing at
+    construction would decide, permanently and on the caller's behalf, which
+    question the result can answer. The scalars are properties instead.
+    '''
+    strain: FloatArray       # (n_elements, 3, 3)
+    stress: FloatArray       # (n_elements, 3, 3)
+    compliance: ElementField  # (n_elements,)
+
+    def __post_init__(self) -> None:
+        # Guards the shape change from the earlier scalar fields: an .npz written
+        # before it round-trips into this class with 1-D arrays, and every
+        # invariant below would then silently read the wrong axis. Fail on load.
+        for name in ('strain', 'stress'):
+            value = getattr(self, name)
+            if np.ndim(value) != 3:
+                raise ValueError(
+                    f'{type(self).__name__}.{name} must be an (n_elements, 3, 3) '
+                    f'tensor field, got shape {np.shape(value)}. Solutions saved '
+                    'before stress became a tensor cannot be loaded.'
+                )
+
+    @classmethod
+    def from_solve(
+        cls,
+        mesh: 'Mesh',
+        n_components: int,
+        u: DofVector,
+        form: 'DerivedFields',
+        geometry: 'ElementGeometry',
+    ) -> 'ElasticSolution':
+        '''Recover the derived fields for `u` and package them.
+
+        The one place a solved displacement becomes an `ElasticSolution`. Both a
+        facade (`Solver`) and a driver (`TopologyOptimizer`) need this, and they
+        used to each spell it out -- which is how a reduction that was not
+        rotation invariant came to be written twice. The typed result owning its
+        own derivation is the same shape `Problem` has to a specification.
+
+        `form` is anything satisfying `DerivedFields`, so the linear and energy
+        elastic paths build their solution the same way.
+        '''
+        # (n_elements, N, n_components) -- the layout DerivedFields is written
+        # against, and the same one FunctionSpace.assemble_residual gathers.
+        u_elements = np.asarray(u).reshape(-1, n_components)[mesh.elements]
+        fields = form.derived_fields(geometry, u_elements)
+        return cls(mesh, n_components, u, fields.strain, fields.stress, fields.compliance)
+
+    @property
+    def von_mises(self) -> ElementField:
+        '''Von Mises equivalent stress per element -- the usual scalar to plot.'''
+        return invariants.von_mises(self.stress)
+
+    @property
+    def pressure(self) -> ElementField:
+        '''Hydrostatic pressure per element, positive in compression.'''
+        return invariants.pressure(self.stress)
+
+    @property
+    def principal_stress(self) -> FloatArray:
+        '''(n_elements, 3) principal stresses, ascending.'''
+        return invariants.principal(self.stress)
+
+    @property
+    def max_shear(self) -> ElementField:
+        '''Maximum shear stress per element.'''
+        return invariants.max_shear(self.stress)
 
 
 @dataclass(frozen=True, eq=False)

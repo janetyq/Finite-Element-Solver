@@ -22,14 +22,14 @@ supply `grad_phi`, and the form knows what physics to build from it.
 match `fem.materials.hooke_matrix`; the two are contracted together.
 """
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, TypeGuard, runtime_checkable
 
 import numpy as np
 
 from fem.elements import ElementGeometry
 from fem.energies import StrainEnergyDerivatives
 from fem.materials import LinearElasticMaterial
-from fem.typing import BoolArray, FloatArray
+from fem.typing import BoolArray, ElementField, FloatArray
 
 
 def strain_displacement(grad_phi: FloatArray) -> FloatArray:
@@ -66,6 +66,109 @@ def strain_displacement(grad_phi: FloatArray) -> FloatArray:
     raise NotImplementedError(
         f'no strain-displacement matrix for dim={dim}'
     )
+
+
+def voigt_to_tensor(voigt: FloatArray, shear_factor: float = 1.0) -> FloatArray:
+    '''Unpack `(n_elements, n_strains)` Voigt vectors into `(n_elements, d, d)` tensors.
+
+    Voigt packing stores a symmetric tensor as a vector, which is what lets the
+    element stiffness be the matrix triple product `B^T D B`. It is an assembly
+    convention and nothing above assembly should have to know it: a norm or an
+    eigenvalue taken on the packed vector is not the tensor's, because the
+    off-diagonal entries appear once in the vector and twice in the tensor.
+
+    `shear_factor` is what the packed shear entry has to be divided by to recover
+    the tensor component. Stress packs the plain component, so 1; strain packs
+    *engineering* shear `gamma = 2 eps`, so 2. That asymmetry is deliberate at the
+    assembly level -- it makes the Voigt dot product equal the tensor double
+    contraction -- and this is where it stops.
+    '''
+    voigt = np.asarray(voigt, dtype=float)
+    n_elements, n_strains = voigt.shape
+    if n_strains == 3:
+        d, shears = 2, [(0, 1)]
+    elif n_strains == 6:
+        d, shears = 3, [(0, 1), (1, 2), (0, 2)]
+    else:
+        raise ValueError(
+            f'expected 3 (2D) or 6 (3D) Voigt components, got {n_strains}'
+        )
+
+    tensor = np.zeros((n_elements, d, d))
+    for i in range(d):
+        tensor[:, i, i] = voigt[:, i]
+    # The shear rows follow the ordering `strain_displacement` writes: xy, then
+    # yz, then xz in 3D. Symmetric, so each fills both off-diagonal slots.
+    for offset, (i, j) in enumerate(shears):
+        tensor[:, i, j] = tensor[:, j, i] = voigt[:, d + offset] / shear_factor
+    return tensor
+
+
+def _with_out_of_plane(tensor: FloatArray, zz: FloatArray) -> FloatArray:
+    '''Embed `(n_elements, 2, 2)` in-plane tensors into full 3x3 ones.
+
+    A 2D solve is a reduction of a three-dimensional state, not a
+    two-dimensional world: the third direction still carries a component, and
+    which one is a property of the reduction (see
+    `LinearElasticMaterial.out_of_plane_stress`). Restoring it is what lets a
+    caller take an invariant without asking how many dimensions were assembled.
+    '''
+    n = len(tensor)
+    full = np.zeros((n, 3, 3))
+    full[:, :2, :2] = tensor
+    full[:, 2, 2] = zz
+    return full
+
+
+@dataclass(frozen=True)
+class DerivedElementFields:
+    '''What a form recovers from a solved displacement, per element.
+
+    A named bundle rather than a bare tuple, so a caller unpacks by attribute and
+    a new quantity can be added without breaking positional unpacking at every
+    call site. Strain and stress are full `(n_elements, 3, 3)` tensors -- see
+    `voigt_to_tensor` for why they are not the Voigt vectors assembly uses.
+    '''
+    strain: FloatArray       # (n_elements, 3, 3)
+    stress: FloatArray       # (n_elements, 3, 3)
+    compliance: ElementField  # (n_elements,)
+
+
+@runtime_checkable
+class DerivedFields(Protocol):
+    '''A form that can recover element fields from a solved displacement.
+
+    The capability post-processing dispatches on. Separate from `Form` because
+    recovery is not universal -- the Laplacian family has no stress -- and a form
+    that cannot do it should be unable to claim it, rather than raising from a
+    method it was obliged to declare. `LinearElasticForm` and `EnergyForm`
+    implement it; asking for the capability rather than naming those two classes
+    is what lets a third participate without editing a solver.
+    '''
+
+    def derived_fields(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> DerivedElementFields:
+        '''Recover element fields from `(n_elements, N, n_components)` nodal values.
+
+        The nested layout, matching what `FunctionSpace.assemble_residual` builds
+        and what `ElementGeometry.gradients` consumes. A form wanting the flat
+        interleaved `(n_elements, N*n_components)` that Voigt's B multiplies
+        reshapes internally -- flattening the last two axes reproduces exactly the
+        node-major, component-minor order `dof_indices` emits.
+        '''
+        ...
+
+
+def recovers_fields(form: object) -> TypeGuard[DerivedFields]:
+    '''Whether `form` can recover derived fields, for a caller that must branch.
+
+    A capability test, not a class test: `isinstance` against a runtime-checkable
+    protocol asks whether the method is there. That is what keeps the branch from
+    enumerating form types -- the failure mode where adding a form means editing
+    every solver that might meet it.
+    '''
+    return isinstance(form, DerivedFields)
 
 
 class Form(Protocol):
@@ -146,27 +249,54 @@ class LinearElasticForm:
 
     def derived_fields(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> tuple[FloatArray, FloatArray, FloatArray]:
-        '''Element strain, stress (both Voigt), and compliance from nodal displacements.
+    ) -> DerivedElementFields:
+        '''Element strain, stress, and compliance from nodal displacements.
 
         The mirror of `element_matrices`: the same B and D, contracted against the
         solved displacement instead of assembled into a stiffness. These derived
         fields live on the form so the constitutive law (B, D) stays in the physics
         layer rather than being rebuilt by whatever solved the system.
 
-        `u_elements` is `(n_elements, N*n_components)` -- each element's nodal DOFs,
-        interleaved per node to match B's columns. Callers reduce the returned Voigt
-        vectors to scalars (e.g. their norm) as a presentation choice; the physics is
-        the full strain and stress.
+        `u_elements` is `(n_elements, N, n_components)`; flattening its last two
+        axes gives the interleaved DOF order B's columns are written in.
+
+        Strain and stress come back as full `(n_elements, 3, 3)` **tensors**, not
+        the Voigt vectors the assembly works in. Voigt is a packing that makes
+        `B^T D B` a matrix product, and every operation outside that contraction --
+        a norm, an eigenvalue, a rotation -- is wrong on the packed form. Unpacking
+        here confines the convention to this file. A 2D solve is lifted to the full
+        three-dimensional state its plane-strain assumption implies, so the result
+        is a stress tensor a caller can take invariants of without knowing which
+        reduction produced it.
         '''
         B = strain_displacement(geometry.grad_phi)
         D = self.material.constitutive_matrices(
             geometry.reference_dim, geometry.n_elements
         )
-        strain = np.einsum('esk,ek->es', B, u_elements)
-        stress = np.einsum('est,et->es', D, strain)
-        compliance = np.einsum('es,es,e->e', stress, strain, geometry.volumes)
-        return strain, stress, compliance
+        u_flat = np.asarray(u_elements).reshape(geometry.n_elements, -1)
+        strain_voigt = np.einsum('esk,ek->es', B, u_flat)
+        stress_voigt = np.einsum('est,et->es', D, strain_voigt)
+
+        # Strain packs engineering shear (gamma = 2 eps), stress packs the plain
+        # component -- the asymmetry that makes the Voigt dot product equal the
+        # tensor contraction, and that a norm on either would get wrong.
+        strain = voigt_to_tensor(strain_voigt, shear_factor=2.0)
+        stress = voigt_to_tensor(stress_voigt, shear_factor=1.0)
+
+        if strain.shape[-1] == 2:
+            # Plane strain: restrained in z, so eps_zz vanishes by definition and
+            # the material develops sigma_zz to hold it there. Dropping that stress
+            # would leave von Mises computed on a state that is not the physical one.
+            sigma_zz = self.material.out_of_plane_stress(
+                stress_voigt[:, 0], stress_voigt[:, 1]
+            )
+            strain = _with_out_of_plane(strain, np.zeros(len(strain)))
+            stress = _with_out_of_plane(stress, sigma_zz)
+
+        # The full double contraction. eps_zz is zero under plane strain, so the
+        # lift above leaves this equal to the in-plane Voigt dot product it replaces.
+        compliance = np.einsum('eij,eij,e->e', stress, strain, geometry.volumes)
+        return DerivedElementFields(strain, stress, compliance)
 
 
 @dataclass(frozen=True)
@@ -191,6 +321,25 @@ class EnergyDensity(Protocol):
 
     def evaluate(self, grad_u: FloatArray) -> StrainEnergyDerivatives:
         '''Derivative chain at `(n_elements, d, d)` displacement gradients.'''
+        ...
+
+    def strain(self, grad_u: FloatArray) -> FloatArray:
+        '''The strain measure this density is built on, at those gradients.
+
+        Part of the protocol because the strain a density reports and the strain
+        its energy differentiates must be the same one: a post-processing layer
+        that recomputed it would be free to pick a different measure than the
+        solve used, which is exactly the drift the physics layer owns.
+        '''
+        ...
+
+    def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
+        '''The through-thickness stress component a 2D reduction implies.
+
+        On the protocol because only the density knows its own material
+        constants, and leaving the component out would make a 2D nonlinear solve
+        report a different stress state than the linear one for identical physics.
+        '''
         ...
 
 
@@ -276,3 +425,58 @@ class EnergyForm:
         term2 = np.einsum('eijkl,eijmn->eklmn', term2, dS_dx)
 
         return (term1 + term2) * geometry.volumes[:, None, None, None, None]
+
+    def derived_fields(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> DerivedElementFields:
+        '''Element strain, Cauchy stress, and compliance at a solved displacement.
+
+        The nonlinear path already computes stress on every Newton iteration --
+        `dW_dF` *is* the first Piola-Kirchhoff stress P -- and used to discard it,
+        so a finite-strain solve returned displacement and nothing else while the
+        small-strain one returned stress. This recovers it through the same
+        interface `LinearElasticForm` uses.
+
+        Reported as **Cauchy** stress, the pushforward `sigma = J^-1 P F^T`. P is
+        what the energy derivative gives, but it is measured per unit *reference*
+        area, so it is not comparable with the small-strain path's stress and not
+        what a yield criterion wants. Cauchy is the true stress in the deformed
+        configuration, and the two agree to O(||grad u||) -- which is what makes
+        the linear and nonlinear elastic paths comparable at small strain.
+
+        The strain returned is the one the energy is built on (Green-Lagrange, or
+        its small-strain linearisation), so it is the density's own measure rather
+        than a second one recomputed here.
+        '''
+        grad_u = geometry.gradients(u_elements)
+        t = self.energy_density.evaluate(grad_u)
+        d = grad_u.shape[-1]
+
+        # `gradients` returns the transpose of the usual displacement gradient
+        # (entry [i, c] is du_c/dx_i), so the chain's F -- and hence its dW_dF --
+        # are transposed relative to the standard convention. The energy is blind
+        # to that; a reported stress tensor is not. Both are put the right way
+        # round here, once, before anything contracts them.
+        F = np.eye(d) + np.swapaxes(grad_u, -2, -1)
+        P = np.swapaxes(t.dW_dF, -2, -1)
+
+        J = np.linalg.det(F)
+        cauchy = np.einsum('e,eij,ekj->eik', 1.0 / J, P, F)
+
+        # The strain measure the density itself uses: Green-Lagrange for St-VK,
+        # eps for its linearisation. Asked of the density rather than branched on
+        # here, so the class that owns the choice is the one that answers.
+        strain = self.energy_density.strain(grad_u)
+
+        if d == 2:
+            # A 2D energy is a plane-strain reduction, so S_zz vanishes and the
+            # material develops a stress there. The density owns the constants, so
+            # it supplies the component; dividing by J is the push-forward to
+            # Cauchy, F_zz being 1. Without this the nonlinear path would report a
+            # different von Mises than the linear one for the same material.
+            sigma_zz = self.energy_density.out_of_plane_stress(strain) / J
+            strain = _with_out_of_plane(strain, np.zeros(len(strain)))
+            cauchy = _with_out_of_plane(cauchy, sigma_zz)
+
+        compliance = np.einsum('eij,eij,e->e', cauchy, strain, geometry.volumes)
+        return DerivedElementFields(strain, cauchy, compliance)

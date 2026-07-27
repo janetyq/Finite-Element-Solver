@@ -21,7 +21,7 @@ from fem.forms import EnergyForm
 from fem.mesh.mesh import Mesh
 from fem.problem import EnergyProblem
 from fem.solve import NewtonSolve
-from fem.solution import FieldSolution, Solution
+from fem.solution import ElasticSolution, Solution
 from fem.space import FunctionSpace
 from fem.typing import DofVector, SparseMatrix
 
@@ -112,5 +112,10 @@ class EnergySolver:
 
         logger.info('Initial energy: %s', self.energy(u))
         u = NewtonSolve(max_iters=max_iters).solve(problem, u0=u)
-        self.solution = FieldSolution(self.mesh, self.n_components, u)
+        # The energy form recovers Cauchy stress from the same derivative chain
+        # Newton just used, so the nonlinear path reports the stress state the
+        # linear one does rather than displacement alone.
+        self.solution = ElasticSolution.from_solve(
+            self.mesh, self.n_components, u, self.form, self.space.geometry,
+        )
         return self.solution

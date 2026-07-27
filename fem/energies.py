@@ -88,6 +88,43 @@ class StVenantKirchhoff:
 
     # -- strain measure (overridden by SmallStrain) -------------------------
 
+    def strain(self, grad_u: FloatArray) -> FloatArray:
+        """This density's own strain measure at `(n_elements, d, d)` gradients.
+
+        The public, *reporting* face of `_strain`, so post-processing shows the
+        measure the energy was differentiated with respect to rather than
+        recomputing one and risking a different choice. Subclasses override
+        `_strain`, so both members of the kinematics axis answer through this.
+
+        One orientation subtlety. `ElementGeometry.gradients` returns the
+        transpose of the usual displacement gradient -- its `[i, c]` entry is
+        `du_c/dx_i` -- so the `F` the derivative chain in `evaluate` works with is
+        `F_standard^T`. The *energy* cannot tell: W depends on S only through
+        `tr S` and `tr(S^T S)`, and `F F^T` and `F^T F` share both. A reported
+        tensor can tell, so this builds F the standard way round and the returned
+        Green-Lagrange strain is the textbook `½(F^T F − I)`.
+        """
+        d = grad_u.shape[-1]
+        eye = np.eye(d)
+        return self._strain(eye + np.swapaxes(grad_u, -2, -1), eye)
+
+    def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
+        """The through-thickness stress a 2D energy does not carry, from its strain.
+
+        A 2D energy density *is* a plane-strain reduction: the third direction is
+        restrained, so `S_zz = 0`, and the isotropic law then develops
+        `lambda * tr(S)` there. Reporting it is what makes the nonlinear path's
+        stress state agree with the linear path's for the same material -- without
+        it the two solvers would return different von Mises stresses for identical
+        physics, purely because one reconstructed the component and the other did
+        not.
+
+        This is the second Piola-Kirchhoff component; `EnergyForm` pushes it
+        forward to Cauchy. `F_zz` is 1 under plane strain, so that push-forward is
+        just the division by J.
+        """
+        return self.lamb * np.einsum('eii->e', strain)
+
     def _strain(self, F: FloatArray, eye: FloatArray) -> FloatArray:
         # Green-Lagrange. The quadratic term is what makes this nonlinear in u,
         # so Newton takes several iterations rather than the single step a

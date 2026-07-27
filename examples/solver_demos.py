@@ -115,7 +115,7 @@ def demo_linear_elastic(mesh):
     displacements = np.linalg.norm(solution.u.reshape(-1, 2), axis=1)
 
     plotter = Plotter(1, 2, title='Linear Elasticity')
-    plotter.plot(deformed_mesh, solution.stress, mode='colored', title='Stress', idx=(0, 0))
+    plotter.plot(deformed_mesh, solution.von_mises, mode='colored', title='Von Mises stress', idx=(0, 0))
     plotter.plot(mesh, displacements, mode='colored', title='Displacement', idx=(0, 1))
     return plotter
 
@@ -127,16 +127,16 @@ def demo_topology_optimization(mesh, iters=10):
     equation = LinearElastic(E=200, nu=0.4, source=[0, -0.5])
     topopt = TopologyOptimizer(mesh, equation, bc, iters=iters, volume_frac=0.5)
     history = topopt.solve()
-    deformed_mesh = topopt._get_deformed_mesh()
+    deformed_mesh = topopt.deformed_mesh()
 
     animation_plotter = Plotter(title='Topology Optimization')
     animation_plotter.plot_animation(mesh, history.rho, mode='colored') # TODO: have mesh deform during animation, title
 
     rho_final = history.rho[-1]
-    stress_final = history.stress[-1]
+    stress_final = history.von_mises[-1]
     final_plotter = Plotter(1, 2, title='Topology Optimization')
     final_plotter.plot(deformed_mesh, rho_final, mode='colored', title='Topology Optimized Structure', idx=(0, 0), empty=True)
-    final_plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final Stress', idx=(0, 1))
+    final_plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final von Mises stress', idx=(0, 1))
     return [animation_plotter, final_plotter]
 
 def demo_adaptive_refinement(mesh):

@@ -28,7 +28,7 @@ from fem.problem import LinearProblem
 from fem.solution import ElasticSolution
 from fem.solve import LinearSolve, SolveStrategy
 from fem.equations import LinearElastic
-from fem.space import FunctionSpace, dof_indices
+from fem.space import FunctionSpace
 from fem.typing import DofVector, ElementField, FieldValue
 
 
@@ -70,7 +70,10 @@ class TopologyHistory:
     '''
     rho: list[ElementField]
     u: list[DofVector]
-    stress: list[ElementField]
+    # Von Mises equivalent stress, one scalar per element per iteration -- named
+    # for the invariant it is rather than a generic `stress`, since a history is
+    # a monitoring series and the reduction has already been chosen.
+    von_mises: list[ElementField]
     compliance: list[ElementField]
 
 
@@ -149,14 +152,8 @@ class TopologyOptimizer:
         problem = LinearProblem(self.space, form, self.source, self.bc)
         u = self.strategy.solve(problem)
 
-        u_elements = u[dof_indices(self.mesh.elements, self.mesh.spatial_dim)]
-        strain, stress, compliance = form.derived_fields(self.space.geometry, u_elements)
-
-        self._last = ElasticSolution(
-            self.mesh, self.mesh.spatial_dim, u,
-            np.linalg.norm(strain, axis=-1),
-            np.linalg.norm(stress, axis=-1),
-            compliance,
+        self._last = ElasticSolution.from_solve(
+            self.mesh, self.mesh.spatial_dim, u, form, self.space.geometry,
         )
         return self._last
 
@@ -189,13 +186,17 @@ class TopologyOptimizer:
     def solve(self, on_iteration: Callable[[int, ElasticSolution], None] | None = None) -> TopologyHistory:
         rho_series: list[ElementField] = []
         u_series: list[DofVector] = []
-        stress_series: list[ElementField] = []
+        von_mises_series: list[ElementField] = []
         compliance_series: list[ElementField] = []
         for i in range(self.iters):
             solution = self._solve()
             rho_series.append(self.rho)
             u_series.append(solution.u)
-            stress_series.append(solution.stress)
+            # A scalar per element, not the full tensor: this is a monitoring
+            # trajectory over iterations, and the whole stress state per iteration
+            # is both large and more than anything reads. The last solve keeps its
+            # tensors on `_last`.
+            von_mises_series.append(solution.von_mises)
             compliance_series.append(solution.compliance)
 
             # Log and, if the caller wants it, hand off to their own visualization --
@@ -208,7 +209,7 @@ class TopologyOptimizer:
             smoothed = self.smoothing_matrix @ sensitivity
             self.set_rho(self.oc_density(smoothed, self.volume_frac))
 
-        self.history = TopologyHistory(rho_series, u_series, stress_series, compliance_series)
+        self.history = TopologyHistory(rho_series, u_series, von_mises_series, compliance_series)
         return self.history
 
     def _log_iteration(self, iteration: int, solution: ElasticSolution) -> None:
@@ -218,7 +219,7 @@ class TopologyOptimizer:
         logger.info('Iteration %d: total compliance = %.4f, max displacement = %s, volume fraction = %.4f',
                     iteration, compliance, max_displacement, volume_fraction)
 
-    def _get_deformed_mesh(self) -> Mesh:
+    def deformed_mesh(self) -> Mesh:
         '''The deformed mesh from the most recent solve (for post-processing).'''
         if self._last is None:
             raise RuntimeError('no solve yet; call solve() first')
