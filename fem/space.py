@@ -38,6 +38,7 @@ from fem.mesh.mesh import Mesh
 from fem.typing import (
     DofIndices,
     DofVector,
+    ElementField,
     Elements,
     FloatArray,
     IntArray,
@@ -178,6 +179,43 @@ class FunctionSpace:
         Constant per element for P1, which is why it is an element field.
         '''
         return self.geometry.gradients(u[self.mesh.elements])
+
+    # -- projections between element and nodal fields -----------------------
+
+    def element_to_vertex(self, values: ElementField) -> VertexField:
+        '''Project a per-element field onto the nodes, weighted by element volume.
+
+        A P1 solve produces element-constant derived quantities (stress, an error
+        estimate, a density) while plotting and nodal output want a value per
+        vertex, so something has to combine the values of the elements meeting at
+        a node.
+
+        Weighted by volume rather than counted evenly: on a graded mesh a sliver
+        and the large element beside it are not equally good evidence about the
+        field near their shared node, and an unweighted mean gives them the same
+        say. On a uniform mesh the two agree exactly.
+
+        This lives on the space rather than on `Mesh` because it is a
+        discretization operation, not a geometric one -- it needs the element
+        measures, which the space owns and the mesh does not.
+        '''
+        values = np.asarray(values, dtype=float)
+        if len(values) != len(self.mesh.elements):
+            raise ValueError(
+                f'expected one value per element ({len(self.mesh.elements)}), '
+                f'got {len(values)}'
+            )
+        nodes = self.mesh.elements
+        weights = self.element_volumes
+        flat = nodes.ravel()
+        weighted = np.repeat(values * weights, nodes.shape[1])
+        totals = np.repeat(weights, nodes.shape[1])
+
+        sums = np.bincount(flat, weights=weighted, minlength=len(self.mesh.vertices))
+        norms = np.bincount(flat, weights=totals, minlength=len(self.mesh.vertices))
+        # Every meshed vertex belongs to at least one element; an unreferenced one
+        # would divide by zero, so it keeps 0 instead.
+        return sums / np.where(norms > 0, norms, 1.0)
 
     # -- operators ----------------------------------------------------------
 

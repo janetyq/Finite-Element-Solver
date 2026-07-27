@@ -4,6 +4,7 @@ import pytest
 
 from fem.elements import LinearLineElement, LinearTetrahedralElement
 from fem.mesh.generation import create_box_mesh, create_rect_mesh
+from fem.mesh.mesh import Mesh
 from fem.space import FunctionSpace
 
 
@@ -72,3 +73,83 @@ def test_element_without_facets_is_rejected(unit_square):
 def test_nonpositive_n_components_is_rejected(unit_square):
     with pytest.raises(ValueError):
         FunctionSpace(unit_square, n_components=0)
+
+
+# -- element -> vertex projection --------------------------------------------
+#
+# Moved here from tests/test_mesh.py with the operation itself: projecting an
+# element field onto the nodes needs element measures, so it belongs to the
+# discretization rather than the geometry.
+
+
+def _two_triangle_square() -> Mesh:
+    """The unit square as two equal triangles sharing the diagonal 0--2.
+
+    Vertices 0 and 2 lie on the shared diagonal (in both elements); 1 and 3 each
+    belong to a single element -- the configuration a last-writer bug corrupts.
+    """
+    return Mesh(
+        vertices=[[0, 0], [1, 0], [1, 1], [0, 1]],
+        elements=[[0, 1, 2], [0, 2, 3]],
+        boundary=[[0, 1], [1, 2], [2, 3], [3, 0]],
+    )
+
+
+def test_shared_vertex_combines_the_values_of_its_elements():
+    space = FunctionSpace(_two_triangle_square())
+    values = space.element_to_vertex(np.array([10.0, 20.0]))
+
+    # Both triangles have the same area, so the weighting reduces to the mean.
+    assert values[0] == 15.0
+    assert values[2] == 15.0
+    assert values[1] == 10.0
+    assert values[3] == 20.0
+
+
+def test_projection_does_not_depend_on_element_ordering():
+    """An earlier version assigned rather than accumulated, so a shared vertex
+    kept only the last element to touch it -- an order-dependent, silently wrong
+    field. Reversing the elements must leave the result unchanged."""
+    mesh = _two_triangle_square()
+    reversed_mesh = Mesh(
+        vertices=mesh.vertices, elements=mesh.elements[::-1], boundary=mesh.boundary,
+    )
+    forward = FunctionSpace(mesh).element_to_vertex(np.array([10.0, 20.0]))
+    backward = FunctionSpace(reversed_mesh).element_to_vertex(np.array([20.0, 10.0]))
+    assert np.allclose(forward, backward)
+
+
+def test_constant_element_field_is_reproduced_at_every_vertex(make_unit_square):
+    """The patch test: a constant per-element field must come back as the same
+    constant at every vertex, whatever the valence and whatever the weighting."""
+    space = FunctionSpace(make_unit_square(6))
+    constant = np.full(len(space.mesh.elements), 3.5)
+    assert np.allclose(space.element_to_vertex(constant), 3.5)
+
+
+def test_projection_weights_by_element_volume():
+    """A large element and a sliver meeting at a node are not equally good
+    evidence about the field there, so the projection weights by measure. Pinned
+    on a deliberately graded mesh, where an unweighted mean gives a different
+    answer -- vertex 0 is shared by a triangle of area 0.5 and one of area 0.05.
+    """
+    mesh = Mesh(
+        vertices=[[0, 0], [1, 0], [0, 1], [-0.1, 0]],
+        elements=[[0, 1, 2], [0, 2, 3]],
+        boundary=[[0, 1], [1, 2], [2, 3], [3, 0]],
+    )
+    space = FunctionSpace(mesh)
+    areas = space.element_volumes
+    np.testing.assert_allclose(areas, [0.5, 0.05])
+
+    values = space.element_to_vertex(np.array([10.0, 20.0]))
+    expected = (10.0 * areas[0] + 20.0 * areas[1]) / areas.sum()
+
+    np.testing.assert_allclose(values[0], expected)
+    assert not np.isclose(values[0], 15.0)  # what an unweighted mean would give
+
+
+def test_projection_rejects_a_field_of_the_wrong_length(make_unit_square):
+    space = FunctionSpace(make_unit_square(4))
+    with pytest.raises(ValueError, match='one value per element'):
+        space.element_to_vertex(np.zeros(3))
