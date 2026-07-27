@@ -1,25 +1,21 @@
 """Scalar measures of a stress or strain tensor.
 
-A solve produces tensors; a plot, a failure criterion, or an error indicator
-wants one number per element. Reducing a tensor to a scalar is a *choice*, and
-the choice has a hard constraint: the result must be **rotation invariant**. A
-material does not know which way the axes point, so a scalar that changes when
-the coordinate frame turns is not a property of the state -- it is an artifact of
-how the state was written down.
+A solve produces tensors; a plot or a failure criterion wants one number per
+element. Reducing a tensor to a scalar is a choice, with one hard constraint: the
+result must be **rotation invariant**. A material does not know which way the
+axes point, so a scalar that changes when the frame turns describes the
+bookkeeping, not the state.
 
-That constraint is the reason this module exists rather than the reductions being
-inlined where they are needed. The functions here take **full tensors**
-`(n_elements, d, d)`, never Voigt vectors. Voigt packing is an assembly-internal
-optimization that stores a symmetric tensor as a vector and -- for strain -- folds
-a factor of two into the shear terms so that a dot product reproduces the tensor
-contraction. That packing is correct for the contraction it was designed for and
-wrong for everything else: `norm` of a Voigt vector counts the off-diagonal terms
-once where the tensor holds them twice, and for strain the engineering shear
-double-counts them instead. Both errors are invisible until you rotate the frame.
+Everything here takes full `(n_elements, d, d)` tensors, never Voigt vectors.
+Voigt packing stores a symmetric tensor as a vector so assembly can use a matrix
+product, and folds a factor of two into strain's shear terms so a dot product
+reproduces the tensor contraction. It is right for that contraction and wrong for
+anything else: `norm` of a packed stress counts the off-diagonal terms once where
+the tensor holds them twice, and packed strain double-counts them. Neither error
+shows until you rotate the frame.
 
-So the boundary is: Voigt lives inside `fem.forms`, tensors come out, and nothing
-here needs to know the convention. `tests/test_invariants.py` checks invariance
-directly, by rotating the input.
+So Voigt stays inside `fem.forms` and tensors come out; nothing here knows the
+convention. `tests/test_invariants.py` checks invariance by rotating the input.
 """
 import numpy as np
 

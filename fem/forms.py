@@ -71,17 +71,17 @@ def strain_displacement(grad_phi: FloatArray) -> FloatArray:
 def voigt_to_tensor(voigt: FloatArray, shear_factor: float = 1.0) -> FloatArray:
     '''Unpack `(n_elements, n_strains)` Voigt vectors into `(n_elements, d, d)` tensors.
 
-    Voigt packing stores a symmetric tensor as a vector, which is what lets the
-    element stiffness be the matrix triple product `B^T D B`. It is an assembly
-    convention and nothing above assembly should have to know it: a norm or an
-    eigenvalue taken on the packed vector is not the tensor's, because the
-    off-diagonal entries appear once in the vector and twice in the tensor.
+    Voigt packing stores a symmetric tensor as a vector, which is what makes the
+    element stiffness a matrix product `B^T D B`. Nothing above assembly should
+    have to know it: a norm or an eigenvalue of the packed vector is not the
+    tensor's, since the off-diagonal entries appear once in one and twice in the
+    other.
 
-    `shear_factor` is what the packed shear entry has to be divided by to recover
-    the tensor component. Stress packs the plain component, so 1; strain packs
-    *engineering* shear `gamma = 2 eps`, so 2. That asymmetry is deliberate at the
-    assembly level -- it makes the Voigt dot product equal the tensor double
-    contraction -- and this is where it stops.
+    `shear_factor` is what the packed shear entry is divided by to recover the
+    tensor component -- 1 for stress, which packs the plain component, and 2 for
+    strain, which packs engineering shear `gamma = 2 eps`. That asymmetry makes
+    the Voigt dot product equal the tensor contraction, and this is where it
+    stops.
     '''
     voigt = np.asarray(voigt, dtype=float)
     n_elements, n_strains = voigt.shape
@@ -437,20 +437,19 @@ class EnergyForm:
         small-strain one returned stress. This recovers it through the same
         interface `LinearElasticForm` uses.
 
-        Reported as **Cauchy** stress, the pushforward `sigma = J^-1 P F^T`. P is
-        what the energy derivative gives, but it is measured per unit *reference*
-        area, so it is not comparable with the small-strain path's stress and not
-        what a yield criterion wants. Cauchy is the true stress in the deformed
-        configuration, and the two agree to O(||grad u||) -- which is what makes
-        the linear and nonlinear elastic paths comparable at small strain.
+        Reported as **Cauchy** stress, `sigma = J^-1 P F^T`. P is what the energy
+        derivative gives, but it is measured per unit *undeformed* area, so it is
+        neither comparable with the small-strain path's stress nor what a yield
+        criterion wants. Cauchy is the true stress in the deformed shape, and the
+        two agree to O(||grad u||) -- which is what makes the linear and nonlinear
+        paths comparable at small strain.
 
-        The strain returned is the one the energy is built on (Green-Lagrange, or
-        its small-strain linearisation), so it is the density's own measure rather
-        than a second one recomputed here.
+        The strain returned is the density's own measure, not a second one
+        recomputed here.
 
-        Two conventions this has to reconcile -- the gradient orientation
-        `fem.energies` works in, and the plane-strain reduction a 2D solve makes --
-        are explained in that module's docstring under "Solving versus reporting".
+        Two conventions this reconciles -- the gradient orientation `fem.energies`
+        works in, and the plane-strain reduction a 2D solve makes -- are explained
+        there under "Solving versus reporting".
         '''
         grad_u = geometry.gradients(u_elements)
         t = self.energy_density.evaluate(grad_u)

@@ -90,21 +90,19 @@ class LinearElasticMaterial:
     nu: float
 
     def out_of_plane_stress(self, sigma_xx: FloatArray, sigma_yy: FloatArray) -> FloatArray:
-        '''The through-thickness stress sigma_zz a 2D solve does not carry.
+        '''The stress in the restrained z direction, which a 2D solve omits.
 
         **2D here means plane strain**, the assumption `hooke_matrix(2, ...)`
-        already encodes: the body is thick in z and restrained there, so
-        `epsilon_zz = 0` and the material develops `sigma_zz = nu(sigma_xx + sigma_yy)`
-        to hold it. That stress is real -- it is what makes the state triaxial --
-        but it falls outside the 3-component Voigt vector a 2D assembly produces,
-        so any scalar built from the in-plane components alone (von Mises, the
-        pressure) is computed on an incomplete tensor without it.
+        already encodes: the body is held fixed in z, so `epsilon_zz = 0` and the
+        material develops `sigma_zz = nu(sigma_xx + sigma_yy)` resisting that.
+        The stress is real, but it falls outside the three Voigt components a 2D
+        assembly produces, so von Mises or pressure built from those alone is
+        computed on an incomplete tensor.
 
-        The alternative reduction, plane *stress* (a thin plate free to contract
-        in z, so `sigma_zz = 0`), needs a different D as well as a different
-        `epsilon_zz`, and is not implemented -- see BACKLOG.md. This method exists
-        to make the assumption that *is* implemented visible at the point it is
-        used, rather than leaving it implicit in a Lame conversion.
+        Plane *stress* -- a thin plate free to contract in z, so `sigma_zz = 0` --
+        is the other reduction. It needs a different D as well and is not
+        implemented; see BACKLOG.md. Naming the assumption here keeps it from
+        staying buried in a Lame conversion.
         '''
         return self.nu * (np.asarray(sigma_xx) + np.asarray(sigma_yy))
 

@@ -25,34 +25,25 @@ precomputed once at construction and broadcast over elements.
 Solving versus reporting
 ------------------------
 
-`evaluate` feeds a Newton solve, which only ever consumes W and its derivatives.
-`strain` and `out_of_plane_stress` feed post-processing, which shows a tensor to
-a reader. Two details below matter for the second job and not the first, so they
-went unnoticed while this module only did the first.
+`evaluate` feeds the Newton solve, which uses only W and its derivatives.
+`strain` and `out_of_plane_stress` feed post-processing, which shows tensors to a
+reader. Two details matter for the second job and not the first.
 
-**1. Gradient orientation.** `ElementGeometry.gradients` returns the transpose of
-the usual displacement gradient -- its `[i, c]` entry is `du_c/dx_i`, not
-`du_i/dx_c` -- so the `F` built throughout this module is really `F_standardᵀ`.
+**Gradient orientation.** `ElementGeometry.gradients` puts `du_c/dx_i` at entry
+`[i, c]`, the transpose of the usual convention, so the `F` built here is
+`F_standardᵀ`. The two orientations give `½(FFᵀ - I)` and `½(FᵀF - I)`: different
+tensors, same eigenvalues. W uses S only through `tr S` and `tr(SᵀS)`, so it
+cannot tell them apart -- which is why no solve has ever been affected. A
+reported tensor is read component by component, so `strain` transposes back and
+returns the textbook `½(FᵀF - I)`. `evaluate` keeps the original orientation,
+being correct and well tested as it stands.
 
-That has never affected a solve. W reads S only through `tr S` and `tr(SᵀS)`, and
-the two orientations give `S = ½(FFᵀ - I)` and `S = ½(FᵀF - I)` respectively.
-Those are genuinely different tensors, but `FFᵀ` and `FᵀF` are similar matrices --
-identical eigenvalues -- so both scalars agree exactly, and so does W.
-
-It does affect a *reported* tensor, which can be inspected component by
-component. So `strain` transposes back before building F and returns the textbook
-`½(FᵀF - I)`. `evaluate` is deliberately left in the original orientation: it is
-correct, heavily tested, and the energy cannot tell the difference.
-
-**2. Plane strain.** A 2D density is not a two-dimensional world. It is a 3D body
-restrained in z -- a dam, a tunnel cross-section -- so `S_zz = 0` by assumption.
-
-Zero strain there does not mean zero stress; it is the reason there *is* one.
-Material compressed in x and y tries to expand in z, the restraint prevents it,
-and the law develops `sigma_zz = lambda * tr(S)` doing so. That component falls
-outside the 3-entry Voigt vector a 2D assembly produces, so any invariant built
-from the in-plane components alone -- von Mises, the pressure -- is computed on
-an incomplete stress state. `out_of_plane_stress` supplies it.
+**Plane strain.** A 2D density models a 3D body held fixed in z, so `S_zz = 0`.
+That is exactly why a stress appears there: material squeezed in x and y pushes
+outward in z, the restraint pushes back, and the law gives
+`sigma_zz = lambda * tr(S)`. A 2D assembly produces only the three in-plane Voigt
+components, so von Mises built from those alone is missing this one and is wrong.
+`out_of_plane_stress` supplies it.
 """
 import logging
 from dataclasses import dataclass
@@ -122,27 +113,26 @@ class StVenantKirchhoff:
     # -- strain measure (overridden by SmallStrain) -------------------------
 
     def strain(self, grad_u: FloatArray) -> FloatArray:
-        """This density's own strain measure, for reporting rather than solving.
+        """This density's own strain measure -- for reporting, not for solving.
 
-        Post-processing shows the measure the energy was differentiated with
-        respect to, instead of recomputing one and risking a different choice.
-        Subclasses override `_strain`, so both kinematics answer through this.
+        Post-processing shows the measure the energy actually uses rather than
+        recomputing one, which could differ. Subclasses override `_strain`, so
+        both strain measures answer through this.
 
-        Builds F in the standard orientation -- see "Gradient orientation" in the
-        module docstring for why that differs from what `evaluate` uses.
+        F is built in the standard orientation; see "Gradient orientation" above.
         """
         d = grad_u.shape[-1]
         eye = np.eye(d)
         return self._strain(eye + np.swapaxes(grad_u, -2, -1), eye)
 
     def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
-        """Second Piola-Kirchhoff `S_zz = lambda * tr(S)`, for a 2D solve.
+        """The stress in the restrained z direction, which a 2D solve omits.
 
-        The stress in the restrained direction, which a 2D Voigt vector omits --
-        see "Plane strain" in the module docstring. `EnergyForm` pushes it forward
-        to Cauchy, which under plane strain (`F_zz = 1`) is a division by J alone.
+        See "Plane strain" above. This is the second Piola-Kirchhoff component;
+        `EnergyForm` converts it to Cauchy, which here is just a division by J
+        since the material does not move in z.
 
-        `'eii->e'` is a batched trace: sum the diagonal, per element.
+        `'eii->e'` is a batched trace: sum each element's diagonal.
         """
         return self.lamb * np.einsum('eii->e', strain)
 
