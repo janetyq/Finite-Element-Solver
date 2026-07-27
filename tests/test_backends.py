@@ -12,7 +12,7 @@ import pytest
 
 from fem.boundary import BCType, BoundaryConditions
 from fem.forms import LinearElasticForm
-from fem.linalg import DirectBackend, IterativeBackend, rigid_body_modes
+from fem.backends import DirectBackend, IterativeBackend, rigid_body_modes
 from fem.materials import LinearElasticMaterial
 from fem.mesh.generation import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere, on_plane

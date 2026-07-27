@@ -26,7 +26,7 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, BCType
-from fem.linalg import IterativeBackend
+from fem.backends import IterativeBackend
 from fem.materials import Enu_to_Lame
 from fem.mesh.generation import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere

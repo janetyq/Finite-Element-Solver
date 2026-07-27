@@ -11,7 +11,7 @@ from typing import Protocol
 
 import numpy as np
 
-from fem.linalg import LinearAlgebra
+from fem.backends import Backend
 from fem.problem import Problem
 from fem.system import DiscreteSystem
 from fem.typing import DofVector
@@ -28,7 +28,7 @@ class LinearSolve:
     or an `IterativeBackend` for a large SPD system (Poisson, small-strain elasticity).
     '''
 
-    def __init__(self, backend: LinearAlgebra | None = None) -> None:
+    def __init__(self, backend: Backend | None = None) -> None:
         self.backend = backend
 
     def solve(self, problem: Problem, u0: DofVector | None = None) -> DofVector:

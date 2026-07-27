@@ -14,7 +14,7 @@ import logging
 import time
 
 from fem.boundary import BCType, BoundaryConditions
-from fem.linalg import DirectBackend, IterativeBackend
+from fem.backends import DirectBackend, IterativeBackend
 from fem.materials import LinearElasticMaterial
 from fem.mesh.generation import create_box_mesh
 from fem.problem import linear_elastic

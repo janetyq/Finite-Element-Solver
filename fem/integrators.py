@@ -13,7 +13,7 @@ and needs no lifting of Dirichlet indices into a block DOF space.
 """
 import numpy as np
 
-from fem.linalg import LinearAlgebra
+from fem.backends import Backend
 from fem.problem import Problem
 from fem.solution import Solution, TransientSolution, WaveSolution
 from fem.system import DiscreteSystem
@@ -39,7 +39,7 @@ class ThetaMethod:
     '''
 
     def __init__(self, dt: float, steps: int, theta: float = 0.5,
-                 backend: LinearAlgebra | None = None) -> None:
+                 backend: Backend | None = None) -> None:
         self.dt = dt
         self.steps = steps
         self.theta = theta
@@ -76,7 +76,7 @@ class NewmarkMethod:
     '''
 
     def __init__(self, dt: float, steps: int, beta: float = 0.25, gamma: float = 0.5,
-                 backend: LinearAlgebra | None = None) -> None:
+                 backend: Backend | None = None) -> None:
         self.dt = dt
         self.steps = steps
         self.beta = beta

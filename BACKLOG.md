@@ -66,9 +66,9 @@ and neighbour lookups during mesh construction.
   residual scaffolding is already sketched in `fem/solver.py`. `Solver.adaptive_refinement`
   takes the estimator as a callable `(solver) -> per-element error`, so this drops straight in.
 - 💡 **Hand-rolled geometric two-grid V-cycle preconditioner.** The SPD iterative path
-  (`fem/linalg.py:IterativeBackend`, AMG-CG) currently gets its multigrid from `pyamg`. A
+  (`fem/backends.py:IterativeBackend`, AMG-CG) currently gets its multigrid from `pyamg`. A
   geometric two-grid V-cycle built on the adaptive-refinement mesh hierarchy would drop in
-  behind the same `LinearAlgebra` seam without touching a caller, removing the dependency and
+  behind the same `Backend` seam without touching a caller, removing the dependency and
   being a genuinely instructive build. Full AMG is thousands of lines and not worth
   reimplementing; a two-grid cycle is small and teaches the same ideas.
 
@@ -129,8 +129,8 @@ and neighbour lookups during mesh construction.
 2. **Then the numerics roadmap** — quadrature → higher-order elements → time-integrator →
    adaptive refinement.
 
-*(Done: iterative solvers + preconditioning. `fem/linalg.py` adds an AMG-preconditioned CG
-backend behind a `LinearAlgebra` seam under `DiscreteSystem`; direct `splu` stays the default
+*(Done: iterative solvers + preconditioning. `fem/backends.py` adds an AMG-preconditioned CG
+backend behind a `Backend` seam under `DiscreteSystem`; direct `splu` stays the default
 and the indefinite-system fallback. On the 3D elastic benchmark AMG-CG overtakes the direct
 factorization by n≈13 and is ~10× faster at n=21. `examples/benchmark_assembly.py` times the
 crossover.)*

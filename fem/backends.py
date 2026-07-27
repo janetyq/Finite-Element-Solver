@@ -2,10 +2,10 @@
 
 `DiscreteSystem` owns the Dirichlet elimination -- the partition of the DOFs and
 the lifting of the fixed values to the right-hand side -- but not the choice of
-*how* the remaining free-free block is solved. That choice is a `LinearAlgebra`
-backend, injected so the two orthogonal axes stay separate: a `SolveStrategy`
-picks linear vs. Newton, a `LinearAlgebra` picks direct vs. iterative, and they
-compose without a class per combination.
+*how* the remaining free-free block is solved. That choice is a `Backend`,
+injected so the two orthogonal axes stay separate: a `SolveStrategy` picks linear
+vs. Newton, a `Backend` picks direct vs. iterative, and they compose without a
+class per combination.
 
 Two backends live here:
 
@@ -19,14 +19,14 @@ Two backends live here:
   system AMG-CG is O(n) where the direct factorization is not, which is the whole
   point of the exercise.
 
-Both produce a `LinearSolver` -- an object that has factored/preconditioned one
-matrix and can solve it against many right-hand sides. `DiscreteSystem` builds one
-per operator and reuses it across solves, so a time-stepper or Newton loop with a
-constant operator pays the setup once. scipy's `SuperLU` already *is* such an
-object; the iterative path wraps CG in one.
+Both `prepare` an operator into a `LinearSolver` -- an object that has
+factored/preconditioned one matrix and can solve it against many right-hand sides.
+`DiscreteSystem` builds one per operator and reuses it across solves, so a
+time-stepper or Newton loop with a constant operator pays the setup once. scipy's
+`SuperLU` already *is* such an object; the iterative path wraps CG in one.
 
 The AMG preconditioner is currently `pyamg`'s smoothed aggregation. A hand-rolled
-geometric two-grid V-cycle could replace it behind this same `LinearAlgebra` seam
+geometric two-grid V-cycle could replace it behind this same `Backend` seam
 without touching a caller -- see BACKLOG.md.
 """
 from typing import Protocol
@@ -45,16 +45,16 @@ class LinearSolver(Protocol):
     def solve(self, b: DofVector) -> DofVector: ...
 
 
-class LinearAlgebra(Protocol):
+class Backend(Protocol):
     '''A strategy for turning an assembled operator into a reusable `LinearSolver`.'''
 
-    def factor(self, A: Operator) -> LinearSolver: ...
+    def prepare(self, A: Operator) -> LinearSolver: ...
 
 
 class DirectBackend:
     '''Sparse LU factorization via `splu`. The default: robust for any operator.'''
 
-    def factor(self, A: Operator) -> LinearSolver:
+    def prepare(self, A: Operator) -> LinearSolver:
         # splu wants CSC; the SuperLU it returns already satisfies LinearSolver
         # (its .solve reuses the factorization), so no wrapper is needed.
         return splu(csc_array(A))
@@ -63,7 +63,7 @@ class DirectBackend:
 class _CGSolver:
     '''Preconditioned CG bound to one operator and its AMG preconditioner.
 
-    Holds the AMG hierarchy built by `IterativeBackend.factor`, so each `solve`
+    Holds the AMG hierarchy built by `IterativeBackend.prepare`, so each `solve`
     reuses it rather than re-coarsening. Fails loudly: CG reports non-convergence
     (or an illegal input) through a nonzero `info`, and a silently-wrong vector is
     worse than a raise, so we raise.
@@ -118,7 +118,7 @@ class IterativeBackend:
         '''
         return IterativeBackend(self.rtol, self.maxiter, B)
 
-    def factor(self, A: Operator) -> LinearSolver:
+    def prepare(self, A: Operator) -> LinearSolver:
         A_csr = _pyamg_csr(A)
         ml = pyamg.smoothed_aggregation_solver(A_csr, B=self.near_null_space)
         return _CGSolver(A_csr, ml.aspreconditioner(), self.rtol, self.maxiter)

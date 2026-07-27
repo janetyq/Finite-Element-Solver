@@ -10,7 +10,7 @@ from fem.solution import ElasticSolution, FieldSolution, Solution
 from fem.space import FunctionSpace, dof_indices
 from fem.forms import Form, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
-from fem.linalg import IterativeBackend, LinearAlgebra, rigid_body_modes
+from fem.backends import Backend, IterativeBackend, rigid_body_modes
 from fem.problem import LinearProblem
 from fem.solve import LinearSolve
 from fem.typing import ElementField, FieldValue
@@ -111,7 +111,7 @@ class Solver:
         mesh: Mesh,
         equation: Equation,
         boundary_conditions: BoundaryConditions | None = None,
-        backend: LinearAlgebra | None = None,
+        backend: Backend | None = None,
     ) -> None:
         self.mesh = mesh
         self.equation = equation
@@ -171,7 +171,7 @@ class Solver:
         )
         return LinearProblem(self.space, operator, self.equation.source, self.boundary_conditions)
 
-    def _backend_for(self, problem: LinearProblem) -> LinearAlgebra | None:
+    def _backend_for(self, problem: LinearProblem) -> Backend | None:
         '''The solve backend, giving an elastic AMG solve its rigid-body near-kernel.
 
         A vector elasticity stiffness has the rigid-body modes as its low-energy

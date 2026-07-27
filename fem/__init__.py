@@ -57,7 +57,7 @@ from fem.problem import (
     wave,
 )
 from fem.solve import LinearSolve, NewtonSolve
-from fem.linalg import DirectBackend, IterativeBackend, rigid_body_modes
+from fem.backends import DirectBackend, IterativeBackend, rigid_body_modes
 from fem.integrators import ThetaMethod, NewmarkMethod
 from fem.solution import (
     Solution,
