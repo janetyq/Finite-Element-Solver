@@ -6,8 +6,7 @@ Working guidelines for agents on this repo. `CLAUDE.md` imports this file. Do no
 
 - Prefer quality, simplicity, robustness, scalability, and long-term maintainability over minimizing development cost or churn.
 - Surface meaningful design alternatives before implementing, with a recommendation. Don't ask about choices with an obvious default.
-- Keep comments and documentation concise and focused on information useful to the next reader.
-- Don't overly explain or defend your own changes in comments. Rationale belongs in the commit message.
+- Comments carry what the next reader needs to use the code correctly, not why you wrote it that way. If a reader wouldn't need the context, leave it out.
 - Report results honestly. If something is skipped, unverified, or failing, say so.
 - Treat inline `TODO`s as intentional unless told otherwise. Ask before deleting them.
 
