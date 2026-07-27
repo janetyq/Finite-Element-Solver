@@ -97,8 +97,11 @@ def voigt_to_tensor(voigt: FloatArray, shear_factor: float = 1.0) -> FloatArray:
     tensor = np.zeros((n_elements, d, d))
     for i in range(d):
         tensor[:, i, i] = voigt[:, i]
-    # The shear rows follow the ordering `strain_displacement` writes: xy, then
-    # yz, then xz in 3D. Symmetric, so each fills both off-diagonal slots.
+    # These pairs must match the shear rows `strain_displacement` writes above --
+    # xy, then yz, then xz in 3D -- and the ordering is spelled out in both places
+    # because B is built by direct assignment and cannot read a shared table.
+    # `tests/test_invariants.py` pins the pairing; a mismatch also breaks the
+    # convergence tests, so it cannot drift silently.
     for offset, (i, j) in enumerate(shears):
         tensor[:, i, j] = tensor[:, j, i] = voigt[:, d + offset] / shear_factor
     return tensor
@@ -121,13 +124,17 @@ def _with_out_of_plane(tensor: FloatArray, zz: FloatArray) -> FloatArray:
 
 
 @dataclass(frozen=True)
-class DerivedElementFields:
-    '''What a form recovers from a solved displacement, per element.
+class ElasticFields:
+    '''What an elastic form recovers from a solved displacement, per element.
 
     A named bundle rather than a bare tuple, so a caller unpacks by attribute and
     a new quantity can be added without breaking positional unpacking at every
     call site. Strain and stress are full `(n_elements, 3, 3)` tensors -- see
     `voigt_to_tensor` for why they are not the Voigt vectors assembly uses.
+
+    Deliberately named for elasticity rather than as a generic derived-field
+    bundle. These three quantities are what an elastic form has; a scalar-family
+    recovery (Poisson's flux `-grad u`) has none of them and wants its own shape.
     '''
     strain: FloatArray       # (n_elements, 3, 3)
     stress: FloatArray       # (n_elements, 3, 3)
@@ -135,25 +142,29 @@ class DerivedElementFields:
 
 
 @runtime_checkable
-class DerivedFields(Protocol):
-    '''A form that can recover element fields from a solved displacement.
+class RecoversElasticFields(Protocol):
+    '''A form that can recover an elastic state from a solved displacement.
 
     Separate from `Form` because recovery is not universal -- the Laplacian
     family has no stress -- so a form that cannot do it should be unable to claim
     it, rather than raising from a method it was obliged to declare.
-    `LinearElasticForm` and `EnergyForm` both implement it.
 
-    It is `runtime_checkable` so `Solver` can ask `isinstance(form, DerivedFields)`
-    before deciding which `Solution` to build. Asking for the capability rather
-    than naming those two classes is what lets a third form report stresses
-    without a solver being edited to know about it. Note the check only tests that
-    a `derived_fields` attribute exists, not that its signature matches -- enough
-    to pick a branch, not a substitute for the type checker.
+    What it abstracts over is **linear versus energy elasticity**, not physics in
+    general: `LinearElasticForm` and `EnergyForm` produce the same three
+    quantities by different routes, and this is what lets one solver, one
+    `Solution` type, and one recovery path serve both. A form for a different
+    physics does not fit through here, because `ElasticFields` is not its shape.
+
+    It is `runtime_checkable` so `Solver` can ask
+    `isinstance(form, RecoversElasticFields)` before deciding which `Solution` to
+    build. The check only tests that a `derived_fields` attribute exists, not that
+    its signature matches -- enough to pick a branch, not a substitute for the
+    type checker.
     '''
 
     def derived_fields(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> DerivedElementFields:
+    ) -> ElasticFields:
         '''Recover element fields from `(n_elements, N, n_components)` nodal values.
 
         The nested layout, matching what `FunctionSpace.assemble_residual` builds
@@ -243,7 +254,7 @@ class LinearElasticForm:
 
     def derived_fields(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> DerivedElementFields:
+    ) -> ElasticFields:
         '''Element strain, stress, and compliance from nodal displacements.
 
         The mirror of `element_matrices`: the same B and D, contracted against the
@@ -281,16 +292,14 @@ class LinearElasticForm:
             # Plane strain: restrained in z, so eps_zz vanishes by definition and
             # the material develops sigma_zz to hold it there. Dropping that stress
             # would leave von Mises computed on a state that is not the physical one.
-            sigma_zz = self.material.out_of_plane_stress(
-                stress_voigt[:, 0], stress_voigt[:, 1]
-            )
+            sigma_zz = self.material.out_of_plane_stress(strain)
             strain = _with_out_of_plane(strain, np.zeros(len(strain)))
             stress = _with_out_of_plane(stress, sigma_zz)
 
         # The full double contraction. eps_zz is zero under plane strain, so the
         # lift above leaves this equal to the in-plane Voigt dot product it replaces.
         compliance = np.einsum('eij,eij,e->e', stress, strain, geometry.volumes)
-        return DerivedElementFields(strain, stress, compliance)
+        return ElasticFields(strain, stress, compliance)
 
 
 @dataclass(frozen=True)
@@ -422,7 +431,7 @@ class EnergyForm:
 
     def derived_fields(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> DerivedElementFields:
+    ) -> ElasticFields:
         '''Element strain, Cauchy stress, and compliance at a solved displacement.
 
         The nonlinear path already computes stress on every Newton iteration --
@@ -471,5 +480,13 @@ class EnergyForm:
             strain = _with_out_of_plane(strain, np.zeros(len(strain)))
             cauchy = _with_out_of_plane(cauchy, sigma_zz)
 
-        compliance = np.einsum('eij,eij,e->e', cauchy, strain, geometry.volumes)
-        return DerivedElementFields(strain, cauchy, compliance)
+        # Twice the stored energy, which for a quadratic W is exactly the
+        # work-conjugate contraction S:E of second Piola-Kirchhoff stress with
+        # Green-Lagrange strain. Contracting the *reported* pair instead would be
+        # wrong: Cauchy stress is conjugate to the rate of deformation over the
+        # deformed volume, not to E over the reference one, and the two disagree by
+        # tens of percent once the strain is genuinely finite. Going through W also
+        # sidesteps the orientation question -- S:E depends on E only through its
+        # invariants, which both orientations share.
+        compliance = 2.0 * t.W * geometry.volumes
+        return ElasticFields(strain, cauchy, compliance)

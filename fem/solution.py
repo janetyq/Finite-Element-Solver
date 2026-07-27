@@ -20,9 +20,9 @@ from fem import invariants
 from fem.typing import DofVector, ElementField, FloatArray
 
 if TYPE_CHECKING:
-    from fem.elements import ElementGeometry
-    from fem.forms import DerivedFields
+    from fem.forms import RecoversElasticFields
     from fem.mesh.mesh import Mesh
+    from fem.space import FunctionSpace
 
 
 @dataclass(frozen=True, eq=False)
@@ -68,28 +68,26 @@ class ElasticSolution(FieldSolution):
     compliance: ElementField  # (n_elements,)
 
     def __post_init__(self) -> None:
-        # Guards the shape change from the earlier scalar fields: an .npz written
-        # before it round-trips into this class with 1-D arrays, and every
-        # invariant below would then silently read the wrong axis. Fail on load.
+        # Every invariant below indexes the last two axes, so a field of the wrong
+        # rank would be read as if it were a tensor field and quietly return
+        # nonsense. `fem.io` reconstructs this class from stored arrays without
+        # checking their shape, which is the path that makes the guard worth having.
         for name in ('strain', 'stress'):
             value = getattr(self, name)
             if np.ndim(value) != 3:
                 raise ValueError(
                     f'{type(self).__name__}.{name} must be an (n_elements, 3, 3) '
-                    f'tensor field, got shape {np.shape(value)}. Solutions saved '
-                    'before stress became a tensor cannot be loaded.'
+                    f'tensor field, got shape {np.shape(value)}'
                 )
 
     @classmethod
     def from_solve(
         cls,
-        mesh: 'Mesh',
-        n_components: int,
+        space: 'FunctionSpace',
         u: DofVector,
-        form: 'DerivedFields',
-        geometry: 'ElementGeometry',
+        form: 'RecoversElasticFields',
     ) -> 'ElasticSolution':
-        '''Recover the derived fields for `u` and package them.
+        '''Recover the elastic fields for `u` and package them.
 
         The one place a solved displacement becomes an `ElasticSolution`. Both a
         facade (`Solver`) and a driver (`TopologyOptimizer`) need this, and they
@@ -97,13 +95,20 @@ class ElasticSolution(FieldSolution):
         rotation invariant came to be written twice. The typed result owning its
         own derivation is the same shape `Problem` has to a specification.
 
-        `form` is anything satisfying `DerivedFields`, so the linear and energy
-        elastic paths build their solution the same way.
+        Takes the `space`, not a mesh and a component count and an element
+        geometry: those are three views of one discretization, and passing them
+        separately would let a caller hand over a geometry built for a different
+        mesh than the one it names. That is the stale-index failure the rest of
+        the package is built to prevent, so it is made unrepresentable here too.
+
+        `form` is anything satisfying `RecoversElasticFields`, so the linear and
+        energy elastic paths build their solution the same way.
         '''
-        # (n_elements, N, n_components) -- the layout DerivedFields is written
-        # against, and the same one FunctionSpace.assemble_residual gathers.
+        mesh, n_components = space.mesh, space.n_components
+        # (n_elements, N, n_components) -- the layout RecoversElasticFields is
+        # written against, and the same one FunctionSpace.assemble_residual gathers.
         u_elements = np.asarray(u).reshape(-1, n_components)[mesh.elements]
-        fields = form.derived_fields(geometry, u_elements)
+        fields = form.derived_fields(space.geometry, u_elements)
         return cls(mesh, n_components, u, fields.strain, fields.stress, fields.compliance)
 
     @property

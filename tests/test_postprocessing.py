@@ -19,7 +19,7 @@ from fem.elements import LinearTriangleElement
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.equations import LinearElastic
 from fem.forms import EnergyForm, LinearElasticForm
-from fem.materials import LinearElasticMaterial
+from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.regions import on_plane
 from fem.solver import Solver
 from fem.topology import TopologyOptimizer
@@ -130,8 +130,6 @@ def test_recovered_strain_is_the_analytic_symmetric_gradient():
 def test_recovered_stress_satisfies_the_isotropic_law():
     """sigma = 2*mu*eps + lambda*tr(eps)*I, checked on the full 3x3 tensor
     including the reconstructed out-of-plane component."""
-    from fem.materials import Enu_to_Lame
-
     A = np.array([[0.02, 0.05], [0.01, -0.03]])
     geometry, u_elements = _geometry_and_nodal(A)
     mu, lamb = Enu_to_Lame(E, NU)
@@ -198,6 +196,52 @@ def test_out_of_plane_stress_agrees_across_both_elastic_paths():
 
     assert linear.stress[0][2, 2] != pytest.approx(0.0, abs=1e-12)
     np.testing.assert_allclose(energy.stress[0][2, 2], linear.stress[0][2, 2], rtol=1e-5)
+
+
+def test_energy_path_compliance_is_the_work_conjugate_pairing():
+    """Compliance must pair stress and strain measures that are work-conjugate.
+
+    Second Piola-Kirchhoff stress is conjugate to Green-Lagrange strain over the
+    reference volume; Cauchy stress is not -- it pairs with the rate of
+    deformation over the deformed volume. Contracting the two *reported* tensors
+    (Cauchy with Green-Lagrange) mixes them, and at finite strain the answer is
+    wrong by tens of percent. It happens to be right at small strain, which is
+    why the agreement test above does not catch it, so this checks the finite
+    regime directly against S:E built from the density's own derivative chain.
+    """
+    A = np.array([[0.15, 0.30], [0.05, -0.10]])   # genuinely finite
+    geometry, u_elements = _geometry_and_nodal(A)
+
+    fields = EnergyForm(StVenantKirchhoff(E, NU)).derived_fields(geometry, u_elements)
+
+    # Built from scratch here rather than from the density's derivative chain, so
+    # the reference is independent of the code under test: Green-Lagrange strain
+    # from the deformation gradient, the St-VK stress from the isotropic law, and
+    # their contraction over the reference volume.
+    mu, lamb = Enu_to_Lame(E, NU)
+    F = np.eye(2) + A.T                       # A is exact for a P1 linear field
+    green_lagrange = 0.5 * (F.T @ F - np.eye(2))
+    pk2 = lamb * np.trace(green_lagrange) * np.eye(2) + 2 * mu * green_lagrange
+    conjugate = (pk2 * green_lagrange).sum() * geometry.volumes[0]
+
+    np.testing.assert_allclose(fields.compliance[0], conjugate, rtol=1e-12)
+
+    # And the mismatched pairing really differs here, so the test has teeth.
+    mixed = np.einsum('eij,eij,e->e', fields.stress, fields.strain, geometry.volumes)
+    assert abs(mixed[0] - conjugate) / abs(conjugate) > 0.1
+
+
+def test_compliance_agrees_across_both_paths_at_small_strain():
+    """Where the models coincide, so must the energy each reports."""
+    A = 1e-6 * np.array([[1.0, 3.0], [0.5, -2.0]])
+    geometry, u_elements = _geometry_and_nodal(A)
+
+    linear = LinearElasticForm(LinearElasticMaterial(E, NU)).derived_fields(
+        geometry, u_elements
+    )
+    energy = EnergyForm(SmallStrain(E, NU)).derived_fields(geometry, u_elements)
+
+    np.testing.assert_allclose(energy.compliance, linear.compliance, rtol=1e-5)
 
 
 def test_green_lagrange_strain_vanishes_under_rigid_rotation():

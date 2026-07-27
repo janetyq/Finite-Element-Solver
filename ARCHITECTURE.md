@@ -150,7 +150,7 @@ through a form**:
   to an energy, residual, and tangent; the energy path scatters it through
   `FunctionSpace.assemble_residual`/`assemble_tangent`, which `EnergyProblem` calls. A quadratic energy has a constant tangent, so the
   bilinear `Form` is `EnergyForm`'s state-independent special case.
-- **Stress recovery is on the form**, as the `DerivedFields` capability.
+- **Stress recovery is on the form**, as the `RecoversElasticFields` capability.
   `derived_fields(geometry, u_elements)` is the mirror of `element_matrices`: the same physics
   contracted against the solved displacement instead of assembled into a stiffness. Both elastic
   paths implement it — `LinearElasticForm` from its `B` and `D`, `EnergyForm` by pushing its
@@ -367,8 +367,11 @@ The unused generality is *lateral* (more options on existing operations); the wa
 that already exists. Speculative generality widens; real extension deepens.
 
 **Post-processing is organised but not complete.** The rule in §3 has an owner for every derived
-quantity that exists, and the elastic paths both report through `DerivedFields`. What it does not
-yet have is *coverage* — only elasticity recovers anything:
+quantity that exists, and the elastic paths both report through `RecoversElasticFields` — a
+capability whose result bundle (strain, stress, compliance) is elasticity's shape, so it abstracts
+over linear-vs-energy elasticity rather than over physics. What the layer does not yet have is
+*coverage*, and the first row below needs a sibling capability rather than an implementation of
+this one:
 
 | Gap | Where it would sit |
 |---|---|

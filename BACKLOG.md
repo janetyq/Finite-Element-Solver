@@ -83,9 +83,12 @@ The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3), but only
 recovers anything. Each item below is an implementation of a seam that already exists.
 
 - 💡 **Poisson flux `-∇u`.** The natural derived field for the scalar family, and the quantity a
-  residual error estimator needs. Wants a `derived_fields` on the scalar form, satisfying the same
-  `DerivedFields` protocol the elastic forms do. `FunctionSpace.gradient` already computes the
-  gradient; what is missing is the packaging.
+  residual error estimator needs. `FunctionSpace.gradient` already computes the gradient; what is
+  missing is the packaging — and it needs a **new** result shape, not the existing one.
+  `RecoversElasticFields` returns strain, stress, and compliance, none of which a scalar field has,
+  so that protocol abstracts over linear-vs-energy *elasticity* rather than over physics. Expect a
+  sibling capability with its own bundle, and a `Solution` subclass to carry it; the reusable part
+  is the pattern, not the protocol.
 - 💡 **Derived fields for transient solves.** `TransientSolution` carries a per-step series of `u`
   and nothing derived from it, so a time-stepped heat problem has no flux history.
 - 💡 **Plane stress as an alternative 2D reduction.** 2D elasticity is plane strain throughout, now

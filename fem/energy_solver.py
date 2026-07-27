@@ -115,7 +115,5 @@ class EnergySolver:
         # The energy form recovers Cauchy stress from the same derivative chain
         # Newton just used, so the nonlinear path reports the stress state the
         # linear one does rather than displacement alone.
-        self.solution = ElasticSolution.from_solve(
-            self.mesh, self.n_components, u, self.form, self.space.geometry,
-        )
+        self.solution = ElasticSolution.from_solve(self.space, u, self.form)
         return self.solution

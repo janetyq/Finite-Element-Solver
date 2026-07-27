@@ -89,22 +89,29 @@ class LinearElasticMaterial:
     E: float | ElementField
     nu: float
 
-    def out_of_plane_stress(self, sigma_xx: FloatArray, sigma_yy: FloatArray) -> FloatArray:
+    def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
         '''The stress in the restrained z direction, which a 2D solve omits.
 
         **2D here means plane strain**, the assumption `hooke_matrix(2, ...)`
         already encodes: the body is held fixed in z, so `epsilon_zz = 0` and the
-        material develops `sigma_zz = nu(sigma_xx + sigma_yy)` resisting that.
-        The stress is real, but it falls outside the three Voigt components a 2D
+        material develops `sigma_zz = lambda * tr(epsilon)` resisting that. The
+        stress is real, but it falls outside the three Voigt components a 2D
         assembly produces, so von Mises or pressure built from those alone is
         computed on an incomplete tensor.
+
+        Takes the in-plane strain tensor, matching the same method on the energy
+        densities -- one signature for one quantity, so the two elastic paths are
+        visibly doing the same thing. (The equivalent `nu(sigma_xx + sigma_yy)` is
+        the same number; `tests/test_materials.py` pins both against the 3D law.)
 
         Plane *stress* -- a thin plate free to contract in z, so `sigma_zz = 0` --
         is the other reduction. It needs a different D as well and is not
         implemented; see BACKLOG.md. Naming the assumption here keeps it from
         staying buried in a Lame conversion.
         '''
-        return self.nu * (np.asarray(sigma_xx) + np.asarray(sigma_yy))
+        _, lamb = Enu_to_Lame(self.E, self.nu)
+        trace = np.einsum('eii->e', np.asarray(strain))
+        return np.asarray(lamb) * trace
 
     def constitutive_matrices(self, reference_dim: int, n_elements: int) -> FloatArray:
         '''(n_elements, s, s) Voigt D, one per element -- the batched assembly path.

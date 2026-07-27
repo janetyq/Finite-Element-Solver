@@ -152,9 +152,7 @@ class TopologyOptimizer:
         problem = LinearProblem(self.space, form, self.source, self.bc)
         u = self.strategy.solve(problem)
 
-        self._last = ElasticSolution.from_solve(
-            self.mesh, self.mesh.spatial_dim, u, form, self.space.geometry,
-        )
+        self._last = ElasticSolution.from_solve(self.space, u, form)
         return self._last
 
     def oc_density(
