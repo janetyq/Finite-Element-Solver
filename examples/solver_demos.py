@@ -11,7 +11,8 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
-from fem.solver import Solver, Projection, Poisson, LinearElastic
+from fem.equations import Projection, Poisson, LinearElastic
+from fem.solver import Solver
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer

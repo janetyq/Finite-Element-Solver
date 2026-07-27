@@ -10,7 +10,8 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane
-from fem.solver import Poisson, Solver
+from fem.equations import Poisson
+from fem.solver import Solver
 
 
 def test_constant_solution_is_reproduced_exactly(make_unit_square):

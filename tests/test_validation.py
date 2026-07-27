@@ -10,7 +10,8 @@ from fem.energies import NeohookeanEnergyDensity
 from fem.energy_solver import EnergySolver
 from fem.boundary import BoundaryConditions, BCType
 from fem.mesh.mesh import Mesh
-from fem.solver import LinearElastic, Solver, StrainMeasure
+from fem.equations import LinearElastic, StrainMeasure
+from fem.solver import Solver
 from fem.regions import everywhere, on_plane, at_indices
 from fem.plot.plotter import PlotMode
 
@@ -132,10 +133,10 @@ def test_energy_solver_rejects_a_source_term(make_unit_square):
 
     eq = LinearElastic(E=200, nu=0.4, source=[0, -0.5])
     with pytest.raises(NotImplementedError):
-        EnergySolver(mesh, eq, bc, verbose=False)
+        EnergySolver(mesh, eq, bc)
 
     # ...and without one it still constructs.
-    EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+    EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc)
 
 
 def test_energy_solver_accepts_a_3d_mesh():
@@ -148,7 +149,7 @@ def test_energy_solver_accepts_a_3d_mesh():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(2, 0.0), [0, 0, 0])
 
-    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc, verbose=False)
+    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc)
     assert solver.n_components == 3
 
 
@@ -162,7 +163,7 @@ def test_energy_solver_rejects_a_per_element_modulus(make_unit_square):
 
     E = np.full(len(mesh.elements), 200.0)
     with pytest.raises(NotImplementedError):
-        EnergySolver(mesh, LinearElastic(E=E, nu=0.4), bc, verbose=False)
+        EnergySolver(mesh, LinearElastic(E=E, nu=0.4), bc)
 
 
 def test_solver_rejects_finite_strain_elasticity(make_unit_square):

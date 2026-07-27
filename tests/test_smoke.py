@@ -10,7 +10,7 @@ import numpy as np
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import on_plane
-from fem.solver import LinearElastic
+from fem.equations import LinearElastic
 from fem.problem import wave
 from fem.integrators import NewmarkMethod
 from fem.energy_solver import EnergySolver
@@ -35,7 +35,7 @@ def test_energy_solver_runs(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.1, 0])
 
     eq = LinearElastic(E=200, nu=0.4)
-    solution = EnergySolver(mesh, eq, bc, verbose=False).solve()
+    solution = EnergySolver(mesh, eq, bc).solve()
     assert np.all(np.isfinite(solution.u))
 
 

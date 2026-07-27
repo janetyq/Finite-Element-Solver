@@ -16,7 +16,8 @@ from fem.backends import DirectBackend, IterativeBackend, rigid_body_modes
 from fem.materials import LinearElasticMaterial
 from fem.mesh.generation import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere, on_plane
-from fem.solver import LinearElastic, Poisson, Solver
+from fem.equations import LinearElastic, Poisson
+from fem.solver import Solver
 from fem.space import FunctionSpace
 from fem.system import DiscreteSystem
 
