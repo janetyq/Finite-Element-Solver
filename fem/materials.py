@@ -9,6 +9,10 @@ a material law, not element geometry, so it belongs here rather than on the shap
 strain-displacement matrix B in `fem.forms` must order its strain rows the same
 way, since D and B are contracted against each other. The two are the shared
 convention referred to in both files.
+
+In 2D the law is **plane strain** throughout. `LinearElasticMaterial.out_of_plane_stress`
+names that assumption and supplies the `sigma_zz` a 2D Voigt vector omits, which
+post-processing needs to build a complete stress tensor.
 """
 from dataclasses import dataclass
 
@@ -84,6 +88,25 @@ class LinearElasticMaterial:
     '''
     E: float | ElementField
     nu: float
+
+    def out_of_plane_stress(self, sigma_xx: FloatArray, sigma_yy: FloatArray) -> FloatArray:
+        '''The through-thickness stress sigma_zz a 2D solve does not carry.
+
+        **2D here means plane strain**, the assumption `hooke_matrix(2, ...)`
+        already encodes: the body is thick in z and restrained there, so
+        `epsilon_zz = 0` and the material develops `sigma_zz = nu(sigma_xx + sigma_yy)`
+        to hold it. That stress is real -- it is what makes the state triaxial --
+        but it falls outside the 3-component Voigt vector a 2D assembly produces,
+        so any scalar built from the in-plane components alone (von Mises, the
+        pressure) is computed on an incomplete tensor without it.
+
+        The alternative reduction, plane *stress* (a thin plate free to contract
+        in z, so `sigma_zz = 0`), needs a different D as well as a different
+        `epsilon_zz`, and is not implemented -- see BACKLOG.md. This method exists
+        to make the assumption that *is* implemented visible at the point it is
+        used, rather than leaving it implicit in a Lame conversion.
+        '''
+        return self.nu * (np.asarray(sigma_xx) + np.asarray(sigma_yy))
 
     def constitutive_matrices(self, reference_dim: int, n_elements: int) -> FloatArray:
         '''(n_elements, s, s) Voigt D, one per element -- the batched assembly path.
