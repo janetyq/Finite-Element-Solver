@@ -27,16 +27,10 @@ factored/preconditioned one matrix and can solve it against many right-hand side
 time-stepper or Newton loop with a constant operator pays the setup once. scipy's
 `SuperLU` already *is* such an object; the iterative path wraps CG in one.
 
-This is the split every serious solver library makes, under other names: PETSc
-pairs a `KSP` (solver) with a `PC` (preconditioner), where a direct solve is just
-`KSPPREONLY` + `PCLU`; MFEM makes direct solvers, iterative solvers, and
-preconditioners all one `Solver` with `SetOperator` then `Mult`. Our
-`Backend.prepare(A)` is their "set the operator" (bind the matrix, factor or
-precondition once); the returned `LinearSolver.solve(b)` is their "apply". We keep
-config (the immutable `Backend`) and the bound solver (`LinearSolver`) as two
-objects rather than one stateful one because the matrix actually solved -- the
-eliminated free-free block -- is born *inside* `DiscreteSystem`, so a caller can
-only hand in a recipe for building the solver, never the solver itself.
+Config (the immutable `Backend`) and the bound solver (`LinearSolver`) are two
+objects rather than one because the matrix actually solved -- the eliminated
+free-free block -- is born *inside* `DiscreteSystem`, so a caller can only hand in
+a recipe for building the solver, never the solver itself.
 
 The AMG preconditioner is currently `pyamg`'s smoothed aggregation. A hand-rolled
 geometric two-grid V-cycle could replace it behind this same `Backend` seam
