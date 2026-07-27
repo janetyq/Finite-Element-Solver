@@ -10,7 +10,7 @@ import logging
 
 from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
-from fem.equations import Equation, LinearElastic, Poisson, Projection
+from fem.equations import Equation, LinearElastic
 from fem.solution import ElasticSolution, FieldSolution, Solution
 from fem.space import FunctionSpace
 from fem.forms import recovers_fields
@@ -44,34 +44,22 @@ class Solver:
         # The most recent solve, so an adaptive-refinement estimator can read it.
         self.solution: Solution | None = None
 
-        self._resolve_bc()
-
-    def _resolve_bc(self) -> None:
-        '''Bind the boundary-condition spec to the current mesh and component count.
-
-        Called again whenever the mesh changes (adaptive refinement), which is
-        the whole reason the spec is kept separate from its resolution.
-        '''
-        self.resolved_bc = self.boundary_conditions.resolve(self.mesh, self.n_components)
-
     def remesh(self, mesh: Mesh) -> None:
         '''Rebind the solver to a new mesh, rebuilding the space and re-resolving BCs.
 
-        A refined mesh renumbers vertices, so every derived, index-keyed object is
-        rebuilt from its specification rather than carried over: the space owns
-        cached operators sized to the old mesh, and the resolved BC is keyed by it.
-        This is what lets an outer driver (AdaptiveRefinement) advance the solver
+        A refined mesh renumbers vertices, so the space -- which owns cached
+        operators sized to the old mesh -- is rebuilt from its specification
+        rather than carried over. Nothing index-keyed survives here: the boundary
+        conditions are resolved by the `LinearProblem` built for each solve. This
+        is what lets an outer driver (AdaptiveRefinement) advance the solver
         across meshes without reaching into its state.
         '''
         self.mesh = mesh
         self.space = FunctionSpace(mesh, n_components=self.n_components)
-        self._resolve_bc()
 
     def solve(self) -> Solution:
-        if isinstance(self.equation, (Projection, Poisson, LinearElastic)):
-            self.solution = self._solve_steady()
-            return self.solution
-        raise ValueError(f"No solver for equation type: {type(self.equation).__name__}")
+        self.solution = self._solve_steady()
+        return self.solution
 
     def _steady_problem(self) -> LinearProblem:
         '''The composition for a steady equation: operator + source + constraints.
