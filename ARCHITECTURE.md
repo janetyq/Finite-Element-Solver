@@ -77,7 +77,8 @@ entry — and the composition is still fully typed, so nothing is given up again
 | `Element` / `ElementGeometry` | | ▒ | | | | | | | |
 | `FunctionSpace` | | ▒ | | █ | | | | | ▒ |
 | `FieldShape` (`Scalar` / `Vector`) | | | ▒ | | | | | | |
-| `Form` / `EnergyForm` (+ `ScaledForm`, `MaskedMassForm`) | | | █ | ▒ | | | | | |
+| `Form` / `EnergyForm` (+ `ScaledForm`, `MaskedMassForm`) | | | █ | ▒ | | | | | ▒ |
+| `invariants` | | | | | | | | | █ |
 | `Material` / energy densities | | | █ | | | | | | |
 | `Equation` | | | █ | | | | | | |
 | `BoundaryConditions` / `ResolvedBC` | | | | | █ | | | | |
@@ -111,6 +112,18 @@ solve its rigid-body near-kernel — a `▒` share, because the near-kernel is a
 operator is being solved, so only the equation-aware facade can supply it without the
 physics-agnostic backend guessing.
 
+Post-processing (9) is **distributed on purpose**, under one rule:
+
+> A derived quantity lives on the object that owns the data it needs.
+
+So `FunctionSpace` owns `integrate` and `mean_value` (they need the mass matrix) and
+`element_to_vertex` (it needs the element measures); a `Form` owns `derived_fields` (it needs `B`
+and `D`, or the energy's derivative chain); `Solution` owns the packaging and `deformed_mesh`;
+`invariants` owns the frame-independent reductions, which need only a tensor. The rule is what
+keeps this from being a junk drawer — and what makes a misplacement visible, which is how the
+element↔vertex projection was found sitting on `Mesh`, a geometry object with no measures to
+weight by. §5 lists what the rule has not yet been applied to.
+
 ---
 
 ## 4. Role-by-role
@@ -137,10 +150,25 @@ through a form**:
   to an energy, residual, and tangent; the energy path scatters it through
   `FunctionSpace.assemble_residual`/`assemble_tangent`, which `EnergyProblem` calls. A quadratic energy has a constant tangent, so the
   bilinear `Form` is `EnergyForm`'s state-independent special case.
-- **Stress recovery is on the form.** `LinearElasticForm.derived_fields(geometry, u_elements)`
-  returns strain, stress, and compliance from the same `B` and `D` it assembles from — the mirror
-  of `element_matrices`, contracting against the solved displacement instead of assembling a
-  stiffness. It is the reason a driver never rebuilds `B` and `D` to recover stresses.
+- **Stress recovery is on the form**, as the `DerivedFields` capability.
+  `derived_fields(geometry, u_elements)` is the mirror of `element_matrices`: the same physics
+  contracted against the solved displacement instead of assembled into a stiffness. Both elastic
+  paths implement it — `LinearElasticForm` from its `B` and `D`, `EnergyForm` by pushing its
+  `dW_dF` (the first Piola–Kirchhoff stress, previously computed each Newton step and discarded)
+  forward to Cauchy — so a finite-strain solve reports the stress state a small-strain one does.
+  Two implementations are also what earn the protocol its place; `Solver` asks for the capability
+  rather than naming a form class.
+
+**Voigt stops at the assembly boundary.** Voigt packing stores a symmetric tensor as a vector so
+that an element stiffness is the matrix product `Bᵀ D B`. It is valid *only* under the contraction
+it was designed for: strain packs engineering shear (`γ = 2ε`) and stress does not, an asymmetry
+that makes the Voigt dot product equal the tensor double contraction and makes every other
+operation on the packed form wrong. `derived_fields` therefore unpacks to full `(n_elements, 3, 3)`
+tensors before returning, and `fem/invariants.py` operates on tensors alone. That boundary is not
+stylistic: reducing a Voigt vector with `np.linalg.norm` — which is what both call sites used to do
+— counts the off-diagonal terms once where the tensor holds them twice, giving a stress scalar that
+changes by √2 when the coordinate frame rotates. `tests/test_invariants.py` pins invariance by
+rotating the input.
 
 `Material` owns `D`, and the strain-displacement matrix `B` sits in `fem/forms.py` next to the
 form that contracts it against `D`, which is what keeps `Element` pure geometry.
@@ -305,7 +333,15 @@ The result is a typed dataclass, not a dict of named arrays: `FieldSolution` (th
 `WaveSolution` (adds the velocity series). A steady field and a time series are different *types*,
 so nothing has to infer which it is from the length of an array. `save`/`load` round-trip any of
 them through `fem/io`, which reflects over the dataclass fields and stores the class name — so the
-I/O follows the type rather than a naming convention. `TopologyHistory` is
+I/O follows the type rather than a naming convention.
+
+`ElasticSolution` **owns its own derivation**: `from_solve(mesh, n_components, u, form, geometry)`
+is the single place a solved displacement becomes one, and both `Solver` and `TopologyOptimizer`
+(and now `EnergySolver`) go through it. It was written out at each call site before, which is how a
+reduction that was not rotation invariant came to exist in two copies. It stores the full stress
+and strain **tensors** and exposes `von_mises` / `pressure` / `principal_stress` as properties: a
+Frobenius norm cannot be turned back into a von Mises stress, so reducing at construction would
+decide permanently which question the result can answer. `TopologyHistory` is
 deliberately *not* in this hierarchy: it is a driver-layer trajectory of designs (its axis is
 optimization iteration, and `rho` is a design variable, not a solved field), so it stays a
 standalone record that aggregates the per-iteration `ElasticSolution`s rather than being one.
@@ -329,6 +365,20 @@ against the composition model rather than blocked by it:
 The unused generality is *lateral* (more options on existing operations); the wanted extension is
 *vertical* (new layers) — except the two-grid row, which is a second implementation of a protocol
 that already exists. Speculative generality widens; real extension deepens.
+
+**Post-processing is organised but not complete.** The rule in §3 has an owner for every derived
+quantity that exists, and the elastic paths both report through `DerivedFields`. What it does not
+yet have is *coverage* — only elasticity recovers anything:
+
+| Gap | Where it would sit |
+|---|---|
+| Poisson flux `-∇u` | a `derived_fields` on the scalar family's form |
+| Derived fields for a transient solve | `TransientSolution`; the per-step series has no recovery |
+| A-posteriori error estimator | a method on `Equation` (`BACKLOG.md`); per-equation by nature |
+| Plane *stress* as an alternative 2D reduction | a second branch in `LinearElasticMaterial` |
+
+None is blocked by the structure — each is an additional implementation of a seam that now exists,
+which is the difference between this list and the vertical items above.
 
 ---
 
@@ -376,6 +426,12 @@ Legend: 🟡 design / maintainability · 🟢 small
 
 ### Structural items
 
+**🟢 The element→vertex projection weighting.** `FunctionSpace.element_to_vertex` weights by
+element measure, which is the defensible projection and the reason the space rather than the mesh
+owns it. The stricter choice is the mass-matrix L2 projection (solve `M u = ∫ f φ`); it is more
+accurate on a graded mesh and costs a solve. Worth revisiting only if a nodal-output consumer
+needs the accuracy — plotting does not.
+
 **🟡 The load vector waits on quadrature, not on a `LinearForm`.** The load `L(v) = ∫ f·v` is a
 typed `Source` term assembled as `mass_matrix @ f` — the mass form as a load operator, which is
 the *exact* integral of `f`'s P1 interpolant (`M_ij = ∫ φ_i φ_j`), with `Traction` the boundary
@@ -396,6 +452,11 @@ minimal-import goal would want both edges lazy.
 
 1. **Quadrature, then `LinearForm`** — a real quadrature layer is what lets `f` vary within an
    element; the linear form (and variable-coefficient bilinear forms) follow from it. This is the
-   top of the numeric roadmap in `BACKLOG.md`.
+   top of the numeric roadmap in `BACKLOG.md`. Note it is **two** coupled assumptions, not one:
+   the missing quadrature-point axis on `ElementGeometry.grad_phi`, *and* the one-DOF-per-vertex
+   numbering baked into `FunctionSpace.n_dofs`, `dof_indices`, and `FieldSolution.deformed_mesh`.
+   Variable coefficients need only the first; P2 elements need both.
 2. **Clear the unused modules** — decide `quadrature.py`'s fate, delete `color` / `timer`.
-3. **Clear the remaining core → plot re-export** — only if headless import becomes a goal.
+3. **Fill in the post-processing coverage gaps** (§5) — each is an implementation of an existing
+   seam, and the error estimator is what closes the adaptive-refinement loop.
+4. **Clear the remaining core → plot re-export** — only if headless import becomes a goal.
