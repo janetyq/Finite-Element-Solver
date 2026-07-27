@@ -4,8 +4,8 @@ The package's object model: which concepts exist and which object owns each job,
 structural and dead-weight items collected at the end. Anchored on symbol names rather than line
 numbers, which drift with every refactor.
 
-The numeric roadmap that remains — quadrature, higher-order elements, iterative solvers, an
-error estimator — lives in `BACKLOG.md`.
+The numeric roadmap that remains — quadrature, higher-order elements, an error estimator, a
+hand-rolled multigrid preconditioner — lives in `BACKLOG.md`.
 
 ---
 
@@ -52,10 +52,13 @@ consumes the one beneath it and varies independently.
 
 | Tier | Role | Objects |
 |---|---|---|
-| **1 · Primitives** | the parts a composition is built from | `Form` / `EnergyForm` (+ `ScaledForm`, `MaskedMassForm`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` |
+| **1 · Primitives** | the parts a composition is built from | `Form` / `EnergyForm` (+ `ScaledForm`, `MaskedMassForm`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
 | **2 · `Problem`** | a composition: space + operator + load + constraints ("what to solve") | `LinearProblem`, `EnergyProblem`; named factories `poisson`, `linear_elastic`, `heat`, `wave`, `projection` |
 | **3 · Solve strategy** | consumes a `Problem`, returns the solution ("how") | `LinearSolve`, `NewtonSolve`; time integrators `ThetaMethod`, `NewmarkMethod` |
 | **4 · Driver** | wraps a strategy, re-solving | `AdaptiveRefinement`, `TopologyOptimizer` |
+
+Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
+direct vs. iterative (§4).
 
 Named PDEs survive as **factory functions**, not dispatch keys: `poisson(mesh, f, bc)` builds the
 space and returns `LinearProblem(space, LaplacianForm(), f, bc)`. You do not *dispatch* Poisson; you *are* Poisson
@@ -81,6 +84,7 @@ should not.
 | `BoundaryConditions` / `ResolvedBC` | | | | | █ | | | | |
 | `Problem` (`LinearProblem` / `EnergyProblem`) | | | ▒ | ▒ | █ | | | | |
 | `DiscreteSystem` | | | | | ▒ | █ | | | |
+| `Backend` (`DirectBackend` / `IterativeBackend`) | | | | | | █ | | | |
 | `LinearSolve` / `NewtonSolve` | | | | | | ▒ | | | |
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
 | `Solver` (steady facade) | | | ◧ | | ▒ | ▒ | | | |
@@ -93,16 +97,21 @@ should not.
 Read the columns. Constraints (5) has one clear owner: the `Problem`, whose constructor resolves
 the boundary conditions against the space and folds the Dirichlet partition into its
 `constraints`, the Neumann load into its load vector, and any Robin contribution into *both*
-sides. Algebra (6) belongs to `DiscreteSystem`, and every solve strategy sits on it rather than
-re-deriving elimination. Time (7) is owned by the integrators. Drivers (8) are uniform — each
+sides. Algebra (6) is split in two: `DiscreteSystem` owns the Dirichlet elimination — every solve
+strategy sits on it rather than re-deriving that — and the `Backend` owns how the remaining
+free-free block is solved. Time (7) is owned by the integrators. Drivers (8) are uniform — each
 owns a solver.
 
 Two `◧` remain, both small and both in the physics column. `stiffness_form` (a module function
 `Solver` calls) constructs the `LinearElasticMaterial` when it builds the elastic form, and
 `EnergySolver._select_energy` maps `LinearElastic` to a `StVenantKirchhoff` density. Each is the
 last thread of "which material does this equation mean?" living in a solver rather than in the
-physics layer. Neither is a conflation of *jobs* — both solvers are otherwise clear of physics,
-assembly, and time.
+physics layer. Neither is a conflation of *jobs*.
+
+The one other place a solver reads its equation is `Solver._backend_for`, which hands an elastic
+AMG solve its rigid-body near-kernel. That is `▒`, not `◧`: the near-kernel is a property of
+*which* operator is being solved, so only the equation-aware facade can supply it without the
+physics-agnostic backend guessing.
 
 ---
 
@@ -193,6 +202,32 @@ Newton loop to `NewtonSolve(EnergyProblem(...))` rather than carrying a second c
 is the protocol both satisfy, and `TopologyOptimizer` takes one as an injectable parameter — a
 driver that accepts any strategy, which is the protocol earning its place.
 
+### `Backend` — the second, orthogonal axis of the solve
+
+Which strategy runs and which linear algebra it uses vary independently, so they are two
+injections rather than a class per combination: `LinearSolve(IterativeBackend())` is a
+composition, not an `IterativeLinearSolve`. `DiscreteSystem` eliminates the Dirichlet DOFs and
+hands the free-free block to a `Backend`, which `prepare`s it into a `LinearSolver`: one matrix,
+factored or preconditioned once, solved against many right-hand sides. That is what a time-stepper
+or a constant-tangent Newton loop reuses across steps. Config and bound solver are two objects
+because the matrix actually solved is born *inside* `DiscreteSystem` — a caller can only hand in
+a recipe, never the solver itself.
+
+- `DirectBackend` — sparse LU (`splu`), the default, robust for any nonsingular operator,
+  indefinite ones included. Its fill-in on a 3D mesh grows super-linearly, which is the
+  resolution ceiling.
+- `IterativeBackend` — CG with a smoothed-aggregation AMG preconditioner (`pyamg`). CG is
+  **SPD-only**, so it is opt-in: Poisson, small-strain elasticity, the mass matrix and the
+  time-stepping operators qualify; Newton tangents away from a minimum do not. For vector
+  elasticity, `rigid_body_modes` supplies the near-kernel that keeps CG's iteration count flat
+  under refinement — the constant vector pyamg assumes by default does not.
+
+`LinearSolve`, `ThetaMethod`, and `NewmarkMethod` take a `backend`; `NewtonSolve` does not,
+because a Newton tangent is not guaranteed SPD. The choice is offered only where the operator is
+SPD by construction. `Solver` forwards a backend to its steady solve and attaches the elastic
+near-kernel (§3). `pyamg` is a base dependency rather than an extra — it needs only numpy/scipy,
+and the iterative path is the core scaling story, not a niche feature.
+
 ### Time integration — a strategy per ODE order
 
 The domain has **two ODE orders** — heat is first (`M u̇ + K u = b`), wave is second
@@ -200,7 +235,8 @@ The domain has **two ODE orders** — heat is first (`M u̇ + K u = b`), wave is
 order rather than one first-order interface for both. `dt` and the step count are constructor data
 of the integrator, not fields on an equation; initial conditions arrive through `run(...)`. Each
 forms a *constant* effective operator from the problem's mass and stiffness, factors it once
-through `DiscreteSystem`, and steps by updating only the right-hand side.
+through `DiscreteSystem`, and steps by updating only the right-hand side. Both take a `Backend`,
+since those effective operators are SPD.
 
 - `ThetaMethod` (θ=½ Crank–Nicolson default, θ=1 backward Euler) solves `(M + θ dt K) u_{n+1} = …`.
 - `NewmarkMethod` (β=¼, γ=½ average-acceleration) solves for the acceleration against the SPD,
@@ -208,8 +244,8 @@ through `DiscreteSystem`, and steps by updating only the right-hand side.
   `ScaledForm(c², …)`, so the integrator sees only `c²K` and never learns `c`; constant Dirichlet
   displacement means zero velocity and acceleration at fixed nodes, so those DOFs are the ordinary
   constraint, with no lifting into a block DOF space. That the operator is SPD (where the old block
-  system was not) is what keeps it inside the CG/preconditioning story that is the top backlog
-  item. `wave_energy` is the invariant this scheme conserves for a linear system, kept as a
+  system was not) is what lets a wave step run on `IterativeBackend`, which the old block system
+  could not. `wave_energy` is the invariant this scheme conserves for a linear system, kept as a
   diagnostic.
 
 ### `Equation` — identity plus physical constants
@@ -269,10 +305,11 @@ against the composition model rather than blocked by it:
 | Quadratic / higher-order elements | DOFs assumed one-per-vertex; needs a real quadrature layer |
 | Variable coefficients / a `LinearForm` | assembly uses closed-form linear-simplex integrals; needs the quadrature hook |
 | Time-varying loads / BCs | loads are built once; the field callables take position only, no `t` |
-| Iterative solvers + preconditioning | the SPD operators are in place; the direct sparse factorization is the scaling limit |
+| A geometric two-grid preconditioner | a `Backend` implementation; the seam exists, `pyamg` currently fills it |
 
 The unused generality is *lateral* (more options on existing operations); the wanted extension is
-*vertical* (new layers). Speculative generality widens; real extension deepens.
+*vertical* (new layers) — except the two-grid row, which is a second implementation of a protocol
+that already exists. Speculative generality widens; real extension deepens.
 
 ---
 
@@ -293,6 +330,8 @@ shape here rather than a stylistic preference:
   derived from a `LinearElastic`, holding no mutable state.
 - `Problem` is the resolved view of a whole composition, and `Solution` is the typed, immutable
   result the strategy hands back.
+- `LinearSolver` is a `Backend` resolved against one assembled matrix: the immutable config,
+  separated from the factorization or preconditioner that one operator produced.
 
 You found the right shape once, and the composition model is that shape applied all the way up the
 stack.
@@ -329,7 +368,9 @@ before it: until then the load is `mass_matrix @ f` and needs no new object.
 `PlotMode` as public API — a deliberate core → plot edge, worth revisiting only if the package
 should be importable without a plotting backend installed. (The other core → plot path,
 `numerics` importing `matplotlib` at module scope, is closed: those imports are local to the
-`check_gradient` / `check_hessian` dev tools.)
+`check_gradient` / `check_hessian` dev tools.) `pyamg` raises the same question from the other
+end: `fem.backends` imports it at module scope, so `import fem` always pulls it in. A
+minimal-import goal would want both edges lazy.
 
 ### Suggested order
 

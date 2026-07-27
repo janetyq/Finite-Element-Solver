@@ -18,8 +18,8 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Scaling | O(n²) linear scans in meshing | 🟡 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Numerics | Time-integrator abstraction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | A-posteriori error estimator | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit, README refresh | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
@@ -33,11 +33,12 @@ estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
 
 ## 2. Performance & Scaling
 
-### 🟠 `assemble_everything` runs on every `solve()`
-`fem/solver.py:Solver.solve` even flags it: `# TODO: don't call this every time`. For
-topology optimization `solve()` is called every iteration. Cache `M`, `M_b`, `K` and only
-re-assemble when the mesh or material actually changes. (Time-stepping is handled: heat and
-wave now build one `DiscreteSystem` and reuse its factorization across steps.)
+### 🟠 Every `solve()` re-assembles from scratch
+`Solver._steady_problem` builds a fresh `LinearProblem` per call, whose constructor assembles the
+operator and load. `TopologyOptimizer` does this once per iteration, where only the material has
+changed — the SIMP scaling suggests re-weighting the element matrices per iteration instead of
+rebuilding them. (Time-stepping is already handled: the integrators build one `DiscreteSystem`
+and reuse its factorization across steps.)
 
 ### 🟠 `calculate_smoothing_matrix` is dense `O(n_elem²)`
 `fem/numerics.py:calculate_smoothing_matrix` materializes a full element-by-element
@@ -62,20 +63,21 @@ and neighbour lookups during mesh construction.
   integrals. A general quadrature layer (reference element + Gauss points + Jacobian) would
   make adding new element types and variable coefficients far easier, and is a prerequisite for
   the quadratic elements above. Decide `quadrature.py`'s fate: integrate it or mark it WIP.
-- 💡 **A posteriori error estimator** so adaptive refinement is fully closed-loop.
-  `Solver.adaptive_refinement` takes the estimator as a callable
-  `(solver) -> per-element error`, so this drops straight in. Two flavours were sketched
-  originally and both are still wanted: the *a priori* bound `||e|| <= C h² ||f''||`, which
-  needs only the mesh and the source, and the *a posteriori* element residual, which needs
-  the computed solution. They are per-equation — the Poisson residual is not the elasticity
-  one — so the natural home is a method on the `Equation` subclass rather than a dispatch
-  table in `Solver`.
+- 💡 **A posteriori error estimator** so adaptive refinement is fully closed-loop. The driver
+  and its refine/remesh loop are done; only the estimate is missing, and `AdaptiveRefinement`
+  takes it as a callable `(solver) -> per-element error`, so it drops straight in. Two flavours
+  are still wanted: the *a priori* bound `||e|| <= C h² ||f''||`, which needs only the mesh and
+  the source, and the *a posteriori* element residual, which needs the computed solution. They
+  are per-equation — the Poisson residual is not the elasticity one — so the natural home is a
+  method on the `Equation` subclass rather than a dispatch table in a driver.
 - 💡 **Hand-rolled geometric two-grid V-cycle preconditioner.** The SPD iterative path
   (`fem/backends.py:IterativeBackend`, AMG-CG) currently gets its multigrid from `pyamg`. A
   geometric two-grid V-cycle built on the adaptive-refinement mesh hierarchy would drop in
   behind the same `Backend` seam without touching a caller, removing the dependency and
   being a genuinely instructive build. Full AMG is thousands of lines and not worth
-  reimplementing; a two-grid cycle is small and teaches the same ideas.
+  reimplementing; a two-grid cycle is small and teaches the same ideas. The yardstick to hold is
+  `examples/benchmark_assembly.py`: on the 3D elastic benchmark AMG-CG overtakes `splu` at n≈13
+  and is ~10× faster by n=21.
 
 **Features**
 - 💡 The README's roadmap (thermal expansion, transport, fluid mechanics, nonlinear
@@ -85,38 +87,35 @@ and neighbour lookups during mesh construction.
   written in invariants of `C = FᵀF` rather than in a strain tensor `S`, so it does not slot
   into the St-VK class's `S`-based derivative chain as cleanly as the shared-`W` framing above
   might suggest — it wants its own `evaluate`.
-- 💡 **Time-integration abstraction.** Backward-Euler (heat) and Crank–Nicolson (wave) are
-  hand-coded inline. A small `TimeIntegrator` interface (θ-method / generalized-α) would
-  deduplicate and make it trivial to add new dynamics.
-- 💡 **Robin BC path.** `BCType.ROBIN` exists and `resolve` refuses it. A Robin condition adds
-  a term to the *system matrix* rather than the load, so the work is in
-  `Solver.assemble_everything`, from a boundary stiffness `FunctionSpace` would
-  assemble alongside its `boundary_mass_matrix`.
-- 💡 **Time-varying loads and Dirichlet data.** `Equation.source` and the BC values are
-  functions of position only. `self.b` is built once and assumed constant in time;
-  `solve_wave` notes where the Crank–Nicolson `b_n`/`b_{n+1}` average collapses because of it,
-  and `_wave_block_constraints` assumes Dirichlet values are constant (so `du/dt = 0` at fixed
-  nodes). Adding a `t` argument to those callables is the natural extension.
+- 💡 **Time-varying loads and Dirichlet data.** Source terms and BC values are functions of
+  position only, so a `Problem`'s load is built once and assumed constant in time. Both
+  integrators lean on it: `ThetaMethod` reuses one `problem.load` where a general θ-method
+  averages `b_n` and `b_{n+1}`, and `NewmarkMethod` reads a fixed Dirichlet displacement as
+  zero velocity and acceleration there. The extension is a `t` argument on those callables and
+  a load the integrator re-evaluates per step.
+- 💡 **Generalized-α, or another integrator family.** `ThetaMethod` and `NewmarkMethod` cover
+  first- and second-order systems; the seam for a third is in place, so this is additive.
 - 💡 **External work term for `EnergySolver`.** It minimizes the internal elastic energy only
   and builds no load vector, so it currently rejects `Equation.source` outright. Adding the
   external work term `-f · u` (and its gradient/Hessian contributions) would make it accept
   forced problems, which is also a prerequisite for using it on the nonlinear roadmap.
 
 **Engineering**
-- 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg`, `generation` (Rupperts/approx
-  mesh), and adaptive refinement have no *correctness* tests. The 3D tet path now runs to
-  h = 1/20 and asserts the same O(h²) band as the 2D case.
-- 💡 **The CLI demos have rotted.** Five of fifteen fail, each against an API that
-  moved out from under them: `linear_elastic` calls `BoundaryConditions.plot`,
-  `topology_optimization` passes `solve(plot=...)`, `energy_solver` reads a
-  `'energy'` value `EnergySolver` has never set, `3d` needs an uninstalled
-  `imageio`, and `adaptive_refinement` is gated behind a deliberate
-  `NotImplementedError`. `rupperts` runs but takes over two minutes. Nothing in
-  CI exercises them, and they are the only thing exercising the plot layer.
+- 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg` and `generation` (Rupperts/approx
+  mesh) have no *correctness* tests, and the plot layer has none at all. The 3D tet path now
+  runs to h = 1/20 and asserts the same O(h²) band as the 2D case, and the
+  `AdaptiveRefinement` driver is covered in `tests/test_refinement.py`.
+- 💡 **The CLI demos have rotted**, each against an API that moved out from under it:
+  `linear_elastic` calls `BoundaryConditions.plot` and `energy_solver` calls
+  `solution.get_values('energy')`, neither of which exists; `adaptive_refinement` is gated behind
+  a deliberate `NotImplementedError` pending the error estimator; `3d` needs the `viz3d` extra.
+  `rupperts` runs but takes over two minutes. The pass/fail count is unverified — nothing in CI
+  exercises them, which is the real problem, since they are the only thing exercising the plot
+  layer.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
-  the prose half is still open. The biggest modules are the least documented — `solver.py`,
-  `mesh/refinement.py`, `mesh/generation.py`, `elements.py` and `topology.py` have no
-  module docstring, while the small helpers (`geometry`, `materials`, `quadrature`) do.
+  the prose half is still open, but narrowly: `solver.py`, `energy_solver.py`,
+  `mesh/mesh.py`, `mesh/generation.py` and `plot/plotter.py` are the modules left with no
+  module docstring. The rest of the core has one.
 - 💡 **Tighten pyright to `standard`.** It runs in `basic`, which infers types for the
   unannotated internals rather than demanding annotations. Annotating the internals
   (`refinement`, `generation`, `energies`, `plot`) would let the mode step up.
@@ -141,11 +140,5 @@ and neighbour lookups during mesh construction.
 ## Suggested Priority Order
 
 1. **Coverage + type hints** (§3) — deepen the safety net before the bigger numerics work.
-2. **Then the numerics roadmap** — quadrature → higher-order elements → time-integrator →
-   adaptive refinement.
-
-*(Done: iterative solvers + preconditioning. `fem/backends.py` adds an AMG-preconditioned CG
-backend behind a `Backend` seam under `DiscreteSystem`; direct `splu` stays the default
-and the indefinite-system fallback. On the 3D elastic benchmark AMG-CG overtakes the direct
-factorization by n≈13 and is ~10× faster at n=21. `examples/benchmark_assembly.py` times the
-crossover.)*
+2. **Then the numerics roadmap** — quadrature → higher-order elements → the error estimator
+   that closes the adaptive-refinement loop.
