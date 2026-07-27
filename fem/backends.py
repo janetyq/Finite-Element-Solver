@@ -7,23 +7,36 @@ injected so the two orthogonal axes stay separate: a `SolveStrategy` picks linea
 vs. Newton, a `Backend` picks direct vs. iterative, and they compose without a
 class per combination.
 
-Two backends live here:
+What a caller touches, versus what is plumbing:
 
-- `DirectBackend` LU-factors the block (`splu`) and back-substitutes. Robust for
-  any nonsingular system, indefinite ones included, but its fill-in on a 3D mesh
-  grows super-linearly and is what caps the reachable resolution.
-- `IterativeBackend` runs preconditioned conjugate gradients with an algebraic
-  multigrid preconditioner (`pyamg`). CG is *SPD-only*, so this is opt-in: the
-  caller routes an SPD operator (Poisson / small-strain elasticity stiffness,
-  mass, the time-stepping operators) to it deliberately. On a large 3D elliptic
-  system AMG-CG is O(n) where the direct factorization is not, which is the whole
-  point of the exercise.
+    Use:       DirectBackend() | IterativeBackend()   <- the entire public choice
+    Extend:    Backend, LinearSolver                  <- implement these to add one
+    Internal:  _CGSolver, _pyamg_csr                  <- never named outside here
 
-Both `prepare` an operator into a `LinearSolver` -- an object that has
+`DirectBackend` LU-factors the block (`splu`) and back-substitutes: robust for any
+nonsingular system, indefinite ones included, but its fill-in on a 3D mesh grows
+super-linearly and caps the reachable resolution. `IterativeBackend` runs
+preconditioned conjugate gradients with an algebraic-multigrid preconditioner
+(`pyamg`); CG is *SPD-only*, so it is opt-in (Poisson / small-strain elasticity
+stiffness, mass, the time-stepping operators), and on a large 3D system it is O(n)
+where the direct factorization is not -- the whole point of the exercise.
+
+Both `prepare` an operator into a `LinearSolver`: an object that has
 factored/preconditioned one matrix and can solve it against many right-hand sides.
 `DiscreteSystem` builds one per operator and reuses it across solves, so a
 time-stepper or Newton loop with a constant operator pays the setup once. scipy's
 `SuperLU` already *is* such an object; the iterative path wraps CG in one.
+
+This is the split every serious solver library makes, under other names: PETSc
+pairs a `KSP` (solver) with a `PC` (preconditioner), where a direct solve is just
+`KSPPREONLY` + `PCLU`; MFEM makes direct solvers, iterative solvers, and
+preconditioners all one `Solver` with `SetOperator` then `Mult`. Our
+`Backend.prepare(A)` is their "set the operator" (bind the matrix, factor or
+precondition once); the returned `LinearSolver.solve(b)` is their "apply". We keep
+config (the immutable `Backend`) and the bound solver (`LinearSolver`) as two
+objects rather than one stateful one because the matrix actually solved -- the
+eliminated free-free block -- is born *inside* `DiscreteSystem`, so a caller can
+only hand in a recipe for building the solver, never the solver itself.
 
 The AMG preconditioner is currently `pyamg`'s smoothed aggregation. A hand-rolled
 geometric two-grid V-cycle could replace it behind this same `Backend` seam
@@ -38,6 +51,10 @@ from scipy.sparse.linalg import cg, splu
 
 from fem.typing import DofVector, FloatArray, Operator, Vertices
 
+__all__ = ['Backend', 'LinearSolver', 'DirectBackend', 'IterativeBackend', 'rigid_body_modes']
+
+
+# -- the two contracts: implement both to add a backend ------------------------
 
 class LinearSolver(Protocol):
     '''A matrix that has been factored/preconditioned once and solves many b's.'''
@@ -51,6 +68,8 @@ class Backend(Protocol):
     def prepare(self, A: Operator) -> LinearSolver: ...
 
 
+# -- the backends a caller picks from ------------------------------------------
+
 class DirectBackend:
     '''Sparse LU factorization via `splu`. The default: robust for any operator.'''
 
@@ -58,36 +77,6 @@ class DirectBackend:
         # splu wants CSC; the SuperLU it returns already satisfies LinearSolver
         # (its .solve reuses the factorization), so no wrapper is needed.
         return splu(csc_array(A))
-
-
-class _CGSolver:
-    '''Preconditioned CG bound to one operator and its AMG preconditioner.
-
-    Holds the AMG hierarchy built by `IterativeBackend.prepare`, so each `solve`
-    reuses it rather than re-coarsening. Fails loudly: CG reports non-convergence
-    (or an illegal input) through a nonzero `info`, and a silently-wrong vector is
-    worse than a raise, so we raise.
-    '''
-
-    def __init__(self, A: csr_array, preconditioner, rtol: float, maxiter: int | None) -> None:
-        self._A = A
-        self._M = preconditioner
-        self._rtol = rtol
-        self._maxiter = maxiter
-
-    def solve(self, b: DofVector) -> DofVector:
-        x, info = cg(self._A, b, rtol=self._rtol, atol=0.0, maxiter=self._maxiter, M=self._M)
-        if info != 0:
-            reason = (
-                f'did not converge in {info} iterations'
-                if info > 0 else f'illegal input or breakdown (info={info})'
-            )
-            raise RuntimeError(
-                f'CG failed to solve the free-free block: {reason}. The operator must '
-                'be symmetric positive-definite for CG; use DirectBackend for indefinite '
-                'systems (Newton tangents, energy Hessians away from a minimum).'
-            )
-        return np.asarray(x)
 
 
 class IterativeBackend:
@@ -124,20 +113,7 @@ class IterativeBackend:
         return _CGSolver(A_csr, ml.aspreconditioner(), self.rtol, self.maxiter)
 
 
-def _pyamg_csr(A: Operator) -> csr_array:
-    '''CSR with 32-bit indices, which pyamg's compiled kernels require.
-
-    Our assembly scatters from 64-bit DOF-index arrays, so the assembled operators
-    carry `int64` indptr/indices; pyamg's strength-of-connection kernel is only
-    compiled for `int32` and mis-binds a 64-bit array. The matrices here are far
-    from needing 64-bit addressing, so the downcast is safe.
-    '''
-    A_csr = csr_array(A)
-    return csr_array(
-        (A_csr.data, A_csr.indices.astype(np.int32), A_csr.indptr.astype(np.int32)),
-        shape=A_csr.shape,
-    )
-
+# -- near-kernel helper for the elastic AMG path -------------------------------
 
 def rigid_body_modes(vertices: Vertices, n_components: int) -> FloatArray:
     '''The rigid-body modes of an elastic body: the AMG near-kernel for elasticity.
@@ -170,3 +146,50 @@ def rigid_body_modes(vertices: Vertices, n_components: int) -> FloatArray:
         B[0::3, 5], B[1::3, 5] = -y, x               # rotate about z: (-y, x, 0)
         return B
     raise ValueError(f'rigid-body modes are defined for 2D or 3D elasticity, not n_components={n_components}')
+
+
+# -- internal plumbing: not part of the public surface -------------------------
+
+class _CGSolver:
+    '''Preconditioned CG bound to one operator and its AMG preconditioner.
+
+    Holds the AMG hierarchy built by `IterativeBackend.prepare`, so each `solve`
+    reuses it rather than re-coarsening. Fails loudly: CG reports non-convergence
+    (or an illegal input) through a nonzero `info`, and a silently-wrong vector is
+    worse than a raise, so we raise.
+    '''
+
+    def __init__(self, A: csr_array, preconditioner, rtol: float, maxiter: int | None) -> None:
+        self._A = A
+        self._M = preconditioner
+        self._rtol = rtol
+        self._maxiter = maxiter
+
+    def solve(self, b: DofVector) -> DofVector:
+        x, info = cg(self._A, b, rtol=self._rtol, atol=0.0, maxiter=self._maxiter, M=self._M)
+        if info != 0:
+            reason = (
+                f'did not converge in {info} iterations'
+                if info > 0 else f'illegal input or breakdown (info={info})'
+            )
+            raise RuntimeError(
+                f'CG failed to solve the free-free block: {reason}. The operator must '
+                'be symmetric positive-definite for CG; use DirectBackend for indefinite '
+                'systems (Newton tangents, energy Hessians away from a minimum).'
+            )
+        return np.asarray(x)
+
+
+def _pyamg_csr(A: Operator) -> csr_array:
+    '''CSR with 32-bit indices, which pyamg's compiled kernels require.
+
+    Our assembly scatters from 64-bit DOF-index arrays, so the assembled operators
+    carry `int64` indptr/indices; pyamg's strength-of-connection kernel is only
+    compiled for `int32` and mis-binds a 64-bit array. The matrices here are far
+    from needing 64-bit addressing, so the downcast is safe.
+    '''
+    A_csr = csr_array(A)
+    return csr_array(
+        (A_csr.data, A_csr.indices.astype(np.int32), A_csr.indptr.astype(np.int32)),
+        shape=A_csr.shape,
+    )
