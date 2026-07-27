@@ -16,7 +16,8 @@ from fem.materials import LinearElasticMaterial
 from fem.problem import EnergyProblem, linear_elastic, poisson
 from fem.regions import everywhere, on_plane
 from fem.solve import LinearSolve, NewtonSolve
-from fem.solver import LinearElastic, Poisson, Solver
+from fem.equations import LinearElastic, Poisson
+from fem.solver import Solver
 from fem.space import FunctionSpace
 
 

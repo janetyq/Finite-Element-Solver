@@ -43,7 +43,7 @@ version of this, not by fashion but because each layer varies independently of t
 The test of a layering is substitution: you should be able to swap a layer without touching its
 neighbours. Swap dense→sparse (6) without touching physics (3); swap heat's θ-method for
 backward Euler (7) without touching the operator (3); remesh (1) without re-resolving constraints
-by hand (5). Each of these is now a local change — the point of the object model that follows.
+by hand (5). Each is a local change — the point of the object model that follows.
 
 ## 2. The four tiers of a solve
 
@@ -69,8 +69,7 @@ entry — and the composition is still fully typed, so nothing is given up again
 
 ## 3. Where the classes sit
 
-`█` = owns the layer · `▒` = shares it cleanly with another owner · `◧` = holds a piece it
-should not.
+`█` = owns the layer · `▒` = shares it cleanly with another owner.
 
 | Class | 1 Geom | 2 Space | 3 Phys | 4 Asm | 5 Cons | 6 Alg | 7 Time | 8 Drive | 9 Post |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -87,8 +86,8 @@ should not.
 | `Backend` (`DirectBackend` / `IterativeBackend`) | | | | | | █ | | | |
 | `LinearSolve` / `NewtonSolve` | | | | | | ▒ | | | |
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
-| `Solver` (steady facade) | | | ◧ | | ▒ | ▒ | | | |
-| `EnergySolver` | | | ◧ | | ▒ | ▒ | | | |
+| `Solver` (steady facade) | | | | | ▒ | ▒ | | | |
+| `EnergySolver` | | | | | ▒ | ▒ | | | |
 | `AdaptiveRefinement` / `TopologyOptimizer` | | | | | | | | █ | ▒ |
 | `Solution` (typed) | | | | | | | ▒ | | █ |
 | `RedGreenRefiner` | █ | | | | | | | | |
@@ -102,15 +101,14 @@ strategy sits on it rather than re-deriving that — and the `Backend` owns how 
 free-free block is solved. Time (7) is owned by the integrators. Drivers (8) are uniform — each
 owns a solver.
 
-Two `◧` remain, both small and both in the physics column. `stiffness_form` (a module function
-`Solver` calls) constructs the `LinearElasticMaterial` when it builds the elastic form, and
-`EnergySolver._select_energy` maps `LinearElastic` to a `StVenantKirchhoff` density. Each is the
-last thread of "which material does this equation mean?" living in a solver rather than in the
-physics layer. Neither is a conflation of *jobs*.
+Physics (3) is owned by the physics layer alone: an `Equation` answers "which form do I assemble?"
+(`operator`) and "which strain energy do I minimise?" (`energy_density`) itself, so no facade holds
+a mapping from equation to material and `Solver._steady_problem` needs no "which PDE is this?"
+branch.
 
-The one other place a solver reads its equation is `Solver._backend_for`, which hands an elastic
-AMG solve its rigid-body near-kernel. That is `▒`, not `◧`: the near-kernel is a property of
-*which* operator is being solved, so only the equation-aware facade can supply it without the
+The one place a solver reads its equation is `Solver._backend_for`, which hands an elastic AMG
+solve its rigid-body near-kernel — a `▒` share, because the near-kernel is a property of *which*
+operator is being solved, so only the equation-aware facade can supply it without the
 physics-agnostic backend guessing.
 
 ---
@@ -127,7 +125,8 @@ imports no plot code, so the geometry layer is clean of the core → plot depend
 
 ### `Form` / `Material` — the physics, and its one open axis
 
-The constitutive law is off the element, and **every assembly path goes through a form**:
+The constitutive law lives on the form rather than the element, and **every assembly path goes
+through a form**:
 
 - **Bilinear forms** — `MassForm` (`∫u·v`), `LaplacianForm` and `LinearElasticForm` (the
   `Gᵀ C G · volume` stiffness family) — scatter through `FunctionSpace.assemble`, one loop that
@@ -144,7 +143,7 @@ The constitutive law is off the element, and **every assembly path goes through 
   stiffness. It is the reason a driver never rebuilds `B` and `D` to recover stresses.
 
 `Material` owns `D`, and the strain-displacement matrix `B` sits in `fem/forms.py` next to the
-form that contracts it against `D`. That split is what let `Element` drop to pure geometry.
+form that contracts it against `D`, which is what keeps `Element` pure geometry.
 
 The two constitutive representations are the same material, *pinned* rather than asserted:
 `energies.py`'s `calculate_W_from_S` and the `½εᵀDε` implied by `Material` are one energy
@@ -156,9 +155,10 @@ strain measure fed to that one `W` — Green–Lagrange `S = ½(FᵀF − I)` (S
 small-strain `ε`. Both are named (`SmallStrain`, `StVenantKirchhoff`) and pinned in
 `tests/test_elasticity_models.py`. So the physics layer decomposes as **material** (the energy
 `W`) × **kinematics** (the strain measure), and choosing the kinematics point is an equation-level
-choice: `LinearElastic(kinematics=StrainMeasure.SMALL | GREEN_LAGRANGE)`, which `EnergySolver`
-maps to the density (the linear `Solver` path assembles a constant stiffness, so it takes only
-`SMALL` and rejects finite strain rather than silently linearising it).
+choice: `LinearElastic(kinematics=StrainMeasure.SMALL | GREEN_LAGRANGE)`, which
+`LinearElastic.energy_density` maps to the density. The linear path assembles a constant stiffness,
+so `LinearElastic.operator` accepts only `SMALL` and rejects finite strain rather than silently
+linearising it.
 
 ### `Element` — stateless types, batched geometry
 
@@ -180,15 +180,15 @@ immutable view of a declarative spec. Two shapes share one protocol, mirroring t
 
 - `LinearProblem` — `tangent(u) = A` (constant), `residual(u) = A·u − b`. Its constructor
   assembles the operator, folds the Neumann load into `b`, and folds each Robin contribution into
-  *both* `A` (`κ·` boundary mass) and `b` (the `∫g·v` term) — the two-sided operator/load algebra,
-  used for real by Robin.
+  *both* `A` (`κ·` boundary mass) and `b` (the `∫g·v` term) — a term that contributes to the
+  operator and the load at once, which is what Robin needs.
 - `EnergyProblem` — `tangent(u) = ∇²Π(u)`, `residual(u) = ∇Π(u)`, the state-dependent sibling.
 
 The `Problem` **owns its constraints**: nothing index-keyed is carried across a mesh change,
-because a driver that remeshes just builds a new `Problem`. That is what took the "re-resolve BCs
-after every remesh" dance out of the solver — the class of bug the old `adaptive_refinement`
-carried. `LinearProblem` is the special case of `EnergyProblem` where the tangent does not depend
-on `u`, exactly the relationship `Form` has to `EnergyForm`.
+because a driver that remeshes just builds a new `Problem`. No solver has to re-resolve boundary
+conditions by hand, and no stale DOF partition can outlive the mesh it was built for.
+`LinearProblem` is the special case of `EnergyProblem` where the tangent does not depend on `u`,
+exactly the relationship `Form` has to `EnergyForm`.
 
 ### Solve strategies — `LinearSolve`, `NewtonSolve`, one engine
 
@@ -197,10 +197,10 @@ factor-once solve), and knows nothing about which PDE produced the `Problem`. `L
 assembles once and solves once; `NewtonSolve` iterates, re-factoring the tangent each step and
 checking convergence before applying the increment. A `LinearProblem` has a constant tangent and
 an affine residual, so `NewtonSolve` reaches its solution in a single applied step from any seed —
-`LinearSolve` is that step done directly. The two are one engine: `EnergySolver` delegates its
-Newton loop to `NewtonSolve(EnergyProblem(...))` rather than carrying a second copy. `SolveStrategy`
-is the protocol both satisfy, and `TopologyOptimizer` takes one as an injectable parameter — a
-driver that accepts any strategy, which is the protocol earning its place.
+`LinearSolve` is that step done directly. The two are one engine: `EnergySolver`'s Newton loop *is*
+`NewtonSolve`, applied to an `EnergyProblem`. `SolveStrategy` is the protocol both satisfy, and
+`TopologyOptimizer` takes one as an injectable parameter — a driver that accepts any strategy,
+which is the protocol earning its place.
 
 ### `Backend` — the second, orthogonal axis of the solve
 
@@ -243,12 +243,11 @@ since those effective operators are SPD.
   N-sized `M + β dt² K` — **not** a 2N first-order block. The wave speed lives in the operator as
   `ScaledForm(c², …)`, so the integrator sees only `c²K` and never learns `c`; constant Dirichlet
   displacement means zero velocity and acceleration at fixed nodes, so those DOFs are the ordinary
-  constraint, with no lifting into a block DOF space. That the operator is SPD (where the old block
-  system was not) is what lets a wave step run on `IterativeBackend`, which the old block system
-  could not. `wave_energy` is the invariant this scheme conserves for a linear system, kept as a
-  diagnostic.
+  constraint, with no lifting into a block DOF space. Keeping the operator SPD is what lets a wave
+  step run on `IterativeBackend`; a first-order block reformulation would not be. `wave_energy` is
+  the invariant this scheme conserves for a linear system, kept as a diagnostic.
 
-### `Equation` — identity plus physical constants
+### `Equation` — identity, physical constants, and the physics they imply
 
 `Equation` is typed data: it says *what* to solve and carries the genuinely physical parameters
 (`E`/`nu` on `LinearElastic`), while a strategy owns *how*. `Projection`, `Poisson`, and
@@ -256,28 +255,48 @@ since those effective operators are SPD.
 integrator (`problem.heat(...)`, `problem.wave(...)`), not a distinct PDE type, so there is no
 `Heat` or `Wave` class. `Equation` carries no time-discretization parameters and no mutable
 material — `TopologyOptimizer` builds a fresh material each iteration — so it is immutable
-specification, which is what its docstring claims.
+specification.
+
+It also answers what its constants *mean*, along one method per assembly path: `operator(...)`
+returns the bilinear `Form` the linear path assembles (`MassForm` for a projection, the
+material-free `LaplacianForm` for the scalar family, a `LinearElasticForm` built from its own
+`E`/`nu`), and `energy_density()` returns the density the nonlinear path differentiates. Both
+refuse rather than approximate: a Green–Lagrange `LinearElastic` has no constant stiffness, so it
+has no `operator`, and a scalar equation has no stored energy, so it has no `energy_density`. That
+is why neither facade holds a `_select_*` mapping, and it is the natural home for the per-equation
+error estimator the backlog wants.
+
+`fem/equations.py` is its own module for the same reason: both facades consume equations, so
+neither owns them.
 
 ### `Solver` / `EnergySolver` — thin facades over the core
 
-`Solver` is now a steady-solve facade: it holds a mesh, an equation, and boundary conditions;
-`solve()` builds a `LinearProblem` and hands it to `LinearSolve`, returning a typed `Solution`.
-Its one remaining job beyond composition is `remesh(mesh)`, which rebuilds the space and
-re-resolves the BC spec — the seam an `AdaptiveRefinement` driver uses to advance it across meshes
-without reaching into its state. `EnergySolver` is the analogous facade for the nonlinear energy
-path, delegating to `NewtonSolve(EnergyProblem(...))`. Both keep the one physics `◧` noted in §3
-(`stiffness_form` / `_select_energy`), and nothing else.
+The two are deliberately the same shape: hold a mesh, an equation, and a BC spec; build a
+`Problem` per solve; hand it to a strategy. `Solver` builds a `LinearProblem` for `LinearSolve`;
+`EnergySolver` builds an `EnergyProblem` for `NewtonSolve`. Both expose `remesh(mesh)`, which
+rebuilds the derived state from the mesh-independent specification — the seam a driver advances
+them through without reaching into their state.
+
+Neither holds anything index-keyed. The DOF partition belongs to the `Problem` built for the
+current mesh, so a stale partition cannot outlive a refinement; `EnergySolver` seeds its Newton
+iteration from `problem.constraints`.
+
+They differ in one way on purpose: `Solver` takes a `Backend` and `EnergySolver` does not, because
+the energy path runs through `NewtonSolve`, whose tangent is not guaranteed SPD (§4, `Backend`).
 
 ### Drivers — uniform outer loops
 
-`AdaptiveRefinement` and `TopologyOptimizer` are the two studies, and they now have the *same*
-shape: each owns a solver (or strategy) and re-solves. `AdaptiveRefinement` owns a `Solver` and
+`AdaptiveRefinement` and `TopologyOptimizer` are the two studies, and they share one shape: each
+owns a solver (or strategy) and re-solves. `AdaptiveRefinement` owns a `RefinableSolver` and
 advances it across meshes via `remesh`; `TopologyOptimizer` owns a `SolveStrategy` and rebuilds a
-fresh `LinearProblem` from the current density each iteration. `TopologyOptimizer`'s objective is
-an injected object (`MinCompliance`, `TargetCompliance`), not a string resolved through a
-`_select_*` dispatch, and its result is a typed `TopologyHistory` rather than a `_list`-suffixed
-dict. Neither driver reaches into a solver's internals: adaptivity advances a `Solver` only
-through `remesh`, and the optimizer only builds and solves fresh `Problem`s.
+fresh `LinearProblem` from the current density each iteration. Its objective is an injected object
+(`MinCompliance`, `TargetCompliance`) and its result a typed `TopologyHistory`. Neither driver
+reaches into a solver's internals: adaptivity uses `remesh` and `solve`, and the optimizer only
+builds and solves fresh `Problem`s.
+
+`RefinableSolver` is a protocol, not a concrete `Solver`: adaptivity needs a mesh, a BC spec,
+`remesh`, and `solve`, and both facades satisfy that, so nonlinear elasticity refines through the
+same driver the Poisson path uses.
 
 ### `Solution` — typed, one dataclass per shape
 
@@ -326,8 +345,9 @@ that would otherwise drift — recurs four more times, which is the argument tha
 shape here rather than a stylistic preference:
 
 - `FunctionSpace` is `ResolvedBC` for the discretization.
-- `Form` is the resolved, assembly-ready view of an `Equation`'s physics — `LinearElasticForm(material)`
-  derived from a `LinearElastic`, holding no mutable state.
+- `Form` is the resolved, assembly-ready view of an `Equation`'s physics, and `Equation.operator`
+  is the derivation itself: `LinearElastic` hands back a `LinearElasticForm` built from its own
+  constants, holding no mutable state.
 - `Problem` is the resolved view of a whole composition, and `Solution` is the typed, immutable
   result the strategy hands back.
 - `LinearSolver` is a `Backend` resolved against one assembled matrix: the immutable config,

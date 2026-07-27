@@ -7,7 +7,7 @@ import numpy as np
 
 from fem.boundary import BCType, BoundaryConditions
 from fem.regions import on_plane
-from fem.solver import LinearElastic
+from fem.equations import LinearElastic
 from fem.topology import TopologyOptimizer
 
 

@@ -30,7 +30,8 @@ from fem.backends import IterativeBackend
 from fem.materials import Enu_to_Lame
 from fem.mesh.generation import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere
-from fem.solver import Solver, LinearElastic
+from fem.equations import LinearElastic
+from fem.solver import Solver
 
 E, NU = 200.0, 0.3
 MU, LAMB = Enu_to_Lame(E, NU)
