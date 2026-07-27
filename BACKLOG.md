@@ -62,9 +62,14 @@ and neighbour lookups during mesh construction.
   integrals. A general quadrature layer (reference element + Gauss points + Jacobian) would
   make adding new element types and variable coefficients far easier, and is a prerequisite for
   the quadratic elements above. Decide `quadrature.py`'s fate: integrate it or mark it WIP.
-- 💡 **A posteriori error estimator** so adaptive refinement is fully closed-loop — the
-  residual scaffolding is already sketched in `fem/solver.py`. `Solver.adaptive_refinement`
-  takes the estimator as a callable `(solver) -> per-element error`, so this drops straight in.
+- 💡 **A posteriori error estimator** so adaptive refinement is fully closed-loop.
+  `Solver.adaptive_refinement` takes the estimator as a callable
+  `(solver) -> per-element error`, so this drops straight in. Two flavours were sketched
+  originally and both are still wanted: the *a priori* bound `||e|| <= C h² ||f''||`, which
+  needs only the mesh and the source, and the *a posteriori* element residual, which needs
+  the computed solution. They are per-equation — the Poisson residual is not the elasticity
+  one — so the natural home is a method on the `Equation` subclass rather than a dispatch
+  table in `Solver`.
 - 💡 **Hand-rolled geometric two-grid V-cycle preconditioner.** The SPD iterative path
   (`fem/backends.py:IterativeBackend`, AMG-CG) currently gets its multigrid from `pyamg`. A
   geometric two-grid V-cycle built on the adaptive-refinement mesh hierarchy would drop in
@@ -120,6 +125,16 @@ and neighbour lookups during mesh construction.
   drifted from the code.
 - 💡 **Mesh formats.** `fem/io.py` writes meshes as JSON; `.off`/`.obj` export would make them
   loadable by standard tools.
+- 💡 **Derivative checks on the assembled energy path.** `fem/numerics.py` has
+  `check_gradient`/`check_hessian`, and `StVenantKirchhoff.check_gradients` uses them at the
+  energy-density level. The assembled level is unchecked: `EnergySolver.energy` /
+  `energy_gradient` / `energy_hessian` should satisfy the same finite-difference agreement.
+  The existing helpers plot a convergence curve rather than asserting, so this wants an
+  assert-shaped variant (error slope over a window of `eps`) before it can be a test.
+- 💡 **Contour overlay for scalar plots.** `fem/plot/helpers.py:plot_colored` draws a flat
+  `tripcolor`; a `contour: int` argument adding `tricontour` isolines on top would make
+  gradients readable. Was half-written and never validated — needs a look at level selection
+  (`np.linspace(min, max, contour)` bunches levels badly on skewed fields).
 
 ---
 

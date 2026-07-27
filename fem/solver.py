@@ -211,35 +211,3 @@ class Solver:
                 compliance,
             )
         return FieldSolution(self.mesh, self.n_components, u)
-
-    # # residuals
-    # def calculate_residuals(self):
-    #     # apriori and aposteriori error estimation
-
-    #     equation_residuals = {
-    #         "projection": self._calculate_projection_residuals,
-    #         "poisson": self._calculate_poisson_residuals,
-    #         "heat": self._calculate_heat_residuals,
-    #         "wave": self._calculate_wave_residuals,
-    #         "linear_elastic": self._calculate_linear_elastic_residuals,
-    #     }
-
-    #     residual_method = equation_residuals.get(self.equation.name)
-    #     if residual_method:
-    #         residual_method()
-    #     else:
-    #         raise ValueError(f"Unknown equation name: {self.equation.name}")
-
-    # def calculate_projection_residuals(self, apriori=True):
-    #     # Apriori error ||e|| <= C * h^2 * ||f"||
-    #     if apriori:
-    #         # compute apriori residual
-    #         residuals = np.zeros(len(self.mesh.elements))
-    #         for e_idx, element in enumerate(self.mesh.elements):
-    #             residuals[e_idx] = 0 # placeholder
-    #         self.solution.set_values("apriori_residual", residuals)
-    #     else:
-    #         # compute aposteriori residual
-    #         residuals = None
-    #         self.solution.set_values("aposteriori_residual", residuals)
-    #         pass
