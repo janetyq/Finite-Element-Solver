@@ -15,7 +15,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 |---|---|:---:|---|
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify the smoothing matrix (topology) | 🟡 | [§2](#2-performance--scaling) |
-| Scaling | O(n²) linear scans in meshing | 🟡 | [§2](#2-performance--scaling) |
+| Scaling | Rebuild-per-insertion in Ruppert's refinement | 🟡 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | A-posteriori error estimator | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -49,9 +49,16 @@ distance matrix. For topology optimization at any real resolution this dominates
 spatial hash / KD-tree (`scipy.spatial.cKDTree.query_ball_point`) building a sparse weight
 matrix would scale far better and is a near drop-in.
 
-### 🟠 Meshing generation has `O(n²)` linear scans
-`fem/mesh/generation.py` still has linear-scan bottlenecks in vertex deduplication
-and neighbour lookups during mesh construction.
+### 🟠 Ruppert's rebuilds the whole triangulation after every insertion
+`RuppertsAlgorithm.run_algo` inserts one vertex per pass and then calls `Delaunay(...)`
+from scratch, so refinement costs `O(n)` full retriangulations. With the per-segment and
+per-triangle scans now vectorised (§ closed below), that rebuild is the dominant remaining
+term: ~60% of a run, and it is what keeps the raw 1700-point California outline at ~450 s.
+`Delaunay(..., incremental=True)` plus `add_points` is a near drop-in and measures ~6.6x
+faster on that component. The catch is that qhull's incremental mode returns the same
+triangles in a different `simplices` order, which changes which bad triangle
+`run_algo` pops next -- so every mesh the demos and gallery produce would change (still
+valid, just different). Worth doing alongside a decision to re-bless the gallery images.
 
 ---
 
@@ -149,8 +156,10 @@ recovers anything. Each item below is an implementation of a seam that already e
   forced problems, which is also a prerequisite for using it on the nonlinear roadmap.
 
 **Engineering**
-- 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg` and `generation` (Rupperts/approx
-  mesh) have no *correctness* tests. The plot layer is exercised end-to-end by
+- 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg` and `generation`'s
+  `create_approx_mesh` have no *correctness* tests. (Ruppert's is now covered by
+  `tests/test_generation.py`, which asserts the angle bound, segment conformity and the
+  area cap.) The plot layer is exercised end-to-end by
   `tests/test_demos.py` but has no assertions on what it draws. The 3D tet path now
   runs to h = 1/20 and asserts the same O(h²) band as the 2D case, and the
   `AdaptiveRefinement` driver is covered in `tests/test_refinement.py`.
@@ -162,10 +171,13 @@ recovers anything. Each item below is an implementation of a seam that already e
   implying a demo exists.
 - 💡 **`adaptive_refinement` is the one demo still skipped by `tests/test_demos.py`**,
   blocked on the error estimator above and on Dirichlet conditions that survive a remesh.
-- 💡 **Ruppert's is superlinear in its input size and non-monotonic.** Triangulating the
-  California outline takes ~12 s from 56 points and ~28 s from 37, and does not terminate in
-  practice on the unsimplified 1700-point curve. The demos work around it with a simplification
-  tolerance; the `O(n²)` scans in §2 are the cause.
+- 💡 **Ruppert's output size is non-monotonic in its input size.** Triangulating the
+  California outline from 37 points yields 601 triangles, but from 56 points only 403 — a
+  coarser outline can cost *more* work. The likely cause is the interaction between segment
+  splitting and which bad triangle gets popped, not the input size as such. Worth
+  understanding before tuning the demo's simplification tolerance by feel.
+  (Runtime is no longer the issue: the same runs are ~2.8 s and ~1.4 s, and the raw
+  1700-point curve now completes in ~450 s where it previously did not finish at all.)
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
   the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/generation.py` and
   `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.
