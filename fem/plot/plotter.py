@@ -125,14 +125,24 @@ class Plotter:
         mode: PlotMode | str = PlotMode.COLORED,
         idx: tuple[int, int] = (0, 0),
         titles: Sequence[str] | None = None,
-        cbar_lims: tuple[float, float] = (0, 1),
+        cbar_lims: tuple[float, float] | None = None,
     ) -> None:
+        mode = PlotMode(mode)
         # Bound to a local list so the nested `update` closure keeps the
         # non-optional type; a narrowed parameter does not survive capture.
         frame_titles = list(titles) if titles is not None else [str(i) for i in range(len(values))]
 
-        # sets up colorbar for animation with desired limits
-        self.cbar_infos[idx] = setup_colorbar(self.axs[idx], cbar_lims, label=None)
+        # Only the colored mode reads a colorbar. A surface animation drew one anyway,
+        # onto the 2D axes that change_ax_to_ax3d then replaces -- leaving a stray
+        # legend beside a plot that never used it.
+        if mode is PlotMode.COLORED:
+            # Fixed across frames so they stay comparable, and spanning the series
+            # rather than a caller-supplied guess: the default used to be (0, 1),
+            # against which any field outside that range rendered as one flat block.
+            if cbar_lims is None:
+                cbar_lims = (min(np.min(v) for v in values), max(np.max(v) for v in values))
+            self.cbar_infos[idx] = setup_colorbar(self.axs[idx], cbar_lims, label=None)
+
         self.plot(mesh, values[0], mode=mode, idx=idx, title=frame_titles[0])
 
         def update(frame: int) -> None:
@@ -162,11 +172,14 @@ class Plotter:
         plt.show()
 
     def save(self, path: str) -> None:
+        # self.fig, not plt.savefig: pyplot writes the *current* figure, which is
+        # whichever was created last, so a caller holding two Plotters saved the second
+        # one under both names.
         self.format_axs()
-        plt.savefig(path)
+        self.fig.savefig(path)
 
         # TODO: animation saving not supported yet
 
     def close(self) -> None:
-        plt.close()
+        plt.close(self.fig)
         
