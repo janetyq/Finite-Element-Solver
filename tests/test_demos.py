@@ -6,8 +6,9 @@ the first thing to break when an API moves -- two of them had rotted against
 demo runs here on a small mesh, asserting "still callable and still returns what the
 registry claims", not "still correct": the numerics have their own tests.
 
-Demos that need a person at a widget, or that are blocked on unimplemented work, name
-the reason in `Demo.smoke_skip` and are skipped.
+A demo needing an optional dependency names it in `Demo.smoke_requires` and is skipped
+where that is absent; `Demo.smoke_kwargs` supplies the cheapest arguments that still
+exercise the code.
 """
 import sys
 from pathlib import Path
@@ -40,8 +41,6 @@ def close_figures():
 @pytest.mark.filterwarnings('ignore:Animation was deleted without rendering anything')
 @pytest.mark.parametrize('demo', DEMOS, ids=lambda demo: demo.name)
 def test_demo_runs(demo, make_unit_square, tmp_path, monkeypatch):
-    if demo.smoke_skip is not None:
-        pytest.skip(demo.smoke_skip)
     if demo.smoke_requires is not None:
         pytest.importorskip(demo.smoke_requires)
 

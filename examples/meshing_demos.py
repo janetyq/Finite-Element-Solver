@@ -160,11 +160,14 @@ def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=None, min_angle=20):
 # Coarser than DEFAULT_TOLERANCE: the point of running these unattended is to cover the
 # SVG parse and Ruppert's, and the cost of that coverage is superlinear in the point count.
 _SMOKE_TOLERANCE = {'tolerance': 0.04}
+# The gallery can afford the outline a reader would recognise.
+_GALLERY_TOLERANCE = {'tolerance': DEFAULT_TOLERANCE}
 
 DEMOS = [
     Demo('uniform_mesh', demo_uniform_mesh, needs_mesh=False),
     Demo('mesh_plotting', demo_mesh_plotting),
     Demo('douglas_peucker', demo_douglas_peucker_svg, needs_mesh=False,
-         smoke_kwargs=_SMOKE_TOLERANCE),
-    Demo('rupperts', demo_rupperts_svg, needs_mesh=False, smoke_kwargs=_SMOKE_TOLERANCE),
+         smoke_kwargs=_SMOKE_TOLERANCE, gallery_kwargs=_GALLERY_TOLERANCE),
+    Demo('rupperts', demo_rupperts_svg, needs_mesh=False,
+         smoke_kwargs=_SMOKE_TOLERANCE, gallery_kwargs=_GALLERY_TOLERANCE),
 ]

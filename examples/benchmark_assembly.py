@@ -67,7 +67,9 @@ def demo_backends(sizes=DEFAULT_SIZES):
 DEMOS = [
     # Text rather than a figure: the result is a scaling trend across sizes, not a field
     # over a mesh, so there is nothing for a Plotter to draw.
-    Demo('backends', demo_backends, needs_mesh=False, smoke_kwargs={'sizes': (5,)}),
+    # n=21 alone is ~19s of direct factorisation; the crossover is already clear at 17.
+    Demo('backends', demo_backends, needs_mesh=False,
+         smoke_kwargs={'sizes': (5,)}, gallery_kwargs={'sizes': (5, 9, 13, 17)}),
 ]
 
 

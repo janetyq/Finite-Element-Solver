@@ -58,15 +58,14 @@ class Demo:
     name: str
     func: Callable[..., DemoResult]
     needs_mesh: bool = True      # cli.py loads --mesh and passes it as the first arg
-    # Why this demo cannot run unattended, or None if it can. `tests/test_demos.py` runs
-    # every demo headlessly so a moved API surfaces there rather than on a human's screen;
-    # a demo that needs a person at a widget, or that is blocked on unimplemented work,
-    # names the reason here and is skipped. Kept beside the demo rather than in a list
-    # inside the test, so whoever changes the demo sees the claim.
-    smoke_skip: str | None = None
-    # An optional dependency the demo needs, skipped when absent. Distinct from
-    # `smoke_skip`: this demo can run unattended, just not on every install.
+    # An optional dependency the demo needs; it is skipped where that is absent.
     smoke_requires: str | None = None
-    # Overrides for that headless run: cheaper sizes, and output paths left relative so
-    # they land in the test's temporary directory instead of the repo.
+    # Three callers run these demos and want different things of them, so the overrides
+    # are per caller rather than one "unattended" set:
+    #   - the CLI uses the demo's own defaults, with a human watching
+    #   - the smoke test wants the cheapest arguments that still exercise the code
+    #   - the gallery wants the best-looking result that renders in reasonable time
+    # Ruppert's is the case that forces the split: 0.04 is a 13-point blob that proves
+    # the code runs, and 0.005 is a recognisable outline that takes ~12s.
     smoke_kwargs: dict[str, Any] = field(default_factory=dict)
+    gallery_kwargs: dict[str, Any] = field(default_factory=dict)

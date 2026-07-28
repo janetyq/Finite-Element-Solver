@@ -16,3 +16,6 @@ REFACTOR_PLAN.md
 .claude/worktrees/
 
 # Generated demo output is ignored by results/.gitignore.
+
+# Rendered demo gallery: regenerate with `examples/cli.py gallery`.
+.gallery/

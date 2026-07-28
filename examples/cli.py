@@ -1,9 +1,10 @@
-"""Demo runner: list and run any registered example demo by name.
+"""Demo runner: list, run, or render the whole registry as a browsable gallery.
 
     uv run python examples/cli.py list
     uv run python examples/cli.py run poisson
     uv run python examples/cli.py run poisson --save images/poisson.png
     uv run python examples/cli.py run poisson --mesh files/mesh_20x20.json
+    uv run python examples/cli.py gallery
 """
 import argparse
 import logging
@@ -19,6 +20,7 @@ import solver_demos
 
 # Resolved against the repo, so `run poisson` works from any directory.
 DEFAULT_MESH_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'mesh_40x40.json')
+DEFAULT_GALLERY_DIR = '.gallery'
 
 
 def build_registry() -> dict[str, Demo]:
@@ -117,11 +119,26 @@ def main():
         help='save the plot(s) to this path instead of showing them interactively',
     )
 
+    gallery_parser = subparsers.add_parser(
+        'gallery', help='render every demo to a browsable static gallery')
+    gallery_parser.add_argument(
+        '--out', default=DEFAULT_GALLERY_DIR,
+        help=f'directory to write (replaced if it exists; default: {DEFAULT_GALLERY_DIR})')
+    gallery_parser.add_argument('--mesh', default=DEFAULT_MESH_FILE, help='mesh JSON file to load')
+
     args = parser.parse_args()
 
     if args.command == 'list':
         for name in sorted(registry):
             print(f'{name}: {_description(registry[name])}')
+        return
+
+    if args.command == 'gallery':
+        from gallery import build_gallery
+
+        print(f'Rendering {len(registry)} demos into {args.out}/ ...')
+        build_gallery(registry, Path(args.out), args.mesh)
+        print(f'\nOpen {Path(args.out).resolve() / "index.html"}')
         return
 
     run_demo(registry[args.name], args.mesh, args.save)
