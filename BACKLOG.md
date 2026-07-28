@@ -150,17 +150,22 @@ recovers anything. Each item below is an implementation of a seam that already e
 
 **Engineering**
 - 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg` and `generation` (Rupperts/approx
-  mesh) have no *correctness* tests, and the plot layer has none at all. The 3D tet path now
+  mesh) have no *correctness* tests. The plot layer is exercised end-to-end by
+  `tests/test_demos.py` but has no assertions on what it draws. The 3D tet path now
   runs to h = 1/20 and asserts the same O(h²) band as the 2D case, and the
   `AdaptiveRefinement` driver is covered in `tests/test_refinement.py`.
-- 💡 **The CLI demos have rotted**, each against an API that moved out from under it:
-  `linear_elastic` calls `BoundaryConditions.plot` and `energy_solver` calls
-  `solution.get_values('energy')`, neither of which exists; `adaptive_refinement` is gated behind
-  a deliberate `NotImplementedError` pending the error estimator; `3d` needs the `viz3d` extra.
-  `rupperts` runs but takes over two minutes. The pass/fail count is unverified — nothing in CI
-  exercises them, which is the real problem, since they are the only thing exercising the plot
-  layer. The call sites touched by the post-processing work (`solution.von_mises`,
-  `topopt.deformed_mesh()`, `history.von_mises`) were updated for consistency but not run.
+- 💡 **A flow-around-an-obstacle Poisson demo.** The README's Poisson figure shows one
+  (Dirichlet `u = 0` on the obstacle, Neumann inlet/outlet) and nothing in `examples/`
+  reproduces it: the meshing side has no support for interior holes, so there is no obstacle
+  mesh to solve on. `PSLG` takes a single closed outline plus a bounding box; holes need a
+  second loop and an inside/outside rule in Ruppert's. The README now says so rather than
+  implying a demo exists.
+- 💡 **`adaptive_refinement` is the one demo still skipped by `tests/test_demos.py`**,
+  blocked on the error estimator above and on Dirichlet conditions that survive a remesh.
+- 💡 **Ruppert's is superlinear in its input size and non-monotonic.** Triangulating the
+  California outline takes ~12 s from 56 points and ~28 s from 37, and does not terminate in
+  practice on the unsimplified 1700-point curve. The demos work around it with a simplification
+  tolerance; the `O(n²)` scans in §2 are the cause.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
   the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/generation.py` and
   `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.

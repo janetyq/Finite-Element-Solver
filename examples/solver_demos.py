@@ -11,7 +11,7 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
-from fem.equations import Projection, Poisson, LinearElastic
+from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
@@ -61,42 +61,129 @@ def demo_poisson_equation(mesh):
     plotter.plot(mesh, np.linalg.norm(gradient, axis=1), mode='surface', title='Gradient Norm', idx=(0, 2))
     return plotter
 
+def demo_robin_bc(mesh):
+    """Cool a heated plate through a convective boundary, sweeping the Robin coefficient."""
+    # du/dn + kappa*(u - u_ambient) = 0: heat generated inside escapes through a boundary
+    # film, and kappa says how freely. The other two condition types are its limits --
+    # kappa -> 0 is insulated (Neumann) and kappa -> infinity pins u to ambient
+    # (Dirichlet) -- so the sweep ends on a Dirichlet solve the last Robin panel should
+    # already look like.
+    u_ambient = 300.0
+    equation = Poisson(source=50.0)
+    kappas = [0.5, 5.0, 500.0]
+
+    plotter = Plotter(1, len(kappas) + 1, title='Robin BCs: convective cooling')
+    for i, kappa in enumerate(kappas):
+        bc = BoundaryConditions()
+        bc.add_robin(everywhere(), kappa=kappa, g=kappa*u_ambient)
+        u = Solver(mesh, equation, bc).solve().u
+        plotter.plot(mesh, u, mode='colored', idx=(0, i),
+                     title=f'kappa={kappa:g}\n{u.min():.1f} - {u.max():.1f}')
+
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), u_ambient)
+    u = Solver(mesh, equation, bc).solve().u
+    plotter.plot(mesh, u, mode='colored', idx=(0, len(kappas)),
+                 title=f'Dirichlet limit\n{u.min():.1f} - {u.max():.1f}')
+    return plotter
+
+def demo_nonlinear_elastic(mesh, stretch=0.5):
+    """Stretch a block hard, comparing small-strain elasticity against St Venant-Kirchhoff."""
+    # Same material, same imposed displacement, different strain measure: the linear
+    # path uses eps = (grad u + grad u^T)/2, which is only the leading term of the
+    # Green-Lagrange strain S = (F^T F - I)/2 that St Venant-Kirchhoff uses. Under a
+    # uniaxial stretch lambda the two read (lambda - 1) and (lambda^2 - 1)/2, so the
+    # finite-strain model stiffens as the stretch grows and the linear one cannot.
+    # Both solutions report Cauchy stress (see LinearElasticForm/EnergyForm
+    # .derived_fields), so the two von Mises fields are the same measure and the gap
+    # between them is physics rather than bookkeeping. The peak sits at the clamped
+    # corners, where the imposed displacement is singular, so the median is quoted
+    # beside it as the bulk figure.
+    w = np.max(mesh.vertices[:, 0])
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.DIRICHLET, on_plane(0, w), [stretch*w, 0])
+
+    small = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
+    finite = EnergySolver(
+        mesh, LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE), bc
+    ).solve()
+
+    plotter = Plotter(1, 2, title=f'Small strain vs St Venant-Kirchhoff ({stretch:.0%} stretch)')
+    for i, (name, solution) in enumerate([('Small strain', small), ('Green-Lagrange', finite)]):
+        vm = solution.von_mises
+        plotter.plot(solution.deformed_mesh(), vm, mode='colored', idx=(0, i),
+                     title=f'{name}\nvon Mises: median {np.median(vm):.0f}, peak {vm.max():.0f}')
+    return plotter
+
+def demo_stress_invariants(mesh):
+    """Show the four rotation-invariant stress measures recovered from one elastic solve."""
+    w = np.max(mesh.vertices[:, 0])
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.NEUMANN, intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])), [50, 0])
+
+    solution = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
+    deformed = solution.deformed_mesh()
+
+    # Each is a different question asked of the same stress tensor: distortion, mean
+    # normal stress, the Tresca measure, and the largest tensile principal value.
+    fields = [
+        ('Von Mises', solution.von_mises),
+        ('Pressure', solution.pressure),
+        ('Max shear', solution.max_shear),
+        ('Max principal', solution.principal_stress[:, -1]),
+    ]
+    plotter = Plotter(2, 2, title='Stress invariants of one solve')
+    for i, (name, values) in enumerate(fields):
+        plotter.plot(deformed, values, mode='colored', idx=divmod(i, 2), title=name)
+    return plotter
+
 def demo_heat_equation(mesh):
     """Animate transient heat diffusion from a hot bump initial condition."""
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     heat_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.5*min(w, h)) + 300
 
-    solution = ThetaMethod(dt=0.01, steps=5).run(heat(mesh), u_initial.copy())
+    solution = ThetaMethod(dt=0.01, steps=40).run(heat(mesh), u_initial.copy())
     u_values = solution.u
     t_values = solution.t
 
+    # The colour scale has to span the temperatures actually reached: plot_animation
+    # defaults to (0, 1), against which a 300 K field is uniformly off the top.
+    cbar_lims = (min(u.min() for u in u_values), max(u.max() for u in u_values))
+
     plotter = Plotter(1, 2, title='Heat Equation')
-    plotter.plot_animation(mesh, u_values, mode='colored', titles=[f'Color t={t}' for t in t_values], idx=(0, 0))
-    plotter.plot_animation(mesh, u_values, mode='surface', titles=[f'Surface t={t}' for t in t_values], idx=(0, 1))
+    plotter.plot_animation(mesh, u_values, mode='colored', cbar_lims=cbar_lims,
+                           titles=[f'Color t={t:.2f}' for t in t_values], idx=(0, 0))
+    plotter.plot_animation(mesh, u_values, mode='surface',
+                           titles=[f'Surface t={t:.2f}' for t in t_values], idx=(0, 1))
     return plotter
 
 def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
-    """Animate wave propagation from a bump initial condition, then show late frames individually."""
+    """Animate wave propagation from a bump initial condition, plus a grid of late snapshots."""
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     wave_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, wave_center, size=0.25*min(w, h))
     dudt_initial = np.zeros(len(mesh.vertices))
 
-    solution = NewmarkMethod(dt=0.03, steps=20).run(wave(mesh, c=1), u_initial, dudt_initial)
+    solution = NewmarkMethod(dt=0.03, steps=40).run(wave(mesh, c=1), u_initial, dudt_initial)
     u_values = solution.u
     t_values = solution.t
 
-    plotter = Plotter(1, 1, title='Wave Equation')
-    plotter.plot_animation(mesh, u_values, mode='surface', titles=[f'Surface t={t}' for t in t_values], idx=(0, 0))
-    plotters = [plotter]
+    animation = Plotter(1, 1, title='Wave Equation')
+    animation.plot_animation(mesh, u_values, mode='surface',
+                             titles=[f'Surface t={t:.2f}' for t in t_values], idx=(0, 0))
 
-    for i in range(6, len(u_values)):
-        frame_plotter = Plotter(1, 1, title='Wave Equation')
-        frame_plotter.plot(mesh, u_values[i], mode='surface', empty=True)
-        plotters.append(frame_plotter)
+    # Snapshots from the second half of the run, once the pulse has reflected off the
+    # boundary and started interfering with itself. One grid, rather than the window
+    # per frame this used to open.
+    snapshots = Plotter(2, 3, title='Wave Equation: reflection and interference')
+    for panel, i in enumerate(np.linspace(len(u_values)//2, len(u_values) - 1, 6).astype(int)):
+        snapshots.plot(mesh, u_values[i], mode='surface', idx=divmod(panel, 3),
+                       title=f't={t_values[i]:.2f}')
 
-    return plotters
+    return [animation, snapshots]
 
 def demo_linear_elastic(mesh):
     """Solve linear elasticity for a cantilever fixed on the left with a traction load."""
@@ -106,7 +193,6 @@ def demo_linear_elastic(mesh):
     bc.add(BCType.NEUMANN,  # stress, on the middle band of the right edge
            intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])),
            [50, 0])
-    bc.plot(mesh)
 
     equation = LinearElastic(E=200, nu=0.4)
     solver = Solver(mesh, equation, bc)
@@ -114,12 +200,13 @@ def demo_linear_elastic(mesh):
     deformed_mesh = solution.deformed_mesh()
     displacements = np.linalg.norm(solution.u.reshape(-1, 2), axis=1)
 
-    plotter = Plotter(1, 2, title='Linear Elasticity')
-    plotter.plot(deformed_mesh, solution.von_mises, mode='colored', title='Von Mises stress', idx=(0, 0))
-    plotter.plot(mesh, displacements, mode='colored', title='Displacement', idx=(0, 1))
+    plotter = Plotter(1, 3, title='Linear Elasticity')
+    plotter.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
+    plotter.plot(deformed_mesh, solution.von_mises, mode='colored', title='Von Mises stress', idx=(0, 1))
+    plotter.plot(mesh, displacements, mode='colored', title='Displacement', idx=(0, 2))
     return plotter
 
-def demo_topology_optimization(mesh, iters=10):
+def demo_topology_optimization(mesh, iters=40):
     """Run SIMP topology optimization on a cantilever under a downward force."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
@@ -201,16 +288,14 @@ def demo_energy_solver(mesh):  # displacement-driven: EnergySolver rejects a sou
 
     energy_solver = EnergySolver(mesh, equation, bc)
     solution = energy_solver.solve()
-    vertices = mesh.vertices + solution.u.reshape(-1, 2)
-    mesh_final = mesh.with_topology(vertices, mesh.elements, mesh.boundary)
-    solution.get_values('energy')
-    stresses = np.linalg.norm(solution.get_values('gradient').reshape(-1, 2), axis=1)
 
-    plotter = Plotter(title='Energy Solver')
-    plotter.plot(mesh_final, stresses, mode='colored', title='Final')
+    # EnergySolver returns the same ElasticSolution the linear path does, so the
+    # recovered stress is read the same way -- the parity is the point of the demo.
+    plotter = Plotter(title=f'Energy Solver (minimised energy {energy_solver.energy(solution.u):.4g})')
+    plotter.plot(solution.deformed_mesh(), solution.von_mises, mode='colored', title='Von Mises stress')
     return plotter
 
-def demo_3d():
+def demo_3d(steps=20):
     """Solve transient heat diffusion on a 3D tetrahedral mesh (renders via PyVista)."""
     mesh = create_rect_tetmesh(x_lim=[0, 4], y_lim=[0, 1], z_lim=[0, 1], subdividisions=2, plot=False)
 
@@ -218,22 +303,25 @@ def demo_3d():
     heat_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.3*w) + 300
 
-    solution = ThetaMethod(dt=0.04, steps=20).run(heat(mesh), u_initial.copy())
-    u_values = solution.u
-    solution.t
+    solution = ThetaMethod(dt=0.04, steps=steps).run(heat(mesh), u_initial.copy())
 
-    plot_tetmesh_animation(mesh, np.array(u_values), title='Heat Diffusion')
+    plot_tetmesh_animation(mesh, np.array(solution.u), title='Heat Diffusion')
 
 
 DEMOS = [
     Demo('plot_mesh', demo_plot_mesh),
     Demo('l2_projection', demo_l2_projection),
     Demo('poisson', demo_poisson_equation),
+    Demo('robin', demo_robin_bc),
     Demo('heat', demo_heat_equation),
     Demo('wave', demo_wave_equation),
     Demo('linear_elastic', demo_linear_elastic),
-    Demo('topology_optimization', demo_topology_optimization),
-    Demo('adaptive_refinement', demo_adaptive_refinement, returns_plotter=False),
+    Demo('stress_invariants', demo_stress_invariants),
+    Demo('nonlinear_elastic', demo_nonlinear_elastic),
+    Demo('topology_optimization', demo_topology_optimization, smoke_kwargs={'iters': 3}),
+    Demo('adaptive_refinement', demo_adaptive_refinement, returns_plotter=False,
+         smoke_skip='blocked on an error estimator and remeshable Dirichlet BCs (see BACKLOG.md)'),
     Demo('energy_solver', demo_energy_solver),
-    Demo('3d', demo_3d, needs_mesh=False, returns_plotter=False),
+    Demo('3d', demo_3d, needs_mesh=False, returns_plotter=False,
+         smoke_requires='pyvista', smoke_kwargs={'steps': 3}),
 ]

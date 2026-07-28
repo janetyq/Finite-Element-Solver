@@ -7,20 +7,26 @@
 """
 import argparse
 import logging
+from pathlib import Path
 
 from fem.mesh.mesh import Mesh
 
 from demo_registry import Demo
+import benchmark_assembly
 import meshing_demos
 import refinement_demo
 import solver_demos
 
-DEFAULT_MESH_FILE = 'files/mesh_40x40.json'
+# Resolved against the repo, so `run poisson` works from any directory.
+DEFAULT_MESH_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'mesh_40x40.json')
 
 
-def _build_registry() -> dict[str, Demo]:
+def build_registry() -> dict[str, Demo]:
+    '''Every registered demo by name. Also the entry point `tests/test_demos.py` uses
+    to run them all, so a demo is covered by the smoke test as soon as it is listed.'''
     registry: dict[str, Demo] = {}
-    for demo in solver_demos.DEMOS + meshing_demos.DEMOS + refinement_demo.DEMOS:
+    for demo in (solver_demos.DEMOS + meshing_demos.DEMOS + refinement_demo.DEMOS
+                 + benchmark_assembly.DEMOS):
         if demo.name in registry:
             raise ValueError(f'duplicate demo name: {demo.name!r}')
         registry[demo.name] = demo
@@ -70,7 +76,7 @@ def run_demo(demo: Demo, mesh_file: str, save_path: str | None) -> None:
 
 
 def main():
-    registry = _build_registry()
+    registry = build_registry()
 
     parser = argparse.ArgumentParser(description='Run Finite-Element-Solver example demos.')
     subparsers = parser.add_subparsers(dest='command', required=True)

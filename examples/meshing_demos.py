@@ -4,6 +4,8 @@
     uv run python examples/cli.py run mesh_plotting
 """
 import json
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
@@ -14,7 +16,17 @@ from fem.mesh.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
 
 from demo_registry import Demo
 
-DEFAULT_SVG_FILE = 'files/california.svg'
+# Resolved against the repo rather than the working directory: the input files ship
+# with the project, so a demo should not depend on where it was launched from. Output
+# paths stay relative, and so follow the caller's directory.
+DEFAULT_SVG_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'california.svg')
+
+# Simplification tolerance as a fraction of the curve's bounding-box extent, so one
+# number suits any outline. Ruppert's cost is superlinear in the point count it is
+# handed (~12 s at this tolerance on the California outline, ~28 s at half of it), and
+# an unsimplified outline does not terminate in practice -- which is why this is also
+# where the slider starts rather than at zero.
+DEFAULT_TOLERANCE = 0.005
 
 def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='files/mesh.json'):
     """Build a uniform rectangular mesh and save it to disk."""
@@ -45,14 +57,27 @@ def get_curve_from_svg(svg_file):
     curve = max(output, key=lambda x: len(x)) # get the longest path
     return np.array(curve)
 
-def demo_douglas_peucker(curve, save_file='douglas_peucker_output.json'):
+def demo_douglas_peucker(curve, save_file='douglas_peucker_output.json', tolerance=None):
+    """Simplify `curve` with Douglas-Peucker, returning the simplified curve.
+
+    `tolerance` is a fraction of the curve's extent. Left as None this opens the
+    interactive slider and returns whatever the slider was left on; given a value it
+    simplifies directly, which is the path for an unattended caller.
+    """
+    d = max(np.max(curve, axis=0) - np.min(curve, axis=0))
+    if tolerance is not None:
+        return douglas_peucker(curve, tolerance * d)
+
     fig, ax = plt.subplots()
     ax.plot(curve[:, 0], curve[:, 1], color='gray', alpha=0.5)
     plt.subplots_adjust(bottom=0.15)
 
-    sampled_plot = plt.plot(curve[:, 0], curve[:, 1], 'b-')[0]
-    d = max(np.max(curve, axis=0) - np.min(curve, axis=0))
-    slider = Slider(plt.axes([0.15, 0.04, 0.6, 0.03]), 'Epsilon ', 0, d/20, valinit=0.0)
+    initial = douglas_peucker(curve, DEFAULT_TOLERANCE * d)
+    sampled_plot = plt.plot(initial[:, 0], initial[:, 1], 'b-')[0]
+    # Starting at zero would leave an untouched slider handing the full outline
+    # downstream, which Ruppert's does not finish triangulating.
+    slider = Slider(plt.axes([0.15, 0.04, 0.6, 0.03]), 'Epsilon ', 0, d/20,
+                    valinit=DEFAULT_TOLERANCE * d)
     button = plt.Button(plt.axes([0.85, 0.04, 0.1, 0.04]), 'Save')
 
     def update(val):
@@ -94,21 +119,27 @@ def demo_rupperts(curve, min_angle=20):
         ax.plot(rupperts.vertices[seg, 0], rupperts.vertices[seg, 1], 'b-')
     return plotter
 
-def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE):
+def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=None):
     """Interactively simplify an SVG outline via Douglas-Peucker (drag epsilon, click Save)."""
     curve = get_curve_from_svg(svg_file)
-    return demo_douglas_peucker(curve)
+    return demo_douglas_peucker(curve, tolerance=tolerance)
 
-def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, min_angle=20):
+def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=None, min_angle=20):
     """Simplify an SVG outline (interactively) then triangulate it with Ruppert's algorithm."""
     curve = get_curve_from_svg(svg_file)
-    curve_reduced = demo_douglas_peucker(curve)
+    curve_reduced = demo_douglas_peucker(curve, tolerance=tolerance)
     return demo_rupperts(curve_reduced, min_angle=min_angle)
 
 
+# Coarser than DEFAULT_TOLERANCE: the point of running these unattended is to cover the
+# SVG parse and Ruppert's, and the cost of that coverage is superlinear in the point count.
+_SMOKE_TOLERANCE = {'tolerance': 0.04}
+
 DEMOS = [
-    Demo('uniform_mesh', demo_uniform_mesh, needs_mesh=False, returns_plotter=False),
+    Demo('uniform_mesh', demo_uniform_mesh, needs_mesh=False, returns_plotter=False,
+         smoke_kwargs={'save_file': 'mesh.json'}),
     Demo('mesh_plotting', demo_mesh_plotting),
-    Demo('douglas_peucker', demo_douglas_peucker_svg, needs_mesh=False, returns_plotter=False),
-    Demo('rupperts', demo_rupperts_svg, needs_mesh=False),
+    Demo('douglas_peucker', demo_douglas_peucker_svg, needs_mesh=False, returns_plotter=False,
+         smoke_kwargs=_SMOKE_TOLERANCE),
+    Demo('rupperts', demo_rupperts_svg, needs_mesh=False, smoke_kwargs=_SMOKE_TOLERANCE),
 ]
