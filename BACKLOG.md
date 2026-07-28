@@ -171,13 +171,26 @@ recovers anything. Each item below is an implementation of a seam that already e
   implying a demo exists.
 - 💡 **`adaptive_refinement` is the one demo still skipped by `tests/test_demos.py`**,
   blocked on the error estimator above and on Dirichlet conditions that survive a remesh.
-- 💡 **Ruppert's output size is non-monotonic in its input size.** Triangulating the
-  California outline from 37 points yields 601 triangles, but from 56 points only 403 — a
-  coarser outline can cost *more* work. The likely cause is the interaction between segment
-  splitting and which bad triangle gets popped, not the input size as such. Worth
-  understanding before tuning the demo's simplification tolerance by feel.
-  (Runtime is no longer the issue: the same runs are ~2.8 s and ~1.4 s, and the raw
-  1700-point curve now completes in ~450 s where it previously did not finish at all.)
+- 💡 **Pick the demo's simplification tolerance by input corner angle, not by point
+  count.** Ruppert's output size is non-monotonic in its *input size* — the California
+  outline gives 601 triangles from 37 points but 403 from 56 — which makes the tolerance
+  look like a black box. It isn't: cost tracks the sharpest corner Douglas-Peucker leaves
+  behind, because Ruppert's terminates cleanly only for input angles ≥ 60° and cascades
+  around anything sharper.
+
+  | tolerance | points | min corner | triangles |
+  |---|---|---|---|
+  | 0.04 | 13 | 75.6° | 95 |
+  | 0.02 | 24 | 36.7° | 559 |
+  | 0.01 | 37 | **20.5°** | 601 |
+  | 0.005 | 56 | 36.2° | 403 |
+
+  So a tolerance sweep should report the minimum corner angle, and the honest fix for
+  sharp inputs is corner lopping (Ruppert's standard concentric-shell treatment), which
+  is not implemented. (Refinement order is *not* the cause — refining the worst triangle
+  first instead of qhull's arbitrary last was measured and is a wash.) Runtime is no
+  longer the issue: those runs are ~1.9 s and ~1.0 s, and the raw 1700-point curve now
+  completes in ~450 s where it previously did not finish at all.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
   the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/generation.py` and
   `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.
