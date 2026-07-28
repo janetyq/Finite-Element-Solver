@@ -5,6 +5,7 @@
 """
 import numpy as np
 from math import e
+from pathlib import Path
 
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
@@ -17,7 +18,7 @@ from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
 
-from demo_registry import Demo
+from demo_registry import Demo, DemoResult, Figure
 
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
@@ -28,7 +29,7 @@ def demo_plot_mesh(mesh):
     plotter.plot(mesh, mode='mesh')
     plotter.plot(mesh, mode='boundary')
     plotter.plot_highlights(mesh, [mesh.boundary_idxs], ['red'], ['boundary'])
-    return plotter
+    return DemoResult([Figure(plotter, 'Mesh edges with the boundary vertices marked.')])
 
 def demo_l2_projection(mesh):
     """L2-project an oscillatory function onto the mesh's finite element space."""
@@ -41,7 +42,10 @@ def demo_l2_projection(mesh):
 
     plotter = Plotter(title='L2 Projection')
     plotter.plot(mesh, solution.u, mode='surface')
-    return plotter
+    return DemoResult([Figure(
+        plotter,
+        'sin(40 r^2) projected onto the P1 space: the mesh resolves the inner rings '
+        'and loses the outer ones.')])
 
 def demo_poisson_equation(mesh):
     """Solve Poisson's equation with zero Dirichlet BCs and a constant force."""
@@ -58,7 +62,10 @@ def demo_poisson_equation(mesh):
     plotter.plot(mesh, solution.u, mode='surface', title='Solution', idx=(0, 0))
     plotter.plot(mesh, gradient, mode='arrows', title='Gradient', idx=(0, 1))
     plotter.plot(mesh, np.linalg.norm(gradient, axis=1), mode='surface', title='Gradient Norm', idx=(0, 2))
-    return plotter
+    return DemoResult([Figure(
+        plotter,
+        'A constant unit source pinned at every boundary node, with the gradient '
+        'recovered from the solution beside it.')])
 
 def demo_robin_bc(mesh):
     """Cool a heated plate through a convective boundary, sweeping the Robin coefficient."""
@@ -84,7 +91,10 @@ def demo_robin_bc(mesh):
     u = Solver(mesh, equation, bc).solve().u
     plotter.plot(mesh, u, mode='colored', idx=(0, len(kappas)),
                  title=f'Dirichlet limit\n{u.min():.1f} - {u.max():.1f}')
-    return plotter
+    return DemoResult([Figure(
+        plotter,
+        'Convective cooling at three film coefficients. The last Robin panel and the '
+        'Dirichlet solve beside it agree to the digit -- the limit, computed both ways.')])
 
 def demo_nonlinear_elastic(mesh, stretch=0.5):
     """Stretch a block hard, comparing small-strain elasticity against St Venant-Kirchhoff."""
@@ -113,7 +123,10 @@ def demo_nonlinear_elastic(mesh, stretch=0.5):
         vm = solution.von_mises
         plotter.plot(solution.deformed_mesh(), vm, mode='colored', idx=(0, i),
                      title=f'{name}\nvon Mises: median {np.median(vm):.0f}, peak {vm.max():.0f}')
-    return plotter
+    return DemoResult([Figure(
+        plotter,
+        'The same 50% stretch under both strain measures. Green-Lagrange stiffens as '
+        'the stretch grows; small strain cannot.')])
 
 def demo_stress_invariants(mesh):
     """Show the four rotation-invariant stress measures recovered from one elastic solve."""
@@ -136,7 +149,10 @@ def demo_stress_invariants(mesh):
     plotter = Plotter(2, 2, title='Stress invariants of one solve')
     for i, (name, values) in enumerate(fields):
         plotter.plot(deformed, values, mode='colored', idx=divmod(i, 2), title=name)
-    return plotter
+    return DemoResult([Figure(
+        plotter,
+        'Four rotation-invariant reductions of one stress tensor: distortion, mean '
+        'normal stress, the Tresca measure, and the largest tensile principal value.')])
 
 def demo_heat_equation(mesh):
     """Animate transient heat diffusion from a hot bump initial condition."""
@@ -152,12 +168,25 @@ def demo_heat_equation(mesh):
     # defaults to (0, 1), against which a 300 K field is uniformly off the top.
     cbar_lims = (min(u.min() for u in u_values), max(u.max() for u in u_values))
 
-    plotter = Plotter(1, 2, title='Heat Equation')
-    plotter.plot_animation(mesh, u_values, mode='colored', cbar_lims=cbar_lims,
-                           titles=[f'Color t={t:.2f}' for t in t_values], idx=(0, 0))
-    plotter.plot_animation(mesh, u_values, mode='surface',
-                           titles=[f'Surface t={t:.2f}' for t in t_values], idx=(0, 1))
-    return plotter
+    animation = Plotter(1, 2, title='Heat Equation')
+    animation.plot_animation(mesh, u_values, mode='colored', cbar_lims=cbar_lims,
+                             titles=[f'Color t={t:.2f}' for t in t_values], idx=(0, 0))
+    animation.plot_animation(mesh, u_values, mode='surface',
+                             titles=[f'Surface t={t:.2f}' for t in t_values], idx=(0, 1))
+
+    # The animation renders only on show(), so the diffusion needs a still form too --
+    # otherwise this demo contributes nothing to a saved gallery.
+    snapshots = Plotter(2, 3, title='Heat Equation: diffusion from the corner')
+    for panel, i in enumerate(np.linspace(0, len(u_values) - 1, 6).astype(int)):
+        snapshots.plot(mesh, u_values[i], mode='colored', idx=divmod(panel, 3),
+                       title=f't={t_values[i]:.2f}')
+
+    return DemoResult([
+        Figure(animation, 'Backward-Euler diffusion, coloured and as a surface.', 'animation'),
+        Figure(snapshots,
+               'The same run sampled at six times: the corner bump spreads and the '
+               'plate approaches a uniform temperature.', 'snapshots'),
+    ])
 
 def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     """Animate wave propagation from a bump initial condition, plus a grid of late snapshots."""
@@ -182,7 +211,13 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
         snapshots.plot(mesh, u_values[i], mode='surface', idx=divmod(panel, 3),
                        title=f't={t_values[i]:.2f}')
 
-    return [animation, snapshots]
+    return DemoResult([
+        Figure(animation, 'Newmark time integration of a pulse on a fixed membrane.',
+               'animation'),
+        Figure(snapshots,
+               'Six times from the second half of the run, after the pulse has reflected '
+               'off the boundary and begun interfering with itself.', 'snapshots'),
+    ])
 
 def demo_linear_elastic(mesh):
     """Solve linear elasticity for a cantilever fixed on the left with a traction load."""
@@ -203,7 +238,10 @@ def demo_linear_elastic(mesh):
     plotter.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
     plotter.plot(deformed_mesh, solution.von_mises, mode='colored', title='Von Mises stress', idx=(0, 1))
     plotter.plot(mesh, displacements, mode='colored', title='Displacement', idx=(0, 2))
-    return plotter
+    return DemoResult([Figure(
+        plotter,
+        'A cantilever pinned on the left and tractioned on the middle band of the right '
+        'edge; stress concentrates at the supported corners.')])
 
 def demo_topology_optimization(mesh, iters=40):
     """Run SIMP topology optimization on a cantilever under a downward force."""
@@ -223,10 +261,16 @@ def demo_topology_optimization(mesh, iters=40):
     final_plotter = Plotter(1, 2, title='Topology Optimization')
     final_plotter.plot(deformed_mesh, rho_final, mode='colored', title='Topology Optimized Structure', idx=(0, 0), empty=True)
     final_plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final von Mises stress', idx=(0, 1))
-    return [animation_plotter, final_plotter]
+    return DemoResult([
+        Figure(animation_plotter, 'Density evolving over the SIMP iterations.', 'animation'),
+        Figure(final_plotter,
+               'The converged structure and its stress: material has migrated into a '
+               'truss carrying the load back to the supported edge.', 'final'),
+    ])
 
 def demo_adaptive_refinement(mesh):
-    """Attempt adaptive refinement of a Poisson solve (currently blocked, see BACKLOG.md)."""
+    """Solve the peaked Poisson problem adaptive refinement is meant for (refinement itself
+    is still blocked, see BACKLOG.md)."""
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     def test_function(point):
         # return [1]
@@ -243,19 +287,21 @@ def demo_adaptive_refinement(mesh):
     u = solution.u
     u_gradient = solver.space.gradient(u)
 
-    plotter = Plotter(1, 2, title='Adaptive Refinement')
+    plotter = Plotter(1, 2, title='Adaptive Refinement: the problem, not yet the refinement')
     plotter.plot(mesh, u, mode='surface', title='Poisson Solution', idx=(0, 0))
     plotter.plot(mesh, u_gradient, mode='arrows', title='Gradient', idx=(0, 1))
-    plotter.show()  # shown directly: this demo always raises below, so there's no return to show it via
 
-    # AdaptiveRefinement(solver, estimator).run() drives the loop correctly, but
-    # this demo is still blocked on two open pieces: a real a-posteriori error
-    # estimator to pass in, and position-based Dirichlet conditions (the ones added
-    # above are index-based, so they cannot survive the vertex renumbering a
-    # refinement does). See BACKLOG.md.
-    raise NotImplementedError(
-        'Adaptive refinement demo needs an error estimator and remeshable Dirichlet BCs'
-    )
+    # AdaptiveRefinement(solver, estimator).run() drives the loop correctly, but calling
+    # it here is still blocked on two open pieces: a real a-posteriori error estimator to
+    # pass in, and position-based Dirichlet conditions (the ones added above are
+    # index-based, so they cannot survive the vertex renumbering a refinement does).
+    # Until then this shows the problem that motivates refinement -- a source with one
+    # sharp interior peak, which a uniform mesh spends most of its elements not
+    # resolving -- rather than raising and showing nothing. See BACKLOG.md.
+    return DemoResult([Figure(
+        plotter,
+        'A Poisson source with one sharp interior peak: the case for refining where the '
+        'error is. The refinement loop itself is not run -- it needs an error estimator.')])
 
     # from fem.adaptivity import AdaptiveRefinement
     # solution_final = AdaptiveRefinement(solver, estimator).run()
@@ -292,9 +338,12 @@ def demo_energy_solver(mesh):  # displacement-driven: EnergySolver rejects a sou
     # recovered stress is read the same way -- the parity is the point of the demo.
     plotter = Plotter(title=f'Energy Solver (minimised energy {energy_solver.energy(solution.u):.4g})')
     plotter.plot(solution.deformed_mesh(), solution.von_mises, mode='colored', title='Von Mises stress')
-    return plotter
+    return DemoResult([Figure(
+        plotter,
+        'A displacement-driven stretch solved by minimising energy rather than by '
+        'assembling a linear system; the recovered stress reads the same way.')])
 
-def demo_3d(steps=20):
+def demo_3d(steps=20, save_file='tetmesh_animation.gif'):
     """Solve transient heat diffusion on a 3D tetrahedral mesh (renders via PyVista)."""
     # `fem.plot.tet` needs the optional viz3d extra, so it is imported where it runs. A
     # module-level import takes down every demo in this file, and cli.py with them, on
@@ -309,7 +358,10 @@ def demo_3d(steps=20):
 
     solution = ThetaMethod(dt=0.04, steps=steps).run(heat(mesh), u_initial.copy())
 
-    plot_tetmesh_animation(mesh, np.array(solution.u), title='Heat Diffusion')
+    # PyVista writes the frames as a GIF; the path is returned rather than left for the
+    # caller to guess, which is what makes this demo collectable like any other.
+    plot_tetmesh_animation(mesh, np.array(solution.u), save_file=save_file, title='Heat Diffusion')
+    return DemoResult(artifacts=[Path(save_file)])
 
 
 DEMOS = [
@@ -323,9 +375,8 @@ DEMOS = [
     Demo('stress_invariants', demo_stress_invariants),
     Demo('nonlinear_elastic', demo_nonlinear_elastic),
     Demo('topology_optimization', demo_topology_optimization, smoke_kwargs={'iters': 3}),
-    Demo('adaptive_refinement', demo_adaptive_refinement, returns_plotter=False,
-         smoke_skip='blocked on an error estimator and remeshable Dirichlet BCs (see BACKLOG.md)'),
+    Demo('adaptive_refinement', demo_adaptive_refinement),
     Demo('energy_solver', demo_energy_solver),
-    Demo('3d', demo_3d, needs_mesh=False, returns_plotter=False,
+    Demo('3d', demo_3d, needs_mesh=False,
          smoke_requires='pyvista', smoke_kwargs={'steps': 3}),
 ]

@@ -22,7 +22,7 @@ from fem.problem import linear_elastic
 from fem.regions import everywhere
 from fem.system import DiscreteSystem
 
-from demo_registry import Demo
+from demo_registry import Demo, DemoResult
 
 logging.disable(logging.CRITICAL)  # silence per-solve logging for clean timing
 
@@ -35,7 +35,7 @@ def _time(fn):
     return result, time.perf_counter() - start
 
 
-def benchmark(n: int) -> None:
+def benchmark(n: int) -> str:
     mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0, 0.0])
@@ -53,7 +53,7 @@ def benchmark(n: int) -> None:
     _, t_iter = _time(lambda: DiscreteSystem(A, problem.constraints, IterativeBackend()).solve(b))
 
     dofs = problem.space.n_dofs
-    print(
+    return (
         f'n={n:>3}  tets={len(mesh.elements):>8}  dofs={dofs:>8}  '
         f'assemble={t_assemble:>6.2f}s  direct={t_direct:>7.2f}s  amg_cg={t_iter:>6.2f}s'
     )
@@ -61,17 +61,15 @@ def benchmark(n: int) -> None:
 
 def demo_backends(sizes=DEFAULT_SIZES):
     """Time assembly and both solve backends on a 3D elastic box, over a range of sizes."""
-    for n in sizes:
-        benchmark(n)
+    return DemoResult(text='\n'.join(benchmark(n) for n in sizes))
 
 
 DEMOS = [
-    # Prints a table rather than plotting: the result is a scaling trend across sizes,
-    # not a field over a mesh, so there is nothing for a Plotter to draw.
-    Demo('backends', demo_backends, needs_mesh=False, returns_plotter=False,
-         smoke_kwargs={'sizes': (5,)}),
+    # Text rather than a figure: the result is a scaling trend across sizes, not a field
+    # over a mesh, so there is nothing for a Plotter to draw.
+    Demo('backends', demo_backends, needs_mesh=False, smoke_kwargs={'sizes': (5,)}),
 ]
 
 
 if __name__ == '__main__':
-    demo_backends()
+    print(demo_backends().text)

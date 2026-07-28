@@ -14,7 +14,7 @@ from fem.plot.plotter import Plotter
 from fem.mesh.generation import create_rect_mesh, RuppertsAlgorithm
 from fem.mesh.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
 
-from demo_registry import Demo
+from demo_registry import Demo, DemoResult, Figure
 
 # Resolved against the repo rather than the working directory: the input files ship
 # with the project, so a demo should not depend on where it was launched from. Output
@@ -28,11 +28,18 @@ DEFAULT_SVG_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'californ
 # where the slider starts rather than at zero.
 DEFAULT_TOLERANCE = 0.005
 
-def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='files/mesh.json'):
-    """Build a uniform rectangular mesh and save it to disk."""
+def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='mesh.json'):
+    """Build a uniform rectangular mesh, save it to disk, and plot what was written."""
     mesh = create_rect_mesh(corners, resolution=resolution)
     mesh.save(save_file)
-    return mesh
+
+    plotter = Plotter(title=f'Uniform mesh {resolution[0]}x{resolution[1]}')
+    plotter.plot(mesh, mode='mesh')
+    return DemoResult(
+        [Figure(plotter, f'A structured triangulation at {resolution[0]}x{resolution[1]}, '
+                         'the input the solver demos load.')],
+        artifacts=[Path(save_file)],
+    )
 
 def demo_mesh_plotting(mesh):
     """Plot a mesh colored by element-centroid x, then highlight elements/vertices on one side."""
@@ -50,7 +57,12 @@ def demo_mesh_plotting(mesh):
     highlight_plotter.plot(mesh, mode='mesh')
     highlight_plotter.plot_highlights(mesh, [e_idxs], ['blue'], ['right blue elements'], mode='elements')
     highlight_plotter.plot_highlights(mesh, [v_idxs], ['red'], ['left red vertices'], mode='vertices')
-    return [plotter, highlight_plotter]
+    return DemoResult([
+        Figure(plotter, 'Elements coloured by the x of their centroid.', 'colored'),
+        Figure(highlight_plotter,
+               'Selecting by position: elements right of the midline, vertices on the '
+               'left edge.', 'highlights'),
+    ])
 
 def get_curve_from_svg(svg_file):
     output = read_svg_to_list_of_path_points(svg_file)
@@ -68,7 +80,7 @@ def demo_douglas_peucker(curve, save_file='douglas_peucker_output.json', toleran
     if tolerance is not None:
         return douglas_peucker(curve, tolerance * d)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots()  # a widget figure, not a Plotter: this path is interactive
     ax.plot(curve[:, 0], curve[:, 1], color='gray', alpha=0.5)
     plt.subplots_adjust(bottom=0.15)
 
@@ -117,12 +129,26 @@ def demo_rupperts(curve, min_angle=20):
     ax = plotter.get_ax()
     for seg in rupperts.segments:
         ax.plot(rupperts.vertices[seg, 0], rupperts.vertices[seg, 1], 'b-')
-    return plotter
+    return DemoResult([Figure(
+        plotter,
+        f"Ruppert's refinement of the outline (blue) into {len(mesh.elements)} triangles, "
+        f'every angle at least {min_angle} degrees.')])
 
 def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=None):
-    """Interactively simplify an SVG outline via Douglas-Peucker (drag epsilon, click Save)."""
+    """Simplify an SVG outline via Douglas-Peucker (interactive unless given a tolerance)."""
     curve = get_curve_from_svg(svg_file)
-    return demo_douglas_peucker(curve, tolerance=tolerance)
+    simplified = demo_douglas_peucker(curve, tolerance=tolerance)
+
+    # The interactive path has already had its say on screen; this is the result either
+    # way, and the only thing a saved gallery can show of it.
+    plotter = Plotter(title='Douglas-Peucker simplification')
+    ax = plotter.get_ax()
+    ax.plot(curve[:, 0], curve[:, 1], color='gray', linewidth=1.0, label=f'original ({len(curve)} pts)')
+    ax.plot(simplified[:, 0], simplified[:, 1], 'b-', label=f'simplified ({len(simplified)} pts)')
+    return DemoResult([Figure(
+        plotter,
+        f'{len(curve)} outline points reduced to {len(simplified)}. Ruppert\'s cost is '
+        'superlinear in what it is handed, so this is what makes triangulating it tractable.')])
 
 def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=None, min_angle=20):
     """Simplify an SVG outline (interactively) then triangulate it with Ruppert's algorithm."""
@@ -136,10 +162,9 @@ def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=None, min_angle=20):
 _SMOKE_TOLERANCE = {'tolerance': 0.04}
 
 DEMOS = [
-    Demo('uniform_mesh', demo_uniform_mesh, needs_mesh=False, returns_plotter=False,
-         smoke_kwargs={'save_file': 'mesh.json'}),
+    Demo('uniform_mesh', demo_uniform_mesh, needs_mesh=False),
     Demo('mesh_plotting', demo_mesh_plotting),
-    Demo('douglas_peucker', demo_douglas_peucker_svg, needs_mesh=False, returns_plotter=False,
+    Demo('douglas_peucker', demo_douglas_peucker_svg, needs_mesh=False,
          smoke_kwargs=_SMOKE_TOLERANCE),
     Demo('rupperts', demo_rupperts_svg, needs_mesh=False, smoke_kwargs=_SMOKE_TOLERANCE),
 ]

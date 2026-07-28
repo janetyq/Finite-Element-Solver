@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fem.mesh.mesh import Mesh
 
-from demo_registry import Demo
+from demo_registry import Demo, DemoResult
 import benchmark_assembly
 import meshing_demos
 import refinement_demo
@@ -38,41 +38,64 @@ def _description(demo: Demo) -> str:
     return doc.strip().splitlines()[0] if doc else '(no description)'
 
 
-def _show_or_save(result, save_path):
-    plotters = result if isinstance(result, list) else [result]
+def figure_path(save_path: str, figure, only: bool) -> str:
+    '''Where one figure of a multi-figure demo is written.
+
+    A single-figure demo lands exactly on `--save`; more than one takes the figure's
+    slug as a suffix, so `wave` saves as `wave-animation.png` / `wave-snapshots.png`
+    rather than by position.
+    '''
+    if only:
+        return save_path
+    stem, dot, ext = save_path.rpartition('.')
+    return f'{stem}-{figure.slug}.{ext}' if dot else f'{save_path}-{figure.slug}'
+
+
+def _show(result: DemoResult) -> None:
+    for figure in result.figures:
+        figure.plotter.show()
+
+
+def _save(result: DemoResult, save_path: str, name: str) -> None:
+    animated = [f for f in result.figures if f.animated]
+    stills = result.still_figures
+    if animated and not stills:
+        raise NotImplementedError(
+            f"{name!r} produces only animated figures, and animation saving isn't "
+            "implemented yet under the matplotlib backend (see Plotter.save's TODO) - "
+            'rerun without --save to view it interactively.'
+        )
+    for figure in stills:
+        figure.plotter.save(figure_path(save_path, figure, only=len(stills) == 1))
+
+
+def deliver(result: DemoResult, save_path: str | None, name: str) -> None:
+    '''Show or save the figures, print the text, report the files.
+
+    The demo produced all of this and displayed none of it; every choice about where it
+    goes is made here.
+    '''
+    if result.text:
+        print(result.text)
+    for path in result.artifacts:
+        print(f'wrote {path}')
 
     if save_path is None:
-        for plotter in plotters:
-            plotter.show()
-        return
-
-    for plotter in plotters:
-        if plotter.anims:
-            raise NotImplementedError(
-                "Animation saving isn't implemented yet under the matplotlib backend "
-                "(see Plotter.save's TODO) - rerun without --save to view it interactively."
-            )
-
-    if len(plotters) == 1:
-        plotters[0].save(save_path)
-        return
-
-    stem, dot, ext = save_path.rpartition('.')
-    for i, plotter in enumerate(plotters):
-        indexed_path = f'{stem}_{i}.{ext}' if dot else f'{save_path}_{i}'
-        plotter.save(indexed_path)
+        _show(result)
+    else:
+        _save(result, save_path, name)
 
 
 def run_demo(demo: Demo, mesh_file: str, save_path: str | None) -> None:
     args = [Mesh.load(mesh_file)] if demo.needs_mesh else []
     result = demo.func(*args)
 
-    if demo.returns_plotter:
-        _show_or_save(result, save_path)
-    elif save_path is not None:
-        raise NotImplementedError(
-            f'{demo.name!r} manages its own display/output and does not support --save'
+    if not isinstance(result, DemoResult):
+        raise TypeError(
+            f'{demo.name!r} returned {type(result).__name__}; demos return a DemoResult '
+            'so the caller decides what to show, save, or print.'
         )
+    deliver(result, save_path, demo.name)
 
 
 def main():

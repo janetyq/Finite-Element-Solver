@@ -22,6 +22,7 @@ from fem.plot.plotter import Plotter
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
 
 import cli  # noqa: E402
+from demo_registry import DemoResult  # noqa: E402
 
 DEMOS = list(cli.build_registry().values())
 
@@ -51,11 +52,26 @@ def test_demo_runs(demo, make_unit_square, tmp_path, monkeypatch):
     args = [make_unit_square(10)] if demo.needs_mesh else []
     result = demo.func(*args, **demo.smoke_kwargs)
 
-    if demo.returns_plotter:
-        # cli.py shows or saves whatever comes back, so the registry's claim about the
-        # return type has to hold or `run <demo>` fails on a human's screen.
-        plotters = result if isinstance(result, list) else [result]
-        assert plotters, f'{demo.name} is registered as returning a Plotter but returned nothing'
-        assert all(isinstance(p, Plotter) for p in plotters), (
-            f'{demo.name} is registered as returning a Plotter, got {type(result).__name__}'
+    assert isinstance(result, DemoResult), (
+        f'{demo.name} returned {type(result).__name__}; demos return a DemoResult so the '
+        'caller decides what to show, save, or print'
+    )
+    assert all(isinstance(f.plotter, Plotter) for f in result.figures), (
+        f'{demo.name} put a non-Plotter in a Figure'
+    )
+    assert all(f.caption.strip() for f in result.figures), (
+        f'{demo.name} has a figure with no caption; the gallery has nothing to say about it'
+    )
+    # More than one figure means the filenames come from slugs, so they have to exist
+    # and be distinct or the figures overwrite each other on save.
+    if len(result.figures) > 1:
+        slugs = [f.slug for f in result.figures]
+        assert all(slugs) and len(set(slugs)) == len(slugs), (
+            f'{demo.name} has {len(slugs)} figures needing distinct slugs, got {slugs}'
         )
+
+    # The point of the whole contract: a demo that yields nothing appears nowhere, which
+    # is how a demo rendering a blank panel stayed invisible before.
+    assert result.figures or result.text or result.artifacts, (
+        f'{demo.name} produced no figures, no text, and no files'
+    )

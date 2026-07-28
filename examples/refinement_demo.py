@@ -13,7 +13,7 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.plot.plotter import Plotter
 
-from demo_registry import Demo
+from demo_registry import Demo, DemoResult, Figure
 
 
 def demo_refinement():
@@ -33,7 +33,10 @@ def demo_refinement():
     plotter.plot(original_mesh, mode="mesh", idx=(0, 0), title="Original")
     plotter.plot(mesh, values=refiner.leaf_classifications(), mode="refinement",
                  idx=(0, 1), title="Refined (red / green)")
-    return plotter
+    return DemoResult([Figure(
+        plotter,
+        "Eight rounds of refinement on random elements. Red splits into four; green "
+        "bisects a neighbour to keep the mesh conforming.")])
 
 
 DEMOS = [
