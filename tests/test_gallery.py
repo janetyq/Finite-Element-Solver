@@ -8,6 +8,7 @@ for a missing dependency -- not the demos themselves, which `test_demos.py` runs
 import json
 import re
 import sys
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -24,12 +25,12 @@ MESH = str(Path(__file__).resolve().parents[1] / 'files' / 'mesh_20x20.json')
 
 @pytest.fixture(scope='module')
 def gallery(tmp_path_factory):
+    # The gallery runs demos with no overrides, so cheap variants are bound here with
+    # partial rather than declared on the Demo.
     registry = {
         'poisson': Demo('poisson', solver_demos.demo_poisson_equation),
-        'topopt': Demo('topopt', solver_demos.demo_topology_optimization,
-                       gallery_kwargs={'iters': 2}),
-        'backends': Demo('backends', demo_backends, needs_mesh=False,
-                         gallery_kwargs={'sizes': (5,)}),
+        'topopt': Demo('topopt', partial(solver_demos.demo_topology_optimization, iters=2)),
+        'backends': Demo('backends', partial(demo_backends, sizes=(5,)), needs_mesh=False),
         'absent': Demo('absent', solver_demos.demo_poisson_equation,
                        smoke_requires='a_module_that_is_not_installed'),
     }

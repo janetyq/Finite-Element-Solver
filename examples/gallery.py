@@ -44,11 +44,6 @@ class Entry:
     skipped: str | None = None
 
 
-def _description(demo: Demo) -> str:
-    doc = demo.func.__doc__
-    return ' '.join(doc.split()) if doc else '(no description)'
-
-
 def _missing_dependency(demo: Demo) -> str | None:
     if demo.smoke_requires is None:
         return None
@@ -89,7 +84,7 @@ def run_demo(demo: Demo, mesh: Mesh, out_dir: Path) -> Entry:
     `out_dir` as the cwd -- the same arrangement `tests/test_demos.py` uses to keep
     stray files out of the repo.
     """
-    entry = Entry(demo.name, _description(demo))
+    entry = Entry(demo.name, demo.description())
 
     skip = _missing_dependency(demo)
     if skip is not None:
@@ -98,7 +93,8 @@ def run_demo(demo: Demo, mesh: Mesh, out_dir: Path) -> Entry:
 
     before = set(out_dir.iterdir())
     args = [mesh] if demo.needs_mesh else []
-    result = demo.func(*args, **demo.gallery_kwargs)
+    # No overrides: the gallery shows what `cli.py run <name>` shows.
+    result = demo.func(*args)
 
     entry.panels = _render_figures(result, demo.name, out_dir)
     entry.text = result.text

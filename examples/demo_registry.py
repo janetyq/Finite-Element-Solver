@@ -6,6 +6,8 @@ produced and the caller decides. That is what lets `run`, the gallery, and
 `tests/test_demos.py` treat every demo the same way instead of special-casing the ones
 that used to write a GIF into the working directory or print a table to stdout.
 """
+import functools
+import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -60,12 +62,20 @@ class Demo:
     needs_mesh: bool = True      # cli.py loads --mesh and passes it as the first arg
     # An optional dependency the demo needs; it is skipped where that is absent.
     smoke_requires: str | None = None
-    # Three callers run these demos and want different things of them, so the overrides
-    # are per caller rather than one "unattended" set:
-    #   - the CLI uses the demo's own defaults, with a human watching
-    #   - the smoke test wants the cheapest arguments that still exercise the code
-    #   - the gallery wants the best-looking result that renders in reasonable time
-    # Ruppert's is the case that forces the split: 0.04 is a 13-point blob that proves
-    # the code runs, and 0.005 is a recognisable outline that takes ~12s.
+    # Cheaper arguments for `tests/test_demos.py`, which runs every demo on every
+    # commit. Only three demos set it, and each says why: the rest cost milliseconds
+    # either way. Everyone else -- the CLI and the gallery -- runs demos exactly as
+    # written, so a demo's defaults are what a reader actually sees.
     smoke_kwargs: dict[str, Any] = field(default_factory=dict)
-    gallery_kwargs: dict[str, Any] = field(default_factory=dict)
+
+    def description(self) -> str:
+        """The demo's docstring on one line, for `list` and for its gallery page.
+
+        Unwraps `functools.partial`, so binding arguments to preconfigure a demo does
+        not replace its description with partial's own docstring.
+        """
+        func = self.func
+        while isinstance(func, functools.partial):
+            func = func.func
+        doc = inspect.getdoc(func)
+        return ' '.join(doc.split()) if doc else '(no description)'

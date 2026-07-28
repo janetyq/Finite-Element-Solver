@@ -373,9 +373,11 @@ DEMOS = [
     Demo('linear_elastic', demo_linear_elastic),
     Demo('stress_invariants', demo_stress_invariants),
     Demo('nonlinear_elastic', demo_nonlinear_elastic),
-    Demo('topology_optimization', demo_topology_optimization, smoke_kwargs={'iters': 3}),
+    Demo('topology_optimization', demo_topology_optimization),
     Demo('adaptive_refinement', demo_adaptive_refinement),
     Demo('energy_solver', demo_energy_solver),
+    # 20 steps of tet rendering is ~4.4s against ~1.9s for 3; the frames are identical
+    # work, so the test takes the short run.
     Demo('3d', demo_3d, needs_mesh=False,
          smoke_requires='pyvista', smoke_kwargs={'steps': 3}),
 ]

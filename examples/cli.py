@@ -35,11 +35,6 @@ def build_registry() -> dict[str, Demo]:
     return registry
 
 
-def _description(demo: Demo) -> str:
-    doc = demo.func.__doc__
-    return doc.strip().splitlines()[0] if doc else '(no description)'
-
-
 def figure_path(save_path: str, figure, only: bool) -> str:
     '''Where one figure of a multi-figure demo is written.
 
@@ -130,7 +125,7 @@ def main():
 
     if args.command == 'list':
         for name in sorted(registry):
-            print(f'{name}: {_description(registry[name])}')
+            print(f'{name}: {registry[name].description()}')
         return
 
     if args.command == 'gallery':
