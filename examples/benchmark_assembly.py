@@ -9,6 +9,7 @@ factor+solve against AMG-preconditioned CG. The direct cost grows super-linearly
 with fill-in; the AMG-CG cost should overtake it as the mesh grows.
 
     uv run python -m examples.benchmark_assembly
+    uv run python examples/cli.py run backends
 """
 import logging
 import time
@@ -21,7 +22,11 @@ from fem.problem import linear_elastic
 from fem.regions import everywhere
 from fem.system import DiscreteSystem
 
+from demo_registry import Demo
+
 logging.disable(logging.CRITICAL)  # silence per-solve logging for clean timing
+
+DEFAULT_SIZES = (5, 9, 13, 17, 21)
 
 
 def _time(fn):
@@ -54,6 +59,19 @@ def benchmark(n: int) -> None:
     )
 
 
-if __name__ == '__main__':
-    for n in (5, 9, 13, 17, 21):
+def demo_backends(sizes=DEFAULT_SIZES):
+    """Time assembly and both solve backends on a 3D elastic box, over a range of sizes."""
+    for n in sizes:
         benchmark(n)
+
+
+DEMOS = [
+    # Prints a table rather than plotting: the result is a scaling trend across sizes,
+    # not a field over a mesh, so there is nothing for a Plotter to draw.
+    Demo('backends', demo_backends, needs_mesh=False, returns_plotter=False,
+         smoke_kwargs={'sizes': (5,)}),
+]
+
+
+if __name__ == '__main__':
+    demo_backends()

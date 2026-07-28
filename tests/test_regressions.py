@@ -6,7 +6,6 @@ because what they have in common is how they were found, and because each one
 marks a path worth keeping covered now that it works.
 """
 import numpy as np
-import pytest
 
 from fem.mesh.refinement import RedGreenRefiner
 from fem.topology import TargetCompliance
@@ -48,8 +47,6 @@ def test_refinement_plot_draws(make_unit_square):
 def test_douglas_peucker_handles_a_collinear_run():
     """No interior point beats a zero distance on a straight run, so the index
     stayed None and the recursion sliced with None + 1."""
-    # fem.mesh.svg imports svg.path, which is the optional `svg` extra.
-    pytest.importorskip('svg.path')
     from fem.mesh.svg import douglas_peucker
 
     points = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]])

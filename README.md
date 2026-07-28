@@ -11,10 +11,12 @@ management. `uv sync` creates a project-local `.venv`, installs the `fem` packag
 in editable mode, and pins exact versions in `uv.lock`.
 
 ```bash
-uv sync                 # core solver + dev tools (pytest)
+uv sync                 # core solver, SVG-outline meshing, and dev tools (pytest)
 uv sync --extra viz3d   # + 3D tetrahedral meshing/rendering (pyvista, tetgen)
-uv sync --extra svg     # + SVG-outline meshing (svg.path)
 ```
+
+`viz3d` is the one extra: pyvista pulls `vtk`, which is larger than the rest of the
+environment put together, so a 2D solve does not pay for it.
 
 Prefer plain pip? It is a standard `pyproject.toml` package:
 ```bash
@@ -144,7 +146,9 @@ Using the finite element method, we can solve for $u$ by finding the weak form o
 
 ![poissons_demo](images/poissons_demo.png)
 
-This example shows the velocity potential $u$ (where gradient of velocity potential = flow velocity) of fluid flow around an obstacle. The Robin boundary conditions are: $u = 0$ on the obstacle, and $n \cdot \Delta u = \frac{du}{dx} = 3$ on left inlet and $n \cdot \Delta u = -\frac{du}{dx} = -1$ on the right outlet. 
+This example shows the velocity potential $u$ (where gradient of velocity potential = flow velocity) of fluid flow around an obstacle. The boundary conditions are mixed: Dirichlet $u = 0$ on the obstacle, and Neumann $n \cdot \nabla u = 3$ on the left inlet and $n \cdot \nabla u = -1$ on the right outlet. (This figure predates the current `examples/`, which has no obstacle mesh to reproduce it with — the meshing side needs support for interior holes.)
+
+For a **Robin** condition ($\partial u/\partial n + \kappa u = g$, contributing to both the operator and the load), see the `robin` demo: a heated plate cooled through a convective boundary, sweeping $\kappa$ from nearly insulated to the Dirichlet limit.
 
 ### Wave Equation
 The wave equation is a partial differential equation that describes waves as they propogate through space and time. It is defined as $\frac{\partial^2 u}{\partial t^2} = c^2 \Delta u$, where $c$ is the wave speed and $u$ is the scalar function describing the wave.

@@ -63,7 +63,10 @@ def douglas_peucker(points, epsilon):
     def perp_distance(start, end, point):
         se_vector = start - end
         sp_vector = start - point
-        return np.abs(np.cross(se_vector, sp_vector)) / np.linalg.norm(se_vector)
+        # The 2D cross product written out: np.cross on 2-vectors is deprecated in
+        # NumPy 2 and slated for removal.
+        cross = se_vector[0]*sp_vector[1] - se_vector[1]*sp_vector[0]
+        return np.abs(cross) / np.linalg.norm(se_vector)
 
     furthest_dist = 0
     furthest_p_idx = None
