@@ -10,7 +10,6 @@ from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
-from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
 from fem.problem import heat, wave
@@ -297,6 +296,11 @@ def demo_energy_solver(mesh):  # displacement-driven: EnergySolver rejects a sou
 
 def demo_3d(steps=20):
     """Solve transient heat diffusion on a 3D tetrahedral mesh (renders via PyVista)."""
+    # `fem.plot.tet` needs the optional viz3d extra, so it is imported where it runs. A
+    # module-level import takes down every demo in this file, and cli.py with them, on
+    # the default install CI uses -- see tests/test_examples_import.py.
+    from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
+
     mesh = create_rect_tetmesh(x_lim=[0, 4], y_lim=[0, 1], z_lim=[0, 1], subdividisions=2, plot=False)
 
     w = max(mesh.vertices.flatten()) - min(mesh.vertices.flatten())
