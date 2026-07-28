@@ -7,6 +7,7 @@
     uv run python examples/cli.py gallery
 """
 import argparse
+import inspect
 import logging
 from pathlib import Path
 
@@ -83,9 +84,15 @@ def deliver(result: DemoResult, save_path: str | None, name: str) -> None:
         _save(result, save_path, name)
 
 
-def run_demo(demo: Demo, mesh_file: str, save_path: str | None) -> None:
+def supports_interactive(demo: Demo) -> bool:
+    """Whether this demo has a widget-driven mode, declared by taking the parameter."""
+    return 'interactive' in inspect.signature(demo.func).parameters
+
+
+def run_demo(demo: Demo, mesh_file: str, save_path: str | None, interactive: bool = False) -> None:
     args = [Mesh.load(mesh_file)] if demo.needs_mesh else []
-    result = demo.func(*args)
+    kwargs = {'interactive': True} if interactive else {}
+    result = demo.func(*args, **kwargs)
 
     if not isinstance(result, DemoResult):
         raise TypeError(
@@ -113,6 +120,10 @@ def main():
         '--save', default=None,
         help='save the plot(s) to this path instead of showing them interactively',
     )
+    run_parser.add_argument(
+        '--interactive', action='store_true',
+        help='run the demo\'s widget-driven mode, where it has one (see `list`)',
+    )
 
     gallery_parser = subparsers.add_parser(
         'gallery', help='render every demo to a browsable static gallery')
@@ -136,7 +147,15 @@ def main():
         print(f'\nOpen {Path(args.out).resolve() / "index.html"}')
         return
 
-    run_demo(registry[args.name], args.mesh, args.save)
+    demo = registry[args.name]
+    if args.interactive and not supports_interactive(demo):
+        supported = sorted(n for n, d in registry.items() if supports_interactive(d))
+        parser.error(
+            f'{args.name!r} has no interactive mode. --interactive applies to: '
+            + ', '.join(supported)
+        )
+
+    run_demo(demo, args.mesh, args.save, interactive=args.interactive)
 
 
 if __name__ == '__main__':

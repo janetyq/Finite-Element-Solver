@@ -138,7 +138,8 @@ def demo_rupperts(curve, min_angle=20):
 
 def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_TOLERANCE,
                              interactive=False):
-    """Simplify an SVG outline via Douglas-Peucker (pass interactive=True for the slider)."""
+    """Simplify an SVG outline via Douglas-Peucker; --interactive opens a slider over the
+    tolerance, with a button that saves the curve you settle on."""
     curve = get_curve_from_svg(svg_file)
     simplified = demo_douglas_peucker(curve, tolerance=tolerance, interactive=interactive)
 
@@ -155,7 +156,8 @@ def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_TOLERA
 
 def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_TOLERANCE,
                       interactive=False, min_angle=20):
-    """Simplify an SVG outline then triangulate it with Ruppert's algorithm."""
+    """Simplify an SVG outline then triangulate it with Ruppert's algorithm;
+    --interactive lets you pick the simplification first."""
     curve = get_curve_from_svg(svg_file)
     curve_reduced = demo_douglas_peucker(curve, tolerance=tolerance, interactive=interactive)
     return demo_rupperts(curve_reduced, min_angle=min_angle)

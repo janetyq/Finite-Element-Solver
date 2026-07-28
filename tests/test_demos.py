@@ -28,6 +28,20 @@ from demo_registry import DemoResult  # noqa: E402
 DEMOS = list(cli.build_registry().values())
 
 
+def test_interactive_is_rejected_where_there_is_no_such_mode(monkeypatch, capsys):
+    """`--interactive` dispatches on the demo's signature. Asking for it where the demo
+    has no widget mode should say so and name the ones that do, not fail inside the demo
+    with a TypeError."""
+    monkeypatch.setattr(sys, 'argv', ['cli.py', 'run', 'poisson', '--interactive'])
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main()
+
+    assert exit_info.value.code != 0
+    message = capsys.readouterr().err
+    assert 'has no interactive mode' in message
+    assert 'douglas_peucker' in message and 'rupperts' in message
+
+
 @pytest.fixture(autouse=True)
 def close_figures():
     """Demos build Plotters and never close them; without this the run leaks every
