@@ -1,0 +1,62 @@
+name: Gallery
+
+# Renders every demo and publishes it to GitHub Pages. Kept out of ci.yml so the
+# lint/type/test gate stays fast: this takes ~2 minutes where that takes ~35 seconds.
+on:
+  push:
+    branches: [main]
+    # The workflow itself is included, so a change to how the gallery is built or
+    # deployed rebuilds it -- including the commit that first adds this file.
+    paths: ['fem/**', 'examples/**', 'files/**', '.github/workflows/gallery.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push supersedes an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      MPLBACKEND: Agg   # headless Linux picks this anyway; pinned so it cannot drift
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the pinned Python
+        run: uv python install
+
+      # No extras: viz3d would pull ~330 MB of VTK, and PyVista rendering headlessly
+      # needs xvfb or an OSMesa build on top of that. The 3D demo instead gets a page
+      # saying it needs the optional dependency, which the gallery handles by design.
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Render the gallery
+        run: uv run python examples/cli.py gallery --out site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # The environment is what carries the Pages deployment and surfaces the live URL
+    # on the run; deploying needs it, building does not, hence the split.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
