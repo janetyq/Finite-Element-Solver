@@ -160,26 +160,25 @@ def demo_heat_equation(mesh):
     heat_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.5*min(w, h)) + 300
 
-    solution = ThetaMethod(dt=0.01, steps=40).run(heat(mesh), u_initial.copy())
+    # dt sized to the bump's decay, not to a round number: the corner bump loses 99% of
+    # its contrast by t=0.4, so a run that long is three quarters flat square. Over
+    # t=0.08 the same 40 frames spread the decay out and still reach near-uniform.
+    solution = ThetaMethod(dt=0.002, steps=40).run(heat(mesh), u_initial.copy())
     u_values = solution.u
     t_values = solution.t
 
-    # The colour scale has to span the temperatures actually reached: plot_animation
-    # defaults to (0, 1), against which a 300 K field is uniformly off the top.
-    cbar_lims = (min(u.min() for u in u_values), max(u.max() for u in u_values))
-
     animation = Plotter(1, 2, title='Heat Equation')
-    animation.plot_animation(mesh, u_values, mode='colored', cbar_lims=cbar_lims,
-                             titles=[f'Color t={t:.2f}' for t in t_values], idx=(0, 0))
+    animation.plot_animation(mesh, u_values, mode='colored',
+                             titles=[f'Color t={t:.3f}' for t in t_values], idx=(0, 0))
     animation.plot_animation(mesh, u_values, mode='surface',
-                             titles=[f'Surface t={t:.2f}' for t in t_values], idx=(0, 1))
+                             titles=[f'Surface t={t:.3f}' for t in t_values], idx=(0, 1))
 
     # The animation renders only on show(), so the diffusion needs a still form too --
     # otherwise this demo contributes nothing to a saved gallery.
     snapshots = Plotter(2, 3, title='Heat Equation: diffusion from the corner')
     for panel, i in enumerate(np.linspace(0, len(u_values) - 1, 6).astype(int)):
         snapshots.plot(mesh, u_values[i], mode='colored', idx=divmod(panel, 3),
-                       title=f't={t_values[i]:.2f}')
+                       title=f't={t_values[i]:.3f}')
 
     return DemoResult([
         Figure(animation, 'Backward-Euler diffusion, coloured and as a surface.', 'animation'),
