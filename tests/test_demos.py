@@ -6,8 +6,9 @@ the first thing to break when an API moves -- two of them had rotted against
 demo runs here on a small mesh, asserting "still callable and still returns what the
 registry claims", not "still correct": the numerics have their own tests.
 
-Demos that need a person at a widget, or that are blocked on unimplemented work, name
-the reason in `Demo.smoke_skip` and are skipped.
+A demo needing an optional dependency names it in `Demo.smoke_requires` and is skipped
+where that is absent; `Demo.smoke_kwargs` supplies the cheapest arguments that still
+exercise the code.
 """
 import sys
 from pathlib import Path
@@ -22,8 +23,23 @@ from fem.plot.plotter import Plotter
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
 
 import cli  # noqa: E402
+from demo_registry import DemoResult  # noqa: E402
 
 DEMOS = list(cli.build_registry().values())
+
+
+def test_interactive_is_rejected_where_there_is_no_such_mode(monkeypatch, capsys):
+    """`--interactive` dispatches on the demo's signature. Asking for it where the demo
+    has no widget mode should say so and name the ones that do, not fail inside the demo
+    with a TypeError."""
+    monkeypatch.setattr(sys, 'argv', ['cli.py', 'run', 'poisson', '--interactive'])
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main()
+
+    assert exit_info.value.code != 0
+    message = capsys.readouterr().err
+    assert 'has no interactive mode' in message
+    assert 'douglas_peucker' in message and 'rupperts' in message
 
 
 @pytest.fixture(autouse=True)
@@ -39,8 +55,6 @@ def close_figures():
 @pytest.mark.filterwarnings('ignore:Animation was deleted without rendering anything')
 @pytest.mark.parametrize('demo', DEMOS, ids=lambda demo: demo.name)
 def test_demo_runs(demo, make_unit_square, tmp_path, monkeypatch):
-    if demo.smoke_skip is not None:
-        pytest.skip(demo.smoke_skip)
     if demo.smoke_requires is not None:
         pytest.importorskip(demo.smoke_requires)
 
@@ -51,11 +65,26 @@ def test_demo_runs(demo, make_unit_square, tmp_path, monkeypatch):
     args = [make_unit_square(10)] if demo.needs_mesh else []
     result = demo.func(*args, **demo.smoke_kwargs)
 
-    if demo.returns_plotter:
-        # cli.py shows or saves whatever comes back, so the registry's claim about the
-        # return type has to hold or `run <demo>` fails on a human's screen.
-        plotters = result if isinstance(result, list) else [result]
-        assert plotters, f'{demo.name} is registered as returning a Plotter but returned nothing'
-        assert all(isinstance(p, Plotter) for p in plotters), (
-            f'{demo.name} is registered as returning a Plotter, got {type(result).__name__}'
+    assert isinstance(result, DemoResult), (
+        f'{demo.name} returned {type(result).__name__}; demos return a DemoResult so the '
+        'caller decides what to show, save, or print'
+    )
+    assert all(isinstance(f.plotter, Plotter) for f in result.figures), (
+        f'{demo.name} put a non-Plotter in a Figure'
+    )
+    assert all(f.caption.strip() for f in result.figures), (
+        f'{demo.name} has a figure with no caption; the gallery has nothing to say about it'
+    )
+    # More than one figure means the filenames come from slugs, so they have to exist
+    # and be distinct or the figures overwrite each other on save.
+    if len(result.figures) > 1:
+        slugs = [f.slug for f in result.figures]
+        assert all(slugs) and len(set(slugs)) == len(slugs), (
+            f'{demo.name} has {len(slugs)} figures needing distinct slugs, got {slugs}'
         )
+
+    # The point of the whole contract: a demo that yields nothing appears nowhere, which
+    # is how a demo rendering a blank panel stayed invisible before.
+    assert result.figures or result.text or result.artifacts, (
+        f'{demo.name} produced no figures, no text, and no files'
+    )

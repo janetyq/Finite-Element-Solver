@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -55,7 +55,10 @@ class Plotter:
             self.axs = np.array([self.axs])
         self.axs = self.axs.reshape(nrows, ncols)
         
-        self.anims = {} 
+        self.anims = {}
+        # The frame-update callable behind each animation, kept because a FuncAnimation
+        # renders only through show()/save(); `save_frames` steps these directly.
+        self._anim_updates: dict[tuple[int, int], tuple[Callable[[int], None], int]] = {}
         self.cbar_infos = {}
 
     # function for plotting at a specific index
@@ -149,6 +152,7 @@ class Plotter:
             self.plot(mesh, values[frame], mode=mode, idx=idx, title=frame_titles[frame], clear=True)
 
         self.anims[idx] = FuncAnimation(self.fig, update, frames=range(len(values)), blit=False, repeat=True)
+        self._anim_updates[idx] = (update, len(values))
 
     def get_ax(self, idx: tuple[int, int] = (0, 0)) -> Axes:
         return self.axs[idx]
@@ -178,7 +182,31 @@ class Plotter:
         self.format_axs()
         self.fig.savefig(path)
 
-        # TODO: animation saving not supported yet
+    def save_frames(self, path_template: str) -> list[str]:
+        '''Write each animation frame as a still image; returns the paths written.
+
+        `path_template` is formatted with the frame number, e.g. `'heat/{:03d}.png'`.
+        Every animation on this figure is stepped together, which is why this lives
+        here rather than on `FuncAnimation`: a figure with two animated panels has two
+        of those, and saving through either one leaves the other panel frozen.
+        '''
+        if not self._anim_updates:
+            raise ValueError('this figure has no animation to write frames for')
+
+        paths = []
+        for frame in range(self.frame_count()):
+            for update, _ in self._anim_updates.values():
+                update(frame)
+            self.format_axs()
+            path = path_template.format(frame)
+            self.fig.savefig(path)
+            paths.append(path)
+        return paths
+
+    def frame_count(self) -> int:
+        '''Frames the animations on this figure share -- the shortest, so every panel
+        has something to draw at every step.'''
+        return min((n for _, n in self._anim_updates.values()), default=0)
 
     def close(self) -> None:
         plt.close(self.fig)

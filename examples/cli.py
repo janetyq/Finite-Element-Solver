@@ -1,17 +1,19 @@
-"""Demo runner: list and run any registered example demo by name.
+"""Demo runner: list, run, or render the whole registry as a browsable gallery.
 
     uv run python examples/cli.py list
     uv run python examples/cli.py run poisson
     uv run python examples/cli.py run poisson --save images/poisson.png
     uv run python examples/cli.py run poisson --mesh files/mesh_20x20.json
+    uv run python examples/cli.py gallery
 """
 import argparse
+import inspect
 import logging
 from pathlib import Path
 
 from fem.mesh.mesh import Mesh
 
-from demo_registry import Demo
+from demo_registry import Demo, DemoResult
 import benchmark_assembly
 import meshing_demos
 import refinement_demo
@@ -19,6 +21,7 @@ import solver_demos
 
 # Resolved against the repo, so `run poisson` works from any directory.
 DEFAULT_MESH_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'mesh_40x40.json')
+DEFAULT_GALLERY_DIR = '.gallery'
 
 
 def build_registry() -> dict[str, Demo]:
@@ -33,46 +36,70 @@ def build_registry() -> dict[str, Demo]:
     return registry
 
 
-def _description(demo: Demo) -> str:
-    doc = demo.func.__doc__
-    return doc.strip().splitlines()[0] if doc else '(no description)'
+def figure_path(save_path: str, figure, only: bool) -> str:
+    '''Where one figure of a multi-figure demo is written.
+
+    A single-figure demo lands exactly on `--save`; more than one takes the figure's
+    slug as a suffix, so `wave` saves as `wave-animation.png` / `wave-snapshots.png`
+    rather than by position.
+    '''
+    if only:
+        return save_path
+    stem, dot, ext = save_path.rpartition('.')
+    return f'{stem}-{figure.slug}.{ext}' if dot else f'{save_path}-{figure.slug}'
 
 
-def _show_or_save(result, save_path):
-    plotters = result if isinstance(result, list) else [result]
+def _show(result: DemoResult) -> None:
+    for figure in result.figures:
+        figure.plotter.show()
+
+
+def _save(result: DemoResult, save_path: str, name: str) -> None:
+    animated = [f for f in result.figures if f.animated]
+    stills = result.still_figures
+    if animated and not stills:
+        raise NotImplementedError(
+            f"{name!r} produces only animated figures, and animation saving isn't "
+            "implemented yet under the matplotlib backend (see Plotter.save's TODO) - "
+            'rerun without --save to view it interactively.'
+        )
+    for figure in stills:
+        figure.plotter.save(figure_path(save_path, figure, only=len(stills) == 1))
+
+
+def deliver(result: DemoResult, save_path: str | None, name: str) -> None:
+    '''Show or save the figures, print the text, report the files.
+
+    The demo produced all of this and displayed none of it; every choice about where it
+    goes is made here.
+    '''
+    if result.text:
+        print(result.text)
+    for path in result.artifacts:
+        print(f'wrote {path}')
 
     if save_path is None:
-        for plotter in plotters:
-            plotter.show()
-        return
-
-    for plotter in plotters:
-        if plotter.anims:
-            raise NotImplementedError(
-                "Animation saving isn't implemented yet under the matplotlib backend "
-                "(see Plotter.save's TODO) - rerun without --save to view it interactively."
-            )
-
-    if len(plotters) == 1:
-        plotters[0].save(save_path)
-        return
-
-    stem, dot, ext = save_path.rpartition('.')
-    for i, plotter in enumerate(plotters):
-        indexed_path = f'{stem}_{i}.{ext}' if dot else f'{save_path}_{i}'
-        plotter.save(indexed_path)
+        _show(result)
+    else:
+        _save(result, save_path, name)
 
 
-def run_demo(demo: Demo, mesh_file: str, save_path: str | None) -> None:
+def supports_interactive(demo: Demo) -> bool:
+    """Whether this demo has a widget-driven mode, declared by taking the parameter."""
+    return 'interactive' in inspect.signature(demo.func).parameters
+
+
+def run_demo(demo: Demo, mesh_file: str, save_path: str | None, interactive: bool = False) -> None:
     args = [Mesh.load(mesh_file)] if demo.needs_mesh else []
-    result = demo.func(*args)
+    kwargs = {'interactive': True} if interactive else {}
+    result = demo.func(*args, **kwargs)
 
-    if demo.returns_plotter:
-        _show_or_save(result, save_path)
-    elif save_path is not None:
-        raise NotImplementedError(
-            f'{demo.name!r} manages its own display/output and does not support --save'
+    if not isinstance(result, DemoResult):
+        raise TypeError(
+            f'{demo.name!r} returned {type(result).__name__}; demos return a DemoResult '
+            'so the caller decides what to show, save, or print.'
         )
+    deliver(result, save_path, demo.name)
 
 
 def main():
@@ -93,15 +120,42 @@ def main():
         '--save', default=None,
         help='save the plot(s) to this path instead of showing them interactively',
     )
+    run_parser.add_argument(
+        '--interactive', action='store_true',
+        help='run the demo\'s widget-driven mode, where it has one (see `list`)',
+    )
+
+    gallery_parser = subparsers.add_parser(
+        'gallery', help='render every demo to a browsable static gallery')
+    gallery_parser.add_argument(
+        '--out', default=DEFAULT_GALLERY_DIR,
+        help=f'directory to write (replaced if it exists; default: {DEFAULT_GALLERY_DIR})')
+    gallery_parser.add_argument('--mesh', default=DEFAULT_MESH_FILE, help='mesh JSON file to load')
 
     args = parser.parse_args()
 
     if args.command == 'list':
         for name in sorted(registry):
-            print(f'{name}: {_description(registry[name])}')
+            print(f'{name}: {registry[name].description()}')
         return
 
-    run_demo(registry[args.name], args.mesh, args.save)
+    if args.command == 'gallery':
+        from gallery import build_gallery
+
+        print(f'Rendering {len(registry)} demos into {args.out}/ ...')
+        build_gallery(registry, Path(args.out), args.mesh)
+        print(f'\nOpen {Path(args.out).resolve() / "index.html"}')
+        return
+
+    demo = registry[args.name]
+    if args.interactive and not supports_interactive(demo):
+        supported = sorted(n for n, d in registry.items() if supports_interactive(d))
+        parser.error(
+            f'{args.name!r} has no interactive mode. --interactive applies to: '
+            + ', '.join(supported)
+        )
+
+    run_demo(demo, args.mesh, args.save, interactive=args.interactive)
 
 
 if __name__ == '__main__':
