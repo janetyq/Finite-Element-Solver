@@ -137,14 +137,17 @@ class RuppertsAlgorithm:
         return np.isin(opposite[..., 0]*stride + opposite[..., 1],
                        segments[:, 0]*stride + segments[:, 1])
 
-    def get_regions(self):
+    def get_regions(self, blocked=None):
         '''Label each triangle with the region of the PSLG it falls in.
 
         Triangles share a region when a chain of edges joins them without
         crossing a segment: the components of the dual graph, segments cut out.
+        `blocked` is `_blocked_edges()`, to pass in if it is already to hand.
         '''
         neighbors = self.triangulation.neighbors
-        interior_edge = (neighbors != -1) & ~self._blocked_edges()
+        if blocked is None:
+            blocked = self._blocked_edges()
+        interior_edge = (neighbors != -1) & ~blocked
         triangle, edge = np.nonzero(interior_edge)
         dual = coo_matrix(
             (np.ones(len(triangle), dtype=bool), (triangle, neighbors[triangle, edge])),
@@ -160,9 +163,9 @@ class RuppertsAlgorithm:
         Hull edges that *are* segments wall it off, which is what keeps a convex
         outline -- one that is its own hull -- from being discarded entirely.
         '''
-        labels = self.get_regions()
-        reaches_infinity = ((self.triangulation.neighbors == -1)
-                            & ~self._blocked_edges()).any(axis=1)
+        blocked = self._blocked_edges()
+        labels = self.get_regions(blocked)
+        reaches_infinity = ((self.triangulation.neighbors == -1) & ~blocked).any(axis=1)
         return np.isin(labels, np.unique(labels[reaches_infinity]))
 
     def _enclosed_mesh(self):
@@ -183,7 +186,6 @@ class RuppertsAlgorithm:
 
     def refine(self):
         encroached_segments = self.get_encroached_segments()
-        bad_triangles = self.get_bad_triangles()
 
         while True:
             new_encroached_segments = []
@@ -192,8 +194,13 @@ class RuppertsAlgorithm:
             if len(encroached_segments) > 0:
                 segment = encroached_segments.pop()
                 self.split_segment(segment)
-            # check if there are any bad triangles and refine them
-            elif len(bad_triangles) > 0:
+            else:
+                # Only asked for once the segments are clear, since that branch
+                # outranks this one and the answer costs a region labelling.
+                bad_triangles = self.get_bad_triangles()
+                # if no encroached segments or bad triangles, we are done
+                if len(bad_triangles) == 0:
+                    break
                 triangle = bad_triangles.pop()
                 circumcenter = calculate_circumcenter(self.vertices[triangle])
                 # Inserting a point inside a segment's diametral circle would cut
@@ -202,12 +209,8 @@ class RuppertsAlgorithm:
                 new_encroached_segments = self.get_segments_encroached_by(circumcenter)
                 if not new_encroached_segments:
                     self.add_vertex(circumcenter)
-            # if no encroached segments or bad triangles, we are done
-            else:
-                break
             self.triangulation = Delaunay(self.vertices)
             encroached_segments = self.get_encroached_segments() + new_encroached_segments
-            bad_triangles = self.get_bad_triangles()
 
         logger.debug('refined to %d triangles over %d vertices',
                      len(self.triangulation.simplices), len(self.vertices))
