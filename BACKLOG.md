@@ -53,7 +53,7 @@ matrix would scale far better and is a near drop-in.
 `RuppertsAlgorithm.run_algo` inserts one vertex per pass and then calls `Delaunay(...)`
 from scratch, so refinement costs `O(n)` full retriangulations. With the per-segment and
 per-triangle scans now vectorised (§ closed below), that rebuild is the dominant remaining
-term: ~60% of a run, and it is what keeps the raw 1700-point California outline at ~450 s.
+term: ~60% of a run.
 `Delaunay(..., incremental=True)` plus `add_points` is a near drop-in and measures ~6.6x
 faster on that component. The catch is that qhull's incremental mode returns the same
 triangles in a different `simplices` order, which changes which bad triangle
@@ -165,10 +165,13 @@ recovers anything. Each item below is an implementation of a seam that already e
   `AdaptiveRefinement` driver is covered in `tests/test_refinement.py`.
 - 💡 **A flow-around-an-obstacle Poisson demo.** The README's Poisson figure shows one
   (Dirichlet `u = 0` on the obstacle, Neumann inlet/outlet) and nothing in `examples/`
-  reproduces it: the meshing side has no support for interior holes, so there is no obstacle
-  mesh to solve on. `PSLG` takes a single closed outline plus a bounding box; holes need a
-  second loop and an inside/outside rule in Ruppert's. The README now says so rather than
-  implying a demo exists.
+  reproduces it. Half the blocker is now gone: Ruppert's keeps only what the PSLG encloses
+  and returns a mesh with a real boundary, so a mesh with a hole in it would be solvable.
+  What is left is that `PSLG` cannot *express* one — it takes a single closed outline, so
+  there is no way to say "this inner loop is a hole" rather than "this ring is a region".
+  That needs multiple loops plus a fill rule (even-odd over the loops, which is also what
+  would let the California SVG keep its 11 discarded island contours). The README says so
+  rather than implying a demo exists.
 - 💡 **`adaptive_refinement` is the one demo still skipped by `tests/test_demos.py`**,
   blocked on the error estimator above and on Dirichlet conditions that survive a remesh.
 - 💡 **Pick the demo's simplification tolerance by input corner angle, not by point
@@ -189,8 +192,7 @@ recovers anything. Each item below is an implementation of a seam that already e
   sharp inputs is corner lopping (Ruppert's standard concentric-shell treatment), which
   is not implemented. (Refinement order is *not* the cause — refining the worst triangle
   first instead of qhull's arbitrary last was measured and is a wash.) Runtime is no
-  longer the issue: those runs are ~1.9 s and ~1.0 s, and the raw 1700-point curve now
-  completes in ~450 s where it previously did not finish at all.
+  longer the issue at any tolerance the demo uses; the triangle counts are.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
   the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/generation.py` and
   `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.
