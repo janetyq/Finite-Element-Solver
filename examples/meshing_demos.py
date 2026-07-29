@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 
+from fem.geometry import calculate_polygon_area
 from fem.plot.plotter import Plotter
 from fem.mesh.ruppert import create_rect_mesh, RuppertsAlgorithm
 from fem.mesh.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
@@ -22,11 +23,15 @@ from demo_registry import Demo, DemoResult, Figure
 DEFAULT_SVG_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'california.svg')
 
 # Simplification tolerance as a fraction of the curve's bounding-box extent, so one
-# number suits any outline. Ruppert's cost still grows steeply in the point count it is
-# handed -- ~1.4 s at this tolerance on the California outline, ~450 s on the raw
-# 1700-point curve -- so simplifying first is what keeps the demo interactive, and is
-# why the slider starts here rather than at zero.
+# number suits any outline. Ruppert's cost grows steeply in the point count it is handed,
+# so simplifying first is what keeps the demo interactive, and is why the slider starts
+# here rather than at zero.
 DEFAULT_TOLERANCE = 0.005
+
+# Element size cap, as a fraction of the outline's own area so one number suits any
+# shape. The angle bound constrains element *quality* and says nothing about size,
+# so without a cap a large region comes back as a handful of enormous triangles.
+DEFAULT_MAX_AREA_FRACTION = 0.005
 
 def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='mesh.json'):
     """Build a uniform rectangular mesh, save it to disk, and plot what was written."""
@@ -115,16 +120,19 @@ def demo_douglas_peucker(curve, save_file='douglas_peucker_output.json',
 
     return douglas_peucker(curve, slider.val)
 
-def rupperts_mesh(curve, min_angle=20):
+def rupperts_mesh(curve, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
     """Triangulate a closed curve via Ruppert's algorithm; returns (mesh, algorithm)."""
-    pslg = PSLG(curve)
-    pslg.add_bounding_box(buffer=0.2)
-    rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle)
-    return rupperts.run_algo(), rupperts
+    curve = np.asarray(curve)
+    max_area = None
+    if max_area_fraction is not None:
+        max_area = max_area_fraction * calculate_polygon_area(curve)
+    rupperts = RuppertsAlgorithm(PSLG(curve), min_angle=min_angle, max_area=max_area)
+    return rupperts.refine(), rupperts
 
-def demo_rupperts(curve, min_angle=20):
+def demo_rupperts(curve, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
     """Triangulate a closed curve with Ruppert's algorithm and plot the result."""
-    mesh, rupperts = rupperts_mesh(curve, min_angle=min_angle)
+    mesh, rupperts = rupperts_mesh(curve, min_angle=min_angle,
+                                   max_area_fraction=max_area_fraction)
 
     plotter = Plotter(title='Triangulated mesh')
     plotter.plot(mesh, mode='mesh')
@@ -134,7 +142,9 @@ def demo_rupperts(curve, min_angle=20):
     return DemoResult([Figure(
         plotter,
         f"Ruppert's refinement of the outline (blue) into {len(mesh.elements)} triangles, "
-        f'every angle at least {min_angle} degrees.')])
+        f'every angle at least {min_angle} degrees. The mesh covers what the outline '
+        f'encloses and nothing else, and carries the {len(mesh.boundary)} boundary '
+        'edges a solver needs to put conditions on.')])
 
 def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_TOLERANCE,
                              interactive=False):
@@ -155,12 +165,14 @@ def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_TOLERA
         'superlinear in what it is handed, so this is what makes triangulating it tractable.')])
 
 def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_TOLERANCE,
-                      interactive=False, min_angle=20):
+                      interactive=False, min_angle=20,
+                      max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
     """Simplify an SVG outline then triangulate it with Ruppert's algorithm;
     --interactive lets you pick the simplification first."""
     curve = get_curve_from_svg(svg_file)
     curve_reduced = demo_douglas_peucker(curve, tolerance=tolerance, interactive=interactive)
-    return demo_rupperts(curve_reduced, min_angle=min_angle)
+    return demo_rupperts(curve_reduced, min_angle=min_angle,
+                         max_area_fraction=max_area_fraction)
 
 
 DEMOS = [
