@@ -6,6 +6,8 @@ promises a caller. The tests below assert them directly rather than pinning a
 particular triangulation -- any correct refinement satisfies them, which keeps
 the suite useful across changes to insertion order or the underlying Delaunay.
 """
+import logging
+
 import numpy as np
 import pytest
 
@@ -18,6 +20,8 @@ L_SHAPE_OUTLINE = np.array([
 ])
 SQUARE_OUTLINE = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
 SLAB_OUTLINE = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 0.5], [0.0, 0.5]])
+# A plate comfortably around the L-shape, sharing no vertex with it.
+PLATE_OUTLINE = np.array([[-3.0, -3.0], [5.0, -3.0], [5.0, 5.0], [-3.0, 5.0]])
 
 # The L-shape needs no angle refinement at any bound the algorithm can hold, so
 # tests that need refinement to have actually happened drive it with an area cap.
@@ -218,19 +222,118 @@ def test_a_pslg_that_encloses_nothing_is_refused():
         RuppertsAlgorithm(pslg, min_angle=20).refine()
 
 
-def test_a_bounding_box_keeps_the_ring_around_the_outline():
-    """Documents the enclosure rule at its least obvious: a box around an outline
-    leaves the ring between them genuinely enclosed by segments, so it is kept.
-    Treating the inner loop as a hole instead needs a fill rule PSLG cannot yet
-    express."""
+def test_a_loop_inside_another_is_a_hole():
+    """The even-odd rule at work, and the shape a flow-around-an-obstacle problem
+    needs: a box around an outline meshes the material between them and leaves
+    the outline itself empty."""
     pslg = _l_shape()
     pslg.add_bounding_box(buffer=0.2)
+    mesh = RuppertsAlgorithm(pslg, min_angle=20).refine()
+
+    centroids = np.asarray(mesh.vertices)[np.asarray(mesh.elements)].mean(axis=1)
+    inside_the_hole = [c for c in centroids if point_in_polygon(c, L_SHAPE_OUTLINE)]
+    assert not inside_the_hole, f'{len(inside_the_hole)} elements fill what should be a hole'
+    assert len(mesh.elements) > 0
+
+    # The hole has a rim, so the boundary is the box plus the outline -- two loops,
+    # every vertex still joining exactly two boundary edges.
+    counts = np.bincount(np.asarray(mesh.boundary).ravel())
+    assert set(np.unique(counts[counts > 0])) == {2}
+
+
+def test_disjoint_loops_are_both_meshed():
+    """Two outlines side by side are two pieces of one domain, not a hole."""
+    left = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+    right = left + np.array([3.0, 0.0])
+    mesh = RuppertsAlgorithm(PSLG.from_loops([left, right]), min_angle=20).refine()
+
+    centroids = np.asarray(mesh.vertices)[np.asarray(mesh.elements)].mean(axis=1)
+    assert any(point_in_polygon(c, left) for c in centroids)
+    assert any(point_in_polygon(c, right) for c in centroids)
+    # Nothing in the gap between them.
+    assert all(point_in_polygon(c, left) or point_in_polygon(c, right) for c in centroids)
+
+
+def test_boundary_facets_name_the_loop_they_came_from():
+    """A plate with a hole: the outer wall and the hole rim are both boundary,
+    and a solver has to tell them apart to put different conditions on them.
+    That is unrecoverable from the finished mesh, so meshing has to record it."""
+    pslg = PSLG.from_loops([PLATE_OUTLINE, L_SHAPE_OUTLINE])
     algo = RuppertsAlgorithm(pslg, min_angle=20)
     mesh = algo.refine()
 
-    assert not algo.get_exterior_triangles().any()
-    centroids = np.asarray(mesh.vertices)[np.asarray(mesh.elements)].mean(axis=1)
-    assert not all(point_in_polygon(c, L_SHAPE_OUTLINE) for c in centroids)
+    assert len(algo.boundary_loops) == len(mesh.boundary)
+    assert set(np.unique(algo.boundary_loops)) == {0, 1}, 'both loops should appear'
+
+    # Loop 1 is the hole; every facet attributed to it must sit on that outline.
+    vertices = np.asarray(mesh.vertices)
+    for facet in np.asarray(mesh.boundary)[algo.boundary_loops == 1]:
+        midpoint = vertices[facet].mean(axis=0)
+        on_outline = min(
+            abs((end - start)[0]*(midpoint - start)[1] - (end - start)[1]*(midpoint - start)[0])
+            / np.linalg.norm(end - start)
+            for start, end in zip(L_SHAPE_OUTLINE, np.roll(L_SHAPE_OUTLINE, -1, axis=0))
+        )
+        assert on_outline < 1e-9, f'facet attributed to the hole is not on it: {midpoint}'
+
+
+def test_split_segments_keep_their_loop():
+    """Refinement splits a segment many times over; the halves have to carry the
+    attribution or long boundaries lose it."""
+    pslg = PSLG.from_loops([PLATE_OUTLINE, L_SHAPE_OUTLINE])
+    algo = RuppertsAlgorithm(pslg, min_angle=20, max_area=1.0)
+    algo.refine()
+
+    assert len(algo.segments) > len(pslg.segments), 'expected splitting to have happened'
+    assert len(algo.segment_loops) == len(algo.segments)
+    assert set(np.unique(algo.segment_loops)) == {0, 1}
+
+
+def test_sharp_input_corners_are_reported(caplog):
+    """A sub-60-degree corner is what turns refinement into an apparent hang, so
+    it should say so up front rather than leave the caller guessing."""
+    spike = np.array([[0.0, 0.0], [10.0, 0.3], [10.0, -0.3]])
+    with caplog.at_level(logging.WARNING, logger='fem.mesh.generation'):
+        RuppertsAlgorithm(PSLG(spike), min_angle=20)
+
+    assert 'below the 60' in caplog.text
+
+
+def test_a_square_does_not_warn(caplog):
+    with caplog.at_level(logging.WARNING, logger='fem.mesh.generation'):
+        RuppertsAlgorithm(PSLG(SQUARE_OUTLINE.copy()), min_angle=20)
+
+    assert caplog.text == ''
+
+
+def test_crossing_segments_are_refused():
+    """A bow-tie is not a planar straight-line graph. Meshing it does not fail,
+    it silently meshes the wrong region."""
+    bowtie = np.array([[0.0, 0.0], [1.0, 1.0], [1.0, 0.0], [0.0, 1.0]])
+
+    with pytest.raises(ValueError, match='cross'):
+        PSLG(bowtie).validate()
+
+
+def test_a_valid_outline_passes_validation():
+    PSLG(L_SHAPE_OUTLINE.copy()).validate()
+    PSLG.from_loops([PLATE_OUTLINE, L_SHAPE_OUTLINE]).validate()
+
+
+def test_repeated_vertices_are_refused():
+    """Two vertices at one place cannot both be triangulated -- qhull keeps one,
+    so a segment ending on the other never becomes an edge of the mesh."""
+    repeated = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 0.0]])
+
+    with pytest.raises(ValueError, match='more than once'):
+        PSLG(repeated).validate()
+
+
+def test_zero_length_segments_are_refused():
+    doubled_back = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+
+    with pytest.raises(ValueError, match='zero length'):
+        PSLG(doubled_back).validate()
 
 
 def test_min_angle_is_the_same_computed_singly_or_in_a_batch():

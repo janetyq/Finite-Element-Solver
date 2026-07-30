@@ -9,6 +9,7 @@ from scipy.spatial import Delaunay, KDTree
 from fem.mesh.mesh import Mesh
 from fem.typing import FloatArray
 from fem.geometry import (
+    calculate_minimum_segment_angle,
     calculate_polygon_area,
     calculate_triangle_min_angle,
     calculate_circumcenter,
@@ -17,6 +18,11 @@ from fem.geometry import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Ruppert's terminates for inputs whose segments meet at 60 degrees or more. Below
+# that it can refine around the corner indefinitely, and the cost of getting close
+# climbs steeply first -- which reads as a hang rather than as a bad input.
+SAFE_INPUT_ANGLE = 60.0
 
 # A segment's own endpoints sit exactly on its diametral circle, so floating-point
 # noise can push them fractionally inside.  This relative tolerance shrinks the test
@@ -52,8 +58,10 @@ class RuppertsAlgorithm:
 
     **What is returned.**  The result keeps only what the PSLG encloses — a
     Delaunay triangulation spans the convex hull, so a non-convex outline also
-    produces triangles outside it.  Segments are walls: what survives is
-    whatever cannot be reached from infinity without crossing one.
+    produces triangles outside it.  Interior/exterior alternates by the
+    even-odd rule: a region with an odd number of segment crossings to
+    infinity is inside, so a loop inside another is a hole.  After `refine`,
+    `boundary_loops` records which input loop each boundary facet came from.
 
     Ruppert proved termination for inputs whose segments meet at 60 degrees or
     more.  Corners sharper than that (`SAFE_INPUT_ANGLE`) are exempt: the
@@ -69,9 +77,22 @@ class RuppertsAlgorithm:
     def __init__(self, pslg, min_angle=30, max_area=None):
         self.vertices = np.array(pslg.vertices)
         self.segments = np.array([sorted(seg) for seg in pslg.segments])
+        self.segment_loops = np.array(getattr(pslg, 'loop_ids',
+                                              np.zeros(len(self.segments), dtype=int)))
         self.triangulation = Delaunay(self.vertices)
         self.min_angle = min_angle
         self.max_area = max_area
+        # Which loop each boundary facet of the returned mesh came from; set by refine().
+        self.boundary_loops = np.zeros(0, dtype=int)
+
+        self.input_angle = calculate_minimum_segment_angle(self.vertices, self.segments)
+        if self.input_angle < SAFE_INPUT_ANGLE:
+            logger.warning(
+                'segments meet at %.1f degrees somewhere, below the %.0f that Delaunay '
+                'refinement needs to be sure of terminating; expect this to cost far '
+                'more elements than the outline suggests, or not to finish',
+                self.input_angle, SAFE_INPUT_ANGLE,
+            )
 
     def _diametral_circles(self):
         '''Centres and squared radii of every segment's diametral circle.'''
@@ -157,18 +178,33 @@ class RuppertsAlgorithm:
         _, labels = connected_components(dual, directed=False)
         return labels
 
+    def _crossing_counts(self, points):
+        '''How many segments a ray from each point to +x passes through.'''
+        starts = self.vertices[self.segments[:, 0]][None, :, :]
+        ends = self.vertices[self.segments[:, 1]][None, :, :]
+        points = points[:, None, :]
+
+        rises = (starts[..., 1] > points[..., 1]) != (ends[..., 1] > points[..., 1])
+        # Only the segments the ray's height crosses can be hit; the rest would
+        # divide by a zero rise, so keep them out of the arithmetic entirely.
+        height = np.where(rises, ends[..., 1] - starts[..., 1], 1.0)
+        crossing_x = starts[..., 0] + (points[..., 1] - starts[..., 1]) * (
+            ends[..., 0] - starts[..., 0]) / height
+        return (rises & (crossing_x > points[..., 0])).sum(axis=1)
+
     def get_exterior_triangles(self):
         '''Bool mask: True for triangles outside the PSLG boundary.
 
-        A triangle on the convex hull whose hull edge is not a segment can be
-        reached from infinity — it is exterior, and so is every triangle in its
-        region.  A hull edge that *is* a segment walls the interior off, which
-        is what keeps a convex outline from being discarded entirely.
+        Picks one triangle per region, counts how many segments a ray from
+        its centroid crosses to reach infinity, and applies the even-odd rule:
+        odd crossings = inside, even = outside.  A loop inside another is
+        therefore a hole without anyone having to declare it.
         '''
-        segment_mask = self._segment_edges()
-        labels = self.get_regions(segment_mask)
-        reaches_infinity = ((self.triangulation.neighbors == -1) & ~segment_mask).any(axis=1)
-        return np.isin(labels, np.unique(labels[reaches_infinity]))
+        labels = self.get_regions(self._segment_edges())
+        representatives = np.unique(labels, return_index=True)[1]
+        corners = self.vertices[self.triangulation.simplices[representatives]]
+        outside = self._crossing_counts(corners.mean(axis=1)) % 2 == 0
+        return outside[labels]
 
     def _enclosed_mesh(self):
         '''The enclosed triangles as a Mesh, renumbered onto the vertices it uses.'''
@@ -183,8 +219,26 @@ class RuppertsAlgorithm:
         renumbered = np.zeros(len(self.vertices), dtype=np.intp)
         renumbered[used] = np.arange(len(used))
         elements = renumbered[elements]
-        return Mesh(self.vertices[used], elements,
-                    get_boundary_from_vertices_elements(elements))
+
+        boundary = get_boundary_from_vertices_elements(elements)
+        self.boundary_loops = self._trace_boundary_to_loops(boundary, used, renumbered)
+        return Mesh(self.vertices[used], elements, boundary)
+
+    def _trace_boundary_to_loops(self, boundary, used, renumbered):
+        '''The input loop each boundary facet came from, or -1 if none did.
+
+        This is what tells an obstacle's rim from the outer wall around it, and
+        it cannot be recovered from the finished mesh -- a boundary is just
+        edges by then.
+        '''
+        is_used = np.zeros(len(self.vertices), dtype=bool)
+        is_used[used] = True
+        loop_of_edge = {}
+        for (start, end), loop_id in zip(self.segments, self.segment_loops):
+            if is_used[start] and is_used[end]:
+                loop_of_edge[tuple(sorted((renumbered[start], renumbered[end])))] = int(loop_id)
+        return np.array([loop_of_edge.get(tuple(sorted(facet)), -1) for facet in boundary],
+                        dtype=int)
 
     def refine(self):
         encroached_segments = self.get_encroached_segments()
@@ -219,23 +273,30 @@ class RuppertsAlgorithm:
         return self._enclosed_mesh()
 
     def del_segment(self, segment):
+        '''Remove `segment`, returning the loop it belonged to.'''
         segment_idx = np.where((self.segments == segment).all(axis=1))[0][0]
+        loop_id = int(self.segment_loops[segment_idx])
         self.segments = np.delete(self.segments, segment_idx, axis=0)
-    
+        self.segment_loops = np.delete(self.segment_loops, segment_idx)
+        return loop_id
+
     def add_vertex(self, vertex):
         self.vertices = np.append(self.vertices, [vertex], axis=0)
-    
-    def add_segment(self, segment):
+
+    def add_segment(self, segment, loop_id=0):
         self.segments = np.append(self.segments, [segment], axis=0)
+        self.segment_loops = np.append(self.segment_loops, loop_id)
 
     def split_segment(self, segment):
         midpoint = 0.5 * (self.vertices[segment[0]] + self.vertices[segment[1]])
         new_vertex_idx = len(self.vertices)
         new_segments = [[segment[0], new_vertex_idx], [segment[1], new_vertex_idx]]
-        self.del_segment(segment)
+        # Halves inherit the loop, so a boundary facet can still be traced back to
+        # the outline it came from however many times it has been split.
+        loop_id = self.del_segment(segment)
         self.add_vertex(midpoint)
-        self.add_segment(new_segments[0])
-        self.add_segment(new_segments[1])
+        self.add_segment(new_segments[0], loop_id)
+        self.add_segment(new_segments[1], loop_id)
         return new_segments
 
 # Simple meshing functions
