@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from fem.elements import LinearLineElement, LinearTetrahedralElement
-from fem.mesh.generation import create_box_mesh, create_rect_mesh
+from fem.mesh.ruppert import create_box_mesh, create_rect_mesh
 from fem.mesh.mesh import Mesh
 from fem.space import FunctionSpace
 

@@ -7,7 +7,7 @@ and axes instead of the ones the Plotter owns.
 import numpy as np
 import pytest
 
-from fem.mesh.generation import create_rect_mesh
+from fem.mesh.ruppert import create_rect_mesh
 from fem.plot.plotter import Plotter
 
 

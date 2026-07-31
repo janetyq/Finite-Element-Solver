@@ -23,7 +23,7 @@ import pytest
 
 from fem.forms import LaplacianForm, LinearElasticForm
 from fem.materials import LinearElasticMaterial
-from fem.mesh.generation import create_box_mesh, create_rect_mesh
+from fem.mesh.ruppert import create_box_mesh, create_rect_mesh
 from fem.space import FunctionSpace
 
 
