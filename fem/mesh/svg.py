@@ -1,11 +1,38 @@
+import re
+
 import numpy as np
 
 import svg.path  # pyright: ignore[reportMissingImports]
 import xml.etree.ElementTree as ET
 
+
+def _document_height(root):
+    '''Height of the SVG user-space box, or None if the file does not say.
+
+    Needed to mirror the artwork: SVG's y axis points down the page, so a path
+    read literally arrives upside down in any y-up frame.
+    '''
+    height = root.get('height')
+    if height is not None:
+        # Lengths may carry a unit ('737.6px'); the number is what matters here.
+        number = re.match(r'\s*([0-9.eE+-]+)', height)
+        if number:
+            return float(number.group(1))
+
+    view_box = root.get('viewBox')
+    if view_box is not None:
+        bounds = view_box.replace(',', ' ').split()
+        if len(bounds) == 4:
+            return float(bounds[1]) + float(bounds[3])
+    return None
+
+
 def read_svg_to_list_of_path_points(svg_file):
     '''
     Reads svg file and returns a list of closed loop paths, where each path is a list of points.
+
+    Points come back in a y-up frame, mirrored about the document height, so the
+    artwork plots the way it looks in a browser rather than flipped.
     '''
     # Read the SVG file and parse it
     tree = ET.parse(svg_file)
@@ -40,8 +67,16 @@ def read_svg_to_list_of_path_points(svg_file):
                     x = (1 - t_normalized)**3 * start[0] + 3 * (1 - t_normalized)**2 * t_normalized * control1[0] + 3 * (1 - t_normalized) * t_normalized**2 * control2[0] + t_normalized**3 * end[0]
                     y = (1 - t_normalized)**3 * start[1] + 3 * (1 - t_normalized)**2 * t_normalized * control1[1] + 3 * (1 - t_normalized) * t_normalized**2 * control2[1] + t_normalized**3 * end[1]
                     path_points.append([x, y])
-            
-    return list_of_path_points
+
+    if not list_of_path_points:
+        return list_of_path_points
+
+    # Fall back to the artwork's own extent when the file declares no size: the
+    # mirror line only shifts the result, and shape is what callers use.
+    height = _document_height(root)
+    if height is None:
+        height = max(y for path_points in list_of_path_points for _, y in path_points)
+    return [[[x, height - y] for x, y in path_points] for path_points in list_of_path_points]
 
 def douglas_peucker(points, epsilon):
     '''

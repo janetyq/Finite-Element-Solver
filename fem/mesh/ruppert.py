@@ -17,10 +17,10 @@ from fem.geometry import (
 logger = logging.getLogger(__name__)
 
 # A segment's own endpoints sit exactly on its diametral circle, so floating-point
-# noise can push them fractionally inside.  This tolerance shrinks the test circle
-# slightly to prevent a segment from appearing encroached by its own endpoint (which
-# would split it forever).
-ENCROACHMENT_TOLERANCE = 1e-6
+# noise can push them fractionally inside.  This relative tolerance shrinks the test
+# circle slightly to prevent a segment from appearing encroached by its own endpoint
+# (which would split it forever).
+ENCROACHMENT_TOLERANCE = 1e-12
 
 
 class RuppertsAlgorithm:
@@ -82,13 +82,13 @@ class RuppertsAlgorithm:
         '''
         centers, radii_sq = self._diametral_circles()
         distances, _ = KDTree(self.vertices).query(centers)
-        return list(self.segments[distances**2 < radii_sq - ENCROACHMENT_TOLERANCE])
+        return list(self.segments[distances**2 < radii_sq * (1 - ENCROACHMENT_TOLERANCE)])
 
     def get_segments_encroached_by(self, vertex):
         '''Segments whose diametral circle would strictly contain `vertex`.'''
         centers, radii_sq = self._diametral_circles()
         offsets = np.asarray(vertex) - centers
-        inside = np.sum(offsets**2, axis=-1) < radii_sq - ENCROACHMENT_TOLERANCE
+        inside = np.sum(offsets**2, axis=-1) < radii_sq * (1 - ENCROACHMENT_TOLERANCE)
         return list(self.segments[inside])
 
     def get_bad_triangles(self):
