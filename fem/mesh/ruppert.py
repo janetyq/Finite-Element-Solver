@@ -16,33 +16,47 @@ from fem.geometry import (
 
 logger = logging.getLogger(__name__)
 
-# A segment is "encroached" when a mesh vertex (other than its own endpoints) lies
-# strictly inside its diametral circle.  The two endpoints sit exactly on that circle,
-# so floating-point noise can push them fractionally inside.  This tolerance shrinks
-# the test circle slightly to prevent a segment from appearing encroached by its own
-# endpoint (which would split it forever).
+# A segment's own endpoints sit exactly on its diametral circle, so floating-point
+# noise can push them fractionally inside.  This tolerance shrinks the test circle
+# slightly to prevent a segment from appearing encroached by its own endpoint (which
+# would split it forever).
 ENCROACHMENT_TOLERANCE = 1e-6
 
 
 class RuppertsAlgorithm:
     '''Ruppert's Delaunay refinement of a PSLG.
 
-    The algorithm repeats two operations until every triangle meets `min_angle`
-    (and `max_area`, if given):
+    Starting from a Delaunay triangulation of the input vertices, loop until
+    no encroached segments and no skinny triangles remain:
 
-    1. **Split encroached segments.**  A segment is *encroached* when a mesh
-       vertex other than its own endpoints falls inside its diametral circle
-       (the circle whose diameter is the segment).  Splitting the segment at
-       its midpoint removes the encroachment and preserves the boundary.
+    1. **Split encroached segments** (priority).  A segment is *encroached*
+       when a mesh vertex other than its own endpoints falls inside its
+       diametral circle (the circle whose diameter is the segment).  Replace
+       it with two halves at its midpoint.  Fixing encroachment can also fix
+       nearby skinny triangles.
 
     2. **Insert circumcenters of skinny triangles.**  A triangle whose
        smallest angle is below `min_angle` is refined by inserting its
-       circumcenter.  If that new point encroaches a segment, the segment is
-       split instead and the triangle is re-examined later.
+       circumcenter.  If that new point would encroach a segment, split the
+       segment instead and re-examine the triangle later.
 
-    Cost grows steeply in the number of input points, because each insertion
-    retriangulates from scratch: a densely sampled outline is worth simplifying
-    (`fem.mesh.svg.douglas_peucker`) before it is handed over.
+    Each step adds one vertex and rebuilds the Delaunay triangulation.
+
+    **Why segments are respected.**  The Delaunay triangulation only knows
+    about points, not segments.  But if a segment's diametral circle contains
+    no other vertex, it is guaranteed to appear as a Delaunay edge.  Splitting
+    encroached segments clears their diametral circles, which is what makes
+    the unconstrained Delaunay conform to the boundary.
+
+    Ruppert proved termination for inputs whose segments meet at 60 degrees or
+    more.  Corners sharper than that (`SAFE_INPUT_ANGLE`) are exempt: the
+    triangle across them is accepted at whatever angle it comes in at, since
+    no refinement can improve it.
+
+    Cost grows steeply in the number of input points: each step rebuilds the
+    full Delaunay triangulation, and more input points means more steps on a
+    larger point set.  Simplify a densely sampled outline
+    (`fem.mesh.svg.douglas_peucker`) before handing it over.
     '''
 
     def __init__(self, pslg, min_angle=30, max_area=None):
