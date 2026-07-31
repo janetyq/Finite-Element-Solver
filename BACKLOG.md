@@ -53,12 +53,18 @@ matrix would scale far better and is a near drop-in.
 `RuppertsAlgorithm.refine` inserts one vertex per pass and then calls `Delaunay(...)`
 from scratch, so refinement costs `O(n)` full retriangulations. With the per-segment and
 per-triangle scans now vectorised (§ closed below), that rebuild is the dominant remaining
-term: ~60% of a run.
-`Delaunay(..., incremental=True)` plus `add_points` is a near drop-in and measures ~6.6x
-faster on that component. The catch is that qhull's incremental mode returns the same
-triangles in a different `simplices` order, which changes which bad triangle
-`refine` pops next -- so every mesh the demos and gallery produce would change (still
-valid, just different). Worth doing alongside a decision to re-bless the gallery images.
+term: 51% of the California demo's run (321 rebuilds over 504 vertices), including ~8%
+that is scipy's Qhull wrapper opening a temp file per construction.
+`Delaunay(..., incremental=True)` plus `add_points` is a near drop-in and measures 6.7x
+faster replaying that same insertion sequence, so ~1.8x on the run as a whole. The catch
+is that qhull's incremental mode returns the same triangles in a different `simplices`
+order (verified: same set, different order), which changes which bad triangle `refine`
+pops next -- so every mesh the demos and gallery produce would change (still valid, just
+different). Worth doing alongside a decision to re-bless the gallery images.
+
+The other half of the loop stays `O(n)` per pass regardless -- a fresh `KDTree` for
+encroachment, `_blocked_edges`, and the region labelling all rescan everything -- so this
+removes the dominant term without making refinement subquadratic.
 
 ---
 
