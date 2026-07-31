@@ -9,8 +9,9 @@ from scipy.spatial import Delaunay, KDTree
 from fem.mesh.mesh import Mesh
 from fem.typing import FloatArray
 from fem.geometry import (
-    calculate_minimum_segment_angle,
     calculate_polygon_area,
+    calculate_segment_angles,
+    calculate_triangle_angles,
     calculate_triangle_min_angle,
     calculate_circumcenter,
     get_boundary_from_vertices_elements,
@@ -23,8 +24,9 @@ logger = logging.getLogger(__name__)
 # Ruppert's is proven to finish. Refinement fixes one problem at a time (a segment with
 # a vertex inside its diametral circle, or a triangle failing the angle or area test) by
 # inserting a point, and stops once none are left. Below 60 degrees two segments sharing
-# a corner can each re-create the other's problem, so refinement chases the corner and
-# never runs out. Sharp input is warned about, not rejected.
+# a corner would each re-create the other's problem, so such a corner is meshed at the
+# angle it comes in at rather than refined towards a bound it cannot reach: see
+# `_split_point` and `_spans_a_sharp_corner`.
 SAFE_INPUT_ANGLE = 60.0
 
 # A segment's own endpoints sit exactly on its diametral circle, so floating-point
@@ -67,9 +69,10 @@ class RuppertsAlgorithm:
     `boundary_loops` records which input loop each boundary facet came from.
 
     Ruppert proved termination for inputs whose segments meet at 60 degrees or
-    more (`SAFE_INPUT_ANGLE`).  Construction warns when the input is sharper
-    than that, but refinement does not treat such corners specially, so one can
-    still cascade into an unbounded number of elements.
+    more (`SAFE_INPUT_ANGLE`).  Segments meeting below it are the one case where
+    `min_angle` does not hold: the triangle across such a corner is meshed at the
+    input's own angle, since no refinement improves it.  Everything away from
+    those corners still meets the bound.
 
     Cost grows steeply in the number of input points: each step rebuilds the
     full Delaunay triangulation, and more input points means more steps on a
@@ -81,9 +84,10 @@ class RuppertsAlgorithm:
         '''Refine `pslg` until every triangle clears both bounds.
 
         `min_angle` is in degrees: the smallest interior angle any output triangle
-        may have. Ruppert's proof covers bounds up to about 20.7 degrees and it
-        holds in practice to roughly 30; above that refinement can fail to
-        terminate even on input well clear of `SAFE_INPUT_ANGLE`.
+        may have, bar the triangles across input corners already sharper than
+        `SAFE_INPUT_ANGLE`, which no refinement can improve. Ruppert's proof covers
+        bounds up to about 20.7 degrees and it holds in practice to roughly 30;
+        above that refinement can fail to terminate however blunt the input.
 
         `max_area` is an absolute area, not a fraction of the region -- callers
         wanting a fraction scale it themselves. None leaves element size
@@ -99,13 +103,19 @@ class RuppertsAlgorithm:
         # Which loop each boundary facet of the returned mesh came from; set by refine().
         self.boundary_loops = np.zeros(0, dtype=int)
 
-        self.input_angle = calculate_minimum_segment_angle(self.vertices, self.segments)
-        if self.input_angle < SAFE_INPUT_ANGLE:
+        corner_angles = calculate_segment_angles(self.vertices, self.segments)
+        self.input_angle = min(corner_angles.values(), default=180.0)
+        # Corners the angle bound cannot be met at. Their segments split on shells
+        # rather than at midpoints, and the triangle across them is accepted as it
+        # comes -- otherwise refinement chases them forever.
+        self.sharp_vertices = {v for v, angle in corner_angles.items()
+                               if angle < SAFE_INPUT_ANGLE}
+        if self.sharp_vertices:
             logger.warning(
-                'segments meet at %.1f degrees somewhere, below the %.0f that Delaunay '
-                'refinement needs to be sure of terminating; expect this to cost far '
-                'more elements than the outline suggests, or not to finish',
-                self.input_angle, SAFE_INPUT_ANGLE,
+                'segments meet at %.1f degrees somewhere, below the %.0f Delaunay '
+                'refinement can hold; the %d corner(s) under it keep their own angle '
+                'in the mesh, and cost extra elements around them',
+                self.input_angle, SAFE_INPUT_ANGLE, len(self.sharp_vertices),
             )
 
     def _diametral_circles(self):
@@ -145,13 +155,34 @@ class RuppertsAlgorithm:
         triangles and never terminating.
         '''
         simplices = self.triangulation.simplices
+        segment_mask = self._segment_edges()
         bad = calculate_triangle_min_angle(self.vertices[simplices]) < self.min_angle
+        if self.sharp_vertices:
+            bad &= ~self._spans_a_sharp_corner(segment_mask)
+        # The area cap survives that exemption: a corner triangle cannot be made
+        # less sharp, but it can be made smaller.
         if self.max_area is not None:
             bad |= self.get_triangle_areas() > self.max_area
         # Regions are only meaningful once no segment is encroached, which the
         # refinement loop always resolves first.
-        bad &= ~self.get_exterior_triangles()
+        bad &= ~self.get_exterior_triangles(segment_mask)
         return list(simplices[bad])
+
+    def _spans_a_sharp_corner(self, segment_mask):
+        '''Triangles whose smallest angle is one the input already has.
+
+        Where two segments meet below `SAFE_INPUT_ANGLE`, the triangle between
+        them holds their angle however small the elements around it get, so
+        refining it never ends. Taking it as it stands is what lets a sharp
+        outline mesh at all, at the price of the bound holding everywhere else.
+        '''
+        simplices = self.triangulation.simplices
+        corner = np.argmin(calculate_triangle_angles(self.vertices[simplices]), axis=-1)
+        rows = np.arange(len(simplices))
+        # The two edges meeting at a vertex are those opposite the other two.
+        between_segments = (segment_mask[rows, (corner + 1) % 3]
+                            & segment_mask[rows, (corner + 2) % 3])
+        return between_segments & np.isin(simplices[rows, corner], list(self.sharp_vertices))
 
     def _segment_edges(self):
         '''(n_tri, 3) bool mask: which of each triangle's edges is a PSLG segment.
@@ -206,7 +237,7 @@ class RuppertsAlgorithm:
             ends[..., 0] - starts[..., 0]) / height
         return (rises & (crossing_x > points[..., 0])).sum(axis=1)
 
-    def get_exterior_triangles(self):
+    def get_exterior_triangles(self, segment_mask=None):
         '''Bool mask: True for triangles outside the PSLG boundary.
 
         Picks one triangle per region, counts how many segments a ray from
@@ -214,7 +245,9 @@ class RuppertsAlgorithm:
         odd crossings = inside, even = outside.  A loop inside another is
         therefore a hole without anyone having to declare it.
         '''
-        labels = self.get_regions(self._segment_edges())
+        labels = self.get_regions(segment_mask)
+        # A centroid is safely interior to its own triangle, and segments are
+        # edges here, so it can never land ambiguously on top of one.
         representatives = np.unique(labels, return_index=True)[1]
         corners = self.vertices[self.triangulation.simplices[representatives]]
         outside = self._crossing_counts(corners.mean(axis=1)) % 2 == 0
@@ -301,14 +334,41 @@ class RuppertsAlgorithm:
         self.segments = np.append(self.segments, [segment], axis=0)
         self.segment_loops = np.append(self.segment_loops, loop_id)
 
+    def _split_point(self, segment):
+        '''Where to cut `segment` in two: its midpoint, unless it runs from a
+        corner too sharp to mesh, in which case a point on a shell around that
+        corner.
+
+        Midpoints do not converge there. Splitting one segment drops a vertex
+        inside its neighbour's diametral circle, splitting the neighbour drops
+        one back inside the first's, and the two walk into the corner without
+        ever clearing each other. Cutting at a power-of-two distance from the
+        corner instead puts both splits on the same ladder of radii, and once
+        two of them land on one shell they are equidistant from the corner and
+        stop encroaching -- the cascade ends after a bounded number of rounds.
+        '''
+        start, end = self.vertices[segment[0]], self.vertices[segment[1]]
+        if int(segment[0]) in self.sharp_vertices:
+            corner, far = start, end
+        elif int(segment[1]) in self.sharp_vertices:
+            corner, far = end, start
+        else:
+            return 0.5 * (start + end)
+
+        length = float(np.linalg.norm(far - corner))
+        # The one power of two in [length/3, 2*length/3], so the cut stays near
+        # the middle while the radius comes off a ladder shared with every other
+        # segment at this corner.
+        radius = 2.0 ** np.floor(np.log2(2 * length / 3))
+        return corner + (far - corner) * (radius / length)
+
     def split_segment(self, segment):
-        midpoint = 0.5 * (self.vertices[segment[0]] + self.vertices[segment[1]])
         new_vertex_idx = len(self.vertices)
         new_segments = [[segment[0], new_vertex_idx], [segment[1], new_vertex_idx]]
         # Halves inherit the loop, so a boundary facet can still be traced back to
         # the outline it came from however many times it has been split.
         loop_id = self.del_segment(segment)
-        self.add_vertex(midpoint)
+        self.add_vertex(self._split_point(segment))
         self.add_segment(new_segments[0], loop_id)
         self.add_segment(new_segments[1], loop_id)
         return new_segments

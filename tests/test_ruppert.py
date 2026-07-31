@@ -69,9 +69,9 @@ def test_no_segment_is_encroached_on_return():
 
 
 def test_refinement_preserves_the_input_geometry():
-    """Refinement only ever appends vertices and splits segments at their
-    midpoint, so input vertices keep their indices and the final segments still
-    trace the input outline exactly -- no corner is cut or moved."""
+    """Refinement only ever appends vertices and splits segments in place, so
+    input vertices keep their indices and the final segments still trace the
+    input outline exactly -- no corner is cut or moved."""
     pslg = _l_shape()
     original_vertices = np.array(pslg.vertices)
     original_segments = np.array(pslg.segments)
@@ -321,13 +321,71 @@ def test_split_segments_keep_their_loop():
 
 
 def test_sharp_input_corners_are_reported(caplog):
-    """A sub-60-degree corner is what turns refinement into an apparent hang, so
+    """A sub-60-degree corner is the one place the angle bound does not hold, so
     it should say so up front rather than leave the caller guessing."""
     spike = np.array([[0.0, 0.0], [10.0, 0.3], [10.0, -0.3]])
     with caplog.at_level(logging.WARNING, logger='fem.mesh.generation'):
-        RuppertsAlgorithm(PSLG(spike), min_angle=20)
+        algo = RuppertsAlgorithm(PSLG(spike), min_angle=20)
 
     assert 'below the 60' in caplog.text
+    assert algo.sharp_vertices == {0}, 'only the tip is too sharp to mesh'
+
+
+def test_a_sharp_corner_terminates_and_costs_only_itself():
+    """A 15 degree wedge cannot meet a 25 degree bound at its tip, and chasing
+    it is what used to make refinement run away. The corner triangle is taken as
+    it comes; everything else still meets the bound."""
+    wedge = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10 * np.tan(np.radians(15))]])
+    algo = RuppertsAlgorithm(PSLG(wedge), min_angle=25, max_area=1.0)
+    mesh = algo.refine()
+
+    angles = _min_angles(mesh)
+    below = np.flatnonzero(angles < 25)
+    assert len(below) == 1, f'{len(below)} elements below the bound, expected just the tip'
+    assert angles[below[0]] == pytest.approx(15.0), 'the tip keeps the input angle'
+    corner = np.flatnonzero((np.asarray(mesh.vertices) == [0.0, 0.0]).all(axis=1))
+    assert corner[0] in mesh.elements[below[0]], 'the exempt element is the one at the tip'
+
+
+def test_a_sharp_corner_is_still_bound_by_the_area_cap():
+    """The exemption covers the angle bound only. A corner cannot be made less
+    sharp, but it can be made smaller, and an element left oversized there would
+    be the largest in the mesh."""
+    wedge = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10 * np.tan(np.radians(15))]])
+    max_area = 0.5
+    mesh = RuppertsAlgorithm(PSLG(wedge), min_angle=25, max_area=max_area).refine()
+
+    vertices = np.asarray(mesh.vertices)
+    corners = vertices[np.asarray(mesh.elements)]
+    edge_a, edge_b = corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
+    areas = 0.5 * np.abs(edge_a[:, 0]*edge_b[:, 1] - edge_a[:, 1]*edge_b[:, 0])
+    assert areas.max() <= max_area * (1 + 1e-9)
+
+
+def test_segments_from_a_sharp_corner_split_onto_a_shared_shell():
+    """Two segments meeting sharply have to be split at the same distance from
+    the corner, or each new vertex lands inside the other segment's diametral
+    circle and the splits walk into the corner without ever clearing it. Powers
+    of two give them a ladder of radii to agree on however long each one is."""
+    corner_angle = np.radians(20)
+    arms = np.array([[0.0, 0.0], [10.0, 0.0], [7 * np.cos(corner_angle),
+                                               7 * np.sin(corner_angle)]])
+    algo = RuppertsAlgorithm(PSLG(arms), min_angle=25)
+
+    long_arm = np.linalg.norm(algo._split_point([0, 1]))
+    short_arm = np.linalg.norm(algo._split_point([0, 2]))
+    assert long_arm == pytest.approx(4.0), 'a length-10 arm splits on the shell at 4'
+    assert short_arm == pytest.approx(4.0), 'so does a length-7 one'
+
+
+def test_a_segment_away_from_a_sharp_corner_splits_at_its_midpoint():
+    """Shell splitting is the exception. Everywhere else the midpoint is what
+    makes each half shorter than the parent, which is why refinement converges."""
+    algo = RuppertsAlgorithm(_l_shape(), min_angle=20)
+
+    for segment in algo.segments:
+        expected = 0.5 * (algo.vertices[segment[0]] + algo.vertices[segment[1]])
+        np.testing.assert_allclose(algo._split_point(segment), expected)
 
 
 def test_a_square_does_not_warn(caplog):
