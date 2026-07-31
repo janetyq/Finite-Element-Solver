@@ -15,7 +15,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 |---|---|:---:|---|
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify the smoothing matrix (topology) | 🟡 | [§2](#2-performance--scaling) |
-| Scaling | Rebuild-per-insertion in Ruppert's refinement | 🟡 | [§2](#2-performance--scaling) |
+| Scaling | Per-pass rescans in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | A-posteriori error estimator | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -49,22 +49,19 @@ distance matrix. For topology optimization at any real resolution this dominates
 spatial hash / KD-tree (`scipy.spatial.cKDTree.query_ball_point`) building a sparse weight
 matrix would scale far better and is a near drop-in.
 
-### 🟠 Ruppert's rebuilds the whole triangulation after every insertion
-`RuppertsAlgorithm.refine` inserts one vertex per pass and then calls `Delaunay(...)`
-from scratch, so refinement costs `O(n)` full retriangulations. With the per-segment and
-per-triangle scans now vectorised (§ closed below), that rebuild is the dominant remaining
-term: 51% of the California demo's run (321 rebuilds over 504 vertices), including ~8%
-that is scipy's Qhull wrapper opening a temp file per construction.
-`Delaunay(..., incremental=True)` plus `add_points` is a near drop-in and measures 6.7x
-faster replaying that same insertion sequence, so ~1.8x on the run as a whole. The catch
-is that qhull's incremental mode returns the same triangles in a different `simplices`
-order (verified: same set, different order), which changes which bad triangle `refine`
-pops next -- so every mesh the demos and gallery produce would change (still valid, just
-different). Worth doing alongside a decision to re-bless the gallery images.
+### 🟠 Ruppert's rescans the whole mesh on every pass
+Refinement now grows the triangulation incrementally rather than rebuilding it
+(`RuppertsAlgorithm._retriangulate`), which took the California demo from 4.5s to 1.5s.
+What is left is `O(n)` per insertion in everything *around* qhull, so the loop is still
+quadratic overall. On that run `get_bad_triangles` is 64% of the time, and the region
+labelling inside it — a fresh `_blocked_edges` mask and a `connected_components` call over
+the whole dual graph, to answer a question whose answer changed near one new vertex — is
+27%. Encroachment rebuilds a `KDTree` over every vertex per pass on top of that.
 
-The other half of the loop stays `O(n)` per pass regardless -- a fresh `KDTree` for
-encroachment, `_blocked_edges`, and the region labelling all rescan everything -- so this
-removes the dominant term without making refinement subquadratic.
+The fix is incremental in the same sense: an insertion only disturbs the triangles in its
+cavity, so a pass should look at those rather than at all of them. That needs the cavity
+from qhull (`add_points` does not report it) or a hand-rolled Bowyer–Watson, which is a
+much larger change than the one that closed the rebuild.
 
 ---
 

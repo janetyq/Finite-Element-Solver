@@ -10,8 +10,14 @@ import logging
 
 import numpy as np
 import pytest
+from scipy.spatial import Delaunay, QhullError
 
-from fem.geometry import calculate_polygon_area, calculate_triangle_min_angle, point_in_polygon
+from fem.geometry import (
+    calculate_circumcenter,
+    calculate_polygon_area,
+    calculate_triangle_min_angle,
+    point_in_polygon,
+)
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.svg import PSLG
 
@@ -56,6 +62,47 @@ def test_every_triangle_meets_the_angle_bound(min_angle):
         f'{(angles < min_angle).sum()} of {len(angles)} elements are below the '
         f'{min_angle} degree bound, worst {angles.min():.2f}'
     )
+
+
+def test_growing_the_triangulation_keeps_it_delaunay():
+    """Refinement adds points to the triangulation instead of rebuilding it from
+    scratch, so the property everything else rests on has to survive the growing:
+    no vertex strictly inside any triangle's circumcircle.
+
+    Not the same triangulation as a rebuild, though, and it cannot be asserted to
+    be one. Refinement inserts circumcentres, so cocircular quadrilaterals are
+    everywhere, and either diagonal of one is Delaunay.
+    """
+    algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
+    algo.refine()
+
+    vertices = np.asarray(algo.vertices)
+    simplices = algo.triangulation.simplices
+    centres = calculate_circumcenter(vertices[simplices])
+    radii = np.linalg.norm(vertices[simplices][:, 0] - centres, axis=-1)
+    distances = np.linalg.norm(vertices[None, :, :] - centres[:, None, :], axis=-1)
+    # A triangle's own corners sit exactly on its circumcircle.
+    np.put_along_axis(distances, simplices, np.inf, axis=1)
+
+    assert (distances >= radii[:, None] * (1 - 1e-9)).all(), (
+        f'{(distances < radii[:, None] * (1 - 1e-9)).any(axis=1).sum()} triangles have a '
+        'vertex inside their circumcircle'
+    )
+    assert len(simplices) == len(Delaunay(vertices).simplices)
+
+
+def test_an_outline_qhull_cannot_start_incrementally_from_still_meshes():
+    """Incremental mode needs a non-degenerate initial simplex, and four
+    cocircular points do not give it one -- a rectangle is the common case, not
+    a corner one. Such a run rebuilds until qhull will take the point set."""
+    algo = RuppertsAlgorithm(_thin_slab(), min_angle=25)
+    with pytest.raises(QhullError):
+        Delaunay(SLAB_OUTLINE, incremental=True)
+
+    mesh = algo.refine()
+
+    assert _min_angles(mesh).min() >= 25
+    assert algo._incremental, 'the run never got off the rebuild path'
 
 
 def test_no_segment_is_encroached_on_return():

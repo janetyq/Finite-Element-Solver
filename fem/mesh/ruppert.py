@@ -4,7 +4,7 @@ from collections.abc import Sequence
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
-from scipy.spatial import Delaunay, KDTree
+from scipy.spatial import Delaunay, KDTree, QhullError
 
 from fem.mesh.mesh import Mesh
 from fem.typing import FloatArray
@@ -53,7 +53,8 @@ class RuppertsAlgorithm:
        circumcenter.  If that new point would encroach a segment, split the
        segment instead and re-examine the triangle later.
 
-    Each step adds one vertex and rebuilds the Delaunay triangulation.
+    Each step adds one vertex, which the triangulation absorbs incrementally
+    rather than being rebuilt around.
 
     **Why segments are respected.**  The Delaunay triangulation only knows
     about points, not segments.  But if a segment's diametral circle contains
@@ -74,9 +75,9 @@ class RuppertsAlgorithm:
     input's own angle, since no refinement improves it.  Everything away from
     those corners still meets the bound.
 
-    Cost grows steeply in the number of input points: each step rebuilds the
-    full Delaunay triangulation, and more input points means more steps on a
-    larger point set.  Simplify a densely sampled outline
+    Cost grows steeply in the number of input points: the triangulation itself is
+    grown a point at a time, but everything around it rescans the whole mesh per
+    insertion.  Simplify a densely sampled outline
     (`fem.mesh.svg.douglas_peucker`) before handing it over.
     '''
 
@@ -98,6 +99,7 @@ class RuppertsAlgorithm:
         self.segment_loops = np.array(getattr(pslg, 'loop_ids',
                                               np.zeros(len(self.segments), dtype=int)))
         self.triangulation = Delaunay(self.vertices)
+        self._incremental = False
         self.min_angle = min_angle
         self.max_area = max_area
         # Which loop each boundary facet of the returned mesh came from; set by refine().
@@ -287,6 +289,32 @@ class RuppertsAlgorithm:
         return np.array([loop_of_edge.get(tuple(sorted(facet)), -1) for facet in boundary],
                         dtype=int)
 
+    def _retriangulate(self):
+        '''Fold the vertices added since the last call into the triangulation.
+
+        Inserting a point only invalidates the triangles whose circumcircle
+        contains it, so qhull re-fans that cavity and leaves the rest standing.
+        Rebuilding from scratch instead costs a pass over every vertex already
+        placed, once per insertion, and that is half of a refinement run.
+
+        Incremental mode cannot start from a point set with no non-degenerate
+        initial simplex, and that is not an exotic input -- any four cocircular
+        points are one, a square included. It also rules out the `Qz` option that
+        would otherwise handle them. So a run rebuilds until qhull will take the
+        point set, which the first inserted vertex almost always settles.
+        '''
+        added = self.vertices[len(self.triangulation.points):]
+        if not len(added):
+            return
+        if self._incremental:
+            self.triangulation.add_points(added)
+            return
+        try:
+            self.triangulation = Delaunay(self.vertices, incremental=True)
+            self._incremental = True
+        except QhullError:
+            self.triangulation = Delaunay(self.vertices)
+
     def refine(self):
         encroached_segments = self.get_encroached_segments()
 
@@ -312,7 +340,7 @@ class RuppertsAlgorithm:
                 new_encroached_segments = self.get_segments_encroached_by(circumcenter)
                 if not new_encroached_segments:
                     self.add_vertex(circumcenter)
-            self.triangulation = Delaunay(self.vertices)
+            self._retriangulate()
             encroached_segments = self.get_encroached_segments() + new_encroached_segments
 
         logger.debug('refined to %d triangles over %d vertices',
