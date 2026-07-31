@@ -85,6 +85,33 @@ class TestCircumcenter:
         assert center[0] == pytest.approx(1.0)
         assert center[1] == pytest.approx(1.0)
 
+    @pytest.mark.parametrize('triangle', [
+        np.array([[0.0, 0.0], [1.0, 0.0], [0.5, 0.9]]),          # well shaped
+        np.array([[0.0, 0.0], [1.0, 1e-13], [0.5, 0.9]]),        # near-horizontal edge
+        np.array([[0.0, 0.0], [1.0, 0.0], [0.5, 1e-6]]),         # sliver
+        np.array([[1e6, 1e6], [1e6 + 1, 1e6], [1e6, 1e6 + 1]]),  # far from the origin
+    ])
+    def test_is_equidistant_from_all_three_vertices(self, triangle):
+        """The defining property, and the one the old slope-based solution lost:
+        a near-horizontal edge gave it a slope of ~1e13 and about eight digits."""
+        center = calculate_circumcenter(triangle)
+        radii = np.linalg.norm(triangle - center, axis=1)
+        assert radii.max() - radii.min() == pytest.approx(0.0, abs=1e-9 * radii.mean())
+
+    def test_batched_matches_one_at_a_time(self):
+        rng = np.random.default_rng(0)
+        triangles = rng.random((20, 3, 2))
+        batch = calculate_circumcenter(triangles)
+        singly = np.array([calculate_circumcenter(t) for t in triangles])
+        assert batch.shape == (20, 2)
+        np.testing.assert_allclose(batch, singly)
+
+    def test_degenerate_triangle_is_refused(self):
+        """Collinear points have no circumcircle. Refuse rather than return an
+        infinity that would be inserted into a mesh as a vertex."""
+        with pytest.raises(ValueError, match='degenerate'):
+            calculate_circumcenter(np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]]))
+
 
 class TestMassMatrix:
     """MassForm repeats the scalar element mass matrix once per component."""

@@ -45,25 +45,29 @@ def point_in_polygon(point, polygon):
 
 
 def calculate_circumcenter(triangle_points):
-    edge_vectors = [triangle_points[(i+1)%3] - triangle_points[i] for i in range(3)]
-    edge_midpoints = [0.5 * (triangle_points[i] + triangle_points[(i+1)%3]) for i in range(3)]
-    edge_perps = [[vec[1], -vec[0]] for vec in edge_vectors]
+    '''Centre of the circle through a triangle's three vertices.
 
-    # remove bisectors with 0 slope
-    for i in range(3):
-        if edge_perps[i][0] == 0:
-            edge_perps.pop(i)
-            edge_midpoints.pop(i)
-            break
+    Takes a single `(3, 2)` triangle or a stacked `(..., 3, 2)` array. Solved
+    against the first vertex as origin, which keeps the accuracy of a very
+    flat triangle -- the shape mesh refinement asks about most -- rather than
+    intersecting bisectors by slope, where a near-horizontal edge loses most of
+    the available precision.
+    '''
+    points = np.asarray(triangle_points, dtype=float)
+    origin = points[..., 0, :]
+    b = points[..., 1, :] - origin
+    c = points[..., 2, :] - origin
 
-    # calculate center using intersection of bisectors
-    s1, s2 = [perp[1] / perp[0] for perp in edge_perps[:2]]
-    m1, m2 = edge_midpoints[:2]
-    x = (m2[1] - m1[1] + m1[0]*s1 - m2[0]*s2) / (s1 - s2)
-    y = m1[1] + s1*(x - m1[0])
-    center = [x, y]
+    twice_area = 2 * (b[..., 0]*c[..., 1] - b[..., 1]*c[..., 0])
+    if np.any(twice_area == 0):
+        raise ValueError('a degenerate triangle has no circumcenter')
 
-    return center
+    b_sq = np.sum(b**2, axis=-1)
+    c_sq = np.sum(c**2, axis=-1)
+    return origin + np.stack([
+        (c[..., 1]*b_sq - b[..., 1]*c_sq) / twice_area,
+        (b[..., 0]*c_sq - c[..., 0]*b_sq) / twice_area,
+    ], axis=-1)
 
 
 def calculate_triangle_min_angle(triangle):
