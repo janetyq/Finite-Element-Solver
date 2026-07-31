@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from fem.geometry import get_boundary_from_vertices_elements
-from fem.mesh.generation import create_box_mesh
+from fem.mesh.ruppert import create_box_mesh
 from fem.mesh.mesh import Mesh
 
 

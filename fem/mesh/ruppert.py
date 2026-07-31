@@ -16,18 +16,29 @@ from fem.geometry import (
 
 logger = logging.getLogger(__name__)
 
-# Slack on the "strictly inside the diametral circle" test below. A segment's own two
-# endpoints sit exactly on its circle, and floating-point noise must not push them
-# inside -- a segment encroached by its own endpoint would split forever. Absolute, so
-# it assumes coordinates of order 1 or larger.
+# A segment is "encroached" when a mesh vertex (other than its own endpoints) lies
+# strictly inside its diametral circle.  The two endpoints sit exactly on that circle,
+# so floating-point noise can push them fractionally inside.  This tolerance shrinks
+# the test circle slightly to prevent a segment from appearing encroached by its own
+# endpoint (which would split it forever).
 ENCROACHMENT_TOLERANCE = 1e-6
 
 
 class RuppertsAlgorithm:
     '''Ruppert's Delaunay refinement of a PSLG.
 
-    Splits encroached segments and inserts skinny triangles' circumcenters until
-    every element meets `min_angle` and, if one is given, `max_area`.
+    The algorithm repeats two operations until every triangle meets `min_angle`
+    (and `max_area`, if given):
+
+    1. **Split encroached segments.**  A segment is *encroached* when a mesh
+       vertex other than its own endpoints falls inside its diametral circle
+       (the circle whose diameter is the segment).  Splitting the segment at
+       its midpoint removes the encroachment and preserves the boundary.
+
+    2. **Insert circumcenters of skinny triangles.**  A triangle whose
+       smallest angle is below `min_angle` is refined by inserting its
+       circumcenter.  If that new point encroaches a segment, the segment is
+       split instead and the triangle is re-examined later.
 
     Cost grows steeply in the number of input points, because each insertion
     retriangulates from scratch: a densely sampled outline is worth simplifying

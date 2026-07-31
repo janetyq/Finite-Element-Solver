@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from fem.geometry import calculate_polygon_area, calculate_triangle_min_angle
-from fem.mesh.generation import RuppertsAlgorithm
+from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.svg import PSLG
 
 

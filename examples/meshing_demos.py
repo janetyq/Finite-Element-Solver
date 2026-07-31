@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 
 from fem.plot.plotter import Plotter
-from fem.mesh.generation import create_rect_mesh, RuppertsAlgorithm
+from fem.mesh.ruppert import create_rect_mesh, RuppertsAlgorithm
 from fem.mesh.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
 
 from demo_registry import Demo, DemoResult, Figure

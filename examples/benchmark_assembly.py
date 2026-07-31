@@ -17,7 +17,7 @@ import time
 from fem.boundary import BCType, BoundaryConditions
 from fem.backends import DirectBackend, IterativeBackend
 from fem.materials import LinearElasticMaterial
-from fem.mesh.generation import create_box_mesh
+from fem.mesh.ruppert import create_box_mesh
 from fem.problem import linear_elastic
 from fem.regions import everywhere
 from fem.system import DiscreteSystem

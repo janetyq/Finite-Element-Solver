@@ -24,7 +24,7 @@ import logging
 
 from fem.mesh.mesh import Mesh
 from fem.space import FunctionSpace
-from fem.mesh.generation import create_rect_mesh, create_approx_mesh
+from fem.mesh.ruppert import create_rect_mesh, create_approx_mesh
 from fem.elements import (
     LinearLineElement,
     LinearTriangleElement,

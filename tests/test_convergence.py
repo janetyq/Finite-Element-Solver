@@ -17,7 +17,7 @@ which is O(h^2).
 import numpy as np
 import pytest
 
-from fem.mesh.generation import create_rect_mesh
+from fem.mesh.ruppert import create_rect_mesh
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere
 from fem.equations import Poisson
