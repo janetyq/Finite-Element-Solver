@@ -67,14 +67,26 @@ def calculate_circumcenter(triangle_points):
 
 
 def calculate_triangle_min_angle(triangle):
-    # returns the smallest angle (degrees) in the triangle
-    lengths = np.linalg.norm([triangle[i] - triangle[(i+1)%3] for i in range(3)], axis=1)
-    angles = np.arccos([
-        (lengths[1]**2 + lengths[2]**2 - lengths[0]**2) / (2 * lengths[1] * lengths[2]),
-        (lengths[2]**2 + lengths[0]**2 - lengths[1]**2) / (2 * lengths[2] * lengths[0]),
-        (lengths[0]**2 + lengths[1]**2 - lengths[2]**2) / (2 * lengths[0] * lengths[1])
-    ])
-    return np.min(angles) * 180 / np.pi
+    '''The smallest interior angle, in degrees.
+
+    Takes a single `(3, d)` triangle and returns a scalar, or a stacked
+    `(..., 3, d)` array of triangles and returns an angle per triangle. Mesh
+    refinement tests every element against an angle bound on every pass, so the
+    batched form is the one that keeps that loop off Python.
+    '''
+    points = np.asarray(triangle, dtype=float)
+    # Side i is opposite vertex i.
+    sides = np.linalg.norm(np.roll(points, -1, axis=-2) - np.roll(points, 1, axis=-2), axis=-1)
+    a, b, c = sides[..., 0], sides[..., 1], sides[..., 2]
+    # Law of cosines. Clipped because a degenerate triangle can put the ratio a
+    # hair outside [-1, 1], and a NaN angle would silently compare false against
+    # any bound -- exactly the sliver a refinement loop must not accept as good.
+    cosines = np.stack([
+        (b**2 + c**2 - a**2) / (2 * b * c),
+        (c**2 + a**2 - b**2) / (2 * c * a),
+        (a**2 + b**2 - c**2) / (2 * a * b),
+    ], axis=-1)
+    return np.degrees(np.arccos(np.clip(cosines, -1.0, 1.0))).min(axis=-1)
 
 
 def get_boundary_from_vertices_elements(elements):

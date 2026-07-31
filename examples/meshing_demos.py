@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 
 from fem.plot.plotter import Plotter
-from fem.mesh.generation import create_rect_mesh, RuppertsAlgorithm
+from fem.mesh.ruppert import create_rect_mesh, RuppertsAlgorithm
 from fem.mesh.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
 
 from demo_registry import Demo, DemoResult, Figure
@@ -22,10 +22,10 @@ from demo_registry import Demo, DemoResult, Figure
 DEFAULT_SVG_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'california.svg')
 
 # Simplification tolerance as a fraction of the curve's bounding-box extent, so one
-# number suits any outline. Ruppert's cost is superlinear in the point count it is
-# handed (~12 s at this tolerance on the California outline, ~28 s at half of it), and
-# an unsimplified outline does not terminate in practice -- which is why this is also
-# where the slider starts rather than at zero.
+# number suits any outline. Ruppert's cost still grows steeply in the point count it is
+# handed -- ~1.4 s at this tolerance on the California outline, ~450 s on the raw
+# 1700-point curve -- so simplifying first is what keeps the demo interactive, and is
+# why the slider starts here rather than at zero.
 DEFAULT_TOLERANCE = 0.005
 
 def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='mesh.json'):
@@ -167,8 +167,5 @@ DEMOS = [
     Demo('uniform_mesh', demo_uniform_mesh, needs_mesh=False),
     Demo('mesh_plotting', demo_mesh_plotting),
     Demo('douglas_peucker', demo_douglas_peucker_svg, needs_mesh=False),
-    # Ruppert's spends ~7s producing 403 triangles -- about 18ms each, which is the
-    # O(n^2) scans in fem/mesh/generation.py (BACKLOG section 2), not inherent cost.
-    # A coarser outline covers the same code in 0.4s. Delete this when that is fixed.
-    Demo('rupperts', demo_rupperts_svg, needs_mesh=False, smoke_kwargs={'tolerance': 0.04}),
+    Demo('rupperts', demo_rupperts_svg, needs_mesh=False),
 ]

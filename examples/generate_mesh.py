@@ -4,7 +4,7 @@ Run from the repo root:
 
     uv run python examples/generate_mesh.py
 """
-from fem.mesh.generation import create_rect_mesh
+from fem.mesh.ruppert import create_rect_mesh
 
 
 def main():

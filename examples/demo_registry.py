@@ -63,7 +63,7 @@ class Demo:
     # An optional dependency the demo needs; it is skipped where that is absent.
     smoke_requires: str | None = None
     # Cheaper arguments for `tests/test_demos.py`, which runs every demo on every
-    # commit. Only three demos set it, and each says why: the rest cost milliseconds
+    # commit. Only two demos set it, and each says why: the rest are cheap enough
     # either way. Everyone else -- the CLI and the gallery -- runs demos exactly as
     # written, so a demo's defaults are what a reader actually sees.
     smoke_kwargs: dict[str, Any] = field(default_factory=dict)

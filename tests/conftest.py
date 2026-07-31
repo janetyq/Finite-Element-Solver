@@ -17,7 +17,7 @@ except ImportError:
 
 import pytest
 
-from fem.mesh.generation import create_rect_mesh
+from fem.mesh.ruppert import create_rect_mesh
 
 
 @pytest.fixture

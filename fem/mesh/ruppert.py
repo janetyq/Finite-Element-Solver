@@ -2,7 +2,7 @@
 from collections.abc import Sequence
 
 import numpy as np
-from scipy.spatial import Delaunay
+from scipy.spatial import Delaunay, KDTree
 
 from fem.mesh.mesh import Mesh
 from fem.typing import FloatArray
@@ -16,8 +16,49 @@ from fem.geometry import (
 
 logger = logging.getLogger(__name__)
 
+# A segment's own endpoints sit exactly on its diametral circle, so floating-point
+# noise can push them fractionally inside.  This tolerance shrinks the test circle
+# slightly to prevent a segment from appearing encroached by its own endpoint (which
+# would split it forever).
+ENCROACHMENT_TOLERANCE = 1e-6
+
 
 class RuppertsAlgorithm:
+    '''Ruppert's Delaunay refinement of a PSLG.
+
+    Starting from a Delaunay triangulation of the input vertices, loop until
+    no encroached segments and no skinny triangles remain:
+
+    1. **Split encroached segments** (priority).  A segment is *encroached*
+       when a mesh vertex other than its own endpoints falls inside its
+       diametral circle (the circle whose diameter is the segment).  Replace
+       it with two halves at its midpoint.  Fixing encroachment can also fix
+       nearby skinny triangles.
+
+    2. **Insert circumcenters of skinny triangles.**  A triangle whose
+       smallest angle is below `min_angle` is refined by inserting its
+       circumcenter.  If that new point would encroach a segment, split the
+       segment instead and re-examine the triangle later.
+
+    Each step adds one vertex and rebuilds the Delaunay triangulation.
+
+    **Why segments are respected.**  The Delaunay triangulation only knows
+    about points, not segments.  But if a segment's diametral circle contains
+    no other vertex, it is guaranteed to appear as a Delaunay edge.  Splitting
+    encroached segments clears their diametral circles, which is what makes
+    the unconstrained Delaunay conform to the boundary.
+
+    Ruppert proved termination for inputs whose segments meet at 60 degrees or
+    more.  Corners sharper than that (`SAFE_INPUT_ANGLE`) are exempt: the
+    triangle across them is accepted at whatever angle it comes in at, since
+    no refinement can improve it.
+
+    Cost grows steeply in the number of input points: each step rebuilds the
+    full Delaunay triangulation, and more input points means more steps on a
+    larger point set.  Simplify a densely sampled outline
+    (`fem.mesh.svg.douglas_peucker`) before handing it over.
+    '''
+
     def __init__(self, pslg, min_angle=30, max_area=None):
         self.vertices = np.array(pslg.vertices)
         self.segments = np.array([sorted(seg) for seg in pslg.segments])
@@ -25,20 +66,45 @@ class RuppertsAlgorithm:
         self.min_angle = min_angle
         self.max_area = max_area
 
+    def _diametral_circles(self):
+        '''Centres and squared radii of every segment's diametral circle.'''
+        ends = self.vertices[self.segments]
+        centers = ends.mean(axis=1)
+        radii_sq = np.sum((ends[:, 1] - ends[:, 0])**2, axis=-1) / 4
+        return centers, radii_sq
+
     def get_encroached_segments(self):
-        encroached_segments = []
-        for segment in self.segments:
-            if self.is_segment_encroached(segment):
-                encroached_segments.append(segment)
-        return encroached_segments
+        '''Segments with a mesh vertex strictly inside their diametral circle.
+
+        Only the *nearest* vertex to each centre has to be tested: a segment's
+        own endpoints lie exactly on its circle, so anything that beats them is
+        strictly inside, and if nothing does then the circle is empty.
+        '''
+        centers, radii_sq = self._diametral_circles()
+        distances, _ = KDTree(self.vertices).query(centers)
+        return list(self.segments[distances**2 < radii_sq - ENCROACHMENT_TOLERANCE])
+
+    def get_segments_encroached_by(self, vertex):
+        '''Segments whose diametral circle would strictly contain `vertex`.'''
+        centers, radii_sq = self._diametral_circles()
+        offsets = np.asarray(vertex) - centers
+        inside = np.sum(offsets**2, axis=-1) < radii_sq - ENCROACHMENT_TOLERANCE
+        return list(self.segments[inside])
 
     def get_bad_triangles(self):
-        bad_triangles = []
-        for triangle in self.triangulation.simplices:
-            min_angle = calculate_triangle_min_angle(self.vertices[triangle])
-            if min_angle < self.min_angle:
-                bad_triangles.append(triangle)
-        return bad_triangles
+        '''Triangles that miss the angle bound.'''
+        simplices = self.triangulation.simplices
+        angles = calculate_triangle_min_angle(self.vertices[simplices])
+        return list(simplices[angles < self.min_angle])
+
+    def get_oversized_triangles(self, max_area: float):
+        '''Triangles larger than `max_area`, largest first.'''
+        simplices = self.triangulation.simplices
+        corners = self.vertices[simplices]
+        edge_a, edge_b = corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
+        areas = 0.5 * np.abs(edge_a[:, 0]*edge_b[:, 1] - edge_a[:, 1]*edge_b[:, 0])
+        oversized = np.flatnonzero(areas > max_area)
+        return simplices[oversized[np.argsort(-areas[oversized])]]
 
     def run_algo(self):
         encroached_segments = self.get_encroached_segments()
@@ -55,12 +121,11 @@ class RuppertsAlgorithm:
             elif len(bad_triangles) > 0:
                 triangle = bad_triangles.pop()
                 circumcenter = calculate_circumcenter(self.vertices[triangle])
-                vertex_encroaches = False
-                for segment in self.segments:
-                    if self.is_segment_encroached(segment, circumcenter):
-                        new_encroached_segments.append(segment)
-                        vertex_encroaches = True
-                if not vertex_encroaches:
+                # Inserting a point inside a segment's diametral circle would cut
+                # the mesh off from the outline, so split those segments instead
+                # and leave the triangle to be reconsidered once they are gone.
+                new_encroached_segments = self.get_segments_encroached_by(circumcenter)
+                if not new_encroached_segments:
                     self.add_vertex(circumcenter)
             # if no encroached segments or bad triangles, we are done
             else:
@@ -69,33 +134,18 @@ class RuppertsAlgorithm:
             encroached_segments = self.get_encroached_segments() + new_encroached_segments
             bad_triangles = self.get_bad_triangles()
 
-        while self.max_area is not None:
-            flag = False
-            for triangle in self.triangulation.simplices:
-                area = calculate_polygon_area(self.vertices[triangle])
-                logger.debug('triangle area %s', area)
-                if area > self.max_area:
-                    circumcenter = calculate_circumcenter(self.vertices[triangle])
-                    self.add_vertex(circumcenter)
-                    flag = True
-                    break
-            if not flag:
+        # Refining the largest offender first, rather than whichever qhull happens to
+        # list earliest, keeps this loop from crawling through near-threshold triangles.
+        max_area = self.max_area
+        while max_area is not None:
+            oversized = self.get_oversized_triangles(max_area)
+            if len(oversized) == 0:
                 break
+            logger.debug('%d triangles over the area cap', len(oversized))
+            self.add_vertex(calculate_circumcenter(self.vertices[oversized[0]]))
             self.triangulation = Delaunay(self.vertices)
-            
-        return Mesh(self.vertices, self.triangulation.simplices, [])
 
-    def is_segment_encroached(self, segment, vertex=None):
-        center = 0.5 * (self.vertices[segment[0]] + self.vertices[segment[1]])
-        radius = np.linalg.norm(self.vertices[segment[0]] - self.vertices[segment[1]]) / 2
-        if vertex is not None:
-            vec = vertex - center
-            if vec[0]**2 + vec[1]**2 < radius ** 2 - 1e-6:
-                return True
-        for vertex in self.vertices:
-            vec = vertex - center
-            if vec[0]**2 + vec[1]**2 < radius ** 2 - 1e-6:
-                return True
+        return Mesh(self.vertices, self.triangulation.simplices, [])
 
     def del_segment(self, segment):
         segment_idx = np.where((self.segments == segment).all(axis=1))[0][0]
