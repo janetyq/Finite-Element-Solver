@@ -119,11 +119,12 @@ class RuppertsAlgorithm:
         bad &= ~self.get_exterior_triangles()
         return list(simplices[bad])
 
-    def _blocked_edges(self):
-        '''Which of each triangle's three edges is a segment, as an (n_tri, 3) mask.
+    def _segment_edges(self):
+        '''(n_tri, 3) bool mask: which of each triangle's edges is a PSLG segment.
 
-        Column `j` is the edge opposite vertex `j`, so this indexes alongside
-        `Delaunay.neighbors`.
+        Column `j` corresponds to the edge opposite vertex `j`, matching the
+        layout of `Delaunay.neighbors` — so `neighbors[i, j]` is the triangle
+        across a segment when `_segment_edges()[i, j]` is True.
         '''
         simplices = self.triangulation.simplices
         opposite = np.stack([
@@ -142,11 +143,11 @@ class RuppertsAlgorithm:
 
         Triangles share a region when a chain of edges joins them without
         crossing a segment: the components of the dual graph, segments cut out.
-        `blocked` is `_blocked_edges()`, to pass in if it is already to hand.
+        `blocked` is `_segment_edges()`, to pass in if it is already to hand.
         '''
         neighbors = self.triangulation.neighbors
         if blocked is None:
-            blocked = self._blocked_edges()
+            blocked = self._segment_edges()
         interior_edge = (neighbors != -1) & ~blocked
         triangle, edge = np.nonzero(interior_edge)
         dual = coo_matrix(
@@ -163,7 +164,7 @@ class RuppertsAlgorithm:
         Hull edges that *are* segments wall it off, which is what keeps a convex
         outline -- one that is its own hull -- from being discarded entirely.
         '''
-        blocked = self._blocked_edges()
+        blocked = self._segment_edges()
         labels = self.get_regions(blocked)
         reaches_infinity = ((self.triangulation.neighbors == -1) & ~blocked).any(axis=1)
         return np.isin(labels, np.unique(labels[reaches_infinity]))
