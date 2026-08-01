@@ -2,6 +2,8 @@
 from collections.abc import Sequence
 
 import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 from scipy.spatial import Delaunay, KDTree
 
 from fem.mesh.mesh import Mesh
@@ -48,6 +50,11 @@ class RuppertsAlgorithm:
     encroached segments clears their diametral circles, which is what makes
     the unconstrained Delaunay conform to the boundary.
 
+    **What is returned.**  The result keeps only what the PSLG encloses — a
+    Delaunay triangulation spans the convex hull, so a non-convex outline also
+    produces triangles outside it.  Segments are walls: what survives is
+    whatever cannot be reached from infinity without crossing one.
+
     Ruppert proved termination for inputs whose segments meet at 60 degrees or
     more.  Corners sharper than that (`SAFE_INPUT_ANGLE`) are exempt: the
     triangle across them is accepted at whatever angle it comes in at, since
@@ -76,9 +83,8 @@ class RuppertsAlgorithm:
     def get_encroached_segments(self):
         '''Segments with a mesh vertex strictly inside their diametral circle.
 
-        Only the *nearest* vertex to each centre has to be tested: a segment's
-        own endpoints lie exactly on its circle, so anything that beats them is
-        strictly inside, and if nothing does then the circle is empty.
+        Testing the nearest vertex to each centre suffices: the segment's own
+        endpoints lie on its circle, so anything nearer is strictly inside.
         '''
         centers, radii_sq = self._diametral_circles()
         distances, _ = KDTree(self.vertices).query(centers)
@@ -91,24 +97,97 @@ class RuppertsAlgorithm:
         inside = np.sum(offsets**2, axis=-1) < radii_sq * (1 - ENCROACHMENT_TOLERANCE)
         return list(self.segments[inside])
 
-    def get_bad_triangles(self):
-        '''Triangles that miss the angle bound.'''
-        simplices = self.triangulation.simplices
-        angles = calculate_triangle_min_angle(self.vertices[simplices])
-        return list(simplices[angles < self.min_angle])
-
-    def get_oversized_triangles(self, max_area: float):
-        '''Triangles larger than `max_area`, largest first.'''
-        simplices = self.triangulation.simplices
-        corners = self.vertices[simplices]
+    def get_triangle_areas(self):
+        corners = self.vertices[self.triangulation.simplices]
         edge_a, edge_b = corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
-        areas = 0.5 * np.abs(edge_a[:, 0]*edge_b[:, 1] - edge_a[:, 1]*edge_b[:, 0])
-        oversized = np.flatnonzero(areas > max_area)
-        return simplices[oversized[np.argsort(-areas[oversized])]]
+        return 0.5 * np.abs(edge_a[:, 0]*edge_b[:, 1] - edge_a[:, 1]*edge_b[:, 0])
 
-    def run_algo(self):
+    def get_bad_triangles(self):
+        '''Interior triangles that violate the angle bound or area cap.
+
+        Exterior triangles are excluded — refining them would insert
+        circumcenters that enlarge the convex hull, creating more exterior
+        triangles and never terminating.
+        '''
+        simplices = self.triangulation.simplices
+        bad = calculate_triangle_min_angle(self.vertices[simplices]) < self.min_angle
+        if self.max_area is not None:
+            bad |= self.get_triangle_areas() > self.max_area
+        # Regions are only meaningful once no segment is encroached, which the
+        # refinement loop always resolves first.
+        bad &= ~self.get_exterior_triangles()
+        return list(simplices[bad])
+
+    def _segment_edges(self):
+        '''(n_tri, 3) bool mask: which of each triangle's edges is a PSLG segment.
+
+        Column `j` corresponds to the edge opposite vertex `j`, matching the
+        layout of `Delaunay.neighbors` — so `neighbors[i, j]` is the triangle
+        across a segment when `_segment_edges()[i, j]` is True.
+        '''
+        simplices = self.triangulation.simplices
+        opposite = np.stack([
+            np.sort(simplices[:, [1, 2]], axis=1),
+            np.sort(simplices[:, [2, 0]], axis=1),
+            np.sort(simplices[:, [0, 1]], axis=1),
+        ], axis=1)
+        # Each vertex pair packed into one integer, so the lookup is a single isin.
+        stride = len(self.vertices)
+        segments = np.sort(self.segments, axis=1)
+        return np.isin(opposite[..., 0]*stride + opposite[..., 1],
+                       segments[:, 0]*stride + segments[:, 1])
+
+    def get_regions(self, segment_mask=None):
+        '''Label each triangle with an integer region ID.
+
+        Two triangles are in the same region if they can reach each other
+        through shared edges without crossing a segment.  Implemented as
+        connected components of the triangle adjacency graph with segment
+        edges removed.
+        '''
+        neighbors = self.triangulation.neighbors
+        if segment_mask is None:
+            segment_mask = self._segment_edges()
+        interior_edge = (neighbors != -1) & ~segment_mask
+        triangle, edge = np.nonzero(interior_edge)
+        dual = coo_matrix(
+            (np.ones(len(triangle), dtype=bool), (triangle, neighbors[triangle, edge])),
+            shape=(len(neighbors), len(neighbors)),
+        )
+        _, labels = connected_components(dual, directed=False)
+        return labels
+
+    def get_exterior_triangles(self):
+        '''Bool mask: True for triangles outside the PSLG boundary.
+
+        A triangle on the convex hull whose hull edge is not a segment can be
+        reached from infinity — it is exterior, and so is every triangle in its
+        region.  A hull edge that *is* a segment walls the interior off, which
+        is what keeps a convex outline from being discarded entirely.
+        '''
+        segment_mask = self._segment_edges()
+        labels = self.get_regions(segment_mask)
+        reaches_infinity = ((self.triangulation.neighbors == -1) & ~segment_mask).any(axis=1)
+        return np.isin(labels, np.unique(labels[reaches_infinity]))
+
+    def _enclosed_mesh(self):
+        '''The enclosed triangles as a Mesh, renumbered onto the vertices it uses.'''
+        elements = self.triangulation.simplices[~self.get_exterior_triangles()]
+        if len(elements) == 0:
+            raise ValueError(
+                'the PSLG encloses no region: every triangle can be reached from '
+                'outside without crossing a segment, so there is nothing to mesh'
+            )
+
+        used = np.unique(elements)
+        renumbered = np.zeros(len(self.vertices), dtype=np.intp)
+        renumbered[used] = np.arange(len(used))
+        elements = renumbered[elements]
+        return Mesh(self.vertices[used], elements,
+                    get_boundary_from_vertices_elements(elements))
+
+    def refine(self):
         encroached_segments = self.get_encroached_segments()
-        bad_triangles = self.get_bad_triangles()
 
         while True:
             new_encroached_segments = []
@@ -117,8 +196,13 @@ class RuppertsAlgorithm:
             if len(encroached_segments) > 0:
                 segment = encroached_segments.pop()
                 self.split_segment(segment)
-            # check if there are any bad triangles and refine them
-            elif len(bad_triangles) > 0:
+            else:
+                # Only asked for once the segments are clear, since that branch
+                # outranks this one and the answer costs a region labelling.
+                bad_triangles = self.get_bad_triangles()
+                # if no encroached segments or bad triangles, we are done
+                if len(bad_triangles) == 0:
+                    break
                 triangle = bad_triangles.pop()
                 circumcenter = calculate_circumcenter(self.vertices[triangle])
                 # Inserting a point inside a segment's diametral circle would cut
@@ -127,25 +211,12 @@ class RuppertsAlgorithm:
                 new_encroached_segments = self.get_segments_encroached_by(circumcenter)
                 if not new_encroached_segments:
                     self.add_vertex(circumcenter)
-            # if no encroached segments or bad triangles, we are done
-            else:
-                break
             self.triangulation = Delaunay(self.vertices)
             encroached_segments = self.get_encroached_segments() + new_encroached_segments
-            bad_triangles = self.get_bad_triangles()
 
-        # Refining the largest offender first, rather than whichever qhull happens to
-        # list earliest, keeps this loop from crawling through near-threshold triangles.
-        max_area = self.max_area
-        while max_area is not None:
-            oversized = self.get_oversized_triangles(max_area)
-            if len(oversized) == 0:
-                break
-            logger.debug('%d triangles over the area cap', len(oversized))
-            self.add_vertex(calculate_circumcenter(self.vertices[oversized[0]]))
-            self.triangulation = Delaunay(self.vertices)
-
-        return Mesh(self.vertices, self.triangulation.simplices, [])
+        logger.debug('refined to %d triangles over %d vertices',
+                     len(self.triangulation.simplices), len(self.vertices))
+        return self._enclosed_mesh()
 
     def del_segment(self, segment):
         segment_idx = np.where((self.segments == segment).all(axis=1))[0][0]
