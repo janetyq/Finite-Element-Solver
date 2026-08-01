@@ -254,6 +254,37 @@ def test_disjoint_loops_are_both_meshed():
     assert all(point_in_polygon(c, left) or point_in_polygon(c, right) for c in centroids)
 
 
+def test_pslg_area_subtracts_holes():
+    """Callers scale a max_area fraction against this, so a hole counted as
+    material would loosen the cap by however large the hole is."""
+    plate = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 3.0], [0.0, 3.0]])
+    hole = np.array([[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]])
+
+    assert PSLG.from_loops([plate]).area() == pytest.approx(12.0)
+    assert PSLG.from_loops([plate, hole]).area() == pytest.approx(11.0)
+    # Which loop was drawn first is not part of the answer.
+    assert PSLG.from_loops([hole, plate]).area() == pytest.approx(11.0)
+    # Side by side, neither encloses the other, so both are material.
+    assert PSLG.from_loops([plate, plate + [5.0, 0.0]]).area() == pytest.approx(24.0)
+    # An island in the hole is enclosed twice over, so it is material again.
+    island = np.array([[1.4, 1.4], [1.6, 1.4], [1.6, 1.6], [1.4, 1.6]])
+    assert PSLG.from_loops([plate, hole, island]).area() == pytest.approx(11.04)
+
+
+def test_pslg_area_matches_what_refinement_fills():
+    """The even-odd rule decides both what `area` reports and which triangles
+    survive refinement, so the two readings of the same loops have to agree."""
+    plate = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 3.0], [0.0, 3.0]])
+    hole = np.array([[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]])
+    pslg = PSLG.from_loops([plate, hole])
+    expected = pslg.area()
+
+    mesh = RuppertsAlgorithm(pslg, min_angle=20).refine()
+    vertices, elements = np.asarray(mesh.vertices), np.asarray(mesh.elements)
+    filled = sum(calculate_polygon_area(vertices[element]) for element in elements)
+    assert filled == pytest.approx(expected)
+
+
 def test_boundary_facets_name_the_loop_they_came_from():
     """A plate with a hole: the outer wall and the hole rim are both boundary,
     and a solver has to tell them apart to put different conditions on them.

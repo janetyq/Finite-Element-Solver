@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import svg.path  # pyright: ignore[reportMissingImports]
 
-from fem.geometry import calculate_polygon_area
+from fem.geometry import calculate_polygon_area, point_in_polygon
 
 
 def _document_height(root):
@@ -203,12 +203,25 @@ class PSLG:
             loop_ids.extend([loop_id] * len(points))
         return cls(np.array(vertices), np.array(segments), np.array(loop_ids))
 
+    def loops(self):
+        '''The vertices of each closed outline, in order.'''
+        return [self.vertices[self.segments[self.loop_ids == loop_id, 0]]
+                for loop_id in np.unique(self.loop_ids)]
+
     def area(self):
-        '''Total polygon area across all loops.'''
+        '''Area of the region these loops enclose, which is what a mesh of them covers.
+
+        Holes subtract, by the same even-odd rule meshing applies: a loop nested
+        inside an odd number of others encloses nothing. Summing the loops instead
+        would count a hole twice over -- once as the plate it is cut from, once as
+        itself.
+        '''
+        loops = self.loops()
         total = 0.0
-        for loop_id in np.unique(self.loop_ids):
-            verts = self.vertices[self.segments[self.loop_ids == loop_id, 0]]
-            total += calculate_polygon_area(verts)
+        for i, loop in enumerate(loops):
+            depth = sum(point_in_polygon(loop[0], other)
+                        for j, other in enumerate(loops) if j != i)
+            total += -calculate_polygon_area(loop) if depth % 2 else calculate_polygon_area(loop)
         return total
 
     def __repr__(self):
