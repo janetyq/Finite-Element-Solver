@@ -103,12 +103,11 @@ class RuppertsAlgorithm:
         return 0.5 * np.abs(edge_a[:, 0]*edge_b[:, 1] - edge_a[:, 1]*edge_b[:, 0])
 
     def get_bad_triangles(self):
-        '''Enclosed triangles that miss the angle bound, or the area cap if set.
+        '''Interior triangles that violate the angle bound or area cap.
 
-        Keep both criteria on this one queue: refining off it is what routes an
-        insertion through the encroachment check, and skipping that check drops
-        segments out of the mesh. Keep the enclosure filter too, or an area cap
-        never terminates -- a circumcenter outside the hull enlarges the hull.
+        Exterior triangles are excluded — refining them would insert
+        circumcenters that enlarge the convex hull, creating more exterior
+        triangles and never terminating.
         '''
         simplices = self.triangulation.simplices
         bad = calculate_triangle_min_angle(self.vertices[simplices]) < self.min_angle
@@ -138,17 +137,18 @@ class RuppertsAlgorithm:
         return np.isin(opposite[..., 0]*stride + opposite[..., 1],
                        segments[:, 0]*stride + segments[:, 1])
 
-    def get_regions(self, blocked=None):
-        '''Label each triangle with the region of the PSLG it falls in.
+    def get_regions(self, segment_mask=None):
+        '''Label each triangle with an integer region ID.
 
-        Triangles share a region when a chain of edges joins them without
-        crossing a segment: the components of the dual graph, segments cut out.
-        `blocked` is `_segment_edges()`, to pass in if it is already to hand.
+        Two triangles are in the same region if they can reach each other
+        through shared edges without crossing a segment.  Implemented as
+        connected components of the triangle adjacency graph with segment
+        edges removed.
         '''
         neighbors = self.triangulation.neighbors
-        if blocked is None:
-            blocked = self._segment_edges()
-        interior_edge = (neighbors != -1) & ~blocked
+        if segment_mask is None:
+            segment_mask = self._segment_edges()
+        interior_edge = (neighbors != -1) & ~segment_mask
         triangle, edge = np.nonzero(interior_edge)
         dual = coo_matrix(
             (np.ones(len(triangle), dtype=bool), (triangle, neighbors[triangle, edge])),
@@ -158,15 +158,16 @@ class RuppertsAlgorithm:
         return labels
 
     def get_exterior_triangles(self):
-        '''Mask of the triangles the PSLG does not enclose.
+        '''Bool mask: True for triangles outside the PSLG boundary.
 
-        A region is outside when a hull edge that is not a segment reaches it.
-        Hull edges that *are* segments wall it off, which is what keeps a convex
-        outline -- one that is its own hull -- from being discarded entirely.
+        A triangle on the convex hull whose hull edge is not a segment can be
+        reached from infinity — it is exterior, and so is every triangle in its
+        region.  A hull edge that *is* a segment walls the interior off, which
+        is what keeps a convex outline from being discarded entirely.
         '''
-        blocked = self._segment_edges()
-        labels = self.get_regions(blocked)
-        reaches_infinity = ((self.triangulation.neighbors == -1) & ~blocked).any(axis=1)
+        segment_mask = self._segment_edges()
+        labels = self.get_regions(segment_mask)
+        reaches_infinity = ((self.triangulation.neighbors == -1) & ~segment_mask).any(axis=1)
         return np.isin(labels, np.unique(labels[reaches_infinity]))
 
     def _enclosed_mesh(self):
