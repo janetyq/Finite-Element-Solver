@@ -1,9 +1,10 @@
 import re
+import xml.etree.ElementTree as ET
 
 import numpy as np
-
 import svg.path  # pyright: ignore[reportMissingImports]
-import xml.etree.ElementTree as ET
+
+from fem.geometry import calculate_polygon_area
 
 
 def _document_height(root):
@@ -201,6 +202,14 @@ class PSLG:
                              for i in range(len(points))])
             loop_ids.extend([loop_id] * len(points))
         return cls(np.array(vertices), np.array(segments), np.array(loop_ids))
+
+    def area(self):
+        '''Total polygon area across all loops.'''
+        total = 0.0
+        for loop_id in np.unique(self.loop_ids):
+            verts = self.vertices[self.segments[self.loop_ids == loop_id, 0]]
+            total += calculate_polygon_area(verts)
+        return total
 
     def __repr__(self):
         return f'PSLG(vertices={self.vertices}, segments={self.segments})'

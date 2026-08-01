@@ -11,10 +11,9 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.widgets import Slider
 
-from fem.geometry import calculate_polygon_area
 from fem.plot.plotter import Plotter
 from fem.mesh.ruppert import create_rect_mesh, RuppertsAlgorithm
-from fem.mesh.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
+from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker, PSLG
 
 from demo_registry import Demo, DemoResult, Figure
 
@@ -75,22 +74,6 @@ def get_curve_from_svg(svg_file):
     curve = max(output, key=lambda x: len(x)) # get the longest path
     return np.array(curve)
 
-def get_loops_from_svg(svg_file, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE):
-    """Every closed outline in `svg_file`, each simplified against its own extent.
-
-    Simplifying per loop rather than against the whole drawing is what keeps the
-    small islands: one absolute tolerance wide enough for a 700-unit coastline
-    collapses a 2-unit islet to a line.
-    """
-    loops = []
-    for path_points in read_svg_to_list_of_path_points(svg_file):
-        loop = np.array(path_points)
-        extent = max(np.max(loop, axis=0) - np.min(loop, axis=0))
-        simplified = np.asarray(douglas_peucker(loop, tolerance * extent))
-        if len(simplified) >= 3:  # anything less has no interior to mesh
-            loops.append(simplified)
-    return loops
-
 def demo_douglas_peucker(curve, save_file='douglas_peucker_output.json',
                          tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE, interactive=False):
     """Simplify `curve` with Douglas-Peucker, returning the simplified curve.
@@ -137,27 +120,18 @@ def demo_douglas_peucker(curve, save_file='douglas_peucker_output.json',
 
     return douglas_peucker(curve, slider.val)
 
-def rupperts_mesh(loops, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
-    """Triangulate one or more closed outlines; returns (mesh, algorithm).
-
-    A loop inside another is a hole and a loop beside it is a separate piece, so
-    `loops` is drawn rather than labelled.
-    """
-    if np.ndim(loops[0][0]) == 0:  # a single outline, given bare
-        loops = [loops]
-    loops = [np.asarray(loop) for loop in loops]
-    pslg = PSLG.from_loops(loops)
+def rupperts_mesh(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
+    """Triangulate a PSLG with Ruppert's algorithm; returns (mesh, algorithm)."""
     pslg.validate()
-
     max_area = None
     if max_area_fraction is not None:
-        max_area = max_area_fraction * sum(calculate_polygon_area(loop) for loop in loops)
+        max_area = max_area_fraction * pslg.area()
     rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=max_area)
     return rupperts.refine(), rupperts
 
-def demo_rupperts(loops, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
-    """Triangulate closed outlines with Ruppert's algorithm and plot the result."""
-    mesh, rupperts = rupperts_mesh(loops, min_angle=min_angle,
+def demo_rupperts(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
+    """Triangulate a PSLG with Ruppert's algorithm and plot the result."""
+    mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
                                    max_area_fraction=max_area_fraction)
 
     plotter = Plotter(title='Triangulated mesh')
@@ -185,7 +159,8 @@ def demo_plate_with_hole(min_angle=25, max_area_fraction=0.004):
     angles = np.linspace(0, 2*np.pi, 24, endpoint=False)
     hole = np.column_stack([1.6 + 0.55*np.cos(angles), 1.5 + 0.55*np.sin(angles)])
 
-    mesh, rupperts = rupperts_mesh([plate, hole], min_angle=min_angle,
+    pslg = PSLG.from_loops([plate, hole])
+    mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
                                    max_area_fraction=max_area_fraction)
 
     plotter = Plotter(title='Plate with a hole')
@@ -226,13 +201,14 @@ def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATIO
                       interactive=False, min_angle=20,
                       max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
     """Triangulate every closed outline in an SVG with Ruppert's algorithm;
-    --interactive lets you pick the simplification of the largest one first."""
+    --interactive opens a slider to preview simplification of the largest outline
+    before meshing.  The tolerance used for meshing is always `tolerance`, applied
+    per-loop by `read_svg_to_pslg`."""
     if interactive:
         curve = get_curve_from_svg(svg_file)
-        loops = [demo_douglas_peucker(curve, tolerance=tolerance, interactive=True)]
-    else:
-        loops = get_loops_from_svg(svg_file, tolerance=tolerance)
-    return demo_rupperts(loops, min_angle=min_angle,
+        demo_douglas_peucker(curve, tolerance=tolerance, interactive=True)
+    pslg = read_svg_to_pslg(svg_file, tolerance=tolerance)
+    return demo_rupperts(pslg, min_angle=min_angle,
                          max_area_fraction=max_area_fraction)
 
 
