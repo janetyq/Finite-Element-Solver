@@ -120,6 +120,24 @@ def douglas_peucker(points, epsilon):
         return np.concatenate([douglas_peucker(points[:furthest_p_idx+1], epsilon)[:-1], douglas_peucker(points[furthest_p_idx:], epsilon)])
 
 
+def read_svg_to_pslg(svg_file, tolerance=0.005):
+    '''Read an SVG file and return a PSLG of its closed outlines.
+
+    Each outline is simplified with Douglas-Peucker against its own bounding-box
+    extent, so small features survive even when the drawing spans a wide range of
+    scales.  `tolerance` is the fraction of each loop's extent below which points
+    are dropped.
+    '''
+    loops = []
+    for path_points in read_svg_to_list_of_path_points(svg_file):
+        loop = np.array(path_points)
+        extent = max(np.max(loop, axis=0) - np.min(loop, axis=0))
+        simplified = np.asarray(douglas_peucker(loop, tolerance * extent))
+        if len(simplified) >= 3:
+            loops.append(simplified)
+    return PSLG.from_loops(loops)
+
+
 def _find_crossing_segments(vertices, segments):
     '''The first pair of segments that properly cross, or None.
 
