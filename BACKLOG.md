@@ -158,7 +158,7 @@ recovers anything. Each item below is an implementation of a seam that already e
 **Engineering**
 - 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `generation`'s `create_approx_mesh`
   has no *correctness* tests, and `svg`'s path parsing is covered only through the demos.
-  (Ruppert's is covered by `tests/test_generation.py`: the angle bound, segment conformity,
+  (Ruppert's is covered by `tests/test_ruppert.py`: the angle bound, segment conformity,
   the area cap, the even-odd fill rule and boundary attribution.) The plot layer is
   exercised end-to-end by
   `tests/test_demos.py` but has no assertions on what it draws. The 3D tet path now
@@ -201,7 +201,7 @@ recovers anything. Each item below is an implementation of a seam that already e
   first instead of qhull's arbitrary last was measured and is a wash.) Runtime is no
   longer the issue at any tolerance the demo uses; the triangle counts are.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
-  the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/generation.py` and
+  the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/ruppert.py` and
   `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.
 - 💡 **Tighten pyright to `standard`.** It runs in `basic`, which infers types for the
   unannotated internals rather than demanding annotations. Annotating the internals
