@@ -19,9 +19,14 @@ from fem.geometry import (
 
 logger = logging.getLogger(__name__)
 
-# Ruppert's terminates for inputs whose segments meet at 60 degrees or more. Below
-# that it can refine around the corner indefinitely, and the cost of getting close
-# climbs steeply first -- which reads as a hang rather than as a bad input.
+# Refinement terminates when it runs out of work: no segment encroached, and no
+# triangle under the angle bound or over the area cap. Ruppert proved that state is
+# always reached when the input's segments meet at 60 degrees or more. Below that,
+# splitting a segment near the corner drops a vertex inside its neighbour's diametral
+# circle, which forces that one to split and encroaches the first again -- the pair
+# cascades into the corner and refinement need never stop. Cost climbs steeply well
+# before it diverges, so this reads as a hang rather than as a bad input. Construction
+# warns; the refinement loop itself does not treat sharp corners specially.
 SAFE_INPUT_ANGLE = 60.0
 
 # A segment's own endpoints sit exactly on its diametral circle, so floating-point
@@ -64,9 +69,9 @@ class RuppertsAlgorithm:
     `boundary_loops` records which input loop each boundary facet came from.
 
     Ruppert proved termination for inputs whose segments meet at 60 degrees or
-    more.  Corners sharper than that (`SAFE_INPUT_ANGLE`) are exempt: the
-    triangle across them is accepted at whatever angle it comes in at, since
-    no refinement can improve it.
+    more (`SAFE_INPUT_ANGLE`).  Construction warns when the input is sharper
+    than that, but refinement does not treat such corners specially, so one can
+    still cascade into an unbounded number of elements.
 
     Cost grows steeply in the number of input points: each step rebuilds the
     full Delaunay triangulation, and more input points means more steps on a
