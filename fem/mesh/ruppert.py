@@ -12,7 +12,6 @@ from fem.geometry import (
     calculate_polygon_area,
     calculate_segment_angles,
     calculate_triangle_angles,
-    calculate_triangle_min_angle,
     calculate_circumcenter,
     get_boundary_from_vertices_elements,
     point_in_polygon,
@@ -105,6 +104,15 @@ class RuppertsAlgorithm:
         # Which loop each boundary facet of the returned mesh came from; set by refine().
         self.boundary_loops = np.zeros(0, dtype=int)
 
+        # Diametral circles, and which segments a vertex sits inside. Both are
+        # maintained as segments and vertices are added; see `_diametral_circles`
+        # and `get_encroached_segments`. The one full scan is here, where a KD-tree
+        # beats testing every circle against every vertex.
+        self._circles = None
+        centers, radii_sq = self._diametral_circles()
+        distances, _ = KDTree(self.vertices).query(centers)
+        self._encroached = distances**2 < radii_sq * (1 - ENCROACHMENT_TOLERANCE)
+
         corner_angles = calculate_segment_angles(self.vertices, self.segments)
         self.input_angle = min(corner_angles.values(), default=180.0)
         # Corners the angle bound cannot be met at. Their segments split on shells
@@ -121,46 +129,73 @@ class RuppertsAlgorithm:
             )
 
     def _diametral_circles(self):
-        '''Centres and squared radii of every segment's diametral circle.'''
-        ends = self.vertices[self.segments]
-        centers = ends.mean(axis=1)
-        radii_sq = np.sum((ends[:, 1] - ends[:, 0])**2, axis=-1) / 4
-        return centers, radii_sq
+        '''Centres and squared radii of every segment's diametral circle.
+
+        Cached: a segment's endpoints never move, so this changes only when the
+        segment list does. `del_segment` and `add_segment` drop the cache.
+        '''
+        if self._circles is None:
+            ends = self.vertices[self.segments]
+            centers = ends.mean(axis=1)
+            radii_sq = np.sum((ends[:, 1] - ends[:, 0])**2, axis=-1) / 4
+            self._circles = centers, radii_sq
+        return self._circles
+
+    def _circles_containing(self, vertex):
+        '''Mask over segments whose diametral circle strictly contains `vertex`.'''
+        centers, radii_sq = self._diametral_circles()
+        offsets = np.asarray(vertex) - centers
+        return np.sum(offsets**2, axis=-1) < radii_sq * (1 - ENCROACHMENT_TOLERANCE)
+
+    def _is_encroached(self, segment):
+        '''Whether any vertex placed so far falls strictly inside `segment`'s circle.
+
+        For a segment that has just appeared, where the incremental mask has
+        nothing to carry forward.
+        '''
+        ends = self.vertices[segment]
+        center = ends.mean(axis=0)
+        radius_sq = np.sum((ends[1] - ends[0])**2) / 4
+        offsets = self.vertices - center
+        return bool(np.any(np.sum(offsets**2, axis=-1)
+                           < radius_sq * (1 - ENCROACHMENT_TOLERANCE)))
 
     def get_encroached_segments(self):
         '''Segments with a mesh vertex strictly inside their diametral circle.
 
-        Testing the nearest vertex to each centre suffices: the segment's own
-        endpoints lie on its circle, so anything nearer is strictly inside.
+        Read off a mask kept up to date as vertices and segments are added,
+        rather than rescanned: vertices are only ever appended, so a segment
+        becomes encroached exactly when a new vertex lands in its circle, and a
+        segment that has just been created is the only one needing a full scan.
         '''
-        centers, radii_sq = self._diametral_circles()
-        distances, _ = KDTree(self.vertices).query(centers)
-        return list(self.segments[distances**2 < radii_sq * (1 - ENCROACHMENT_TOLERANCE)])
+        return self.segments[self._encroached]
 
     def get_segments_encroached_by(self, vertex):
         '''Segments whose diametral circle would strictly contain `vertex`.'''
-        centers, radii_sq = self._diametral_circles()
-        offsets = np.asarray(vertex) - centers
-        inside = np.sum(offsets**2, axis=-1) < radii_sq * (1 - ENCROACHMENT_TOLERANCE)
-        return list(self.segments[inside])
+        return self.segments[self._circles_containing(vertex)]
 
     def get_triangle_areas(self):
+        '''Twice-signed area halved: the area of every triangle, in index order.'''
         corners = self.vertices[self.triangulation.simplices]
         edge_a, edge_b = corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
         return 0.5 * np.abs(edge_a[:, 0]*edge_b[:, 1] - edge_a[:, 1]*edge_b[:, 0])
 
     def get_bad_triangles(self):
-        '''Interior triangles that violate the angle bound or area cap.
+        '''Interior triangles that violate the angle bound or area cap, in index order.
 
         Exterior triangles are excluded — refining them would insert
         circumcenters that enlarge the convex hull, creating more exterior
-        triangles and never terminating.
+        triangles and never terminating.  They go through the region labelling
+        rather than an even-odd test per triangle: a non-convex outline leaves
+        hundreds of skinny triangles outside the hull, all of them failing the
+        angle bound, and collapsing those to one test per region is the point.
         '''
         simplices = self.triangulation.simplices
         segment_mask = self._segment_edges()
-        bad = calculate_triangle_min_angle(self.vertices[simplices]) < self.min_angle
+        angles = calculate_triangle_angles(self.vertices[simplices])
+        bad = angles.min(axis=-1) < self.min_angle
         if self.sharp_vertices:
-            bad &= ~self._spans_a_sharp_corner(segment_mask)
+            bad &= ~self._spans_a_sharp_corner(angles, segment_mask)
         # The area cap survives that exemption: a corner triangle cannot be made
         # less sharp, but it can be made smaller.
         if self.max_area is not None:
@@ -168,9 +203,9 @@ class RuppertsAlgorithm:
         # Regions are only meaningful once no segment is encroached, which the
         # refinement loop always resolves first.
         bad &= ~self.get_exterior_triangles(segment_mask)
-        return list(simplices[bad])
+        return simplices[bad]
 
-    def _spans_a_sharp_corner(self, segment_mask):
+    def _spans_a_sharp_corner(self, angles, segment_mask):
         '''Triangles whose smallest angle is one the input already has.
 
         Where two segments meet below `SAFE_INPUT_ANGLE`, the triangle between
@@ -179,7 +214,7 @@ class RuppertsAlgorithm:
         outline mesh at all, at the price of the bound holding everywhere else.
         '''
         simplices = self.triangulation.simplices
-        corner = np.argmin(calculate_triangle_angles(self.vertices[simplices]), axis=-1)
+        corner = np.argmin(angles, axis=-1)
         rows = np.arange(len(simplices))
         # The two edges meeting at a vertex are those opposite the other two.
         between_segments = (segment_mask[rows, (corner + 1) % 3]
@@ -316,32 +351,34 @@ class RuppertsAlgorithm:
             self.triangulation = Delaunay(self.vertices)
 
     def refine(self):
-        encroached_segments = self.get_encroached_segments()
+        '''Refine until nothing is left to fix, and return the enclosed mesh.
+
+        One problem is fixed per pass, by inserting one point. Encroached
+        segments outrank bad triangles: clearing a diametral circle is what
+        keeps a segment in the triangulation at all, and it often settles the
+        skinny triangles beside it on the way.
+        '''
+        encroached_segments = list(self.get_encroached_segments())
 
         while True:
-            new_encroached_segments = []
-
-            # check if there are any encroached segments and split them
-            if len(encroached_segments) > 0:
-                segment = encroached_segments.pop()
-                self.split_segment(segment)
+            would_encroach = []
+            if encroached_segments:
+                self.split_segment(encroached_segments.pop())
             else:
-                # Only asked for once the segments are clear, since that branch
-                # outranks this one and the answer costs a region labelling.
                 bad_triangles = self.get_bad_triangles()
-                # if no encroached segments or bad triangles, we are done
                 if len(bad_triangles) == 0:
                     break
-                triangle = bad_triangles.pop()
-                circumcenter = calculate_circumcenter(self.vertices[triangle])
+                circumcenter = calculate_circumcenter(self.vertices[bad_triangles[-1]])
                 # Inserting a point inside a segment's diametral circle would cut
                 # the mesh off from the outline, so split those segments instead
                 # and leave the triangle to be reconsidered once they are gone.
-                new_encroached_segments = self.get_segments_encroached_by(circumcenter)
-                if not new_encroached_segments:
+                would_encroach = list(self.get_segments_encroached_by(circumcenter))
+                if not would_encroach:
                     self.add_vertex(circumcenter)
             self._retriangulate()
-            encroached_segments = self.get_encroached_segments() + new_encroached_segments
+            # `would_encroach` is not in the mask: no vertex was placed to put it
+            # there, since the circumcenter that would have was refused.
+            encroached_segments = list(self.get_encroached_segments()) + would_encroach
 
         logger.debug('refined to %d triangles over %d vertices',
                      len(self.triangulation.simplices), len(self.vertices))
@@ -353,14 +390,24 @@ class RuppertsAlgorithm:
         loop_id = int(self.segment_loops[segment_idx])
         self.segments = np.delete(self.segments, segment_idx, axis=0)
         self.segment_loops = np.delete(self.segment_loops, segment_idx)
+        self._encroached = np.delete(self._encroached, segment_idx)
+        self._circles = None
         return loop_id
 
     def add_vertex(self, vertex):
+        # The one place vertices appear, so the one place a segment can newly
+        # become encroached by an existing circle.
+        self._encroached |= self._circles_containing(vertex)
         self.vertices = np.append(self.vertices, [vertex], axis=0)
 
     def add_segment(self, segment, loop_id=0):
+        # A new circle has no history to carry forward, so it is scanned against
+        # every vertex placed so far. Its own endpoints lie on it, not inside.
+        encroached = self._is_encroached(segment)
         self.segments = np.append(self.segments, [segment], axis=0)
         self.segment_loops = np.append(self.segment_loops, loop_id)
+        self._encroached = np.append(self._encroached, encroached)
+        self._circles = None
 
     def _split_point(self, segment):
         '''Where to cut `segment` in two: its midpoint, unless it runs from a

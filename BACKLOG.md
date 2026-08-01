@@ -49,19 +49,27 @@ distance matrix. For topology optimization at any real resolution this dominates
 spatial hash / KD-tree (`scipy.spatial.cKDTree.query_ball_point`) building a sparse weight
 matrix would scale far better and is a near drop-in.
 
-### 🟠 Ruppert's rescans the whole mesh on every pass
-Refinement now grows the triangulation incrementally rather than rebuilding it
-(`RuppertsAlgorithm._retriangulate`), which took the California demo from 4.5s to 1.5s.
-What is left is `O(n)` per insertion in everything *around* qhull, so the loop is still
-quadratic overall. On that run `get_bad_triangles` is 64% of the time, and the region
-labelling inside it — a fresh `_segment_edges` mask and a `connected_components` call over
-the whole dual graph, to answer a question whose answer changed near one new vertex — is
-27%. Encroachment rebuilds a `KDTree` over every vertex per pass on top of that.
+### 🟠 Ruppert's rescans every triangle on every pass
+Refinement grows the triangulation incrementally rather than rebuilding it
+(`RuppertsAlgorithm._retriangulate`), and encroachment is now carried in a mask updated as
+vertices and segments are added rather than rescanned. The California demo has gone 4.5s →
+1.5s → 0.84s. What is left is `O(n)` per insertion in everything *around* qhull, so the
+loop is still quadratic overall.
+
+On that run `get_bad_triangles` is 72% of the time, effectively all of it work over every
+triangle to act on one: the region labelling (`get_regions`, a `connected_components` pass
+over the whole dual graph) is 25%, the `_segment_edges` mask it needs another 18%, and the
+angle computation the rest. `_retriangulate` — qhull itself, the irreducible part — is 17%.
 
 The fix is incremental in the same sense: an insertion only disturbs the triangles in its
 cavity, so a pass should look at those rather than at all of them. That needs the cavity
 from qhull (`add_points` does not report it) or a hand-rolled Bowyer–Watson, which is a
 much larger change than the one that closed the rebuild.
+
+Note the region labelling is *not* removable by testing candidates individually — that was
+measured and is 1.9x **slower**. A non-convex outline leaves hundreds of skinny triangles
+outside the hull, every one of them failing the angle bound, so the per-triangle even-odd
+test runs on far more triangles than there are regions to label.
 
 ---
 

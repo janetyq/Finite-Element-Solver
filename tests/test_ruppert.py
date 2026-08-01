@@ -18,7 +18,7 @@ from fem.geometry import (
     calculate_triangle_min_angle,
     point_in_polygon,
 )
-from fem.mesh.ruppert import RuppertsAlgorithm
+from fem.mesh.ruppert import ENCROACHMENT_TOLERANCE, RuppertsAlgorithm
 from fem.mesh.svg import PSLG
 
 L_SHAPE_OUTLINE = np.array([
@@ -112,7 +112,38 @@ def test_no_segment_is_encroached_on_return():
     algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
     algo.refine()
 
-    assert algo.get_encroached_segments() == []
+    assert len(algo.get_encroached_segments()) == 0
+
+
+def _scanned_encroachment(algo):
+    """Which segments are encroached, straight from the definition: some vertex
+    strictly inside the diametral circle."""
+    ends = algo.vertices[algo.segments]
+    centers = ends.mean(axis=1)
+    radii_sq = np.sum((ends[:, 1] - ends[:, 0])**2, axis=-1) / 4
+    offsets = algo.vertices[None, :, :] - centers[:, None, :]
+    inside = np.sum(offsets**2, axis=-1) < radii_sq[:, None] * (1 - ENCROACHMENT_TOLERANCE)
+    return inside.any(axis=1)
+
+
+def test_encroachment_tracking_does_not_drift_from_a_full_scan():
+    """Encroachment is carried in a mask updated as vertices and segments are
+    added, rather than rescanned every pass. That is state that can go wrong
+    silently and still return a plausible mesh, so hold it against the
+    definition through both of the mutations refinement makes."""
+    algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
+    assert np.array_equal(algo._encroached, _scanned_encroachment(algo))
+
+    for step in range(12):
+        encroached = algo.get_encroached_segments()
+        if len(encroached):
+            algo.split_segment(encroached[-1])
+        else:
+            # Somewhere inside the L, so the run stays representative.
+            algo.add_vertex(np.array([0.35 + 0.04*step, 0.35]))
+        assert np.array_equal(algo._encroached, _scanned_encroachment(algo)), (
+            f'the mask disagrees with a full scan after step {step}'
+        )
 
 
 def test_refinement_preserves_the_input_geometry():
@@ -187,7 +218,7 @@ def test_the_area_cap_does_not_break_conformity():
     algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
     mesh = algo.refine()
 
-    assert algo.get_encroached_segments() == []
+    assert len(algo.get_encroached_segments()) == 0
     centroids = np.asarray(mesh.vertices)[np.asarray(mesh.elements)].mean(axis=1)
     assert all(point_in_polygon(c, L_SHAPE_OUTLINE) for c in centroids)
 
