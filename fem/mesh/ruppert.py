@@ -78,6 +78,17 @@ class RuppertsAlgorithm:
     '''
 
     def __init__(self, pslg, min_angle=30, max_area=None):
+        '''Refine `pslg` until every triangle clears both bounds.
+
+        `min_angle` is in degrees: the smallest interior angle any output triangle
+        may have. Ruppert's proof covers bounds up to about 20.7 degrees and it
+        holds in practice to roughly 30; above that refinement can fail to
+        terminate even on input well clear of `SAFE_INPUT_ANGLE`.
+
+        `max_area` is an absolute area, not a fraction of the region -- callers
+        wanting a fraction scale it themselves. None leaves element size
+        unbounded, so a large region comes back as a handful of big triangles.
+        '''
         self.vertices = np.array(pslg.vertices)
         self.segments = np.array([sorted(seg) for seg in pslg.segments])
         self.segment_loops = np.array(getattr(pslg, 'loop_ids',
