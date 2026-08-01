@@ -70,6 +70,35 @@ def calculate_circumcenter(triangle_points):
     ], axis=-1)
 
 
+def calculate_minimum_segment_angle(vertices, segments):
+    '''The smallest angle, in degrees, between two segments sharing a vertex.
+
+    Delaunay refinement is only guaranteed to terminate for inputs whose
+    segments meet at 60 degrees or more; below that it refines around the
+    corner without converging, and cost climbs steeply well before it stops
+    converging at all. Returns 180 when no two segments meet.
+    '''
+    vertices = np.asarray(vertices, dtype=float)
+    incident = {}
+    for start, end in np.asarray(segments):
+        incident.setdefault(int(start), []).append(int(end))
+        incident.setdefault(int(end), []).append(int(start))
+
+    smallest = 180.0
+    for vertex, neighbours in incident.items():
+        if len(neighbours) < 2:
+            continue
+        directions = vertices[neighbours] - vertices[vertex]
+        lengths = np.linalg.norm(directions, axis=1, keepdims=True)
+        directions = directions / np.where(lengths == 0, 1, lengths)
+        cosines = np.clip(directions @ directions.T, -1.0, 1.0)
+        # The diagonal is each direction against itself; only distinct pairs count.
+        pairs = np.triu_indices(len(directions), k=1)
+        if len(pairs[0]):
+            smallest = min(smallest, float(np.degrees(np.arccos(cosines[pairs])).min()))
+    return smallest
+
+
 def calculate_triangle_min_angle(triangle):
     '''The smallest interior angle, in degrees.
 

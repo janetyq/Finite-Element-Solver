@@ -8,12 +8,12 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 from matplotlib.widgets import Slider
 
-from fem.geometry import calculate_polygon_area
 from fem.plot.plotter import Plotter
 from fem.mesh.ruppert import create_rect_mesh, RuppertsAlgorithm
-from fem.mesh.svg import read_svg_to_list_of_path_points, douglas_peucker, PSLG
+from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker, PSLG
 
 from demo_registry import Demo, DemoResult, Figure
 
@@ -120,31 +120,64 @@ def demo_douglas_peucker(curve, save_file='douglas_peucker_output.json',
 
     return douglas_peucker(curve, slider.val)
 
-def rupperts_mesh(curve, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
-    """Triangulate a closed curve via Ruppert's algorithm; returns (mesh, algorithm)."""
-    curve = np.asarray(curve)
+def rupperts_mesh(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
+    """Triangulate a PSLG with Ruppert's algorithm; returns (mesh, algorithm)."""
+    pslg.validate()
     max_area = None
     if max_area_fraction is not None:
-        max_area = max_area_fraction * calculate_polygon_area(curve)
-    rupperts = RuppertsAlgorithm(PSLG(curve), min_angle=min_angle, max_area=max_area)
+        max_area = max_area_fraction * pslg.area()
+    rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=max_area)
     return rupperts.refine(), rupperts
 
-def demo_rupperts(curve, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
-    """Triangulate a closed curve with Ruppert's algorithm and plot the result."""
-    mesh, rupperts = rupperts_mesh(curve, min_angle=min_angle,
+def demo_rupperts(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
+    """Triangulate a PSLG with Ruppert's algorithm and plot the result."""
+    mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
                                    max_area_fraction=max_area_fraction)
 
     plotter = Plotter(title='Triangulated mesh')
     plotter.plot(mesh, mode='mesh')
     ax = plotter.get_ax()
-    for seg in rupperts.segments:
-        ax.plot(rupperts.vertices[seg, 0], rupperts.vertices[seg, 1], 'b-')
+    # One collection rather than a plot call per segment: an outline that has been
+    # refined runs to hundreds of them.
+    ax.add_collection(LineCollection(rupperts.vertices[rupperts.segments],
+                                     colors='blue', linewidths=1.0))
+    outlines = len(np.unique(rupperts.segment_loops))
     return DemoResult([Figure(
         plotter,
-        f"Ruppert's refinement of the outline (blue) into {len(mesh.elements)} triangles, "
-        f'every angle at least {min_angle} degrees. The mesh covers what the outline '
-        f'encloses and nothing else, and carries the {len(mesh.boundary)} boundary '
+        f"Ruppert's refinement of {outlines} outlines (blue) into {len(mesh.elements)} "
+        f'triangles, every angle at least {min_angle} degrees. The mesh covers what the '
+        f'outlines enclose and nothing else, and carries the {len(mesh.boundary)} boundary '
         'edges a solver needs to put conditions on.')])
+
+def demo_plate_with_hole(min_angle=25, max_area_fraction=0.004):
+    """Mesh a plate with a hole in it, colouring the boundary by which outline it came from.
+
+    The shape a flow-around-an-obstacle problem needs: one loop inside another is
+    a hole under the even-odd rule, and the two boundaries have to be separable
+    for the obstacle and the outer wall to take different conditions."""
+    plate = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 3.0], [0.0, 3.0]])
+    angles = np.linspace(0, 2*np.pi, 24, endpoint=False)
+    hole = np.column_stack([1.6 + 0.55*np.cos(angles), 1.5 + 0.55*np.sin(angles)])
+
+    pslg = PSLG.from_loops([plate, hole])
+    mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
+                                   max_area_fraction=max_area_fraction)
+
+    plotter = Plotter(title='Plate with a hole')
+    plotter.plot(mesh, mode='mesh')
+    ax = plotter.get_ax()
+    for loop_id, colour, label in ((0, 'blue', 'outer wall'), (1, 'red', 'obstacle')):
+        facets = np.asarray(mesh.boundary)[rupperts.boundary_loops == loop_id]
+        ax.add_collection(LineCollection(mesh.vertices[facets], colors=colour,
+                                         linewidths=2.0))
+        ax.plot([], [], color=colour, linewidth=2.0, label=f'{label} ({len(facets)} edges)')
+    ax.legend(loc='upper right')
+    return DemoResult([Figure(
+        plotter,
+        f'{len(mesh.elements)} triangles between the two outlines. The hole is absent from '
+        'the mesh but present in its boundary, and every boundary edge knows which outline '
+        'it came from -- which is what lets Dirichlet on the obstacle and Neumann on the '
+        'wall be written separately.')])
 
 def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE,
                              interactive=False):
@@ -167,11 +200,15 @@ def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLI
 def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE,
                       interactive=False, min_angle=20,
                       max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
-    """Simplify an SVG outline then triangulate it with Ruppert's algorithm;
-    --interactive lets you pick the simplification first."""
-    curve = get_curve_from_svg(svg_file)
-    curve_reduced = demo_douglas_peucker(curve, tolerance=tolerance, interactive=interactive)
-    return demo_rupperts(curve_reduced, min_angle=min_angle,
+    """Triangulate every closed outline in an SVG with Ruppert's algorithm;
+    --interactive opens a slider to preview simplification of the largest outline
+    before meshing.  The tolerance used for meshing is always `tolerance`, applied
+    per-loop by `read_svg_to_pslg`."""
+    if interactive:
+        curve = get_curve_from_svg(svg_file)
+        demo_douglas_peucker(curve, tolerance=tolerance, interactive=True)
+    pslg = read_svg_to_pslg(svg_file, tolerance=tolerance)
+    return demo_rupperts(pslg, min_angle=min_angle,
                          max_area_fraction=max_area_fraction)
 
 
@@ -179,5 +216,12 @@ DEMOS = [
     Demo('uniform_mesh', demo_uniform_mesh, needs_mesh=False),
     Demo('mesh_plotting', demo_mesh_plotting),
     Demo('douglas_peucker', demo_douglas_peucker_svg, needs_mesh=False),
-    Demo('rupperts', demo_rupperts_svg, needs_mesh=False),
+    # Both mesh to a size cap, which is what makes the figures worth looking at and
+    # also most of their cost; the smoke run only needs the code paths. Loosen the cap
+    # and nothing else -- simplifying the outline further is *not* reliably cheaper,
+    # because it sharpens the corners refinement struggles with.
+    Demo('rupperts', demo_rupperts_svg, needs_mesh=False,
+         smoke_kwargs={'max_area_fraction': 0.05}),
+    Demo('plate_with_hole', demo_plate_with_hole, needs_mesh=False,
+         smoke_kwargs={'max_area_fraction': 0.05}),
 ]
