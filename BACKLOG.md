@@ -54,7 +54,7 @@ Refinement now grows the triangulation incrementally rather than rebuilding it
 (`RuppertsAlgorithm._retriangulate`), which took the California demo from 4.5s to 1.5s.
 What is left is `O(n)` per insertion in everything *around* qhull, so the loop is still
 quadratic overall. On that run `get_bad_triangles` is 64% of the time, and the region
-labelling inside it — a fresh `_blocked_edges` mask and a `connected_components` call over
+labelling inside it — a fresh `_segment_edges` mask and a `connected_components` call over
 the whole dual graph, to answer a question whose answer changed near one new vertex — is
 27%. Encroachment rebuilds a `KDTree` over every vertex per pass on top of that.
 
