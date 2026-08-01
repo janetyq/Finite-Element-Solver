@@ -19,14 +19,12 @@ from fem.geometry import (
 
 logger = logging.getLogger(__name__)
 
-# Refinement terminates when it runs out of work: no segment encroached, and no
-# triangle under the angle bound or over the area cap. Ruppert proved that state is
-# always reached when the input's segments meet at 60 degrees or more. Below that,
-# splitting a segment near the corner drops a vertex inside its neighbour's diametral
-# circle, which forces that one to split and encroaches the first again -- the pair
-# cascades into the corner and refinement need never stop. Cost climbs steeply well
-# before it diverges, so this reads as a hang rather than as a bad input. Construction
-# warns; the refinement loop itself does not treat sharp corners specially.
+# The sharpest corner -- two input segments meeting at a shared vertex -- for which
+# Ruppert's is proven to finish. Refinement fixes one problem at a time (a segment with
+# a vertex inside its diametral circle, or a triangle failing the angle or area test) by
+# inserting a point, and stops once none are left. Below 60 degrees two segments sharing
+# a corner can each re-create the other's problem, so refinement chases the corner and
+# never runs out. Sharp input is warned about, not rejected.
 SAFE_INPUT_ANGLE = 60.0
 
 # A segment's own endpoints sit exactly on its diametral circle, so floating-point
