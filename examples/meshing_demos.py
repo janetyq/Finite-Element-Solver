@@ -22,15 +22,15 @@ from demo_registry import Demo, DemoResult, Figure
 # paths stay relative, and so follow the caller's directory.
 DEFAULT_SVG_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'california.svg')
 
-# Simplification tolerance as a fraction of the curve's bounding-box extent, so one
-# number suits any outline. Ruppert's cost grows steeply in the point count it is handed,
-# so simplifying first is what keeps the demo interactive, and is why the slider starts
-# here rather than at zero.
-DEFAULT_TOLERANCE = 0.005
+# Douglas-Peucker: drop points that deviate less than this fraction of the curve's
+# bounding-box extent. Ruppert's cost grows steeply in point count, so simplifying
+# first is what keeps the demo interactive.
+DEFAULT_SIMPLIFICATION_TOLERANCE = 0.005
 
-# Element size cap, as a fraction of the outline's own area so one number suits any
-# shape. The angle bound constrains element *quality* and says nothing about size,
-# so without a cap a large region comes back as a handful of enormous triangles.
+# Ruppert's: any triangle whose area exceeds this fraction of the outline's total area
+# gets its circumcenter inserted. The angle bound controls element *shape* but says
+# nothing about size, so without this a large region comes back as a handful of
+# enormous triangles.
 DEFAULT_MAX_AREA_FRACTION = 0.005
 
 def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='mesh.json'):
@@ -75,7 +75,7 @@ def get_curve_from_svg(svg_file):
     return np.array(curve)
 
 def demo_douglas_peucker(curve, save_file='douglas_peucker_output.json',
-                         tolerance=DEFAULT_TOLERANCE, interactive=False):
+                         tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE, interactive=False):
     """Simplify `curve` with Douglas-Peucker, returning the simplified curve.
 
     `tolerance` is a fraction of the curve's extent. `interactive=True` opens a slider
@@ -146,7 +146,7 @@ def demo_rupperts(curve, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTI
         f'encloses and nothing else, and carries the {len(mesh.boundary)} boundary '
         'edges a solver needs to put conditions on.')])
 
-def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_TOLERANCE,
+def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE,
                              interactive=False):
     """Simplify an SVG outline via Douglas-Peucker; --interactive opens a slider over the
     tolerance, with a button that saves the curve you settle on."""
@@ -164,7 +164,7 @@ def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_TOLERA
         f'{len(curve)} outline points reduced to {len(simplified)}. Ruppert\'s cost is '
         'superlinear in what it is handed, so this is what makes triangulating it tractable.')])
 
-def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_TOLERANCE,
+def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE,
                       interactive=False, min_angle=20,
                       max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
     """Simplify an SVG outline then triangulate it with Ruppert's algorithm;
