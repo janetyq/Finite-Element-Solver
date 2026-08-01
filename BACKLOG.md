@@ -50,14 +50,14 @@ spatial hash / KD-tree (`scipy.spatial.cKDTree.query_ball_point`) building a spa
 matrix would scale far better and is a near drop-in.
 
 ### 🟠 Ruppert's rebuilds the whole triangulation after every insertion
-`RuppertsAlgorithm.run_algo` inserts one vertex per pass and then calls `Delaunay(...)`
+`RuppertsAlgorithm.refine` inserts one vertex per pass and then calls `Delaunay(...)`
 from scratch, so refinement costs `O(n)` full retriangulations. With the per-segment and
 per-triangle scans now vectorised (§ closed below), that rebuild is the dominant remaining
 term: ~60% of a run.
 `Delaunay(..., incremental=True)` plus `add_points` is a near drop-in and measures ~6.6x
 faster on that component. The catch is that qhull's incremental mode returns the same
 triangles in a different `simplices` order, which changes which bad triangle
-`run_algo` pops next -- so every mesh the demos and gallery produce would change (still
+`refine` pops next -- so every mesh the demos and gallery produce would change (still
 valid, just different). Worth doing alongside a decision to re-bless the gallery images.
 
 ---
@@ -156,22 +156,29 @@ recovers anything. Each item below is an implementation of a seam that already e
   forced problems, which is also a prerequisite for using it on the nonlinear roadmap.
 
 **Engineering**
-- 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg` and `generation`'s
-  `create_approx_mesh` have no *correctness* tests. (Ruppert's is now covered by
-  `tests/test_generation.py`, which asserts the angle bound, segment conformity and the
-  area cap.) The plot layer is exercised end-to-end by
+- 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `generation`'s `create_approx_mesh`
+  has no *correctness* tests, and `svg`'s path parsing is covered only through the demos.
+  (Ruppert's is covered by `tests/test_ruppert.py`: the angle bound, segment conformity,
+  the area cap, the even-odd fill rule and boundary attribution.) The plot layer is
+  exercised end-to-end by
   `tests/test_demos.py` but has no assertions on what it draws. The 3D tet path now
   runs to h = 1/20 and asserts the same O(h²) band as the 2D case, and the
   `AdaptiveRefinement` driver is covered in `tests/test_refinement.py`.
-- 💡 **A flow-around-an-obstacle Poisson demo.** The README's Poisson figure shows one
-  (Dirichlet `u = 0` on the obstacle, Neumann inlet/outlet) and nothing in `examples/`
-  reproduces it. Half the blocker is now gone: Ruppert's keeps only what the PSLG encloses
-  and returns a mesh with a real boundary, so a mesh with a hole in it would be solvable.
-  What is left is that `PSLG` cannot *express* one — it takes a single closed outline, so
-  there is no way to say "this inner loop is a hole" rather than "this ring is a region".
-  That needs multiple loops plus a fill rule (even-odd over the loops, which is also what
-  would let the California SVG keep its 11 discarded island contours). The README says so
-  rather than implying a demo exists.
+- 💡 **A flow-around-an-obstacle Poisson demo.** The meshing side is done: the
+  `plate_with_hole` demo builds the mesh, and `RuppertsAlgorithm.boundary_loops` says which
+  outline each boundary facet came from, so the obstacle rim and the outer wall can take
+  different conditions. What is left is the solve — inlet and outlet are *parts* of the
+  outer loop rather than loops of their own, so they still need a coordinate region
+  (`fem.regions.on_plane`) to separate them, and the demo has to wire that to the Poisson
+  equation and reproduce the README figure.
+- 💡 **Corner lopping for sharp input angles.** Refinement converges only for segments
+  meeting at 60° or more; below that it can refine around the corner indefinitely.
+  Construction now measures the smallest input angle and warns, which turns an apparent
+  hang into a diagnosis, but the standard fix — splitting the offending segments on
+  concentric shells around the corner — is not implemented. Until it is, "simplify the
+  outline more" is not reliably cheaper: a coarser Douglas-Peucker tolerance can *sharpen*
+  corners and cost far more elements, which is exactly what it did to this repo's own
+  smoke settings once.
 - 💡 **`adaptive_refinement` is the one demo still skipped by `tests/test_demos.py`**,
   blocked on the error estimator above and on Dirichlet conditions that survive a remesh.
 - 💡 **Pick the demo's simplification tolerance by input corner angle, not by point
@@ -194,7 +201,7 @@ recovers anything. Each item below is an implementation of a seam that already e
   first instead of qhull's arbitrary last was measured and is a wash.) Runtime is no
   longer the issue at any tolerance the demo uses; the triangle counts are.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
-  the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/generation.py` and
+  the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/ruppert.py` and
   `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.
 - 💡 **Tighten pyright to `standard`.** It runs in `basic`, which infers types for the
   unannotated internals rather than demanding annotations. Annotating the internals
