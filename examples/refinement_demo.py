@@ -40,5 +40,5 @@ def demo_refinement():
 
 
 DEMOS = [
-    Demo('refinement', demo_refinement, needs_mesh=False),
+    Demo('refinement', demo_refinement),
 ]

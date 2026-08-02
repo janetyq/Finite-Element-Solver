@@ -4,6 +4,7 @@
     uv run python examples/cli.py run mesh_plotting
 """
 import json
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,7 @@ from fem.mesh.ruppert import create_rect_mesh, RuppertsAlgorithm
 from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker, PSLG
 
 from demo_registry import Demo, DemoResult, Figure
+from domains import square
 
 # Resolved against the repo rather than the working directory: the input files ship
 # with the project, so a demo should not depend on where it was launched from. Output
@@ -221,15 +223,15 @@ def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATIO
 
 
 DEMOS = [
-    Demo('uniform_mesh', demo_uniform_mesh, needs_mesh=False),
-    Demo('mesh_plotting', demo_mesh_plotting),
-    Demo('douglas_peucker', demo_douglas_peucker_svg, needs_mesh=False),
+    Demo('uniform_mesh', demo_uniform_mesh),
+    Demo('mesh_plotting', demo_mesh_plotting, domain=partial(square, 20)),
+    Demo('douglas_peucker', demo_douglas_peucker_svg),
     # Both mesh to a size cap, which is what makes the figures worth looking at and
     # also most of their cost; the smoke run only needs the code paths. Loosen the cap
     # and nothing else -- simplifying the outline further is *not* reliably cheaper,
     # because it sharpens corners, and refinement spends extra elements around those.
-    Demo('rupperts', demo_rupperts_svg, needs_mesh=False,
+    Demo('rupperts', demo_rupperts_svg,
          smoke_kwargs={'max_area_fraction': 0.05}),
-    Demo('plate_with_hole', demo_plate_with_hole, needs_mesh=False,
+    Demo('plate_with_hole', demo_plate_with_hole,
          smoke_kwargs={'max_area_fraction': 0.05}),
 ]

@@ -62,7 +62,9 @@ def test_demo_runs(demo, make_unit_square, tmp_path, monkeypatch):
     # somewhere disposable rather than leaving files in the repo.
     monkeypatch.chdir(tmp_path)
 
-    args = [make_unit_square(10)] if demo.needs_mesh else []
+    # The demo's own domain is replaced by a tiny one: this asserts "still callable",
+    # and meshing a beam at demo resolution is most of what a demo costs.
+    args = [make_unit_square(10)] if demo.domain is not None else []
     result = demo.func(*args, **demo.smoke_kwargs)
 
     assert isinstance(result, DemoResult), (

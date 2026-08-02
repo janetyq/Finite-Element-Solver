@@ -4,6 +4,7 @@
     uv run python examples/cli.py run poisson
 """
 import numpy as np
+from functools import partial
 from math import e
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
 
 from demo_registry import Demo, DemoResult, Figure
+from domains import beam, square
 
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
@@ -134,7 +136,7 @@ def demo_stress_invariants(mesh):
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])), [50, 0])
+    bc.add(BCType.NEUMANN, intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])), [0, -0.5])
 
     solution = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
     deformed = solution.deformed_mesh()
@@ -147,7 +149,7 @@ def demo_stress_invariants(mesh):
         ('Max shear', solution.max_shear),
         ('Max principal', solution.principal_stress[:, -1]),
     ]
-    plotter = Plotter(2, 2, title='Stress invariants of one solve')
+    plotter = Plotter(2, 2, title='Stress invariants of one solve', panel_aspect=4.0)
     for i, (name, values) in enumerate(fields):
         plotter.plot(deformed, values, mode='colored', idx=divmod(i, 2), title=name)
     return DemoResult([Figure(
@@ -224,9 +226,14 @@ def demo_linear_elastic(mesh):
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN,  # stress, on the middle band of the right edge
+    # Transverse, so the beam bends: an axial pull is much the same solve on any
+    # domain, where a tip load is what makes a cantilever one. Sized for a tip
+    # deflection near 9% of the span -- a 4:1 beam is compliant enough that the load
+    # this demo used to apply axially would bend it through more than its own length,
+    # well outside the small-strain regime the solver assumes.
+    bc.add(BCType.NEUMANN,
            intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])),
-           [50, 0])
+           [0, -0.5])
 
     equation = LinearElastic(E=200, nu=0.4)
     solver = Solver(mesh, equation, bc)
@@ -234,7 +241,7 @@ def demo_linear_elastic(mesh):
     deformed_mesh = solution.deformed_mesh()
     displacements = np.linalg.norm(solution.u.reshape(-1, 2), axis=1)
 
-    plotter = Plotter(1, 3, title='Linear Elasticity')
+    plotter = Plotter(1, 3, title='Linear Elasticity', panel_aspect=4.0)
     plotter.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
     plotter.plot(deformed_mesh, solution.von_mises, mode='colored', title='Von Mises stress',
                  label='von Mises stress', idx=(0, 1))
@@ -242,8 +249,9 @@ def demo_linear_elastic(mesh):
                  label='|u|', idx=(0, 2))
     return DemoResult([Figure(
         plotter,
-        'A cantilever pinned on the left and tractioned on the middle band of the right '
-        'edge; stress concentrates at the supported corners.')])
+        'A cantilever clamped at the left and loaded downwards at the tip. The bending '
+        'stress is largest at the clamp and splits top from bottom -- tension over the '
+        'neutral axis, compression under it.')])
 
 def demo_topology_optimization(mesh, iters=40):
     """Run SIMP topology optimization on a cantilever under a downward force."""
@@ -255,12 +263,12 @@ def demo_topology_optimization(mesh, iters=40):
     history = topopt.solve()
     deformed_mesh = topopt.deformed_mesh()
 
-    animation_plotter = Plotter(title='Topology Optimization')
+    animation_plotter = Plotter(title='Topology Optimization', panel_aspect=2.0)
     animation_plotter.plot_animation(mesh, history.rho, mode='colored', label='density') # TODO: have mesh deform during animation, title
 
     rho_final = history.rho[-1]
     stress_final = history.von_mises[-1]
-    final_plotter = Plotter(1, 2, title='Topology Optimization')
+    final_plotter = Plotter(1, 2, title='Topology Optimization', panel_aspect=2.0)
     final_plotter.plot(deformed_mesh, rho_final, mode='colored', title='Topology Optimized Structure',
                        label='density', idx=(0, 0), empty=True)
     final_plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final von Mises stress',
@@ -370,20 +378,29 @@ def demo_3d(steps=20, save_file='tetmesh_animation.gif'):
 
 
 DEMOS = [
-    Demo('plot_mesh', demo_plot_mesh),
-    Demo('l2_projection', demo_l2_projection),
-    Demo('poisson', demo_poisson_equation),
-    Demo('robin', demo_robin_bc),
-    Demo('heat', demo_heat_equation),
-    Demo('wave', demo_wave_equation),
-    Demo('linear_elastic', demo_linear_elastic),
-    Demo('stress_invariants', demo_stress_invariants),
-    Demo('nonlinear_elastic', demo_nonlinear_elastic),
-    Demo('topology_optimization', demo_topology_optimization),
-    Demo('adaptive_refinement', demo_adaptive_refinement),
-    Demo('energy_solver', demo_energy_solver),
+    # Coarse enough that individual edges and boundary vertices are legible.
+    Demo('plot_mesh', demo_plot_mesh, domain=partial(square, 20)),
+    # The point is which oscillations of sin(40 r^2) the space can represent, so this
+    # one is meshed finer than the rest: at 40 a side the inner rings alias too.
+    Demo('l2_projection', demo_l2_projection, domain=partial(square, 70)),
+    Demo('poisson', demo_poisson_equation, domain=square),
+    Demo('robin', demo_robin_bc, domain=square),
+    Demo('heat', demo_heat_equation, domain=square),
+    Demo('wave', demo_wave_equation, domain=square),
+    # A cantilever is a beam. On the square this used to load, the "bending" was a
+    # square bulging sideways, and the stress concentration had nowhere to run to.
+    Demo('linear_elastic', demo_linear_elastic, domain=partial(beam, 4.0, 1.0, 80)),
+    Demo('stress_invariants', demo_stress_invariants, domain=partial(beam, 4.0, 1.0, 80)),
+    # Stretched end to end, so the domain is incidental; a square keeps the deformed
+    # and undeformed shapes comparable at a glance.
+    Demo('nonlinear_elastic', demo_nonlinear_elastic, domain=square),
+    # 2:1 at ~1600 vertices: the aspect ratio is what makes SIMP produce the truss it
+    # is known for, and the vertex count is what keeps 40 iterations affordable in the
+    # gallery workflow.
+    Demo('topology_optimization', demo_topology_optimization, domain=partial(beam, 2.0, 1.0, 56)),
+    Demo('adaptive_refinement', demo_adaptive_refinement, domain=square),
+    Demo('energy_solver', demo_energy_solver, domain=square),
     # 20 steps of tet rendering is ~4.4s against ~1.9s for 3; the frames are identical
     # work, so the test takes the short run.
-    Demo('3d', demo_3d, needs_mesh=False,
-         smoke_requires='pyvista', smoke_kwargs={'steps': 3}),
+    Demo('3d', demo_3d, smoke_requires='pyvista', smoke_kwargs={'steps': 3}),
 ]
