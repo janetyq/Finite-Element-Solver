@@ -109,6 +109,10 @@ class RuppertsAlgorithm:
         # and `get_encroached_segments`. The one full scan is here, where a KD-tree
         # beats testing every circle against every vertex.
         self._circles = None
+        # Bad triangles still to refine, newest last; see `refine`. `_triangle_keys`
+        # is how a queued one is checked to still exist, dropped on every insertion.
+        self._bad_queue = []
+        self._triangle_keys = None
         centers, radii_sq = self._diametral_circles()
         distances, _ = KDTree(self.vertices).query(centers)
         self._encroached = distances**2 < radii_sq * (1 - ENCROACHMENT_TOLERANCE)
@@ -180,6 +184,28 @@ class RuppertsAlgorithm:
         edge_a, edge_b = corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
         return 0.5 * np.abs(edge_a[:, 0]*edge_b[:, 1] - edge_a[:, 1]*edge_b[:, 0])
 
+    def _fails_a_bound(self, simplices, segment_mask=None):
+        '''Which of `simplices` are too skinny or too large, enclosure aside.
+
+        Takes the triangles to judge rather than reading them off the
+        triangulation, so the refinement loop can ask about the handful an
+        insertion just created instead of about all of them.
+        '''
+        corners = self.vertices[simplices]
+        angles = calculate_triangle_angles(corners)
+        bad = angles.min(axis=-1) < self.min_angle
+        if self.sharp_vertices:
+            if segment_mask is None:
+                segment_mask = self._segment_edges(simplices)
+            bad &= ~self._spans_a_sharp_corner(simplices, angles, segment_mask)
+        # The area cap survives that exemption: a corner triangle cannot be made
+        # less sharp, but it can be made smaller.
+        if self.max_area is not None:
+            edge_a, edge_b = corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
+            areas = 0.5 * np.abs(edge_a[:, 0]*edge_b[:, 1] - edge_a[:, 1]*edge_b[:, 0])
+            bad |= areas > self.max_area
+        return bad
+
     def get_bad_triangles(self):
         '''Interior triangles that violate the angle bound or area cap, in index order.
 
@@ -192,20 +218,68 @@ class RuppertsAlgorithm:
         '''
         simplices = self.triangulation.simplices
         segment_mask = self._segment_edges()
-        angles = calculate_triangle_angles(self.vertices[simplices])
-        bad = angles.min(axis=-1) < self.min_angle
-        if self.sharp_vertices:
-            bad &= ~self._spans_a_sharp_corner(angles, segment_mask)
-        # The area cap survives that exemption: a corner triangle cannot be made
-        # less sharp, but it can be made smaller.
-        if self.max_area is not None:
-            bad |= self.get_triangle_areas() > self.max_area
+        bad = self._fails_a_bound(simplices, segment_mask)
         # Regions are only meaningful once no segment is encroached, which the
         # refinement loop always resolves first.
         bad &= ~self.get_exterior_triangles(segment_mask)
         return simplices[bad]
 
-    def _spans_a_sharp_corner(self, angles, segment_mask):
+    def _bad_triangles_using(self, vertex_index):
+        '''The bad triangles among those the last insertion created.
+
+        Every triangle that did not exist before holds the vertex just added, so
+        this is all of them; and a triangle's verdict never changes while it
+        exists, since its angles and area are fixed by its corners and
+        subdividing a segment does not move the even-odd boundary. Together
+        those make the newly created triangles the whole of what a standing
+        queue of bad triangles is missing.
+
+        Enclosure is settled per triangle here rather than by labelling regions.
+        That is the wrong trade over a whole mesh and the right one over the
+        five or so triangles a single insertion makes.
+        '''
+        simplices = self.triangulation.simplices
+        created = simplices[(simplices == vertex_index).any(axis=1)]
+        bad = self._fails_a_bound(created)
+        if not bad.any():
+            return created[:0]
+        candidates = created[bad]
+        centroids = self.vertices[candidates].mean(axis=1)
+        return candidates[self._crossing_counts(centroids) % 2 == 1]
+
+    def _live_triangle_keys(self):
+        '''Every current triangle as one sorted integer, for membership tests.
+
+        Rebuilt per pass rather than maintained: qhull renumbers `simplices`
+        freely across an insertion, so a triangle's identity is its corners and
+        nothing cheaper. Packing and sorting them is a few vectorised passes,
+        which is what makes asking "does this triangle still exist" affordable
+        without a point location.
+        '''
+        if self._triangle_keys is None:
+            corners = np.sort(self.triangulation.simplices, axis=1).astype(np.int64)
+            stride = np.int64(len(self.vertices))
+            self._triangle_keys = np.sort(
+                (corners[:, 0]*stride + corners[:, 1])*stride + corners[:, 2])
+        return self._triangle_keys
+
+    def _next_queued_bad_triangle(self):
+        '''The newest queued triangle that still exists, or None if none does.
+
+        Entries go stale as later insertions re-fan the triangles around them,
+        which is cheaper to discover here than to track as it happens.
+        '''
+        keys = self._live_triangle_keys()
+        stride = np.int64(len(self.vertices))
+        while self._bad_queue:
+            triangle = self._bad_queue.pop()
+            key = (np.int64(triangle[0])*stride + triangle[1])*stride + triangle[2]
+            position = int(np.searchsorted(keys, key))
+            if position < len(keys) and keys[position] == key:
+                return triangle
+        return None
+
+    def _spans_a_sharp_corner(self, simplices, angles, segment_mask):
         '''Triangles whose smallest angle is one the input already has.
 
         Where two segments meet below `SAFE_INPUT_ANGLE`, the triangle between
@@ -213,7 +287,6 @@ class RuppertsAlgorithm:
         refining it never ends. Taking it as it stands is what lets a sharp
         outline mesh at all, at the price of the bound holding everywhere else.
         '''
-        simplices = self.triangulation.simplices
         corner = np.argmin(angles, axis=-1)
         rows = np.arange(len(simplices))
         # The two edges meeting at a vertex are those opposite the other two.
@@ -221,14 +294,16 @@ class RuppertsAlgorithm:
                             & segment_mask[rows, (corner + 2) % 3])
         return between_segments & np.isin(simplices[rows, corner], list(self.sharp_vertices))
 
-    def _segment_edges(self):
+    def _segment_edges(self, simplices=None):
         '''(n_tri, 3) bool mask: which of each triangle's edges is a PSLG segment.
 
         Column `j` corresponds to the edge opposite vertex `j`, matching the
         layout of `Delaunay.neighbors` — so `neighbors[i, j]` is the triangle
-        across a segment when `_segment_edges()[i, j]` is True.
+        across a segment when `_segment_edges()[i, j]` is True.  Defaults to
+        every triangle; pass a subset to ask about only those.
         '''
-        simplices = self.triangulation.simplices
+        if simplices is None:
+            simplices = self.triangulation.simplices
         opposite = np.stack([
             np.sort(simplices[:, [1, 2]], axis=1),
             np.sort(simplices[:, [2, 0]], axis=1),
@@ -341,6 +416,7 @@ class RuppertsAlgorithm:
         added = self.vertices[len(self.triangulation.points):]
         if not len(added):
             return
+        self._triangle_keys = None
         if self._incremental:
             self.triangulation.add_points(added)
             return
@@ -357,25 +433,44 @@ class RuppertsAlgorithm:
         segments outrank bad triangles: clearing a diametral circle is what
         keeps a segment in the triangulation at all, and it often settles the
         skinny triangles beside it on the way.
+
+        Bad triangles are held in a queue that each insertion tops up with the
+        triangles it created, rather than found by rescanning the mesh every
+        pass. The queue is only a shortcut: an empty one is confirmed against a
+        full scan before returning, so anything it fails to notice costs a
+        rescan rather than a mesh with skinny elements left in it.
         '''
         encroached_segments = list(self.get_encroached_segments())
+        self._bad_queue = [tuple(sorted(t)) for t in self.get_bad_triangles()]
 
         while True:
             would_encroach = []
+            inserted = None
             if encroached_segments:
                 self.split_segment(encroached_segments.pop())
+                inserted = len(self.vertices) - 1
             else:
-                bad_triangles = self.get_bad_triangles()
-                if len(bad_triangles) == 0:
-                    break
-                circumcenter = calculate_circumcenter(self.vertices[bad_triangles[-1]])
+                triangle = self._next_queued_bad_triangle()
+                if triangle is None:
+                    remaining = self.get_bad_triangles()
+                    if len(remaining) == 0:
+                        break
+                    self._bad_queue = [tuple(sorted(t)) for t in remaining]
+                    continue
+                circumcenter = calculate_circumcenter(self.vertices[list(triangle)])
                 # Inserting a point inside a segment's diametral circle would cut
                 # the mesh off from the outline, so split those segments instead
                 # and leave the triangle to be reconsidered once they are gone.
                 would_encroach = list(self.get_segments_encroached_by(circumcenter))
-                if not would_encroach:
+                if would_encroach:
+                    self._bad_queue.append(triangle)
+                else:
                     self.add_vertex(circumcenter)
-            self._retriangulate()
+                    inserted = len(self.vertices) - 1
+            if inserted is not None:
+                self._retriangulate()
+                self._bad_queue.extend(
+                    tuple(sorted(t)) for t in self._bad_triangles_using(inserted))
             # `would_encroach` is not in the mask: no vertex was placed to put it
             # there, since the circumcenter that would have was refused.
             encroached_segments = list(self.get_encroached_segments()) + would_encroach

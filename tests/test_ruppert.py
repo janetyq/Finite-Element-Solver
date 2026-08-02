@@ -115,6 +115,30 @@ def test_no_segment_is_encroached_on_return():
     assert len(algo.get_encroached_segments()) == 0
 
 
+def test_nothing_bad_survives_the_queue():
+    """Bad triangles are refined off a queue topped up per insertion rather than
+    rescanned each pass, so the mesh could come back with skinny elements the
+    queue lost track of. A full scan has to find nothing left."""
+    algo = RuppertsAlgorithm(_l_shape(), min_angle=25, max_area=REFINING_AREA)
+    algo.refine()
+
+    assert len(algo.get_bad_triangles()) == 0
+
+
+def test_the_queue_does_not_lean_on_the_rescan_that_backs_it():
+    """That scan is a correctness net, not the mechanism: it should run once to
+    seed the queue and once to confirm the queue is spent, and not again. If the
+    incremental tracking misses work, this is where it shows up as cost."""
+    algo = RuppertsAlgorithm(_thin_slab(), min_angle=25, max_area=REFINING_AREA)
+    scans = []
+    full_scan = algo.get_bad_triangles
+    algo.get_bad_triangles = lambda: scans.append(None) or full_scan()
+
+    algo.refine()
+
+    assert len(scans) == 2, f'{len(scans)} full rescans, expected the seed and the confirm'
+
+
 def _scanned_encroachment(algo):
     """Which segments are encroached, straight from the definition: some vertex
     strictly inside the diametral circle."""
