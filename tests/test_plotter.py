@@ -115,6 +115,23 @@ def test_colorbar_carries_the_quantity_it_shows(mesh):
     plotter.close()
 
 
+def test_a_chart_panel_keeps_its_own_labels_and_scale(mesh):
+    """Domain formatting applied to a log-log plot squashes it to equal aspect, labels
+    its axes x and y, and `ticklabel_format` raises outright on a log scale."""
+    plotter = Plotter(1, 2)
+    plotter.plot(mesh, mode='mesh', idx=(0, 0))
+    ax = plotter.chart_ax(idx=(0, 1), xlabel='h', ylabel='L2 error')
+    ax.loglog([0.1, 0.05], [1e-2, 2.5e-3])
+
+    plotter.format_axs()   # raised here before chart panels were exempt
+
+    assert (ax.get_xlabel(), ax.get_ylabel()) == ('h', 'L2 error')
+    assert ax.get_aspect() == 'auto'
+    # The domain panel beside it is unaffected.
+    assert plotter.axs[0, 0].get_aspect() == 1.0
+    plotter.close()
+
+
 def test_explicit_colorbar_limits_are_respected(mesh):
     values = [np.full(len(mesh.vertices), 300.0), np.full(len(mesh.vertices), 350.0)]
 

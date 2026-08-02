@@ -5,59 +5,22 @@ The solver assembles the stiffness matrix K (the discrete -Laplacian) and the
 mass matrix M, then solves  K u = M f  with homogeneous Dirichlet BCs -- i.e. the
 weak form of  -div(grad u) = f.
 
-We manufacture an exact solution and its forcing:
-
-    u(x, y) = sin(pi x) sin(pi y)          (zero on the boundary of [0,1]^2)
-    f(x, y) = -Laplacian(u) = 2 pi^2 sin(pi x) sin(pi y)
-
-Then we solve on a sequence of uniformly refined meshes and check that the
-discrete L2 error decreases at the theoretical rate for linear (P1) elements,
-which is O(h^2).
+The manufactured solution, its forcing, and the study that refines against them
+live in `fem/convergence.py`, so that the `convergence` demo draws exactly what
+these tests assert rather than a second implementation that could drift from it.
+What is here is the assertions: that the error falls, that it falls at the O(h^2)
+rate P1 elements promise, and that the finest mesh is accurate in absolute terms.
 """
 import numpy as np
 import pytest
 
-from fem.mesh.ruppert import create_rect_mesh
-from fem.boundary import BoundaryConditions, BCType
-from fem.regions import everywhere
-from fem.equations import Poisson
-from fem.solver import Solver
-
-
-def _exact(vertices):
-    x, y = vertices[:, 0], vertices[:, 1]
-    return np.sin(np.pi * x) * np.sin(np.pi * y)
-
-
-def _solve_poisson_mms(n):
-    """Solve the manufactured Poisson problem on an n x n unit-square grid.
-
-    Returns (h, l2_error) where h is the grid spacing and l2_error is the
-    discrete L2 norm of (u_h - u_exact), computed with the mass matrix.
-    """
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-
-    equation = Poisson(
-        source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]
-    )
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-
-    solver = Solver(mesh, equation, bc)
-    solution = solver.solve()
-    u_h = solution.u
-
-    error = u_h - _exact(mesh.vertices)
-    # ||e||_L2^2 = e^T M e, with M the space's mass matrix
-    l2_error = np.sqrt(error @ solver.space.mass_matrix @ error)
-    h = 1.0 / (n - 1)
-    return h, l2_error
+from fem.convergence import ConvergenceStudy, solve_poisson_mms
 
 
 @pytest.fixture(scope="module")
 def convergence_data():
     resolutions = [11, 21, 41]  # h = 0.1, 0.05, 0.025 (each halved)
-    return [_solve_poisson_mms(n) for n in resolutions]
+    return [(s.h, s.l2_error) for s in (solve_poisson_mms(n) for n in resolutions)]
 
 
 def test_error_decreases_monotonically(convergence_data):
@@ -84,3 +47,20 @@ def test_absolute_accuracy_on_fine_mesh(convergence_data):
     # Sanity floor: the finest mesh should be reasonably accurate.
     _, finest_error = convergence_data[-1]
     assert finest_error < 1e-2
+
+
+def test_observed_orders_recover_a_known_rate():
+    """The arithmetic every claim above rests on, checked against data whose rate is
+    exact by construction."""
+    h = np.array([0.4, 0.2, 0.1])
+    study = ConvergenceStudy(h, 3.0 * h**2)
+    assert np.allclose(study.orders, 2.0)
+    assert study.fitted_order == pytest.approx(2.0)
+
+
+def test_the_error_is_interior():
+    """Homogeneous Dirichlet data is imposed exactly, so nothing is left to be wrong on
+    the boundary -- which is what the `convergence` demo's error field shows."""
+    solve = solve_poisson_mms(11)
+    assert np.allclose(solve.pointwise_error[solve.mesh.boundary_idxs], 0.0)
+    assert np.abs(solve.pointwise_error).max() > 0.0

@@ -66,6 +66,10 @@ class Demo:
     # and per demo rather than one default for all, because a cantilever wants a beam
     # and a projection wants a fine square. `cli.py --mesh` overrides it.
     domain: 'Callable[[], Mesh] | None' = None
+    # The gallery index heading this demo belongs under. Declared rather than inferred
+    # from the module it is written in: which file a demo lives in is a fact about the
+    # code's layout, and it disagreed with where a reader would look for it.
+    section: str = ''
     # An optional dependency the demo needs; it is skipped where that is absent.
     smoke_requires: str | None = None
     # Cheaper arguments for `tests/test_demos.py`, which runs every demo on every
@@ -74,30 +78,29 @@ class Demo:
     # written, so a demo's defaults are what a reader actually sees.
     smoke_kwargs: dict[str, Any] = field(default_factory=dict)
 
-    def source(self) -> str:
-        """The demo function's own source, for readers who came for the code.
+    def _unwrapped(self) -> Callable[..., DemoResult]:
+        """The demo function itself, from behind any `functools.partial` around it.
 
-        Unwraps `functools.partial` the way `description` does, so a preconfigured demo
-        shows the function that was bound rather than failing to have a source at all.
-        The bound arguments are not shown: they are the gallery's cheaper settings, not
-        part of what the demo is saying.
+        Binding arguments to preconfigure a demo must not change what the demo *is*:
+        a partial has its own docstring, its own module, and no source at all.
         """
         func = self.func
         while isinstance(func, functools.partial):
             func = func.func
+        return func
+
+    def source(self) -> str:
+        """The demo function's own source, for readers who came for the code.
+
+        The bound arguments of a preconfigured demo are not shown: they are the
+        gallery's cheaper settings, not part of what the demo is saying.
+        """
         try:
-            return inspect.getsource(func)
+            return inspect.getsource(self._unwrapped())
         except OSError:      # no source available -- a REPL-defined or C function
             return ''
 
     def description(self) -> str:
-        """The demo's docstring on one line, for `list` and for its gallery page.
-
-        Unwraps `functools.partial`, so binding arguments to preconfigure a demo does
-        not replace its description with partial's own docstring.
-        """
-        func = self.func
-        while isinstance(func, functools.partial):
-            func = func.func
-        doc = inspect.getdoc(func)
+        """The demo's docstring on one line, for `list` and for its gallery page."""
+        doc = inspect.getdoc(self._unwrapped())
         return ' '.join(doc.split()) if doc else '(no description)'

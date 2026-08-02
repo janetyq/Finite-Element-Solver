@@ -39,7 +39,7 @@ def test_interactive_is_rejected_where_there_is_no_such_mode(monkeypatch, capsys
     assert exit_info.value.code != 0
     message = capsys.readouterr().err
     assert 'has no interactive mode' in message
-    assert 'douglas_peucker' in message and 'rupperts' in message
+    assert 'mesh_from_svg' in message
 
 
 @pytest.fixture(autouse=True)
@@ -89,4 +89,15 @@ def test_demo_runs(demo, make_unit_square, tmp_path, monkeypatch):
     # is how a demo rendering a blank panel stayed invisible before.
     assert result.figures or result.text or result.artifacts, (
         f'{demo.name} produced no figures, no text, and no files'
+    )
+
+
+@pytest.mark.parametrize('demo', DEMOS, ids=lambda demo: demo.name)
+def test_demo_declares_a_known_section(demo):
+    """Sections are declared per demo, so a new one can silently land in "Other". The
+    gallery still renders it -- this is what stops that going unnoticed."""
+    from gallery import SECTIONS
+
+    assert demo.section in SECTIONS, (
+        f'{demo.name} declares section {demo.section!r}; expected one of {SECTIONS}'
     )

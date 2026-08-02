@@ -17,10 +17,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
 
 import solver_demos  # noqa: E402
 from benchmark_assembly import demo_backends  # noqa: E402
-from demo_registry import Demo  # noqa: E402
+from demo_registry import Demo, DemoResult  # noqa: E402
 from gallery import build_gallery  # noqa: E402
 
 from fem.mesh.ruppert import create_rect_mesh  # noqa: E402
+
+# The smallest valid GIF: a 1x1 pixel. Enough to stand in for what PyVista writes.
+ONE_PIXEL_GIF = (b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04'
+                 b'\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D'
+                 b'\x01\x00;')
+
+
+def _writes_a_gif():
+    """A demo whose whole output is a file, the way `3d` hands back a PyVista GIF."""
+    Path('animation.gif').write_bytes(ONE_PIXEL_GIF)
+    return DemoResult(artifacts=[Path('animation.gif')])
+
 
 @pytest.fixture(scope='module')
 def gallery(tmp_path_factory):
@@ -28,12 +40,17 @@ def gallery(tmp_path_factory):
     # the cheap variants are bound here rather than declared on the Demo.
     small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     registry = {
-        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small),
+        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
+                        section='Solving PDEs'),
         'topopt': Demo('topopt', partial(solver_demos.demo_topology_optimization, iters=2),
-                       domain=small),
-        'backends': Demo('backends', partial(demo_backends, sizes=(5,))),
+                       domain=small, section='Solids & structures'),
+        'backends': Demo('backends', partial(demo_backends, sizes=(5,)),
+                         section='Accuracy & performance'),
         'absent': Demo('absent', solver_demos.demo_poisson_equation, domain=small,
+                       section='Solving PDEs',
                        smoke_requires='a_module_that_is_not_installed'),
+        # Declares no section, so it also stands for a demo the index has no heading for.
+        'gif_maker': Demo('gif_maker', _writes_a_gif),
     }
     out = tmp_path_factory.mktemp('gallery') / 'out'
     entries = build_gallery(registry, out)
@@ -99,9 +116,48 @@ def test_a_skipped_demo_still_shows_its_source(gallery):
     assert 'def demo_poisson_equation' in (out / 'absent.html').read_text(encoding='utf-8')
 
 
+def test_index_is_grouped_by_section_not_alphabetically(gallery):
+    """Sorted by name, the index opened on the demos that show it least well."""
+    out, _entries = gallery
+    index = (out / 'index.html').read_text(encoding='utf-8')
+    headings = re.findall(r'<h2 class="heading">([^<]+)</h2>', index)
+    assert headings == ['Solving PDEs', 'Solids &amp; structures',
+                        'Accuracy &amp; performance', 'Other demos']
+    assert index.index('poisson.html') < index.index('topopt.html')
+
+
+def test_a_demo_declaring_no_section_still_appears(gallery):
+    """Grouping must not be able to drop a demo it has no heading for."""
+    out, _entries = gallery
+    assert 'gif_maker.html' in (out / 'index.html').read_text(encoding='utf-8')
+
+
+def test_a_gif_artifact_becomes_the_thumbnail(gallery):
+    """A demo that draws no figure can still have produced a picture."""
+    out, _entries = gallery
+    assert '<img src="animation.gif"' in (out / 'index.html').read_text(encoding='utf-8')
+
+
+def test_a_text_only_demo_shows_its_output_on_its_card(gallery):
+    """`backends` has nothing to draw, and an empty tile reads as a broken card."""
+    out, _entries = gallery
+    index = (out / 'index.html').read_text(encoding='utf-8')
+    assert 'thumb-text' in index
+    assert 'amg_cg' in index
+
+
 def test_missing_dependency_is_reported_not_omitted(gallery):
     """A demo that could not run says so on its page, rather than vanishing."""
     out, entries = gallery
     assert entries['absent'].skipped
     assert not entries['absent'].panels
     assert 'Not rendered' in (out / 'absent.html').read_text(encoding='utf-8')
+
+
+def test_a_skipped_demo_gives_its_reason_on_its_card_too(gallery):
+    """The deployed gallery installs no extras, so `3d` is skipped there every time --
+    which is exactly the card that used to be blank."""
+    out, _entries = gallery
+    index = (out / 'index.html').read_text(encoding='utf-8')
+    assert 'thumb-note' in index
+    assert 'a_module_that_is_not_installed' in index
