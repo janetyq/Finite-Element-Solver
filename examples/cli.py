@@ -54,7 +54,7 @@ def _show(result: DemoResult) -> None:
         figure.plotter.show()
 
 
-def _save(result: DemoResult, save_path: str, name: str) -> None:
+def _save(result: DemoResult, save_path: str, name: str, dpi: float | None = None) -> None:
     animated = [f for f in result.figures if f.animated]
     stills = result.still_figures
     if animated and not stills:
@@ -64,10 +64,11 @@ def _save(result: DemoResult, save_path: str, name: str) -> None:
             'rerun without --save to view it interactively.'
         )
     for figure in stills:
-        figure.plotter.save(figure_path(save_path, figure, only=len(stills) == 1))
+        figure.plotter.save(figure_path(save_path, figure, only=len(stills) == 1), dpi=dpi)
 
 
-def deliver(result: DemoResult, save_path: str | None, name: str) -> None:
+def deliver(result: DemoResult, save_path: str | None, name: str,
+            dpi: float | None = None) -> None:
     '''Show or save the figures, print the text, report the files.
 
     The demo produced all of this and displayed none of it; every choice about where it
@@ -81,7 +82,7 @@ def deliver(result: DemoResult, save_path: str | None, name: str) -> None:
     if save_path is None:
         _show(result)
     else:
-        _save(result, save_path, name)
+        _save(result, save_path, name, dpi)
 
 
 def supports_interactive(demo: Demo) -> bool:
@@ -89,7 +90,8 @@ def supports_interactive(demo: Demo) -> bool:
     return 'interactive' in inspect.signature(demo.func).parameters
 
 
-def run_demo(demo: Demo, mesh_file: str, save_path: str | None, interactive: bool = False) -> None:
+def run_demo(demo: Demo, mesh_file: str, save_path: str | None, interactive: bool = False,
+             dpi: float | None = None) -> None:
     args = [Mesh.load(mesh_file)] if demo.needs_mesh else []
     kwargs = {'interactive': True} if interactive else {}
     result = demo.func(*args, **kwargs)
@@ -99,7 +101,7 @@ def run_demo(demo: Demo, mesh_file: str, save_path: str | None, interactive: boo
             f'{demo.name!r} returned {type(result).__name__}; demos return a DemoResult '
             'so the caller decides what to show, save, or print.'
         )
-    deliver(result, save_path, demo.name)
+    deliver(result, save_path, demo.name, dpi)
 
 
 def main():
@@ -119,6 +121,11 @@ def main():
     run_parser.add_argument(
         '--save', default=None,
         help='save the plot(s) to this path instead of showing them interactively',
+    )
+    run_parser.add_argument(
+        '--dpi', type=float, default=None,
+        help='resolution for --save; the default suits a screen, lower it for a figure '
+             'whose file size matters more than its sharpness',
     )
     run_parser.add_argument(
         '--interactive', action='store_true',
@@ -155,7 +162,7 @@ def main():
             + ', '.join(supported)
         )
 
-    run_demo(demo, args.mesh, args.save, interactive=args.interactive)
+    run_demo(demo, args.mesh, args.save, interactive=args.interactive, dpi=args.dpi)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 # Finite Element Solver
 
 [![CI](https://github.com/janetyq/Finite-Element-Solver/actions/workflows/ci.yml/badge.svg)](https://github.com/janetyq/Finite-Element-Solver/actions/workflows/ci.yml)
+[![Demo gallery](https://img.shields.io/badge/demo-gallery-blue)](https://janetyq.github.io/Finite-Element-Solver/)
 
 This finite element method (FEM) solver is capable of solving a variety of partial differential equations (PDEs), such as Poisson, heat, wave, and both linear and nonlinear elasticity equations. It supports both Dirichlet and Neumann boundary conditions and can be applied to simulate both 2D and 3D meshes. Interesting features include custom meshing algorithms, adaptive mesh refinement to enhance simulation accuracy and topology optimization for optimizing structural design.
 
@@ -128,7 +129,15 @@ Runnable demos live in `examples/` (run from the repo root) behind a small CLI:
 ```bash
 uv run python examples/cli.py list          # see every available demo
 uv run python examples/cli.py run poisson   # run one by name
+uv run python examples/cli.py gallery       # render them all as a browsable site
 ```
+
+Every demo is rendered, with its source, in the **[demo
+gallery](https://janetyq.github.io/Finite-Element-Solver/)** — rebuilt from `main` on
+each push, so it always shows what the demos do now. The figures further down predate
+the current `examples/` and several are on richer domains than the demos build today
+(a braced bracket, a plate with an obstacle, a 100x40 beam); the gallery is the
+reproducible view of the same physics.
 
 ## Details
 This solver uses the Galerkin finite element method with linear basis functions on triangular meshes for 2D problems and tetrahedral meshes for 3D. It is designed to be modular, making it easy to add new PDEs, finite element types, or energy density functions.
@@ -153,7 +162,7 @@ For a **Robin** condition ($\partial u/\partial n + \kappa u = g$, contributing 
 ### Wave Equation
 The wave equation is a partial differential equation that describes waves as they propogate through space and time. It is defined as $\frac{\partial^2 u}{\partial t^2} = c^2 \Delta u$, where $c$ is the wave speed and $u$ is the scalar function describing the wave.
 
-We can simulate the wave propogation over time with Crank-Nicolson integration, solving for $u$ at each timestep.
+We can simulate the wave propogation over time by solving for $u$ at each timestep. Being second order in time, it is integrated with Newmark's average-acceleration method rather than the theta-method used for the first-order systems.
 
 <div style="display: flex; justify-content: space-between;">
     <img src="images/wave_demo1.png" alt="wave_demo1" width="45%" />
@@ -166,7 +175,7 @@ The wave starts as a single pulse and propogates outwards at a constant speed. W
 ### Heat Equation
 The heat equation is a partial differential equation that describes the distribution of heat over time. It is defined as $\frac{\partial u}{\partial t} = \alpha \Delta u$, where $\alpha$ is the thermal diffusivity and $u$ is the temperature.
 
-We can simulate the heat distribution over time with Backwards Euler integration, solving for $u$ at each timestep.
+We can simulate the heat distribution over time with the theta-method, solving for $u$ at each timestep. $\theta = 1$ is backward Euler; the `heat` demo takes the default $\theta = \tfrac{1}{2}$, which is Crank-Nicolson.
 
 <div style="display: flex; justify-content: space-between;">
     <img src="images/heat_demo1.png" alt="heat_demo1" width="45%" />
@@ -209,14 +218,11 @@ Topology optimization is a method of structural design where the material distri
 
 The boundary conditions are that the left edge is fixed and a downward force is applied to the right edge. The material distribution is represented by a density field, where 0 is no material and 1 is full material. The solver uses the SIMP (Solid Isotropic Material with Penalization) method to penalize intermediate densities.
 
-<p align="center">
-<video width="640" height="360" controls>
-  <source src="/images/topopt.mp4" type="video/mp4">
-  Video of topology optimization on a cantilevered beam
-</video>
-</p>
+![topopt](images/topopt_demo.png)
 
 The solver starts with a uniform density field and iteratively updates the density field to minimize the compliance. This image shows the final density field. This structure uses approx 55% of the original material and only deforms slightly more.
+
+The iterations are also recorded as a video — [`images/topopt.mp4`](images/topopt.mp4) — and the [gallery page](https://janetyq.github.io/Finite-Element-Solver/topology_optimization.html) plays the current demo's run frame by frame. (A `<video>` tag with a repository-relative source does not render on GitHub, which is why this is a link.)
 
 
 ## Methods

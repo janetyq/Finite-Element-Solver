@@ -80,6 +80,41 @@ def test_colored_animation_scales_to_the_data(mesh):
     plotter.close()
 
 
+def test_surface_axes_are_labelled_in_z(mesh):
+    """`set_label` sets an artist's legend entry, not an axis; a 3D panel went its whole
+    life without a z label because that was called instead of `set_zlabel`."""
+    values = np.linspace(0, 1, len(mesh.vertices))
+
+    plotter = Plotter(1, 1)
+    plotter.plot(mesh, values, mode='surface')
+    plotter.format_axs()
+
+    assert plotter.axs[0, 0].get_zlabel() == 'z'
+    plotter.close()
+
+
+def test_axis_labels_can_be_turned_off(mesh):
+    """An outline in SVG user units gains nothing from being told its axes are x and y."""
+    plotter = Plotter(1, 1, axis_labels=False)
+    plotter.plot(mesh, mode='mesh')
+    plotter.format_axs()
+
+    ax = plotter.axs[0, 0]
+    assert (ax.get_xlabel(), ax.get_ylabel()) == ('', '')
+    plotter.close()
+
+
+def test_colorbar_carries_the_quantity_it_shows(mesh):
+    values = np.linspace(300.0, 350.0, len(mesh.vertices))
+
+    plotter = Plotter(1, 1)
+    plotter.plot(mesh, values, mode='colored', label='temperature')
+
+    # The colorbar is the second axes on the figure; its label is the y-axis label.
+    assert plotter.fig.axes[1].get_ylabel() == 'temperature'
+    plotter.close()
+
+
 def test_explicit_colorbar_limits_are_respected(mesh):
     values = [np.full(len(mesh.vertices), 300.0), np.full(len(mesh.vertices), 350.0)]
 

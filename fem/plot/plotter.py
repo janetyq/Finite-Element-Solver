@@ -37,6 +37,16 @@ class PlotMode(Enum):
     BC = "bc"
 
 
+# Figures are read on screens, not printed: at matplotlib's default 100 a 5-inch panel
+# is 500 px, which upscales blurrily in the gallery and in the README. Set on the
+# figure rather than at save time so what is measured on screen is what is written.
+DEFAULT_DPI = 150
+
+# A frame sequence pays this per frame, and frames are viewed at a fraction of the size
+# of a still, so they are written at matplotlib's default instead.
+FRAME_DPI = 100
+
+
 class Plotter:
     def __init__(
         self,
@@ -44,17 +54,27 @@ class Plotter:
         ncols: int = 1,
         figsize: tuple[float, float] | None = None,
         title: str | None = None,
+        axis_labels: bool = True,
     ) -> None:
         if figsize is None:
             figsize = (5*ncols, 5*nrows)
-        
-        self.fig, self.axs = plt.subplots(nrows, ncols, figsize=figsize)
+
+        # Constrained layout, so panels, their colorbars, and the suptitle are given
+        # room rather than overlapping at the default spacing.
+        self.fig, self.axs = plt.subplots(nrows, ncols, figsize=figsize,
+                                          dpi=DEFAULT_DPI, layout='constrained')
         if title is not None:
             self.fig.suptitle(title)
         if nrows == 1 and ncols == 1:
             self.axs = np.array([self.axs])
         self.axs = self.axs.reshape(nrows, ncols)
-        
+
+        # Whether the axes carry x/y/z labels. Off for figures whose axes are the
+        # domain itself -- an outline in SVG user units gains nothing from being told
+        # its horizontal axis is x, and gains a false suggestion the numbers mean
+        # something.
+        self.axis_labels = axis_labels
+
         self.anims = {}
         # The frame-update callable behind each animation, kept because a FuncAnimation
         # renders only through show()/save(); `save_frames` steps these directly.
@@ -72,7 +92,14 @@ class Plotter:
         bc: 'BoundaryConditions | None' = None,
         clear: bool = False,
         empty: bool = False,
+        label: str | None = None,
     ) -> None:
+        """Draw `values` on `mesh` into the subplot at `idx`.
+
+        `label` names the quantity on the colorbar (colored mode); a colorbar is built
+        once per subplot, so it is read on the call that first draws there and ignored
+        by later ones redrawing the same axes.
+        """
         mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
         ax = self.axs[idx]
         if clear:
@@ -87,7 +114,8 @@ class Plotter:
         elif mode is PlotMode.BOUNDARY:
             plot_boundary(ax, mesh)
         elif mode is PlotMode.COLORED:
-            cbar_info = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None))
+            cbar_info = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
+                                     label=label)
             self.cbar_infos[idx] = cbar_info
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
@@ -129,6 +157,7 @@ class Plotter:
         idx: tuple[int, int] = (0, 0),
         titles: Sequence[str] | None = None,
         cbar_lims: tuple[float, float] | None = None,
+        label: str | None = None,
     ) -> None:
         mode = PlotMode(mode)
         # Bound to a local list so the nested `update` closure keeps the
@@ -144,7 +173,7 @@ class Plotter:
             # against which any field outside that range rendered as one flat block.
             if cbar_lims is None:
                 cbar_lims = (min(np.min(v) for v in values), max(np.max(v) for v in values))
-            self.cbar_infos[idx] = setup_colorbar(self.axs[idx], cbar_lims, label=None)
+            self.cbar_infos[idx] = setup_colorbar(self.axs[idx], cbar_lims, label=label)
 
         self.plot(mesh, values[0], mode=mode, idx=idx, title=frame_titles[0])
 
@@ -160,10 +189,12 @@ class Plotter:
     def format_axs(self) -> None:
         for ax in self.axs.ravel():
             ax.ticklabel_format(useOffset=False)
-            ax.set_xlabel('x')
-            ax.set_ylabel('y')
+            if self.axis_labels:
+                ax.set_xlabel('x')
+                ax.set_ylabel('y')
             if hasattr(ax, 'get_zlim'):
-                ax.set_label('z')
+                if self.axis_labels:
+                    ax.set_zlabel('z')
                 ax.set_aspect('equalxy')
             else:
                 ax.set_aspect('equal')
@@ -175,12 +206,18 @@ class Plotter:
         self.format_axs()
         plt.show()
 
-    def save(self, path: str) -> None:
+    def save(self, path: str, dpi: float | None = None) -> None:
+        """Write the figure to `path`, at `DEFAULT_DPI` unless `dpi` overrides it.
+
+        The override is for figures whose weight matters more than their sharpness: a
+        grid of 3D surfaces runs to megabytes at the default, which is a lot to ask of
+        a README.
+        """
         # self.fig, not plt.savefig: pyplot writes the *current* figure, which is
         # whichever was created last, so a caller holding two Plotters saved the second
         # one under both names.
         self.format_axs()
-        self.fig.savefig(path)
+        self.fig.savefig(path, dpi=dpi if dpi is not None else self.fig.dpi)
 
     def save_frames(self, path_template: str) -> list[str]:
         '''Write each animation frame as a still image; returns the paths written.
@@ -199,7 +236,7 @@ class Plotter:
                 update(frame)
             self.format_axs()
             path = path_template.format(frame)
-            self.fig.savefig(path)
+            self.fig.savefig(path, dpi=FRAME_DPI)
             paths.append(path)
         return paths
 
