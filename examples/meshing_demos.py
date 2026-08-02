@@ -14,7 +14,7 @@ from matplotlib.widgets import Slider
 
 from fem.geometry import calculate_triangle_min_angle
 from fem.plot.plotter import Plotter
-from fem.mesh.ruppert import create_rect_mesh, RuppertsAlgorithm
+from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker, PSLG
 
 from demo_registry import Demo, DemoResult, Figure
@@ -35,19 +35,6 @@ DEFAULT_SIMPLIFICATION_TOLERANCE = 0.005
 # nothing about size, so without this a large region comes back as a handful of
 # enormous triangles.
 DEFAULT_MAX_AREA_FRACTION = 0.005
-
-def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='mesh.json'):
-    """Build a uniform rectangular mesh, save it to disk, and plot what was written."""
-    mesh = create_rect_mesh(corners, resolution=resolution)
-    mesh.save(save_file)
-
-    plotter = Plotter(title=f'Uniform mesh {resolution[0]}x{resolution[1]}', axis_labels=False)
-    plotter.plot(mesh, mode='mesh')
-    return DemoResult(
-        [Figure(plotter, f'A structured triangulation at {resolution[0]}x{resolution[1]}, '
-                         'the input the solver demos load.')],
-        artifacts=[Path(save_file)],
-    )
 
 def demo_mesh_plotting(mesh):
     """Plot a mesh colored by element-centroid x, then highlight elements/vertices on one side."""
@@ -223,7 +210,6 @@ def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATIO
 
 
 DEMOS = [
-    Demo('uniform_mesh', demo_uniform_mesh),
     Demo('mesh_plotting', demo_mesh_plotting, domain=partial(square, 20)),
     Demo('douglas_peucker', demo_douglas_peucker_svg),
     # Both mesh to a size cap, which is what makes the figures worth looking at and
