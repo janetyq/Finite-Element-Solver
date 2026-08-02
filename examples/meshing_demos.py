@@ -39,7 +39,7 @@ def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='
     mesh = create_rect_mesh(corners, resolution=resolution)
     mesh.save(save_file)
 
-    plotter = Plotter(title=f'Uniform mesh {resolution[0]}x{resolution[1]}')
+    plotter = Plotter(title=f'Uniform mesh {resolution[0]}x{resolution[1]}', axis_labels=False)
     plotter.plot(mesh, mode='mesh')
     return DemoResult(
         [Figure(plotter, f'A structured triangulation at {resolution[0]}x{resolution[1]}, '
@@ -49,7 +49,7 @@ def demo_uniform_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40), save_file='
 
 def demo_mesh_plotting(mesh):
     """Plot a mesh colored by element-centroid x, then highlight elements/vertices on one side."""
-    plotter = Plotter(title='Mesh plot (color=x)')
+    plotter = Plotter(title='Mesh plot (color=x)', axis_labels=False)
     plotter.plot(mesh, mode='colored', values=mesh.vertices[mesh.elements].mean(axis=1)[:, 0])
 
     min_x = np.min(mesh.vertices[:, 0])
@@ -59,7 +59,7 @@ def demo_mesh_plotting(mesh):
     e_idxs = [e_idx for e_idx, element in enumerate(mesh.elements) if np.mean(mesh.vertices[element], axis=0)[0] > mid_x]
     v_idxs = [v_idx for v_idx, vert in enumerate(mesh.vertices) if vert[0] < min_x + 1e-3]
 
-    highlight_plotter = Plotter(title='Highlighted plot')
+    highlight_plotter = Plotter(title='Highlighted plot', axis_labels=False)
     highlight_plotter.plot(mesh, mode='mesh')
     highlight_plotter.plot_highlights(mesh, [e_idxs], ['blue'], ['right blue elements'], mode='elements')
     highlight_plotter.plot_highlights(mesh, [v_idxs], ['red'], ['left red vertices'], mode='vertices')
@@ -135,7 +135,7 @@ def demo_rupperts(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTIO
     mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
                                    max_area_fraction=max_area_fraction)
 
-    plotter = Plotter(title='Triangulated mesh')
+    plotter = Plotter(title='Triangulated mesh', axis_labels=False)
     plotter.plot(mesh, mode='mesh')
     ax = plotter.get_ax()
     # One collection rather than a plot call per segment: an outline that has been
@@ -171,7 +171,7 @@ def demo_plate_with_hole(min_angle=25, max_area_fraction=0.004):
     mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
                                    max_area_fraction=max_area_fraction)
 
-    plotter = Plotter(title='Plate with a hole')
+    plotter = Plotter(title='Plate with a hole', axis_labels=False)
     plotter.plot(mesh, mode='mesh')
     ax = plotter.get_ax()
     for loop_id, colour, label in ((0, 'blue', 'outer wall'), (1, 'red', 'obstacle')):
@@ -196,7 +196,7 @@ def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLI
 
     # The interactive path has already had its say on screen; this is the result either
     # way, and the only thing a saved gallery can show of it.
-    plotter = Plotter(title='Douglas-Peucker simplification')
+    plotter = Plotter(title='Douglas-Peucker simplification', axis_labels=False)
     ax = plotter.get_ax()
     ax.plot(curve[:, 0], curve[:, 1], color='gray', linewidth=1.0, label=f'original ({len(curve)} pts)')
     ax.plot(simplified[:, 0], simplified[:, 1], 'b-', label=f'simplified ({len(simplified)} pts)')

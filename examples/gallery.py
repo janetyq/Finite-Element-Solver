@@ -1,5 +1,8 @@
 """Render every registered demo into a static gallery: one page per demo, plus an index.
 
+A page carries what the demo produced -- figures, printed text, files -- and the source
+that produced it, so the gallery reads as documentation rather than as a picture book.
+
 Everything is written as plain files with relative links -- no CDN, no embedded data --
 so the output directory works the same opened from disk or served over HTTP.
 
@@ -42,6 +45,7 @@ class Entry:
     text: str | None = None
     artifacts: list[str] = field(default_factory=list)
     skipped: str | None = None
+    source: str = ''
 
 
 def _missing_dependency(demo: Demo) -> str | None:
@@ -84,7 +88,7 @@ def run_demo(demo: Demo, mesh: Mesh, out_dir: Path) -> Entry:
     `out_dir` as the cwd -- the same arrangement `tests/test_demos.py` uses to keep
     stray files out of the repo.
     """
-    entry = Entry(demo.name, demo.description())
+    entry = Entry(demo.name, demo.description(), source=demo.source())
 
     skip = _missing_dependency(demo)
     if skip is not None:
@@ -108,9 +112,11 @@ def run_demo(demo: Demo, mesh: Mesh, out_dir: Path) -> Entry:
 # --- rendering ------------------------------------------------------------------
 
 STYLE = """
-:root { color-scheme: light dark; --fg: #111; --muted: #666; --bg: #fff; --line: #e3e3e3; }
+:root { color-scheme: light dark; --fg: #111; --muted: #666; --bg: #fff; --line: #e3e3e3;
+        --code: #f6f7f9; }
 @media (prefers-color-scheme: dark) {
-  :root { --fg: #e8e8e8; --muted: #9a9a9a; --bg: #16181c; --line: #2c2f36; }
+  :root { --fg: #e8e8e8; --muted: #9a9a9a; --bg: #16181c; --line: #2c2f36;
+          --code: #1d2026; }
 }
 * { box-sizing: border-box; }
 body { margin: 0 auto; padding: 2.5rem 1.25rem 4rem; max-width: 62rem; background: var(--bg);
@@ -137,6 +143,12 @@ figcaption { color: var(--muted); font-size: .9rem; margin-top: .5rem; }
 .player .count { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
 pre { overflow-x: auto; padding: .9rem 1rem; border: 1px solid var(--line);
       border-radius: 8px; font-size: .85rem; }
+pre.source { line-height: 1.45; tab-size: 4; }
+.heading { font-size: 1rem; margin: 2.5rem 0 .6rem; text-transform: uppercase;
+           letter-spacing: .06em; color: var(--muted); }
+.run { margin: 0 0 2rem; }
+.run code { font-size: .85rem; background: var(--code); border: 1px solid var(--line);
+            border-radius: 6px; padding: .25rem .5rem; }
 .note { border-left: 3px solid var(--line); padding-left: .9rem; color: var(--muted); }
 """
 
@@ -205,6 +217,7 @@ def _demo_page(entry: Entry) -> str:
         '<p class="sub"><a href="index.html">&larr; all demos</a></p>',
         f'<h1>{html.escape(entry.name)}</h1>',
         f'<p class="sub">{html.escape(entry.description)}</p>',
+        f'<p class="run"><code>uv run python examples/cli.py run {html.escape(entry.name)}</code></p>',
     ]
     if entry.skipped:
         parts.append(f'<p class="note">Not rendered: {html.escape(entry.skipped)}.</p>')
@@ -219,6 +232,13 @@ def _demo_page(entry: Entry) -> str:
                          f'<figcaption>{html.escape(name)}</figcaption></figure>')
         else:
             parts.append(f'<p class="sub">Wrote <a href="{name}">{html.escape(name)}</a>.</p>')
+
+    # The figures are what the demo produced; this is what produced them. Stating a
+    # problem to this solver is a dozen readable lines, which is the claim the gallery
+    # was otherwise making only in pictures.
+    if entry.source:
+        parts.append('<h2 class="heading">Source</h2>')
+        parts.append(f'<pre class="source">{html.escape(entry.source)}</pre>')
 
     return _page(f'{entry.name} - FEM demos', '\n'.join(parts), PLAYER_JS)
 
