@@ -15,7 +15,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 |---|---|:---:|---|
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify the smoothing matrix (topology) | 🟡 | [§2](#2-performance--scaling) |
-| Scaling | Rebuild-per-insertion in Ruppert's refinement | 🟡 | [§2](#2-performance--scaling) |
+| Scaling | Per-pass rescans in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | A-posteriori error estimator | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -49,16 +49,27 @@ distance matrix. For topology optimization at any real resolution this dominates
 spatial hash / KD-tree (`scipy.spatial.cKDTree.query_ball_point`) building a sparse weight
 matrix would scale far better and is a near drop-in.
 
-### 🟠 Ruppert's rebuilds the whole triangulation after every insertion
-`RuppertsAlgorithm.refine` inserts one vertex per pass and then calls `Delaunay(...)`
-from scratch, so refinement costs `O(n)` full retriangulations. With the per-segment and
-per-triangle scans now vectorised (§ closed below), that rebuild is the dominant remaining
-term: ~60% of a run.
-`Delaunay(..., incremental=True)` plus `add_points` is a near drop-in and measures ~6.6x
-faster on that component. The catch is that qhull's incremental mode returns the same
-triangles in a different `simplices` order, which changes which bad triangle
-`refine` pops next -- so every mesh the demos and gallery produce would change (still
-valid, just different). Worth doing alongside a decision to re-bless the gallery images.
+### 🟠 Ruppert's rescans every triangle on every pass
+Refinement grows the triangulation incrementally rather than rebuilding it
+(`RuppertsAlgorithm._retriangulate`), and encroachment is now carried in a mask updated as
+vertices and segments are added rather than rescanned. The California demo has gone 4.5s →
+1.5s → 0.84s. What is left is `O(n)` per insertion in everything *around* qhull, so the
+loop is still quadratic overall.
+
+On that run `get_bad_triangles` is 72% of the time, effectively all of it work over every
+triangle to act on one: the region labelling (`get_regions`, a `connected_components` pass
+over the whole dual graph) is 25%, the `_segment_edges` mask it needs another 18%, and the
+angle computation the rest. `_retriangulate` — qhull itself, the irreducible part — is 17%.
+
+The fix is incremental in the same sense: an insertion only disturbs the triangles in its
+cavity, so a pass should look at those rather than at all of them. That needs the cavity
+from qhull (`add_points` does not report it) or a hand-rolled Bowyer–Watson, which is a
+much larger change than the one that closed the rebuild.
+
+Note the region labelling is *not* removable by testing candidates individually — that was
+measured and is 1.9x **slower**. A non-convex outline leaves hundreds of skinny triangles
+outside the hull, every one of them failing the angle bound, so the per-triangle even-odd
+test runs on far more triangles than there are regions to label.
 
 ---
 
@@ -171,35 +182,26 @@ recovers anything. Each item below is an implementation of a seam that already e
   outer loop rather than loops of their own, so they still need a coordinate region
   (`fem.regions.on_plane`) to separate them, and the demo has to wire that to the Poisson
   equation and reproduce the README figure.
-- 💡 **Corner lopping for sharp input angles.** Refinement converges only for segments
-  meeting at 60° or more; below that it can refine around the corner indefinitely.
-  Construction now measures the smallest input angle and warns, which turns an apparent
-  hang into a diagnosis, but the standard fix — splitting the offending segments on
-  concentric shells around the corner — is not implemented. Until it is, "simplify the
-  outline more" is not reliably cheaper: a coarser Douglas-Peucker tolerance can *sharpen*
-  corners and cost far more elements, which is exactly what it did to this repo's own
-  smoke settings once.
 - 💡 **`adaptive_refinement` is the one demo still skipped by `tests/test_demos.py`**,
   blocked on the error estimator above and on Dirichlet conditions that survive a remesh.
-- 💡 **Pick the demo's simplification tolerance by input corner angle, not by point
-  count.** Ruppert's output size is non-monotonic in its *input size* — the California
-  outline gives 601 triangles from 37 points but 403 from 56 — which makes the tolerance
-  look like a black box. It isn't: cost tracks the sharpest corner Douglas-Peucker leaves
-  behind, because Ruppert's terminates cleanly only for input angles ≥ 60° and cascades
-  around anything sharper.
+- 💡 **Report the minimum corner angle alongside the demo's simplification tolerance.**
+  Output size used to be non-monotonic in *input* size, because cost tracked the sharpest
+  corner Douglas-Peucker left behind rather than the point count. The corner treatment
+  (shell splitting plus the exemption, `RuppertsAlgorithm._split_point` /
+  `_spans_a_sharp_corner`) fixed the runaway, and the sweep is now monotonic:
 
   | tolerance | points | min corner | triangles |
   |---|---|---|---|
-  | 0.04 | 13 | 75.6° | 95 |
-  | 0.02 | 24 | 36.7° | 559 |
-  | 0.01 | 37 | **20.5°** | 601 |
-  | 0.005 | 56 | 36.2° | 403 |
+  | 0.04 | 118 | 31.9° | 612 |
+  | 0.02 | 173 | 25.4° | 875 |
+  | 0.01 | 242 | **20.5°** | 1068 |
+  | 0.005 | 326 | 25.4° | 1565 |
 
-  So a tolerance sweep should report the minimum corner angle, and the honest fix for
-  sharp inputs is corner lopping (Ruppert's standard concentric-shell treatment), which
-  is not implemented. (Refinement order is *not* the cause — refining the worst triangle
-  first instead of qhull's arbitrary last was measured and is a wash.) Runtime is no
-  longer the issue at any tolerance the demo uses; the triangle counts are.
+  (All twelve contours, `min_angle=30`, no area cap. Without the corner treatment the last
+  three do not terminate at all.) The minimum corner angle is still the number that
+  predicts whether the requested bound will hold everywhere, so a sweep should report it.
+  Refinement order is *not* a factor — refining the worst triangle first instead of qhull's
+  arbitrary last was measured and is a wash.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
   the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/ruppert.py` and
   `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.

@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.widgets import Slider
 
+from fem.geometry import calculate_triangle_min_angle
 from fem.plot.plotter import Plotter
 from fem.mesh.ruppert import create_rect_mesh, RuppertsAlgorithm
 from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker, PSLG
@@ -142,10 +143,17 @@ def demo_rupperts(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTIO
     ax.add_collection(LineCollection(rupperts.vertices[rupperts.segments],
                                      colors='blue', linewidths=1.0))
     outlines = len(np.unique(rupperts.segment_loops))
+    # An input corner sharper than the bound keeps its own angle, so read the
+    # bound off the mesh rather than claiming the one that was asked for.
+    worst = calculate_triangle_min_angle(
+        np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
+    held = (f'every angle at least {min_angle} degrees' if worst >= min_angle else
+            f'every angle at least {min_angle} degrees bar the input corners already '
+            f'sharper than that, the worst {worst:.0f}')
     return DemoResult([Figure(
         plotter,
         f"Ruppert's refinement of {outlines} outlines (blue) into {len(mesh.elements)} "
-        f'triangles, every angle at least {min_angle} degrees. The mesh covers what the '
+        f'triangles, {held}. The mesh covers what the '
         f'outlines enclose and nothing else, and carries the {len(mesh.boundary)} boundary '
         'edges a solver needs to put conditions on.')])
 
@@ -219,7 +227,7 @@ DEMOS = [
     # Both mesh to a size cap, which is what makes the figures worth looking at and
     # also most of their cost; the smoke run only needs the code paths. Loosen the cap
     # and nothing else -- simplifying the outline further is *not* reliably cheaper,
-    # because it sharpens the corners refinement struggles with.
+    # because it sharpens corners, and refinement spends extra elements around those.
     Demo('rupperts', demo_rupperts_svg, needs_mesh=False,
          smoke_kwargs={'max_area_fraction': 0.05}),
     Demo('plate_with_hole', demo_plate_with_hole, needs_mesh=False,

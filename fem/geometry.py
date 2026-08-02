@@ -70,13 +70,14 @@ def calculate_circumcenter(triangle_points):
     ], axis=-1)
 
 
-def calculate_minimum_segment_angle(vertices, segments):
-    '''The smallest angle, in degrees, between two segments sharing a vertex.
+def calculate_segment_angles(vertices, segments):
+    '''The smallest angle, in degrees, between two segments meeting at each
+    vertex, as `{vertex index: angle}`. Vertices where fewer than two segments
+    meet are left out.
 
     Delaunay refinement is only guaranteed to terminate for inputs whose
-    segments meet at 60 degrees or more; below that it refines around the
-    corner without converging, and cost climbs steeply well before it stops
-    converging at all. Returns 180 when no two segments meet.
+    segments meet at 60 degrees or more; below that a corner has to be treated
+    specially or refinement will chase it forever.
     '''
     vertices = np.asarray(vertices, dtype=float)
     incident = {}
@@ -84,7 +85,7 @@ def calculate_minimum_segment_angle(vertices, segments):
         incident.setdefault(int(start), []).append(int(end))
         incident.setdefault(int(end), []).append(int(start))
 
-    smallest = 180.0
+    angles = {}
     for vertex, neighbours in incident.items():
         if len(neighbours) < 2:
             continue
@@ -94,18 +95,17 @@ def calculate_minimum_segment_angle(vertices, segments):
         cosines = np.clip(directions @ directions.T, -1.0, 1.0)
         # The diagonal is each direction against itself; only distinct pairs count.
         pairs = np.triu_indices(len(directions), k=1)
-        if len(pairs[0]):
-            smallest = min(smallest, float(np.degrees(np.arccos(cosines[pairs])).min()))
-    return smallest
+        angles[vertex] = float(np.degrees(np.arccos(cosines[pairs])).min())
+    return angles
 
 
-def calculate_triangle_min_angle(triangle):
-    '''The smallest interior angle, in degrees.
+def calculate_triangle_angles(triangle):
+    '''The three interior angles, in degrees, angle `i` at vertex `i`.
 
-    Takes a single `(3, d)` triangle and returns a scalar, or a stacked
-    `(..., 3, d)` array of triangles and returns an angle per triangle. Mesh
-    refinement tests every element against an angle bound on every pass, so the
-    batched form is the one that keeps that loop off Python.
+    Takes a single `(3, d)` triangle and returns `(3,)`, or a stacked
+    `(..., 3, d)` array of triangles and returns `(..., 3)`. Mesh refinement
+    tests every element on every pass, so the batched form is the one that keeps
+    that loop off Python.
     '''
     points = np.asarray(triangle, dtype=float)
     # Side i is opposite vertex i.
@@ -119,7 +119,13 @@ def calculate_triangle_min_angle(triangle):
         (c**2 + a**2 - b**2) / (2 * c * a),
         (a**2 + b**2 - c**2) / (2 * a * b),
     ], axis=-1)
-    return np.degrees(np.arccos(np.clip(cosines, -1.0, 1.0))).min(axis=-1)
+    return np.degrees(np.arccos(np.clip(cosines, -1.0, 1.0)))
+
+
+def calculate_triangle_min_angle(triangle):
+    '''The smallest interior angle, in degrees. Batches like
+    `calculate_triangle_angles`, one angle per triangle.'''
+    return calculate_triangle_angles(triangle).min(axis=-1)
 
 
 def get_boundary_from_vertices_elements(elements):
