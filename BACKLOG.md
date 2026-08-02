@@ -65,7 +65,7 @@ Two things measured and rejected, so they do not get proposed again:
 - **Testing enclosure per candidate instead of labelling regions**, over the whole mesh:
   1.9x *slower*. A non-convex outline fails the angle bound on hundreds of triangles
   outside the hull, and there are only a handful of regions. (Per *newly created* triangle
-  it is the right trade, and that is what `_bad_triangles_using` does.)
+  it is the right trade, and that is what `_bad_triangles_created_by` does.)
 - **`find_simplex` for the staleness check**: 14us in a tight loop but 14ms when
   interleaved with `add_points`, which rebuilds its search structure each time. That made
   the queue 8x slower than the rescan it replaced.
