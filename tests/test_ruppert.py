@@ -125,6 +125,42 @@ def test_nothing_bad_survives_the_queue():
     assert len(algo.get_bad_triangles()) == 0
 
 
+def test_a_segment_between_two_sharp_corners_lands_on_shells_at_both():
+    """Segments off a sharp corner split at power-of-two distances from it, which
+    is what eventually makes two of them equidistant and stops the cascade that
+    would otherwise refine into the corner forever.
+
+    `_split_point` ladders from one end per split, so a segment sharp at *both*
+    ends only works because the half left beside the other corner ladders from
+    there next time -- which holds because the midpoint is always the newest
+    vertex, and so never the lower index. That is implicit and easy to break by
+    renumbering, so it is pinned here rather than left to the docstring.
+    """
+    # A sliver: the base runs between two 3.4 degree corners.
+    sliver = np.array([[0.0, 0.0], [10.0, 0.0], [5.0, 0.3]])
+    algo = RuppertsAlgorithm(PSLG(sliver.copy()), min_angle=25)
+    assert any(int(a) in algo.sharp_vertices and int(b) in algo.sharp_vertices
+               for a, b in algo.segments), 'the input no longer has a both-sharp segment'
+
+    algo.refine()
+
+    checked = 0
+    for segment in algo.segments:
+        for near, far in ((segment[0], segment[1]), (segment[1], segment[0])):
+            # Only stubs that a split actually produced; an untouched input
+            # segment keeps whatever length it was drawn with.
+            if int(near) not in algo.sharp_vertices or int(far) < len(sliver):
+                continue
+            checked += 1
+            distance = np.linalg.norm(algo.vertices[far] - algo.vertices[near])
+            exponent = np.log2(distance)
+            assert exponent == pytest.approx(round(exponent), abs=1e-9), (
+                f'stub at sharp corner {int(near)} is {distance}, off the '
+                'power-of-two ladder the termination argument needs'
+            )
+    assert checked >= 2, 'no sharp corner was split, so nothing was actually tested'
+
+
 def test_the_queue_does_not_lean_on_the_rescan_that_backs_it():
     """That scan is a correctness net, not the mechanism: it should run once to
     seed the queue and once to confirm the queue is spent, and not again. If the
