@@ -20,22 +20,23 @@ from benchmark_assembly import demo_backends  # noqa: E402
 from demo_registry import Demo  # noqa: E402
 from gallery import build_gallery  # noqa: E402
 
-MESH = str(Path(__file__).resolve().parents[1] / 'files' / 'mesh_20x20.json')
-
+from fem.mesh.ruppert import create_rect_mesh  # noqa: E402
 
 @pytest.fixture(scope='module')
 def gallery(tmp_path_factory):
-    # The gallery runs demos with no overrides, so cheap variants are bound here with
-    # partial rather than declared on the Demo.
+    # The gallery runs demos with no overrides -- neither arguments nor domain -- so
+    # the cheap variants are bound here rather than declared on the Demo.
+    small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     registry = {
-        'poisson': Demo('poisson', solver_demos.demo_poisson_equation),
-        'topopt': Demo('topopt', partial(solver_demos.demo_topology_optimization, iters=2)),
-        'backends': Demo('backends', partial(demo_backends, sizes=(5,)), needs_mesh=False),
-        'absent': Demo('absent', solver_demos.demo_poisson_equation,
+        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small),
+        'topopt': Demo('topopt', partial(solver_demos.demo_topology_optimization, iters=2),
+                       domain=small),
+        'backends': Demo('backends', partial(demo_backends, sizes=(5,))),
+        'absent': Demo('absent', solver_demos.demo_poisson_equation, domain=small,
                        smoke_requires='a_module_that_is_not_installed'),
     }
     out = tmp_path_factory.mktemp('gallery') / 'out'
-    entries = build_gallery(registry, out, MESH)
+    entries = build_gallery(registry, out)
     return out, {entry.name: entry for entry in entries}
 
 

@@ -55,9 +55,15 @@ class Plotter:
         figsize: tuple[float, float] | None = None,
         title: str | None = None,
         axis_labels: bool = True,
+        panel_aspect: float = 1.0,
     ) -> None:
         if figsize is None:
-            figsize = (5*ncols, 5*nrows)
+            # `panel_aspect` is the width:height of what each panel draws. The axes are
+            # equal-aspect, so a 4:1 beam in a square cell is a thin strip with the rest
+            # of the cell empty; sizing the figure by the domain keeps the drawing big.
+            # The floor is for the furniture -- title, ticks, colorbar -- which does not
+            # shrink with the domain and would otherwise crowd out a very flat panel.
+            figsize = (5*ncols, max(3.0, 5/panel_aspect)*nrows)
 
         # Constrained layout, so panels, their colorbars, and the suptitle are given
         # room rather than overlapping at the default spacing.

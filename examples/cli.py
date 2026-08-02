@@ -3,7 +3,7 @@
     uv run python examples/cli.py list
     uv run python examples/cli.py run poisson
     uv run python examples/cli.py run poisson --save images/poisson.png
-    uv run python examples/cli.py run poisson --mesh files/mesh_20x20.json
+    uv run python examples/cli.py run poisson --mesh files/mesh_40x40.json
     uv run python examples/cli.py gallery
 """
 import argparse
@@ -19,8 +19,6 @@ import meshing_demos
 import refinement_demo
 import solver_demos
 
-# Resolved against the repo, so `run poisson` works from any directory.
-DEFAULT_MESH_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'mesh_40x40.json')
 DEFAULT_GALLERY_DIR = '.gallery'
 
 
@@ -90,9 +88,22 @@ def supports_interactive(demo: Demo) -> bool:
     return 'interactive' in inspect.signature(demo.func).parameters
 
 
-def run_demo(demo: Demo, mesh_file: str, save_path: str | None, interactive: bool = False,
-             dpi: float | None = None) -> None:
-    args = [Mesh.load(mesh_file)] if demo.needs_mesh else []
+def demo_mesh(demo: Demo, mesh_file: str | None) -> list[Mesh]:
+    '''The mesh arguments to call `demo` with: its own domain, or `--mesh` instead.
+
+    Passing `--mesh` to a demo that takes none is a mistake worth naming rather than
+    silently ignoring -- it means the caller expected a different demo to be listening.
+    '''
+    if demo.domain is None:
+        if mesh_file is not None:
+            raise ValueError(f'{demo.name!r} builds no mesh, so --mesh has nothing to replace')
+        return []
+    return [Mesh.load(mesh_file) if mesh_file is not None else demo.domain()]
+
+
+def run_demo(demo: Demo, mesh_file: str | None, save_path: str | None,
+             interactive: bool = False, dpi: float | None = None) -> None:
+    args = demo_mesh(demo, mesh_file)
     kwargs = {'interactive': True} if interactive else {}
     result = demo.func(*args, **kwargs)
 
@@ -115,8 +126,8 @@ def main():
     run_parser = subparsers.add_parser('run', help='run a demo by name')
     run_parser.add_argument('name', choices=sorted(registry), help='demo name')
     run_parser.add_argument(
-        '--mesh', default=DEFAULT_MESH_FILE,
-        help=f'mesh JSON file to load, for demos that need one (default: {DEFAULT_MESH_FILE})',
+        '--mesh', default=None,
+        help='solve on this mesh JSON instead of the domain the demo builds for itself',
     )
     run_parser.add_argument(
         '--save', default=None,
@@ -137,7 +148,6 @@ def main():
     gallery_parser.add_argument(
         '--out', default=DEFAULT_GALLERY_DIR,
         help=f'directory to write (replaced if it exists; default: {DEFAULT_GALLERY_DIR})')
-    gallery_parser.add_argument('--mesh', default=DEFAULT_MESH_FILE, help='mesh JSON file to load')
 
     args = parser.parse_args()
 
@@ -150,7 +160,7 @@ def main():
         from gallery import build_gallery
 
         print(f'Rendering {len(registry)} demos into {args.out}/ ...')
-        build_gallery(registry, Path(args.out), args.mesh)
+        build_gallery(registry, Path(args.out))
         print(f'\nOpen {Path(args.out).resolve() / "index.html"}')
         return
 

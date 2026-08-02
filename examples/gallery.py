@@ -22,8 +22,6 @@ import matplotlib
 
 matplotlib.use('Agg')  # render to buffers; a gallery run opens no windows
 
-from fem.mesh.mesh import Mesh
-
 from demo_registry import Demo, DemoResult
 
 IMAGES = 'img'
@@ -81,7 +79,7 @@ def _render_figures(result: DemoResult, name: str, out_dir: Path) -> list[Panel]
     return panels
 
 
-def run_demo(demo: Demo, mesh: Mesh, out_dir: Path) -> Entry:
+def run_demo(demo: Demo, out_dir: Path) -> Entry:
     """Run one demo and collect everything it produced into an `Entry`.
 
     Demos write their artifacts relative to the working directory, so this runs with
@@ -96,8 +94,9 @@ def run_demo(demo: Demo, mesh: Mesh, out_dir: Path) -> Entry:
         return entry
 
     before = set(out_dir.iterdir())
-    args = [mesh] if demo.needs_mesh else []
-    # No overrides: the gallery shows what `cli.py run <name>` shows.
+    # No overrides -- not the arguments, and not the domain: the gallery shows what
+    # `cli.py run <name>` shows.
+    args = [demo.domain()] if demo.domain is not None else []
     result = demo.func(*args)
 
     entry.panels = _render_figures(result, demo.name, out_dir)
@@ -270,7 +269,7 @@ def _index_page(entries: list[Entry]) -> str:
     return _page('FEM demo gallery', body)
 
 
-def build_gallery(registry: dict[str, Demo], out_dir: Path, mesh_file: str) -> list[Entry]:
+def build_gallery(registry: dict[str, Demo], out_dir: Path) -> list[Entry]:
     """Render every demo into `out_dir` and write the pages. Returns what was collected."""
     import os
 
@@ -279,13 +278,12 @@ def build_gallery(registry: dict[str, Demo], out_dir: Path, mesh_file: str) -> l
         shutil.rmtree(out_dir)          # a stale image is worse than a missing one
     out_dir.mkdir(parents=True)
 
-    mesh = Mesh.load(mesh_file)
     entries = []
     cwd = Path.cwd()
     try:
         os.chdir(out_dir)
         for name in sorted(registry):
-            entry = run_demo(registry[name], mesh, out_dir)
+            entry = run_demo(registry[name], out_dir)
             entries.append(entry)
             print(f'  {name}' + (f' - skipped ({entry.skipped})' if entry.skipped else ''))
     finally:
