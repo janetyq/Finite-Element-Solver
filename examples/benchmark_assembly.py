@@ -71,7 +71,7 @@ DEMOS = [
     # and the gallery run all five sizes. The test only needs to know that assembly and
     # both backends still compose, which n=5 answers in 0.01s where the full sweep
     # takes 11.6s, over half of it one sparse factorisation at n=21.
-    Demo('backends', demo_backends, needs_mesh=False, smoke_kwargs={'sizes': (5,)}),
+    Demo('backends', demo_backends, smoke_kwargs={'sizes': (5,)}),
 ]
 
 

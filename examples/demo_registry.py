@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
+    from fem.mesh.mesh import Mesh
     from fem.plot.plotter import Plotter
 
 
@@ -59,7 +60,12 @@ class DemoResult:
 class Demo:
     name: str
     func: Callable[..., DemoResult]
-    needs_mesh: bool = True      # cli.py loads --mesh and passes it as the first arg
+    # How to build the domain this demo runs on, passed as its first argument. `None`
+    # means the demo takes no mesh -- it builds its own, or has nothing to solve on.
+    # A factory rather than a Mesh so nothing is meshed until the demo is actually run,
+    # and per demo rather than one default for all, because a cantilever wants a beam
+    # and a projection wants a fine square. `cli.py --mesh` overrides it.
+    domain: 'Callable[[], Mesh] | None' = None
     # An optional dependency the demo needs; it is skipped where that is absent.
     smoke_requires: str | None = None
     # Cheaper arguments for `tests/test_demos.py`, which runs every demo on every
