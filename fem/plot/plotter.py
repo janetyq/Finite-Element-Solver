@@ -81,6 +81,10 @@ class Plotter:
         # something.
         self.axis_labels = axis_labels
 
+        # Panels whose axes are not the domain's, and the labels they carry instead;
+        # see `chart_ax`.
+        self._charts: dict[tuple[int, int], tuple[str, str]] = {}
+
         self.anims = {}
         # The frame-update callable behind each animation, kept because a FuncAnimation
         # renders only through show()/save(); `save_frames` steps these directly.
@@ -192,18 +196,35 @@ class Plotter:
     def get_ax(self, idx: tuple[int, int] = (0, 0)) -> Axes:
         return self.axs[idx]
 
+    def chart_ax(self, idx: tuple[int, int] = (0, 0), xlabel: str = '',
+                 ylabel: str = '') -> Axes:
+        """An axes for a plot whose two axes are not the domain's, to draw on directly.
+
+        Every other panel here shows a field over a mesh, so it is given equal aspect
+        and labelled x/y. A convergence curve is neither: equal aspect distorts a
+        log-log plot, `ticklabel_format` raises on a log scale, and the quantities are
+        named by `xlabel`/`ylabel` instead.
+        """
+        self._charts[idx] = (xlabel, ylabel)
+        return self.axs[idx]
+
     def format_axs(self) -> None:
-        for ax in self.axs.ravel():
-            ax.ticklabel_format(useOffset=False)
-            if self.axis_labels:
-                ax.set_xlabel('x')
-                ax.set_ylabel('y')
-            if hasattr(ax, 'get_zlim'):
-                if self.axis_labels:
-                    ax.set_zlabel('z')
-                ax.set_aspect('equalxy')
+        for idx, ax in np.ndenumerate(self.axs):
+            if idx in self._charts:
+                xlabel, ylabel = self._charts[idx]
+                ax.set_xlabel(xlabel)
+                ax.set_ylabel(ylabel)
             else:
-                ax.set_aspect('equal')
+                ax.ticklabel_format(useOffset=False)
+                if self.axis_labels:
+                    ax.set_xlabel('x')
+                    ax.set_ylabel('y')
+                if hasattr(ax, 'get_zlim'):
+                    if self.axis_labels:
+                        ax.set_zlabel('z')
+                    ax.set_aspect('equalxy')
+                else:
+                    ax.set_aspect('equal')
 
             if any(ax.get_legend_handles_labels()[1]):
                 ax.legend()

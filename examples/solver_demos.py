@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
+from fem.convergence import ConvergenceStudy, poisson_convergence
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
@@ -68,6 +69,49 @@ def demo_poisson_equation(mesh):
         plotter,
         'A constant unit source pinned at every boundary node, with the gradient '
         'recovered from the solution beside it.')])
+
+def demo_convergence(resolutions=(11, 21, 41, 81)):
+    """Measure the solver's own error against an exactly known solution, and read off
+    the convergence rate (Method of Manufactured Solutions)."""
+    # The one demo that does not show what the solver computed, but how wrong it was.
+    # Every other figure here is checked by eye; this is the claim that survives being
+    # looked at properly -- and it is the claim P1 elements make: halve h, quarter the
+    # error. The same study runs as an assertion in tests/test_convergence.py.
+    solves = poisson_convergence(resolutions)
+    study = ConvergenceStudy.from_solves(solves)
+    finest = solves[-1]
+
+    plotter = Plotter(1, 2, title='Convergence against a manufactured solution')
+    plotter.plot(finest.mesh, finest.pointwise_error, mode='colored', idx=(0, 0),
+                 label='u_h - u_exact', title=f'Error field at h={finest.h:.3g}')
+
+    ax = plotter.chart_ax(idx=(0, 1), xlabel='h', ylabel='L2 error')
+    ax.loglog(study.h, study.error, 'o-', color='tab:blue',
+              label=f'measured (order {study.fitted_order:.2f})')
+    # Anchored at the coarsest point, so the two lines start together and any
+    # divergence downward is the measured rate beating h^2 rather than an offset.
+    ax.loglog(study.h, study.error[0] * (study.h / study.h[0])**2, '--', color='gray',
+              label='h^2')
+    ax.set_title('Error vs mesh size')
+    ax.grid(True, which='both', alpha=0.3)
+    # The mesh sizes themselves, rather than the decade ticks a log axis defaults to:
+    # the sequence spans well under one decade, so the minor labels ran together.
+    ax.set_xticks(study.h, [f'{h:g}' for h in study.h])
+    ax.set_xticks([], minor=True)
+
+    rows = ['     h      L2 error   order', *(
+        f'{h:8.4f}  {e:10.3e}  {"-" if i == 0 else f"{study.orders[i-1]:6.2f}"}'
+        for i, (h, e) in enumerate(zip(study.h, study.error))
+    )]
+    return DemoResult(
+        [Figure(plotter,
+                f'The error is smooth and one-signed: zero on the boundary, where the '
+                f'solution is pinned exactly, and deepest at the centre, where the '
+                f'solution itself peaks and the piecewise-linear space has the most to '
+                f'miss. Halving h divides it by about four -- a fitted order of '
+                f'{study.fitted_order:.2f} against the 2 that P1 elements promise.')],
+        text='\n'.join(rows),
+    )
 
 def demo_robin_bc(mesh):
     """Cool a heated plate through a convective boundary, sweeping the Robin coefficient."""
@@ -384,6 +428,10 @@ DEMOS = [
     # one is meshed finer than the rest: at 40 a side the inner rings alias too.
     Demo('l2_projection', demo_l2_projection, domain=partial(square, 70)),
     Demo('poisson', demo_poisson_equation, domain=square),
+    # Builds its own sequence of meshes rather than taking a domain: the refinement
+    # sequence *is* the demo. The smoke run keeps the two coarsest -- an order needs
+    # two points, and the 81x81 solve is most of the cost.
+    Demo('convergence', demo_convergence, smoke_kwargs={'resolutions': (11, 21)}),
     Demo('robin', demo_robin_bc, domain=square),
     Demo('heat', demo_heat_equation, domain=square),
     Demo('wave', demo_wave_equation, domain=square),
