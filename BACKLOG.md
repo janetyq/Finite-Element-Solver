@@ -13,7 +13,6 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
-| Correctness | Segment between two sharp corners laddered from one end | 🟢 | [§1](#1-bugs--correctness) |
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify the smoothing matrix (topology) | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
@@ -30,25 +29,8 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 ## 1. Bugs & Correctness
 
-### 🔴 A segment between two sharp corners is only laddered from one end
-`RuppertsAlgorithm._split_point` splits a segment on power-of-two shells measured from the
-sharp corner it runs off, so two segments meeting at that corner eventually land on a
-shared shell, become equidistant, and stop encroaching each other. That is what makes
-refinement terminate on sharp input.
-
-It checks `segment[0]` first and `segment[1]` only otherwise, so a segment whose *both*
-ends are sharp corners is laddered from one end alone. The termination argument assumes
-each corner owns the distances measured from it, and does not cover that case: the two
-corners' ladders are offset by the segment's own length, which is not generally a power of
-two, so they need never agree.
-
-Not observed — no demo or test input has two sharp corners joined directly — so this is a
-gap in the argument rather than a known hang. The fix is to ladder from both ends (split
-at a shell distance from each, taking the shorter claim first) or to refuse the input.
-Worth a test that constructs such a segment either way.
-
-*(Adaptive refinement is closed-loop except for the error estimator itself — see
-[§3](#3-open-ended-suggestions--future-ideas).)*
+*(No open correctness bugs. Adaptive refinement is now closed-loop except for the error
+estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
 
 ---
 

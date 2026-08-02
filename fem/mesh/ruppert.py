@@ -546,8 +546,11 @@ class RuppertsAlgorithm:
         two of them land on one shell they are equidistant from the corner and
         stop encroaching -- the cascade ends after a bounded number of rounds.
 
-        A segment with a sharp corner at *both* ends is laddered from the first
-        one only, which the argument above does not cover; see BACKLOG §1.
+        A segment sharp at *both* ends is laddered from one of them per split,
+        and still ends up on shells at each. The midpoint is always the newest
+        vertex and so the highest index, which leaves the other corner at index
+        0 of the half kept beside it -- so that half ladders from there when it
+        splits in turn. Renumber vertices and this stops being true.
         '''
         start, end = self.vertices[segment[0]], self.vertices[segment[1]]
         if int(segment[0]) in self.sharp_vertices:
