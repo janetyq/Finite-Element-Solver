@@ -15,7 +15,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 |---|---|:---:|---|
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Sparsify the smoothing matrix (topology) | 🟡 | [§2](#2-performance--scaling) |
-| Scaling | Per-pass rescans in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
+| Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | A-posteriori error estimator | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -49,27 +49,26 @@ distance matrix. For topology optimization at any real resolution this dominates
 spatial hash / KD-tree (`scipy.spatial.cKDTree.query_ball_point`) building a sparse weight
 matrix would scale far better and is a near drop-in.
 
-### 🟠 Ruppert's rescans every triangle on every pass
-Refinement grows the triangulation incrementally rather than rebuilding it
-(`RuppertsAlgorithm._retriangulate`), and encroachment is now carried in a mask updated as
-vertices and segments are added rather than rescanned. The California demo has gone 4.5s →
-1.5s → 0.84s. What is left is `O(n)` per insertion in everything *around* qhull, so the
-loop is still quadratic overall.
+### 🟠 Ruppert's per-pass cost is down to qhull plus one integer scan
+Refinement grows the triangulation incrementally, carries encroachment in a mask, and
+refines off a queue of bad triangles topped up per insertion. The California demo has gone
+4.5s → 1.5s → 0.84s, and 2098 triangles 6.74s → 2.92s, with the growth exponent down from
+2.2 to 1.6. `_retriangulate` — qhull's own insertion — is now the largest single cost.
 
-On that run `get_bad_triangles` is 72% of the time, effectively all of it work over every
-triangle to act on one: the region labelling (`get_regions`, a `connected_components` pass
-over the whole dual graph) is 25%, the `_segment_edges` mask it needs another 18%, and the
-angle computation the rest. `_retriangulate` — qhull itself, the irreducible part — is 17%.
+What is left is `O(n)` per insertion in two cheap places: `(simplices == v).any(axis=1)` to
+find the triangles an insertion created, and `_live_triangle_keys` to pack and sort every
+triangle so a queued one can be checked to still exist. Both are integer work, so the
+constant is small, but the loop is still superlinear. Removing them needs the cavity from
+qhull (`add_points` does not report it) or a hand-rolled Bowyer–Watson.
 
-The fix is incremental in the same sense: an insertion only disturbs the triangles in its
-cavity, so a pass should look at those rather than at all of them. That needs the cavity
-from qhull (`add_points` does not report it) or a hand-rolled Bowyer–Watson, which is a
-much larger change than the one that closed the rebuild.
-
-Note the region labelling is *not* removable by testing candidates individually — that was
-measured and is 1.9x **slower**. A non-convex outline leaves hundreds of skinny triangles
-outside the hull, every one of them failing the angle bound, so the per-triangle even-odd
-test runs on far more triangles than there are regions to label.
+Two things measured and rejected, so they do not get proposed again:
+- **Testing enclosure per candidate instead of labelling regions**, over the whole mesh:
+  1.9x *slower*. A non-convex outline fails the angle bound on hundreds of triangles
+  outside the hull, and there are only a handful of regions. (Per *newly created* triangle
+  it is the right trade, and that is what `_bad_triangles_created_by` does.)
+- **`find_simplex` for the staleness check**: 14us in a tight loop but 14ms when
+  interleaved with `add_points`, which rebuilds its search structure each time. That made
+  the queue 8x slower than the rescan it replaced.
 
 ---
 
