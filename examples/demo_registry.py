@@ -74,30 +74,35 @@ class Demo:
     # written, so a demo's defaults are what a reader actually sees.
     smoke_kwargs: dict[str, Any] = field(default_factory=dict)
 
-    def source(self) -> str:
-        """The demo function's own source, for readers who came for the code.
+    def _unwrapped(self) -> Callable[..., DemoResult]:
+        """The demo function itself, from behind any `functools.partial` around it.
 
-        Unwraps `functools.partial` the way `description` does, so a preconfigured demo
-        shows the function that was bound rather than failing to have a source at all.
-        The bound arguments are not shown: they are the gallery's cheaper settings, not
-        part of what the demo is saying.
+        Binding arguments to preconfigure a demo must not change what the demo *is*:
+        a partial has its own docstring, its own module, and no source at all.
         """
         func = self.func
         while isinstance(func, functools.partial):
             func = func.func
+        return func
+
+    def source(self) -> str:
+        """The demo function's own source, for readers who came for the code.
+
+        The bound arguments of a preconfigured demo are not shown: they are the
+        gallery's cheaper settings, not part of what the demo is saying.
+        """
         try:
-            return inspect.getsource(func)
+            return inspect.getsource(self._unwrapped())
         except OSError:      # no source available -- a REPL-defined or C function
             return ''
 
     def description(self) -> str:
-        """The demo's docstring on one line, for `list` and for its gallery page.
-
-        Unwraps `functools.partial`, so binding arguments to preconfigure a demo does
-        not replace its description with partial's own docstring.
-        """
-        func = self.func
-        while isinstance(func, functools.partial):
-            func = func.func
-        doc = inspect.getdoc(func)
+        """The demo's docstring on one line, for `list` and for its gallery page."""
+        doc = inspect.getdoc(self._unwrapped())
         return ' '.join(doc.split()) if doc else '(no description)'
+
+    def module(self) -> str:
+        """The example module the demo was written in, which is what groups it in the
+        gallery index -- the file a demo lives in is already the statement of what
+        area it belongs to, so the grouping needs nothing declared per demo."""
+        return getattr(self._unwrapped(), '__module__', '')
