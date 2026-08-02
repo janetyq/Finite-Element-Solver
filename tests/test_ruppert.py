@@ -10,9 +10,15 @@ import logging
 
 import numpy as np
 import pytest
+from scipy.spatial import Delaunay, QhullError
 
-from fem.geometry import calculate_polygon_area, calculate_triangle_min_angle, point_in_polygon
-from fem.mesh.ruppert import RuppertsAlgorithm
+from fem.geometry import (
+    calculate_circumcenter,
+    calculate_polygon_area,
+    calculate_triangle_min_angle,
+    point_in_polygon,
+)
+from fem.mesh.ruppert import ENCROACHMENT_TOLERANCE, RuppertsAlgorithm
 from fem.mesh.svg import PSLG
 
 L_SHAPE_OUTLINE = np.array([
@@ -58,6 +64,47 @@ def test_every_triangle_meets_the_angle_bound(min_angle):
     )
 
 
+def test_growing_the_triangulation_keeps_it_delaunay():
+    """Refinement adds points to the triangulation instead of rebuilding it from
+    scratch, so the property everything else rests on has to survive the growing:
+    no vertex strictly inside any triangle's circumcircle.
+
+    Not the same triangulation as a rebuild, though, and it cannot be asserted to
+    be one. Refinement inserts circumcentres, so cocircular quadrilaterals are
+    everywhere, and either diagonal of one is Delaunay.
+    """
+    algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
+    algo.refine()
+
+    vertices = np.asarray(algo.vertices)
+    simplices = algo.triangulation.simplices
+    centres = calculate_circumcenter(vertices[simplices])
+    radii = np.linalg.norm(vertices[simplices][:, 0] - centres, axis=-1)
+    distances = np.linalg.norm(vertices[None, :, :] - centres[:, None, :], axis=-1)
+    # A triangle's own corners sit exactly on its circumcircle.
+    np.put_along_axis(distances, simplices, np.inf, axis=1)
+
+    assert (distances >= radii[:, None] * (1 - 1e-9)).all(), (
+        f'{(distances < radii[:, None] * (1 - 1e-9)).any(axis=1).sum()} triangles have a '
+        'vertex inside their circumcircle'
+    )
+    assert len(simplices) == len(Delaunay(vertices).simplices)
+
+
+def test_an_outline_qhull_cannot_start_incrementally_from_still_meshes():
+    """Incremental mode needs a non-degenerate initial simplex, and four
+    cocircular points do not give it one -- a rectangle is the common case, not
+    a corner one. Such a run rebuilds until qhull will take the point set."""
+    algo = RuppertsAlgorithm(_thin_slab(), min_angle=25)
+    with pytest.raises(QhullError):
+        Delaunay(SLAB_OUTLINE, incremental=True)
+
+    mesh = algo.refine()
+
+    assert _min_angles(mesh).min() >= 25
+    assert algo._incremental, 'the run never got off the rebuild path'
+
+
 def test_no_segment_is_encroached_on_return():
     """The other half of termination, and what makes the mesh conform to the
     outline: every segment's diametral circle is empty, so each survives as an
@@ -65,13 +112,44 @@ def test_no_segment_is_encroached_on_return():
     algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
     algo.refine()
 
-    assert algo.get_encroached_segments() == []
+    assert len(algo.get_encroached_segments()) == 0
+
+
+def _scanned_encroachment(algo):
+    """Which segments are encroached, straight from the definition: some vertex
+    strictly inside the diametral circle."""
+    ends = algo.vertices[algo.segments]
+    centers = ends.mean(axis=1)
+    radii_sq = np.sum((ends[:, 1] - ends[:, 0])**2, axis=-1) / 4
+    offsets = algo.vertices[None, :, :] - centers[:, None, :]
+    inside = np.sum(offsets**2, axis=-1) < radii_sq[:, None] * (1 - ENCROACHMENT_TOLERANCE)
+    return inside.any(axis=1)
+
+
+def test_encroachment_tracking_does_not_drift_from_a_full_scan():
+    """Encroachment is carried in a mask updated as vertices and segments are
+    added, rather than rescanned every pass. That is state that can go wrong
+    silently and still return a plausible mesh, so hold it against the
+    definition through both of the mutations refinement makes."""
+    algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
+    assert np.array_equal(algo._encroached, _scanned_encroachment(algo))
+
+    for step in range(12):
+        encroached = algo.get_encroached_segments()
+        if len(encroached):
+            algo.split_segment(encroached[-1])
+        else:
+            # Somewhere inside the L, so the run stays representative.
+            algo.add_vertex(np.array([0.35 + 0.04*step, 0.35]))
+        assert np.array_equal(algo._encroached, _scanned_encroachment(algo)), (
+            f'the mask disagrees with a full scan after step {step}'
+        )
 
 
 def test_refinement_preserves_the_input_geometry():
-    """Refinement only ever appends vertices and splits segments at their
-    midpoint, so input vertices keep their indices and the final segments still
-    trace the input outline exactly -- no corner is cut or moved."""
+    """Refinement only ever appends vertices and splits segments in place, so
+    input vertices keep their indices and the final segments still trace the
+    input outline exactly -- no corner is cut or moved."""
     pslg = _l_shape()
     original_vertices = np.array(pslg.vertices)
     original_segments = np.array(pslg.segments)
@@ -140,7 +218,7 @@ def test_the_area_cap_does_not_break_conformity():
     algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
     mesh = algo.refine()
 
-    assert algo.get_encroached_segments() == []
+    assert len(algo.get_encroached_segments()) == 0
     centroids = np.asarray(mesh.vertices)[np.asarray(mesh.elements)].mean(axis=1)
     assert all(point_in_polygon(c, L_SHAPE_OUTLINE) for c in centroids)
 
@@ -321,13 +399,71 @@ def test_split_segments_keep_their_loop():
 
 
 def test_sharp_input_corners_are_reported(caplog):
-    """A sub-60-degree corner is what turns refinement into an apparent hang, so
+    """A sub-60-degree corner is the one place the angle bound does not hold, so
     it should say so up front rather than leave the caller guessing."""
     spike = np.array([[0.0, 0.0], [10.0, 0.3], [10.0, -0.3]])
     with caplog.at_level(logging.WARNING, logger='fem.mesh.generation'):
-        RuppertsAlgorithm(PSLG(spike), min_angle=20)
+        algo = RuppertsAlgorithm(PSLG(spike), min_angle=20)
 
     assert 'below the 60' in caplog.text
+    assert algo.sharp_vertices == {0}, 'only the tip is too sharp to mesh'
+
+
+def test_a_sharp_corner_terminates_and_costs_only_itself():
+    """A 15 degree wedge cannot meet a 25 degree bound at its tip, and chasing
+    it is what used to make refinement run away. The corner triangle is taken as
+    it comes; everything else still meets the bound."""
+    wedge = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10 * np.tan(np.radians(15))]])
+    algo = RuppertsAlgorithm(PSLG(wedge), min_angle=25, max_area=1.0)
+    mesh = algo.refine()
+
+    angles = _min_angles(mesh)
+    below = np.flatnonzero(angles < 25)
+    assert len(below) == 1, f'{len(below)} elements below the bound, expected just the tip'
+    assert angles[below[0]] == pytest.approx(15.0), 'the tip keeps the input angle'
+    corner = np.flatnonzero((np.asarray(mesh.vertices) == [0.0, 0.0]).all(axis=1))
+    assert corner[0] in mesh.elements[below[0]], 'the exempt element is the one at the tip'
+
+
+def test_a_sharp_corner_is_still_bound_by_the_area_cap():
+    """The exemption covers the angle bound only. A corner cannot be made less
+    sharp, but it can be made smaller, and an element left oversized there would
+    be the largest in the mesh."""
+    wedge = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10 * np.tan(np.radians(15))]])
+    max_area = 0.5
+    mesh = RuppertsAlgorithm(PSLG(wedge), min_angle=25, max_area=max_area).refine()
+
+    vertices = np.asarray(mesh.vertices)
+    corners = vertices[np.asarray(mesh.elements)]
+    edge_a, edge_b = corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
+    areas = 0.5 * np.abs(edge_a[:, 0]*edge_b[:, 1] - edge_a[:, 1]*edge_b[:, 0])
+    assert areas.max() <= max_area * (1 + 1e-9)
+
+
+def test_segments_from_a_sharp_corner_split_onto_a_shared_shell():
+    """Two segments meeting sharply have to be split at the same distance from
+    the corner, or each new vertex lands inside the other segment's diametral
+    circle and the splits walk into the corner without ever clearing it. Powers
+    of two give them a ladder of radii to agree on however long each one is."""
+    corner_angle = np.radians(20)
+    arms = np.array([[0.0, 0.0], [10.0, 0.0], [7 * np.cos(corner_angle),
+                                               7 * np.sin(corner_angle)]])
+    algo = RuppertsAlgorithm(PSLG(arms), min_angle=25)
+
+    long_arm = np.linalg.norm(algo._split_point([0, 1]))
+    short_arm = np.linalg.norm(algo._split_point([0, 2]))
+    assert long_arm == pytest.approx(4.0), 'a length-10 arm splits on the shell at 4'
+    assert short_arm == pytest.approx(4.0), 'so does a length-7 one'
+
+
+def test_a_segment_away_from_a_sharp_corner_splits_at_its_midpoint():
+    """Shell splitting is the exception. Everywhere else the midpoint is what
+    makes each half shorter than the parent, which is why refinement converges."""
+    algo = RuppertsAlgorithm(_l_shape(), min_angle=20)
+
+    for segment in algo.segments:
+        expected = 0.5 * (algo.vertices[segment[0]] + algo.vertices[segment[1]])
+        np.testing.assert_allclose(algo._split_point(segment), expected)
 
 
 def test_a_square_does_not_warn(caplog):
