@@ -166,8 +166,8 @@ recovers anything. Each item below is an implementation of a seam that already e
   forced problems, which is also a prerequisite for using it on the nonlinear roadmap.
 
 **Engineering**
-- 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `generation`'s `create_approx_mesh`
-  has no *correctness* tests, and `svg`'s path parsing is covered only through the demos.
+- 💡 **Coverage.** Add `pytest-cov`, then fill gaps — `svg`'s path parsing is covered only
+  through the demos.
   (Ruppert's is covered by `tests/test_ruppert.py`: the angle bound, segment conformity,
   the area cap, the even-odd fill rule and boundary attribution.) The plot layer is
   exercised end-to-end by
@@ -202,11 +202,12 @@ recovers anything. Each item below is an implementation of a seam that already e
   Refinement order is *not* a factor — refining the worst triangle first instead of qhull's
   arbitrary last was measured and is a wash.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI;
-  the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/ruppert.py` and
-  `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.
+  the prose half is still open, but narrowly: `mesh/mesh.py`, `mesh/ruppert.py`,
+  `mesh/svg.py` and `plot/plotter.py` are the modules left with no module docstring. The
+  rest of the core has one.
 - 💡 **Tighten pyright to `standard`.** It runs in `basic`, which infers types for the
   unannotated internals rather than demanding annotations. Annotating the internals
-  (`refinement`, `generation`, `energies`, `plot`) would let the mode step up.
+  (`refinement`, `ruppert`, `energies`, `plot`) would let the mode step up.
 - 💡 **pre-commit hooks** (ruff + whitespace) so the CI checks run locally before each commit.
 - 💡 **Mesh formats.** `fem/io.py` writes meshes as JSON; `.off`/`.obj` export would make them
   loadable by standard tools.

@@ -9,12 +9,10 @@ from scipy.spatial import Delaunay, KDTree, QhullError
 from fem.mesh.mesh import Mesh
 from fem.typing import FloatArray
 from fem.geometry import (
-    calculate_polygon_area,
     calculate_segment_angles,
     calculate_triangle_angles,
     calculate_circumcenter,
     get_boundary_from_vertices_elements,
-    point_in_polygon,
 )
 
 logger = logging.getLogger(__name__)
@@ -648,50 +646,3 @@ def create_box_mesh(
 
     boundary = get_boundary_from_vertices_elements(elements)
     return Mesh(vertices, elements, boundary)
-
-
-def create_approx_mesh(outline: FloatArray, approx_triangles: int = 100) -> Mesh:
-    '''A triangulation of the polygon `outline` ((n_points, 2) vertices, in
-    order) with roughly `approx_triangles` elements.'''
-    dx = np.sqrt(2 * calculate_polygon_area(outline) / approx_triangles)
-    x_min, x_max = np.min(outline[:, 0]), np.max(outline[:, 0])
-    y_min, y_max = np.min(outline[:, 1]), np.max(outline[:, 1])
-    x_range = np.arange(x_min, x_max, dx)
-    y_range = np.arange(y_min, y_max, dx)
-    x_range += (x_max - x_range[-1])/2
-    y_range += (y_max - y_range[-1])/2
-
-    vertices = np.array([[x, y] for y in y_range for x in x_range])
-    elements = []
-
-    def get_index(i, j):
-        return j*len(x_range) + i
-
-    # first mesh everything
-    for i, x in enumerate(x_range[:-1]):
-        for j, y in enumerate(y_range[:-1]):
-            elements.append([get_index(i, j), get_index(i+1, j), get_index(i+1, j+1)])
-            elements.append([get_index(i, j), get_index(i+1, j+1), get_index(i, j+1)])
-            
-    # second remove elements with centers outside of outline
-    removed_elements = []
-    for element in elements:
-        center = np.mean(vertices[element], axis=0)
-        offcenters = [(center + vertices[i])/2 for i in element]
-        for offcenter in offcenters:
-            if not point_in_polygon(offcenter, outline):
-                removed_elements.append(element)
-                break
-    for element in removed_elements:
-        elements.remove(element)
-
-    # remove unnecessary vertices
-    used_v_idxs = np.unique(np.array(elements).flatten())
-    # map old indices to new indices
-    v_idx_map = {old: new for new, old in enumerate(used_v_idxs)}
-    vertices = vertices[used_v_idxs]
-    elements = [[v_idx_map[e_idx] for e_idx in element] for element in elements]
-    boundary = get_boundary_from_vertices_elements(elements)
-    mesh = Mesh(vertices, elements, boundary)
-
-    return mesh
