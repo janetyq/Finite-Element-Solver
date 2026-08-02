@@ -5,6 +5,8 @@
 
 This finite element method (FEM) solver is capable of solving a variety of partial differential equations (PDEs), such as Poisson, heat, wave, and both linear and nonlinear elasticity equations. It supports both Dirichlet and Neumann boundary conditions and can be applied to simulate both 2D and 3D meshes. Interesting features include custom meshing algorithms, adaptive mesh refinement to enhance simulation accuracy and topology optimization for optimizing structural design.
 
+### ▶ [See it running — the demo gallery](https://janetyq.github.io/Finite-Element-Solver/)
+
 ## Installation
 
 The project uses [uv](https://docs.astral.sh/uv/) for environment and dependency
@@ -125,6 +127,8 @@ files/               # example meshes and SVG outlines
 uv run pytest
 ```
 
+## Demos
+
 Runnable demos live in `examples/` (run from the repo root) behind a small CLI:
 ```bash
 uv run python examples/cli.py list          # see every available demo
@@ -132,12 +136,11 @@ uv run python examples/cli.py run poisson   # run one by name
 uv run python examples/cli.py gallery       # render them all as a browsable site
 ```
 
-Every demo is rendered, with its source, in the **[demo
-gallery](https://janetyq.github.io/Finite-Element-Solver/)** — rebuilt from `main` on
-each push, so it always shows what the demos do now. The figures further down predate
-the current `examples/` and several are on richer domains than the demos build today
-(a braced bracket, a plate with an obstacle, a 100x40 beam); the gallery is the
-reproducible view of the same physics.
+The [gallery](https://janetyq.github.io/Finite-Element-Solver/) is that last command,
+run on every push to `main`, so it always shows what the demos do now. The figures
+further down predate the current `examples/` and several are on richer domains than the
+demos build today (a braced bracket, a plate with an obstacle, a 100x40 beam); the
+gallery is the reproducible view of the same physics.
 
 ## Details
 This solver uses the Galerkin finite element method with linear basis functions on triangular meshes for 2D problems and tetrahedral meshes for 3D. It is designed to be modular, making it easy to add new PDEs, finite element types, or energy density functions.
@@ -202,7 +205,7 @@ Note: This example shows extreme displacement, in reality, the object would no l
 
 The solver can also perform adaptive mesh refinement to increase the accuracy of the solution. It works by taking a per-element error estimate and refining the elements with the largest error, maintaining triangle quality with regular (red-green) refinement.
 
-`AdaptiveRefinement` takes the estimate as an injected callable `(solver) -> per-element error`, and the refine/remesh loop around it is complete. **The estimator itself is not yet implemented** — the images below were produced by an earlier version, and the `adaptive_refinement` demo is currently gated behind a deliberate `NotImplementedError` until a real estimate lands. See `BACKLOG.md`.
+`AdaptiveRefinement` takes the estimate as an injected callable `(solver) -> per-element error`, and the refine/remesh loop around it is complete. **The estimator itself is not yet implemented** — the images below were produced by an earlier version. The `refinement` demo shows the two ends of the loop, the peaked problem and the red-green splitting, without the join. See `BACKLOG.md`.
 
 Here, we show adaptive refinement on solving Poisson's equation.
 

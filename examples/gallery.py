@@ -26,6 +26,21 @@ from demo_registry import Demo, DemoResult
 
 IMAGES = 'img'
 
+# The index in the order a newcomer should meet the project: build a domain, solve on
+# it, apply that to solids, then ask whether the answer is right and fast. Each demo
+# names its own section (`Demo.section`); this is the order they appear in, and within
+# a section demos keep the order they were registered in.
+SECTIONS: list[str] = [
+    'Meshing a domain',
+    'Solving PDEs',
+    'Solids & structures',
+    'Accuracy & performance',
+]
+
+# A demo naming no section, or one not listed above, still appears -- under this
+# heading, rather than being dropped by a grouping that did not know about it.
+OTHER_SECTION = 'Other demos'
+
 
 @dataclass
 class Panel:
@@ -44,6 +59,7 @@ class Entry:
     artifacts: list[str] = field(default_factory=list)
     skipped: str | None = None
     source: str = ''
+    section: str = ''              # which heading of the index it belongs under
 
 
 def _missing_dependency(demo: Demo) -> str | None:
@@ -86,7 +102,7 @@ def run_demo(demo: Demo, out_dir: Path) -> Entry:
     `out_dir` as the cwd -- the same arrangement `tests/test_demos.py` uses to keep
     stray files out of the repo.
     """
-    entry = Entry(demo.name, demo.description(), source=demo.source())
+    entry = Entry(demo.name, demo.description(), source=demo.source(), section=demo.section)
 
     skip = _missing_dependency(demo)
     if skip is not None:
@@ -127,7 +143,15 @@ a { color: inherit; }
 .grid { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
 .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
         text-decoration: none; display: flex; flex-direction: column; }
-.card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: #fff; display: block; }
+/* `contain`, not `cover`: these figures are wide, and cropping one to a 4:3 tile
+   showed a fifth of a single panel -- `robin` is four panels across 2000x500. */
+.card img, .card .thumb-text, .card .thumb-note, .card .thumb-empty {
+  width: 100%; aspect-ratio: 4/3; background: #fff; display: block; }
+.card img { object-fit: contain; }
+.card .thumb-text { margin: 0; border: 0; border-radius: 0; padding: .7rem .8rem;
+                    font-size: .5rem; line-height: 1.5; color: #111; overflow: hidden; }
+.card .thumb-note { display: flex; align-items: center; padding: 1.25rem;
+                    color: #666; font-size: .85rem; }
 .card .meta { padding: .7rem .85rem; }
 .card .meta p { margin: .2rem 0 0; color: var(--muted); font-size: .82rem; }
 .badge { font-size: .72rem; color: var(--muted); border: 1px solid var(--line);
@@ -242,31 +266,66 @@ def _demo_page(entry: Entry) -> str:
     return _page(f'{entry.name} - FEM demos', '\n'.join(parts), PLAYER_JS)
 
 
+def _sections(entries: list[Entry]) -> list[tuple[str, list[Entry]]]:
+    """Entries under their headings, in `SECTIONS` order, empty sections omitted."""
+    grouped = []
+    claimed = set()
+    for title in SECTIONS:
+        members = [e for e in entries if e.section == title]
+        claimed.update(e.name for e in members)
+        if members:
+            grouped.append((title, members))
+
+    rest = [e for e in entries if e.name not in claimed]
+    if rest:
+        grouped.append((OTHER_SECTION, rest))
+    return grouped
+
+
+def _thumbnail(entry: Entry) -> str:
+    """The tile at the top of a card.
+
+    A demo with no figure is not a demo with nothing to show, and an invisible tile
+    reads as a broken card. `3d` renders through PyVista and hands back a GIF;
+    `backends` produces a table of timings; a demo skipped for a missing dependency
+    has at least the reason. The deployed gallery installs no extras, so `3d` is
+    always the third case there and the first only when run locally.
+    """
+    src = entry.panels[0].src if entry.panels else next(
+        (a for a in entry.artifacts if a.lower().endswith('.gif')), '')
+    if src:
+        return f'<img src="{src}" alt="" loading="lazy">'
+    if entry.text:
+        preview = html.escape('\n'.join(entry.text.splitlines()[:5]))
+        return f'<pre class="thumb-text">{preview}</pre>'
+    if entry.skipped:
+        return f'<span class="thumb-note">Not rendered: {html.escape(entry.skipped)}.</span>'
+    return '<span class="thumb-empty"></span>'
+
+
 def _index_page(entries: list[Entry]) -> str:
-    cards = []
-    for entry in entries:
-        thumb = entry.panels[0].src if entry.panels else ''
+    def card(entry: Entry) -> str:
         badge = ''
         if any(p.frames for p in entry.panels):
             badge = '<span class="badge">animated</span>'
         elif entry.skipped:
             badge = '<span class="badge">not rendered</span>'
-        image = (f'<img src="{thumb}" alt="" loading="lazy">' if thumb
-                 else '<img alt="" style="background:transparent">')
-        cards.append(
-            f'<a class="card" href="{entry.name}.html">{image}'
+        return (
+            f'<a class="card" href="{entry.name}.html">{_thumbnail(entry)}'
             f'<span class="meta"><h2>{html.escape(entry.name)}{badge}</h2>'
             f'<p>{html.escape(entry.description)}</p></span></a>'
         )
 
     rendered = sum(1 for e in entries if not e.skipped)
-    body = (
-        '<h1>Finite Element Solver &mdash; demo gallery</h1>\n'
+    body = [
+        '<h1>Finite Element Solver &mdash; demo gallery</h1>',
         f'<p class="sub">{rendered} of {len(entries)} demos rendered. '
-        'Generated by <code>examples/cli.py gallery</code>.</p>\n'
-        f'<div class="grid">\n{chr(10).join(cards)}\n</div>'
-    )
-    return _page('FEM demo gallery', body)
+        'Generated by <code>examples/cli.py gallery</code>.</p>',
+    ]
+    for title, members in _sections(entries):
+        body.append(f'<h2 class="heading">{html.escape(title)}</h2>')
+        body.append(f'<div class="grid">\n{chr(10).join(card(e) for e in members)}\n</div>')
+    return _page('FEM demo gallery', '\n'.join(body))
 
 
 def build_gallery(registry: dict[str, Demo], out_dir: Path) -> list[Entry]:
@@ -282,7 +341,9 @@ def build_gallery(registry: dict[str, Demo], out_dir: Path) -> list[Entry]:
     cwd = Path.cwd()
     try:
         os.chdir(out_dir)
-        for name in sorted(registry):
+        # Registry order, not alphabetical: it is the order each module lists its demos
+        # in, which is the order they appear within a section.
+        for name in registry:
             entry = run_demo(registry[name], out_dir)
             entries.append(entry)
             print(f'  {name}' + (f' - skipped ({entry.skipped})' if entry.skipped else ''))

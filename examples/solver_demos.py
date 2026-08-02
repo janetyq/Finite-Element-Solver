@@ -5,11 +5,11 @@
 """
 import numpy as np
 from functools import partial
-from math import e
 from pathlib import Path
 
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
+from fem.convergence import ConvergenceStudy, poisson_convergence
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
@@ -24,14 +24,6 @@ from domains import beam, square
 
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
-
-def demo_plot_mesh(mesh):
-    """Plot the mesh and highlight its boundary vertices."""
-    plotter = Plotter(title='Mesh Plot', axis_labels=False)
-    plotter.plot(mesh, mode='mesh')
-    plotter.plot(mesh, mode='boundary')
-    plotter.plot_highlights(mesh, [mesh.boundary_idxs], ['red'], ['boundary'])
-    return DemoResult([Figure(plotter, 'Mesh edges with the boundary vertices marked.')])
 
 def demo_l2_projection(mesh):
     """L2-project an oscillatory function onto the mesh's finite element space."""
@@ -69,6 +61,49 @@ def demo_poisson_equation(mesh):
         'A constant unit source pinned at every boundary node, with the gradient '
         'recovered from the solution beside it.')])
 
+def demo_convergence(resolutions=(11, 21, 41, 81)):
+    """Measure the solver's own error against an exactly known solution, and read off
+    the convergence rate (Method of Manufactured Solutions)."""
+    # The one demo that does not show what the solver computed, but how wrong it was.
+    # Every other figure here is checked by eye; this is the claim that survives being
+    # looked at properly -- and it is the claim P1 elements make: halve h, quarter the
+    # error. The same study runs as an assertion in tests/test_convergence.py.
+    solves = poisson_convergence(resolutions)
+    study = ConvergenceStudy.from_solves(solves)
+    finest = solves[-1]
+
+    plotter = Plotter(1, 2, title='Convergence against a manufactured solution')
+    plotter.plot(finest.mesh, finest.pointwise_error, mode='colored', idx=(0, 0),
+                 label='u_h - u_exact', title=f'Error field at h={finest.h:.3g}')
+
+    ax = plotter.chart_ax(idx=(0, 1), xlabel='h', ylabel='L2 error')
+    ax.loglog(study.h, study.error, 'o-', color='tab:blue',
+              label=f'measured (order {study.fitted_order:.2f})')
+    # Anchored at the coarsest point, so the two lines start together and any
+    # divergence downward is the measured rate beating h^2 rather than an offset.
+    ax.loglog(study.h, study.error[0] * (study.h / study.h[0])**2, '--', color='gray',
+              label='h^2')
+    ax.set_title('Error vs mesh size')
+    ax.grid(True, which='both', alpha=0.3)
+    # The mesh sizes themselves, rather than the decade ticks a log axis defaults to:
+    # the sequence spans well under one decade, so the minor labels ran together.
+    ax.set_xticks(study.h, [f'{h:g}' for h in study.h])
+    ax.set_xticks([], minor=True)
+
+    rows = ['     h      L2 error   order', *(
+        f'{h:8.4f}  {e:10.3e}  {"-" if i == 0 else f"{study.orders[i-1]:6.2f}"}'
+        for i, (h, e) in enumerate(zip(study.h, study.error))
+    )]
+    return DemoResult(
+        [Figure(plotter,
+                f'The error is smooth and one-signed: zero on the boundary, where the '
+                f'solution is pinned exactly, and deepest at the centre, where the '
+                f'solution itself peaks and the piecewise-linear space has the most to '
+                f'miss. Halving h divides it by about four -- a fitted order of '
+                f'{study.fitted_order:.2f} against the 2 that P1 elements promise.')],
+        text='\n'.join(rows),
+    )
+
 def demo_robin_bc(mesh):
     """Cool a heated plate through a convective boundary, sweeping the Robin coefficient."""
     # du/dn + kappa*(u - u_ambient) = 0: heat generated inside escapes through a boundary
@@ -98,38 +133,67 @@ def demo_robin_bc(mesh):
         'Convective cooling at three film coefficients. The last Robin panel and the '
         'Dirichlet solve beside it agree to the digit -- the limit, computed both ways.')])
 
-def demo_nonlinear_elastic(mesh, stretch=0.5):
-    """Stretch a block hard, comparing small-strain elasticity against St Venant-Kirchhoff."""
-    # Same material, same imposed displacement, different strain measure: the linear
-    # path uses eps = (grad u + grad u^T)/2, which is only the leading term of the
-    # Green-Lagrange strain S = (F^T F - I)/2 that St Venant-Kirchhoff uses. Under a
+def demo_elasticity_models(mesh, stretch=0.5):
+    """Stretch one clamped block three ways: a linear solve, the same physics by energy
+    minimisation, and finite strain."""
+    # One setup, three paths, and the two comparisons worth making sit side by side.
+    #
+    # Panels 1 and 2 are the same physics reached differently -- assembling and solving
+    # K u = f, against driving Newton on the elastic energy whose stationary point that
+    # system is. The displacements come out identical to machine precision, which is
+    # what says the energy path is wired up right, and the demo prints the difference
+    # rather than asserting it.
+    #
+    # Their *stress* is not identical, and that is not a discrepancy: the two recover
+    # different measures. `LinearElasticForm` reports sigma = D:eps; `EnergyForm`
+    # reports the true Cauchy stress J^-1 P F^T at the deformed configuration. Those
+    # agree only to O(||grad u||) -- see EnergyForm.derived_fields -- and a 50% stretch
+    # is nowhere near that limit.
+    #
+    # Panel 3 changes the physics rather than the solve. The small-strain measure
+    # eps = (grad u + grad u^T)/2 is only the leading term of S = (F^T F - I)/2; under a
     # uniaxial stretch lambda the two read (lambda - 1) and (lambda^2 - 1)/2, so the
     # finite-strain model stiffens as the stretch grows and the linear one cannot.
-    # Both solutions report Cauchy stress (see LinearElasticForm/EnergyForm
-    # .derived_fields), so the two von Mises fields are the same measure and the gap
-    # between them is physics rather than bookkeeping. The peak sits at the clamped
-    # corners, where the imposed displacement is singular, so the median is quoted
-    # beside it as the bulk figure.
+    #
+    # The stress peak sits at the clamped corners, where the imposed displacement is
+    # singular, so the median is quoted beside it as the bulk figure.
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, w), [stretch*w, 0])
 
-    small = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
-    finite = EnergySolver(
-        mesh, LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE), bc
-    ).solve()
+    linear = LinearElastic(E=200, nu=0.4)
+    energy_solver = EnergySolver(mesh, linear, bc)
+    solutions = [
+        ('Linear solve\n(small strain)', Solver(mesh, linear, bc).solve()),
+        ('Energy minimisation\n(small strain)', energy_solver.solve()),
+        ('Energy minimisation\n(Green-Lagrange)', EnergySolver(
+            mesh, LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE), bc
+        ).solve()),
+    ]
 
-    plotter = Plotter(1, 2, title=f'Small strain vs St Venant-Kirchhoff ({stretch:.0%} stretch)')
-    for i, (name, solution) in enumerate([('Small strain', small), ('Green-Lagrange', finite)]):
+    plotter = Plotter(1, 3, title=f'One {stretch:.0%} stretch, three ways to solve it')
+    for i, (name, solution) in enumerate(solutions):
         vm = solution.von_mises
         plotter.plot(solution.deformed_mesh(), vm, mode='colored', idx=(0, i),
                      label='von Mises stress',
-                     title=f'{name}\nvon Mises: median {np.median(vm):.0f}, peak {vm.max():.0f}')
-    return DemoResult([Figure(
-        plotter,
-        'The same 50% stretch under both strain measures. Green-Lagrange stiffens as '
-        'the stretch grows; small strain cannot.')])
+                     title=f'{name}\nmedian {np.median(vm):.0f}, peak {vm.max():.0f}')
+    linear_u, energy_u = solutions[0][1].u, solutions[1][1].u
+    drift = np.linalg.norm(energy_u - linear_u) / np.linalg.norm(linear_u)
+    return DemoResult(
+        [Figure(plotter,
+                'The first two are the same physics reached two ways -- a linear system, '
+                'and Newton on the energy that system is the stationary point of. Their '
+                'displacements are identical to machine precision (below); their stress '
+                'is not, because the two recover different measures -- sigma = D:eps '
+                'against the true Cauchy stress at the deformed configuration, which '
+                'agree only for small gradients. The third changes the physics rather '
+                'than the solve: Green-Lagrange stiffens as the stretch grows, which '
+                'small strain cannot.')],
+        text=(f'displacement, linear solve vs energy minimisation: '
+              f'relative difference {drift:.1e}\n'
+              f'minimised elastic energy: {energy_solver.energy(energy_u):.4g}'),
+    )
 
 def demo_stress_invariants(mesh):
     """Show the four rotation-invariant stress measures recovered from one elastic solve."""
@@ -280,83 +344,7 @@ def demo_topology_optimization(mesh, iters=40):
                'truss carrying the load back to the supported edge.', 'final'),
     ])
 
-def demo_adaptive_refinement(mesh):
-    """Solve the peaked Poisson problem adaptive refinement is meant for (refinement itself
-    is still blocked, see BACKLOG.md)."""
-    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
-    def test_function(point):
-        # return [1]
-        a = 50
-        x, y = point - np.array([w/2, h/2])
-        r2 = x**2 + y**2
-        return [4*a*a*(1-a*r2)*e**(-a*r2)] # TODO: list thing is awkward
-
-    equation = Poisson(source=test_function)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0)
-    solver = Solver(mesh, equation, bc)
-    solution = solver.solve()
-    u = solution.u
-    u_gradient = solver.space.gradient(u)
-
-    plotter = Plotter(1, 2, title='Adaptive Refinement: the problem, not yet the refinement')
-    plotter.plot(mesh, u, mode='surface', title='Poisson Solution', idx=(0, 0))
-    plotter.plot(mesh, u_gradient, mode='arrows', title='Gradient', idx=(0, 1))
-
-    # AdaptiveRefinement(solver, estimator).run() drives the loop correctly, but calling
-    # it here is still blocked on two open pieces: a real a-posteriori error estimator to
-    # pass in, and position-based Dirichlet conditions (the ones added above are
-    # index-based, so they cannot survive the vertex renumbering a refinement does).
-    # Until then this shows the problem that motivates refinement -- a source with one
-    # sharp interior peak, which a uniform mesh spends most of its elements not
-    # resolving -- rather than raising and showing nothing. See BACKLOG.md.
-    return DemoResult([Figure(
-        plotter,
-        'A Poisson source with one sharp interior peak: the case for refining where the '
-        'error is. The refinement loop itself is not run -- it needs an error estimator.')])
-
-    # from fem.adaptivity import AdaptiveRefinement
-    # solution_final = AdaptiveRefinement(solver, estimator).run()
-    # u_init = solution_init.u
-    # u_final = solution_final.u
-    # r_init = solution_init.get_values('residuals')
-    # r_final = solution_final.get_values('residuals')
-
-    # fig = plt.figure(figsize=(10, 5))
-    # axs = [fig.add_subplot(121, projection='3d'), fig.add_subplot(122)]
-    # Plotter(mesh, options={'title': 'Initial Solution', 'show': False}).plot_values(u_init, mode='surface')
-    # Plotter(mesh, options={'title': 'Final Solution', 'show': False}).plot_values(u_final, mode='surface')
-    # plt.show()
-
-    # fig, ax = plt.subplots(2, 2)
-    # Plotter(mesh, options={'title': 'Initial Residuals', 'show': False}).plot_values(r_init, mode='colored')
-    # Plotter(mesh, options={'title': 'Final Residuals', 'show': False}).plot_values(r_final, mode='colored')
-    # Plotter(mesh, options={'title': 'Initial Mesh', 'show': False}).plot_mesh(mode='wireframe')
-    # Plotter(mesh, options={'title': 'Final Mesh', 'show': False}).plot_mesh(mode='wireframe')
-    # plt.show()
-
-def demo_energy_solver(mesh):  # displacement-driven: EnergySolver rejects a source term
-    """Minimize elastic energy directly (Newton solve) instead of the linear FEM system."""
-    w = np.max(mesh.vertices[:, 0])
-    equation = LinearElastic(E=200, nu=0.4)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.DIRICHLET, on_plane(0, w), [0.5, 0])
-
-    energy_solver = EnergySolver(mesh, equation, bc)
-    solution = energy_solver.solve()
-
-    # EnergySolver returns the same ElasticSolution the linear path does, so the
-    # recovered stress is read the same way -- the parity is the point of the demo.
-    plotter = Plotter(title=f'Energy Solver (minimised energy {energy_solver.energy(solution.u):.4g})')
-    plotter.plot(solution.deformed_mesh(), solution.von_mises, mode='colored',
-                 title='Von Mises stress', label='von Mises stress')
-    return DemoResult([Figure(
-        plotter,
-        'A displacement-driven stretch solved by minimising energy rather than by '
-        'assembling a linear system; the recovered stress reads the same way.')])
-
-def demo_3d(steps=20, save_file='tetmesh_animation.gif'):
+def demo_heat_3d(steps=20, save_file='tetmesh_animation.gif'):
     """Solve transient heat diffusion on a 3D tetrahedral mesh (renders via PyVista)."""
     # `fem.plot.tet` needs the optional viz3d extra, so it is imported where it runs. A
     # module-level import takes down every demo in this file, and cli.py with them, on
@@ -377,30 +365,42 @@ def demo_3d(steps=20, save_file='tetmesh_animation.gif'):
     return DemoResult(artifacts=[Path(save_file)])
 
 
+SOLVING = 'Solving PDEs'
+SOLIDS = 'Solids & structures'
+ACCURACY = 'Accuracy & performance'
+
 DEMOS = [
-    # Coarse enough that individual edges and boundary vertices are legible.
-    Demo('plot_mesh', demo_plot_mesh, domain=partial(square, 20)),
-    # The point is which oscillations of sin(40 r^2) the space can represent, so this
-    # one is meshed finer than the rest: at 40 a side the inner rings alias too.
-    Demo('l2_projection', demo_l2_projection, domain=partial(square, 70)),
-    Demo('poisson', demo_poisson_equation, domain=square),
-    Demo('robin', demo_robin_bc, domain=square),
-    Demo('heat', demo_heat_equation, domain=square),
-    Demo('wave', demo_wave_equation, domain=square),
+    Demo('poisson', demo_poisson_equation, section=SOLVING, domain=square),
+    Demo('heat', demo_heat_equation, section=SOLVING, domain=square),
+    # 20 steps of tet rendering is ~4.4s against ~1.9s for 3; the frames are identical
+    # work, so the test takes the short run.
+    Demo('heat_3d', demo_heat_3d, section=SOLVING,
+         smoke_requires='pyvista', smoke_kwargs={'steps': 3}),
+    Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
+    Demo('robin', demo_robin_bc, section=SOLVING, domain=square),
+
     # A cantilever is a beam. On the square this used to load, the "bending" was a
     # square bulging sideways, and the stress concentration had nowhere to run to.
-    Demo('linear_elastic', demo_linear_elastic, domain=partial(beam, 4.0, 1.0, 80)),
-    Demo('stress_invariants', demo_stress_invariants, domain=partial(beam, 4.0, 1.0, 80)),
+    Demo('linear_elastic', demo_linear_elastic, section=SOLIDS,
+         domain=partial(beam, 4.0, 1.0, 80)),
     # Stretched end to end, so the domain is incidental; a square keeps the deformed
     # and undeformed shapes comparable at a glance.
-    Demo('nonlinear_elastic', demo_nonlinear_elastic, domain=square),
+    Demo('elasticity_models', demo_elasticity_models, section=SOLIDS, domain=square),
+    Demo('stress_invariants', demo_stress_invariants, section=SOLIDS,
+         domain=partial(beam, 4.0, 1.0, 80)),
     # 2:1 at ~1600 vertices: the aspect ratio is what makes SIMP produce the truss it
     # is known for, and the vertex count is what keeps 40 iterations affordable in the
     # gallery workflow.
-    Demo('topology_optimization', demo_topology_optimization, domain=partial(beam, 2.0, 1.0, 56)),
-    Demo('adaptive_refinement', demo_adaptive_refinement, domain=square),
-    Demo('energy_solver', demo_energy_solver, domain=square),
-    # 20 steps of tet rendering is ~4.4s against ~1.9s for 3; the frames are identical
-    # work, so the test takes the short run.
-    Demo('3d', demo_3d, smoke_requires='pyvista', smoke_kwargs={'steps': 3}),
+    Demo('topology_optimization', demo_topology_optimization, section=SOLIDS,
+         domain=partial(beam, 2.0, 1.0, 56)),
+
+    # The point is which oscillations of sin(40 r^2) the space can represent, so this
+    # one is meshed finer than the rest: at 40 a side the inner rings alias too. It
+    # leads the accuracy section because representation error is what the rest measures.
+    Demo('l2_projection', demo_l2_projection, section=ACCURACY, domain=partial(square, 70)),
+    # Builds its own sequence of meshes rather than taking a domain: the refinement
+    # sequence *is* the demo. The smoke run keeps the two coarsest -- an order needs
+    # two points, and the 81x81 solve is most of the cost.
+    Demo('convergence', demo_convergence, section=ACCURACY,
+         smoke_kwargs={'resolutions': (11, 21)}),
 ]
