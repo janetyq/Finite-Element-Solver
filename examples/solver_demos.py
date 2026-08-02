@@ -25,7 +25,7 @@ np.set_printoptions(linewidth=200)
 
 def demo_plot_mesh(mesh):
     """Plot the mesh and highlight its boundary vertices."""
-    plotter = Plotter(title='Mesh Plot')
+    plotter = Plotter(title='Mesh Plot', axis_labels=False)
     plotter.plot(mesh, mode='mesh')
     plotter.plot(mesh, mode='boundary')
     plotter.plot_highlights(mesh, [mesh.boundary_idxs], ['red'], ['boundary'])
@@ -83,13 +83,13 @@ def demo_robin_bc(mesh):
         bc = BoundaryConditions()
         bc.add_robin(everywhere(), kappa=kappa, g=kappa*u_ambient)
         u = Solver(mesh, equation, bc).solve().u
-        plotter.plot(mesh, u, mode='colored', idx=(0, i),
+        plotter.plot(mesh, u, mode='colored', idx=(0, i), label='temperature',
                      title=f'kappa={kappa:g}\n{u.min():.1f} - {u.max():.1f}')
 
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), u_ambient)
     u = Solver(mesh, equation, bc).solve().u
-    plotter.plot(mesh, u, mode='colored', idx=(0, len(kappas)),
+    plotter.plot(mesh, u, mode='colored', idx=(0, len(kappas)), label='temperature',
                  title=f'Dirichlet limit\n{u.min():.1f} - {u.max():.1f}')
     return DemoResult([Figure(
         plotter,
@@ -122,6 +122,7 @@ def demo_nonlinear_elastic(mesh, stretch=0.5):
     for i, (name, solution) in enumerate([('Small strain', small), ('Green-Lagrange', finite)]):
         vm = solution.von_mises
         plotter.plot(solution.deformed_mesh(), vm, mode='colored', idx=(0, i),
+                     label='von Mises stress',
                      title=f'{name}\nvon Mises: median {np.median(vm):.0f}, peak {vm.max():.0f}')
     return DemoResult([Figure(
         plotter,
@@ -168,7 +169,7 @@ def demo_heat_equation(mesh):
     t_values = solution.t
 
     animation = Plotter(1, 2, title='Heat Equation')
-    animation.plot_animation(mesh, u_values, mode='colored',
+    animation.plot_animation(mesh, u_values, mode='colored', label='temperature',
                              titles=[f'Color t={t:.3f}' for t in t_values], idx=(0, 0))
     animation.plot_animation(mesh, u_values, mode='surface',
                              titles=[f'Surface t={t:.3f}' for t in t_values], idx=(0, 1))
@@ -178,10 +179,10 @@ def demo_heat_equation(mesh):
     snapshots = Plotter(2, 3, title='Heat Equation: diffusion from the corner')
     for panel, i in enumerate(np.linspace(0, len(u_values) - 1, 6).astype(int)):
         snapshots.plot(mesh, u_values[i], mode='colored', idx=divmod(panel, 3),
-                       title=f't={t_values[i]:.3f}')
+                       label='temperature', title=f't={t_values[i]:.3f}')
 
     return DemoResult([
-        Figure(animation, 'Backward-Euler diffusion, coloured and as a surface.', 'animation'),
+        Figure(animation, 'Crank-Nicolson diffusion, coloured and as a surface.', 'animation'),
         Figure(snapshots,
                'The same run sampled at six times: the corner bump spreads and the '
                'plate approaches a uniform temperature.', 'snapshots'),
@@ -235,8 +236,10 @@ def demo_linear_elastic(mesh):
 
     plotter = Plotter(1, 3, title='Linear Elasticity')
     plotter.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
-    plotter.plot(deformed_mesh, solution.von_mises, mode='colored', title='Von Mises stress', idx=(0, 1))
-    plotter.plot(mesh, displacements, mode='colored', title='Displacement', idx=(0, 2))
+    plotter.plot(deformed_mesh, solution.von_mises, mode='colored', title='Von Mises stress',
+                 label='von Mises stress', idx=(0, 1))
+    plotter.plot(mesh, displacements, mode='colored', title='Displacement',
+                 label='|u|', idx=(0, 2))
     return DemoResult([Figure(
         plotter,
         'A cantilever pinned on the left and tractioned on the middle band of the right '
@@ -253,13 +256,15 @@ def demo_topology_optimization(mesh, iters=40):
     deformed_mesh = topopt.deformed_mesh()
 
     animation_plotter = Plotter(title='Topology Optimization')
-    animation_plotter.plot_animation(mesh, history.rho, mode='colored') # TODO: have mesh deform during animation, title
+    animation_plotter.plot_animation(mesh, history.rho, mode='colored', label='density') # TODO: have mesh deform during animation, title
 
     rho_final = history.rho[-1]
     stress_final = history.von_mises[-1]
     final_plotter = Plotter(1, 2, title='Topology Optimization')
-    final_plotter.plot(deformed_mesh, rho_final, mode='colored', title='Topology Optimized Structure', idx=(0, 0), empty=True)
-    final_plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final von Mises stress', idx=(0, 1))
+    final_plotter.plot(deformed_mesh, rho_final, mode='colored', title='Topology Optimized Structure',
+                       label='density', idx=(0, 0), empty=True)
+    final_plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final von Mises stress',
+                       label='von Mises stress', idx=(0, 1))
     return DemoResult([
         Figure(animation_plotter, 'Density evolving over the SIMP iterations.', 'animation'),
         Figure(final_plotter,
@@ -336,7 +341,8 @@ def demo_energy_solver(mesh):  # displacement-driven: EnergySolver rejects a sou
     # EnergySolver returns the same ElasticSolution the linear path does, so the
     # recovered stress is read the same way -- the parity is the point of the demo.
     plotter = Plotter(title=f'Energy Solver (minimised energy {energy_solver.energy(solution.u):.4g})')
-    plotter.plot(solution.deformed_mesh(), solution.von_mises, mode='colored', title='Von Mises stress')
+    plotter.plot(solution.deformed_mesh(), solution.von_mises, mode='colored',
+                 title='Von Mises stress', label='von Mises stress')
     return DemoResult([Figure(
         plotter,
         'A displacement-driven stretch solved by minimising energy rather than by '

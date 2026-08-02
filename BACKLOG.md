@@ -216,6 +216,20 @@ recovers anything. Each item below is an implementation of a seam that already e
   `energy_gradient` / `energy_hessian` should satisfy the same finite-difference agreement.
   The existing helpers plot a convergence curve rather than asserting, so this wants an
   assert-shaped variant (error slope over a window of `eps`) before it can be a test.
+- 💡 **One color scale across a series of panels.** `Plotter.plot_animation` fixes
+  `cbar_lims` across frames, but `Plotter.plot` has no equivalent, so each panel of a
+  snapshot grid renormalizes to its own range. The `heat` demo is the clearest casualty:
+  its six colorbars run 300–350 down to 300–314, so a field that decays by 70% is drawn as
+  six near-identical squares, against a caption promising the plate approaches uniform.
+  The `robin` sweep has the same problem, and there the claim being illustrated — that the
+  last Robin panel and the Dirichlet solve agree — is exactly what a shared scale would
+  show. Wants a `clim` argument on `plot`, plus shared z-limits for a grid of surfaces.
+- 💡 **Colorbars are taller than the panels they annotate.** Constrained layout sizes a
+  colorbar to the subplot cell while `set_aspect('equal')` shrinks the axes inside it.
+  Setting the aspect before the colorbar is created does not help (measured). An inset
+  axes in axes coordinates does track the box, but `ax.clear()` destroys it — which the
+  animation path does every frame — and it can overlap the next panel in a wide figure,
+  so it needs the recreate-after-clear case handled before it is worth doing.
 - 💡 **Contour overlay for scalar plots.** `fem/plot/helpers.py:plot_colored` draws a flat
   `tripcolor`; a `contour: int` argument adding `tricontour` isolines on top would make
   gradients readable. Was half-written and never validated — needs a look at level selection

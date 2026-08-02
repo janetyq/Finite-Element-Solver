@@ -78,6 +78,26 @@ def test_text_output_is_carried_onto_the_page(gallery):
     assert 'amg_cg' in (out / 'backends.html').read_text(encoding='utf-8')
 
 
+def test_source_is_shown_on_the_page(gallery):
+    """The figures are what a demo produced; the code is what a reader came for."""
+    out, entries = gallery
+    page = (out / 'poisson.html').read_text(encoding='utf-8')
+    assert 'def demo_poisson_equation' in page
+    assert 'BCType.DIRICHLET' in page
+
+
+def test_source_survives_a_partial(gallery):
+    """A preconfigured demo shows the function that was bound, not partial's own."""
+    _out, entries = gallery
+    assert 'def demo_topology_optimization' in entries['topopt'].source
+
+
+def test_a_skipped_demo_still_shows_its_source(gallery):
+    """Nothing about a missing optional dependency makes the code less worth reading."""
+    out, _entries = gallery
+    assert 'def demo_poisson_equation' in (out / 'absent.html').read_text(encoding='utf-8')
+
+
 def test_missing_dependency_is_reported_not_omitted(gallery):
     """A demo that could not run says so on its page, rather than vanishing."""
     out, entries = gallery

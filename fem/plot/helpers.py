@@ -44,9 +44,9 @@ def setup_colorbar(ax, vlim, label=None):
     return cmap, norm
 
 
-def plot_colored(ax, mesh, values, cbar_info=None):
+def plot_colored(ax, mesh, values, cbar_info=None, label=None):
     if cbar_info is None:
-        cbar_info = setup_colorbar(ax, (min(values), max(values)), None)
+        cbar_info = setup_colorbar(ax, (min(values), max(values)), label)
 
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
     ax.tripcolor(triangulation, values, cmap=cbar_info[0], norm=cbar_info[1])

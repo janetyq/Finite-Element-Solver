@@ -68,6 +68,22 @@ class Demo:
     # written, so a demo's defaults are what a reader actually sees.
     smoke_kwargs: dict[str, Any] = field(default_factory=dict)
 
+    def source(self) -> str:
+        """The demo function's own source, for readers who came for the code.
+
+        Unwraps `functools.partial` the way `description` does, so a preconfigured demo
+        shows the function that was bound rather than failing to have a source at all.
+        The bound arguments are not shown: they are the gallery's cheaper settings, not
+        part of what the demo is saying.
+        """
+        func = self.func
+        while isinstance(func, functools.partial):
+            func = func.func
+        try:
+            return inspect.getsource(func)
+        except OSError:      # no source available -- a REPL-defined or C function
+            return ''
+
     def description(self) -> str:
         """The demo's docstring on one line, for `list` and for its gallery page.
 
