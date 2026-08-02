@@ -545,6 +545,9 @@ class RuppertsAlgorithm:
         corner instead puts both splits on the same ladder of radii, and once
         two of them land on one shell they are equidistant from the corner and
         stop encroaching -- the cascade ends after a bounded number of rounds.
+
+        A segment with a sharp corner at *both* ends is laddered from the first
+        one only, which the argument above does not cover; see BACKLOG §1.
         '''
         start, end = self.vertices[segment[0]], self.vertices[segment[1]]
         if int(segment[0]) in self.sharp_vertices:
