@@ -226,7 +226,10 @@ class Plotter:
                 else:
                     ax.set_aspect('equal')
 
-            if any(ax.get_legend_handles_labels()[1]):
+            # Only where the caller has not placed one itself: `ax.legend()` replaces an
+            # existing legend with a default-positioned one, so an explicit `loc` was
+            # being discarded here rather than respected.
+            if ax.get_legend() is None and any(ax.get_legend_handles_labels()[1]):
                 ax.legend()
 
     def show(self) -> None:

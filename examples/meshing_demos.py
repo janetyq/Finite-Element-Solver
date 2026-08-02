@@ -1,7 +1,9 @@
-"""Meshing demos. Run via the shared CLI:
+"""Meshing demos: turning a shape into a triangulation, and naming parts of it.
+
+Run via the shared CLI:
 
     uv run python examples/cli.py list
-    uv run python examples/cli.py run mesh_plotting
+    uv run python examples/cli.py run mesh_from_svg
 """
 import json
 from functools import partial
@@ -16,9 +18,10 @@ from fem.geometry import calculate_triangle_min_angle
 from fem.plot.plotter import Plotter
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker, PSLG
+from fem.regions import in_box, intersect, on_plane
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import square
+from domains import beam
 
 # Resolved against the repo rather than the working directory: the input files ship
 # with the project, so a demo should not depend on where it was launched from. Output
@@ -36,27 +39,59 @@ DEFAULT_SIMPLIFICATION_TOLERANCE = 0.005
 # enormous triangles.
 DEFAULT_MAX_AREA_FRACTION = 0.005
 
-def demo_mesh_plotting(mesh):
-    """Plot a mesh colored by element-centroid x, then highlight elements/vertices on one side."""
-    plotter = Plotter(title='Mesh plot (color=x)', axis_labels=False)
-    plotter.plot(mesh, mode='colored', values=mesh.vertices[mesh.elements].mean(axis=1)[:, 0])
+def demo_regions(mesh):
+    """Name parts of a domain by position, which is how a boundary condition says where
+    it applies -- and works the same for vertices and for elements."""
+    # The alternative is naming vertex indices, and an index means nothing after a
+    # remesh renumbers them. Everything here is written against coordinates, so the
+    # same three lines select the same three places on any mesh of this beam -- which
+    # is what lets a generated mesh carry boundary conditions at all.
+    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
+    clamped = on_plane(0, 0.0)
+    loaded = intersect(on_plane(0, w), in_box([None, 0.2*h], [None, 0.8*h]))
+    far_half = in_box([w/2, None], [None, None])
 
-    min_x = np.min(mesh.vertices[:, 0])
-    mid_x = np.mean(mesh.vertices[:, 0])
+    # Sized for the domain plus a row of labels under it: the axes are equal-aspect, so
+    # a 4:1 beam in the default square-ish figure is a thin strip, and a legend inside
+    # one covers the mesh it is annotating.
+    figsize = (9.0, 3.2)
 
-    # Mesh plotting examples with color
-    e_idxs = [e_idx for e_idx, element in enumerate(mesh.elements) if np.mean(mesh.vertices[element], axis=0)[0] > mid_x]
-    v_idxs = [v_idx for v_idx, vert in enumerate(mesh.vertices) if vert[0] < min_x + 1e-3]
+    boundary = Plotter(title='The mesh and its boundary', axis_labels=False,
+                       figsize=figsize)
+    boundary.plot(mesh, mode='mesh')
+    boundary.plot(mesh, mode='boundary')
+    boundary.plot_highlights(mesh, [mesh.boundary_idxs], ['red'],
+                             [f'boundary ({len(mesh.boundary_idxs)} vertices)'])
+    boundary.get_ax().legend(loc='upper center', bbox_to_anchor=(0.5, -0.08),
+                             frameon=False)
 
-    highlight_plotter = Plotter(title='Highlighted plot', axis_labels=False)
-    highlight_plotter.plot(mesh, mode='mesh')
-    highlight_plotter.plot_highlights(mesh, [e_idxs], ['blue'], ['right blue elements'], mode='elements')
-    highlight_plotter.plot_highlights(mesh, [v_idxs], ['red'], ['left red vertices'], mode='vertices')
+    # A region is a callable from coordinates to a mask, so it reads element centroids
+    # as happily as it reads vertices.
+    centroids = mesh.vertices[mesh.elements].mean(axis=1)
+    selected = Plotter(title='Three regions, selected by position', axis_labels=False,
+                       figsize=figsize)
+    selected.plot(mesh, mode='mesh')
+    selected.plot_highlights(mesh, [np.flatnonzero(far_half(centroids))], ['lightblue'],
+                             ['in_box: far half'], mode='elements')
+    selected.plot_highlights(
+        mesh,
+        [np.flatnonzero(clamped(mesh.vertices)), np.flatnonzero(loaded(mesh.vertices))],
+        ['red', 'green'],
+        ['on_plane: clamped edge', 'intersect: loaded patch'],
+    )
+    selected.get_ax().legend(loc='upper center', bbox_to_anchor=(0.5, -0.08), ncol=3,
+                             frameon=False)
     return DemoResult([
-        Figure(plotter, 'Elements coloured by the x of their centroid.', 'colored'),
-        Figure(highlight_plotter,
-               'Selecting by position: elements right of the midline, vertices on the '
-               'left edge.', 'highlights'),
+        Figure(boundary,
+               'The boundary a mesh knows about: the facets it carries, and the vertices '
+               'on them. Every condition in the gallery is placed somewhere on this.',
+               'boundary'),
+        Figure(selected,
+               'The same three regions the cantilever demos use, drawn rather than solved '
+               'on. Note the regions are geometric, not boundary-aware: resolving one into '
+               'a boundary condition intersects it with the boundary, so a plane through '
+               'the middle of the domain yields only the two vertices where it emerges.',
+               'regions'),
     ])
 
 def get_curve_from_svg(svg_file):
@@ -64,8 +99,8 @@ def get_curve_from_svg(svg_file):
     curve = max(output, key=lambda x: len(x)) # get the longest path
     return np.array(curve)
 
-def demo_douglas_peucker(curve, save_file='douglas_peucker_output.json',
-                         tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE, interactive=False):
+def simplify_curve(curve, save_file='douglas_peucker_output.json',
+                   tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE, interactive=False):
     """Simplify `curve` with Douglas-Peucker, returning the simplified curve.
 
     `tolerance` is a fraction of the curve's extent. `interactive=True` opens a slider
@@ -119,11 +154,8 @@ def rupperts_mesh(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTIO
     rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=max_area)
     return rupperts.refine(), rupperts
 
-def demo_rupperts(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
-    """Triangulate a PSLG with Ruppert's algorithm and plot the result."""
-    mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
-                                   max_area_fraction=max_area_fraction)
-
+def rupperts_figure(mesh, rupperts, min_angle, slug=''):
+    """The triangulation, its input segments, and what the angle bound actually held to."""
     plotter = Plotter(title='Triangulated mesh', axis_labels=False)
     plotter.plot(mesh, mode='mesh')
     ax = plotter.get_ax()
@@ -139,12 +171,13 @@ def demo_rupperts(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTIO
     held = (f'every angle at least {min_angle} degrees' if worst >= min_angle else
             f'every angle at least {min_angle} degrees bar the input corners already '
             f'sharper than that, the worst {worst:.0f}')
-    return DemoResult([Figure(
+    return Figure(
         plotter,
         f"Ruppert's refinement of {outlines} outlines (blue) into {len(mesh.elements)} "
         f'triangles, {held}. The mesh covers what the '
         f'outlines enclose and nothing else, and carries the {len(mesh.boundary)} boundary '
-        'edges a solver needs to put conditions on.')])
+        'edges a solver needs to put conditions on.',
+        slug)
 
 def demo_plate_with_hole(min_angle=25, max_area_fraction=0.004):
     """Mesh a plate with a hole in it, colouring the boundary by which outline it came from.
@@ -176,48 +209,53 @@ def demo_plate_with_hole(min_angle=25, max_area_fraction=0.004):
         'it came from -- which is what lets Dirichlet on the obstacle and Neumann on the '
         'wall be written separately.')])
 
-def demo_douglas_peucker_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE,
-                             interactive=False):
-    """Simplify an SVG outline via Douglas-Peucker; --interactive opens a slider over the
-    tolerance, with a button that saves the curve you settle on."""
+def demo_mesh_from_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE,
+                       interactive=False, min_angle=20,
+                       max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
+    """Turn an SVG drawing into a mesh: simplify each outline with Douglas-Peucker, then
+    triangulate them with Ruppert's algorithm.
+
+    --interactive opens a slider over the simplification tolerance, previewing it on the
+    largest outline before meshing. The tolerance used for meshing is always `tolerance`,
+    applied per-loop by `read_svg_to_pslg`."""
+    # The two steps are one demo because the first exists for the second: Ruppert's cost
+    # is superlinear in the point count it is handed, and an SVG outline traced at screen
+    # resolution has thousands. Simplification is what makes the triangulation finish.
     curve = get_curve_from_svg(svg_file)
-    simplified = demo_douglas_peucker(curve, tolerance=tolerance, interactive=interactive)
+    simplified = simplify_curve(curve, tolerance=tolerance, interactive=interactive)
 
     # The interactive path has already had its say on screen; this is the result either
     # way, and the only thing a saved gallery can show of it.
-    plotter = Plotter(title='Douglas-Peucker simplification', axis_labels=False)
-    ax = plotter.get_ax()
-    ax.plot(curve[:, 0], curve[:, 1], color='gray', linewidth=1.0, label=f'original ({len(curve)} pts)')
-    ax.plot(simplified[:, 0], simplified[:, 1], 'b-', label=f'simplified ({len(simplified)} pts)')
-    return DemoResult([Figure(
-        plotter,
-        f'{len(curve)} outline points reduced to {len(simplified)}. Ruppert\'s cost is '
-        'superlinear in what it is handed, so this is what makes triangulating it tractable.')])
+    simplify_plotter = Plotter(title='Douglas-Peucker simplification', axis_labels=False)
+    ax = simplify_plotter.get_ax()
+    ax.plot(curve[:, 0], curve[:, 1], color='gray', linewidth=1.0,
+            label=f'original ({len(curve)} pts)')
+    ax.plot(simplified[:, 0], simplified[:, 1], 'b-',
+            label=f'simplified ({len(simplified)} pts)')
 
-def demo_rupperts_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE,
-                      interactive=False, min_angle=20,
-                      max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
-    """Triangulate every closed outline in an SVG with Ruppert's algorithm;
-    --interactive opens a slider to preview simplification of the largest outline
-    before meshing.  The tolerance used for meshing is always `tolerance`, applied
-    per-loop by `read_svg_to_pslg`."""
-    if interactive:
-        curve = get_curve_from_svg(svg_file)
-        demo_douglas_peucker(curve, tolerance=tolerance, interactive=True)
     pslg = read_svg_to_pslg(svg_file, tolerance=tolerance)
-    return demo_rupperts(pslg, min_angle=min_angle,
-                         max_area_fraction=max_area_fraction)
+    mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
+                                   max_area_fraction=max_area_fraction)
+    return DemoResult([
+        Figure(simplify_plotter,
+               f'{len(curve)} outline points reduced to {len(simplified)} on the largest '
+               'loop, at a tolerance set as a fraction of the outline\'s extent.',
+               'simplified'),
+        rupperts_figure(mesh, rupperts, min_angle, 'meshed'),
+    ])
 
 
 DEMOS = [
-    Demo('mesh_plotting', demo_mesh_plotting, domain=partial(square, 20)),
-    Demo('douglas_peucker', demo_douglas_peucker_svg),
     # Both mesh to a size cap, which is what makes the figures worth looking at and
     # also most of their cost; the smoke run only needs the code paths. Loosen the cap
     # and nothing else -- simplifying the outline further is *not* reliably cheaper,
     # because it sharpens corners, and refinement spends extra elements around those.
-    Demo('rupperts', demo_rupperts_svg,
+    Demo('mesh_from_svg', demo_mesh_from_svg, section='Meshing a domain',
          smoke_kwargs={'max_area_fraction': 0.05}),
-    Demo('plate_with_hole', demo_plate_with_hole,
+    Demo('plate_with_hole', demo_plate_with_hole, section='Meshing a domain',
          smoke_kwargs={'max_area_fraction': 0.05}),
+    # Coarse, so individual edges and the selected vertices stay legible, and a beam
+    # so the regions are the cantilever's own.
+    Demo('regions', demo_regions, section='Meshing a domain',
+         domain=partial(beam, 4.0, 1.0, 24)),
 ]

@@ -181,8 +181,11 @@ recovers anything. Each item below is an implementation of a seam that already e
   outer loop rather than loops of their own, so they still need a coordinate region
   (`fem.regions.on_plane`) to separate them, and the demo has to wire that to the Poisson
   equation and reproduce the README figure.
-- 💡 **`adaptive_refinement` is the one demo still skipped by `tests/test_demos.py`**,
-  blocked on the error estimator above and on Dirichlet conditions that survive a remesh.
+- 💡 **The `refinement` demo shows both ends of the loop and not the join** — the peaked
+  Poisson problem that motivates refining, and red-green splitting on a small mesh —
+  because driving one from the other needs the error estimator above, plus Dirichlet
+  conditions that survive a remesh. Every demo now runs under `tests/test_demos.py`;
+  the only skip is `heat_3d`, on the optional `pyvista`.
 - 💡 **Report the minimum corner angle alongside the demo's simplification tolerance.**
   Output size used to be non-monotonic in *input* size, because cost tracked the sharpest
   corner Douglas-Peucker left behind rather than the point count. The corner treatment

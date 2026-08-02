@@ -26,19 +26,19 @@ from demo_registry import Demo, DemoResult
 
 IMAGES = 'img'
 
-# The index reads in the order a newcomer should meet the project -- what it solves,
-# then how a domain becomes a mesh, then the two supporting pieces. Alphabetical opened
-# on `3d`, `adaptive_refinement` and `backends`: a demo needing an optional dependency,
-# one whose headline feature is not wired up yet, and a table of timings.
-SECTIONS: list[tuple[str, str]] = [
-    ('solver_demos', 'Solving PDEs'),
-    ('meshing_demos', 'Meshing'),
-    ('refinement_demo', 'Adaptive refinement'),
-    ('benchmark_assembly', 'Performance'),
+# The index in the order a newcomer should meet the project: build a domain, solve on
+# it, apply that to solids, then ask whether the answer is right and fast. Each demo
+# names its own section (`Demo.section`); this is the order they appear in, and within
+# a section demos keep the order they were registered in.
+SECTIONS: list[str] = [
+    'Meshing a domain',
+    'Solving PDEs',
+    'Solids & structures',
+    'Accuracy & performance',
 ]
 
-# Demos from any other module still appear, under this heading, rather than being
-# dropped by a grouping that did not know about them.
+# A demo naming no section, or one not listed above, still appears -- under this
+# heading, rather than being dropped by a grouping that did not know about it.
 OTHER_SECTION = 'Other demos'
 
 
@@ -59,7 +59,7 @@ class Entry:
     artifacts: list[str] = field(default_factory=list)
     skipped: str | None = None
     source: str = ''
-    module: str = ''               # which section of the index it belongs under
+    section: str = ''              # which heading of the index it belongs under
 
 
 def _missing_dependency(demo: Demo) -> str | None:
@@ -102,7 +102,7 @@ def run_demo(demo: Demo, out_dir: Path) -> Entry:
     `out_dir` as the cwd -- the same arrangement `tests/test_demos.py` uses to keep
     stray files out of the repo.
     """
-    entry = Entry(demo.name, demo.description(), source=demo.source(), module=demo.module())
+    entry = Entry(demo.name, demo.description(), source=demo.source(), section=demo.section)
 
     skip = _missing_dependency(demo)
     if skip is not None:
@@ -270,8 +270,8 @@ def _sections(entries: list[Entry]) -> list[tuple[str, list[Entry]]]:
     """Entries under their headings, in `SECTIONS` order, empty sections omitted."""
     grouped = []
     claimed = set()
-    for module, title in SECTIONS:
-        members = [e for e in entries if e.module == module]
+    for title in SECTIONS:
+        members = [e for e in entries if e.section == title]
         claimed.update(e.name for e in members)
         if members:
             grouped.append((title, members))
@@ -341,7 +341,9 @@ def build_gallery(registry: dict[str, Demo], out_dir: Path) -> list[Entry]:
     cwd = Path.cwd()
     try:
         os.chdir(out_dir)
-        for name in sorted(registry):
+        # Registry order, not alphabetical: it is the order each module lists its demos
+        # in, which is the order they appear within a section.
+        for name in registry:
             entry = run_demo(registry[name], out_dir)
             entries.append(entry)
             print(f'  {name}' + (f' - skipped ({entry.skipped})' if entry.skipped else ''))

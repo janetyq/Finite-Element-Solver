@@ -40,14 +40,16 @@ def gallery(tmp_path_factory):
     # the cheap variants are bound here rather than declared on the Demo.
     small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     registry = {
-        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small),
+        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
+                        section='Solving PDEs'),
         'topopt': Demo('topopt', partial(solver_demos.demo_topology_optimization, iters=2),
-                       domain=small),
-        'backends': Demo('backends', partial(demo_backends, sizes=(5,))),
+                       domain=small, section='Solids & structures'),
+        'backends': Demo('backends', partial(demo_backends, sizes=(5,)),
+                         section='Accuracy & performance'),
         'absent': Demo('absent', solver_demos.demo_poisson_equation, domain=small,
+                       section='Solving PDEs',
                        smoke_requires='a_module_that_is_not_installed'),
-        # Defined in this file, so it also stands for a demo from a module the index
-        # has no section for.
+        # Declares no section, so it also stands for a demo the index has no heading for.
         'gif_maker': Demo('gif_maker', _writes_a_gif),
     }
     out = tmp_path_factory.mktemp('gallery') / 'out'
@@ -114,17 +116,18 @@ def test_a_skipped_demo_still_shows_its_source(gallery):
     assert 'def demo_poisson_equation' in (out / 'absent.html').read_text(encoding='utf-8')
 
 
-def test_index_is_grouped_by_area_not_alphabetically(gallery):
-    """Sorted by name, the index opened on the three demos that show it least well."""
+def test_index_is_grouped_by_section_not_alphabetically(gallery):
+    """Sorted by name, the index opened on the demos that show it least well."""
     out, _entries = gallery
     index = (out / 'index.html').read_text(encoding='utf-8')
     headings = re.findall(r'<h2 class="heading">([^<]+)</h2>', index)
-    assert headings == ['Solving PDEs', 'Performance', 'Other demos']
-    assert index.index('poisson.html') < index.index('Performance')
+    assert headings == ['Solving PDEs', 'Solids &amp; structures',
+                        'Accuracy &amp; performance', 'Other demos']
+    assert index.index('poisson.html') < index.index('topopt.html')
 
 
-def test_a_demo_from_an_unlisted_module_still_appears(gallery):
-    """Grouping must not be able to drop a demo it has no section for."""
+def test_a_demo_declaring_no_section_still_appears(gallery):
+    """Grouping must not be able to drop a demo it has no heading for."""
     out, _entries = gallery
     assert 'gif_maker.html' in (out / 'index.html').read_text(encoding='utf-8')
 

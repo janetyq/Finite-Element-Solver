@@ -66,6 +66,10 @@ class Demo:
     # and per demo rather than one default for all, because a cantilever wants a beam
     # and a projection wants a fine square. `cli.py --mesh` overrides it.
     domain: 'Callable[[], Mesh] | None' = None
+    # The gallery index heading this demo belongs under. Declared rather than inferred
+    # from the module it is written in: which file a demo lives in is a fact about the
+    # code's layout, and it disagreed with where a reader would look for it.
+    section: str = ''
     # An optional dependency the demo needs; it is skipped where that is absent.
     smoke_requires: str | None = None
     # Cheaper arguments for `tests/test_demos.py`, which runs every demo on every
@@ -100,9 +104,3 @@ class Demo:
         """The demo's docstring on one line, for `list` and for its gallery page."""
         doc = inspect.getdoc(self._unwrapped())
         return ' '.join(doc.split()) if doc else '(no description)'
-
-    def module(self) -> str:
-        """The example module the demo was written in, which is what groups it in the
-        gallery index -- the file a demo lives in is already the statement of what
-        area it belongs to, so the grouping needs nothing declared per demo."""
-        return getattr(self._unwrapped(), '__module__', '')

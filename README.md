@@ -202,7 +202,7 @@ Note: This example shows extreme displacement, in reality, the object would no l
 
 The solver can also perform adaptive mesh refinement to increase the accuracy of the solution. It works by taking a per-element error estimate and refining the elements with the largest error, maintaining triangle quality with regular (red-green) refinement.
 
-`AdaptiveRefinement` takes the estimate as an injected callable `(solver) -> per-element error`, and the refine/remesh loop around it is complete. **The estimator itself is not yet implemented** — the images below were produced by an earlier version, and the `adaptive_refinement` demo is currently gated behind a deliberate `NotImplementedError` until a real estimate lands. See `BACKLOG.md`.
+`AdaptiveRefinement` takes the estimate as an injected callable `(solver) -> per-element error`, and the refine/remesh loop around it is complete. **The estimator itself is not yet implemented** — the images below were produced by an earlier version. The `refinement` demo shows the two ends of the loop, the peaked problem and the red-green splitting, without the join. See `BACKLOG.md`.
 
 Here, we show adaptive refinement on solving Poisson's equation.
 
