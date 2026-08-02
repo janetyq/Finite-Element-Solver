@@ -145,11 +145,13 @@ a { color: inherit; }
         text-decoration: none; display: flex; flex-direction: column; }
 /* `contain`, not `cover`: these figures are wide, and cropping one to a 4:3 tile
    showed a fifth of a single panel -- `robin` is four panels across 2000x500. */
-.card img, .card .thumb-text, .card .thumb-empty {
+.card img, .card .thumb-text, .card .thumb-note, .card .thumb-empty {
   width: 100%; aspect-ratio: 4/3; background: #fff; display: block; }
 .card img { object-fit: contain; }
 .card .thumb-text { margin: 0; border: 0; border-radius: 0; padding: .7rem .8rem;
                     font-size: .5rem; line-height: 1.5; color: #111; overflow: hidden; }
+.card .thumb-note { display: flex; align-items: center; padding: 1.25rem;
+                    color: #666; font-size: .85rem; }
 .card .meta { padding: .7rem .85rem; }
 .card .meta p { margin: .2rem 0 0; color: var(--muted); font-size: .82rem; }
 .badge { font-size: .72rem; color: var(--muted); border: 1px solid var(--line);
@@ -283,9 +285,11 @@ def _sections(entries: list[Entry]) -> list[tuple[str, list[Entry]]]:
 def _thumbnail(entry: Entry) -> str:
     """The tile at the top of a card.
 
-    A demo with no figure is not a demo with nothing to show: `3d` renders through
-    PyVista and hands back a GIF, and `backends` produces a table of timings. Both
-    used to get an invisible tile, which read as a broken card.
+    A demo with no figure is not a demo with nothing to show, and an invisible tile
+    reads as a broken card. `3d` renders through PyVista and hands back a GIF;
+    `backends` produces a table of timings; a demo skipped for a missing dependency
+    has at least the reason. The deployed gallery installs no extras, so `3d` is
+    always the third case there and the first only when run locally.
     """
     src = entry.panels[0].src if entry.panels else next(
         (a for a in entry.artifacts if a.lower().endswith('.gif')), '')
@@ -294,6 +298,8 @@ def _thumbnail(entry: Entry) -> str:
     if entry.text:
         preview = html.escape('\n'.join(entry.text.splitlines()[:5]))
         return f'<pre class="thumb-text">{preview}</pre>'
+    if entry.skipped:
+        return f'<span class="thumb-note">Not rendered: {html.escape(entry.skipped)}.</span>'
     return '<span class="thumb-empty"></span>'
 
 

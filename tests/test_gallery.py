@@ -149,3 +149,12 @@ def test_missing_dependency_is_reported_not_omitted(gallery):
     assert entries['absent'].skipped
     assert not entries['absent'].panels
     assert 'Not rendered' in (out / 'absent.html').read_text(encoding='utf-8')
+
+
+def test_a_skipped_demo_gives_its_reason_on_its_card_too(gallery):
+    """The deployed gallery installs no extras, so `3d` is skipped there every time --
+    which is exactly the card that used to be blank."""
+    out, _entries = gallery
+    index = (out / 'index.html').read_text(encoding='utf-8')
+    assert 'thumb-note' in index
+    assert 'a_module_that_is_not_installed' in index
