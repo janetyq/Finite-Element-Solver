@@ -5,15 +5,7 @@
 
 This finite element method (FEM) solver is capable of solving a variety of partial differential equations (PDEs), such as Poisson, heat, wave, and both linear and nonlinear elasticity equations. It supports both Dirichlet and Neumann boundary conditions and can be applied to simulate both 2D and 3D meshes. Interesting features include custom meshing algorithms, adaptive mesh refinement to enhance simulation accuracy and topology optimization for optimizing structural design.
 
-> ### ▶ [See it running — the demo gallery](https://janetyq.github.io/Finite-Element-Solver/)
->
-> Sixteen demos, each rendered beside the code that produced it, rebuilt from `main` on
-> every push. Start with
-> [meshing an outline](https://janetyq.github.io/Finite-Element-Solver/mesh_from_svg.html),
-> [Poisson](https://janetyq.github.io/Finite-Element-Solver/poisson.html),
-> [a bending cantilever](https://janetyq.github.io/Finite-Element-Solver/linear_elastic.html),
-> [topology optimization](https://janetyq.github.io/Finite-Element-Solver/topology_optimization.html),
-> or [the O(h²) convergence the test suite asserts](https://janetyq.github.io/Finite-Element-Solver/convergence.html).
+### ▶ [See it running — the demo gallery](https://janetyq.github.io/Finite-Element-Solver/)
 
 ## Installation
 
