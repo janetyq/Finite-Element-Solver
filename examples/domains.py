@@ -6,8 +6,12 @@ whatever mesh the caller happened to pass. `files/` used to hold six meshes for 
 which were cached `create_rect_mesh` output: the same function reproduces any of them
 vertex for vertex in about 40 ms, so they were fixtures that could only drift.
 
-Sizes are chosen so a demo costs about what it did on the old 40x40 default, roughly
-1600 vertices. That matters because the gallery workflow runs every demo on each push.
+Sizes are chosen for what the figure needs to show, within what the gallery workflow
+can afford -- it renders every demo on each push. Resolution is not what that build
+costs, though: of ~3.5 minutes, three quarters goes on rendering animation frames and
+on the 3D timing sweep, so a static solve can afford to be several times finer than
+the animated ones beside it. `tests/test_demos.py` substitutes a tiny mesh for every
+domain, so none of this reaches the per-commit gate.
 """
 import numpy as np
 
@@ -51,7 +55,7 @@ def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float
 
 
 def plate_with_hole(length: float = 6.0, height: float = 3.0, radius: float = 0.3,
-                    min_angle: float = 25, max_area_fraction: float = 0.0008) -> Mesh:
+                    min_angle: float = 25, max_area_fraction: float = 0.0005) -> Mesh:
     """The plate above, triangulated by Ruppert's algorithm.
 
     Unlike every other domain here this one is *generated* rather than laid out on a

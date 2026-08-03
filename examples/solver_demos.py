@@ -163,10 +163,15 @@ def demo_stress_concentration(mesh, traction=1.0):
     # Kirsch's factor of 3 is the *infinite*-plate limit, and this plate is finite, so
     # the measured peak sits above it -- the hole removes section, which raises the
     # stress the remaining material carries. It falls toward 3 as the hole shrinks
-    # relative to the plate; measured here at 3.56, 3.27 and 3.22 for hole diameters
-    # of 0.20, 0.15 and 0.12 of the height. Refining the mesh moves it far less
-    # (3.62 -> 3.53 at 2.7x the elements), so what the excess measures is the geometry,
-    # not the discretization.
+    # relative to the plate: around 3.3 at a hole 0.20 of the height, 3.27 at 0.15,
+    # 3.22 at 0.12.
+    #
+    # Only one digit of that is worth quoting. The peak is read at element centroids,
+    # and Ruppert's lays down a different triangulation at every size cap, so how close
+    # the nearest centroid falls to the rim -- where the gradient is steepest -- varies
+    # between runs. Refining does not settle it monotonically: 3.35, 3.56, 3.34, 3.34
+    # over 1182, 2074, 3233 and 5272 elements. Reading the true rim value would mean
+    # extrapolating to the boundary rather than sampling near it.
     length, height = np.max(mesh.vertices, axis=0)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
@@ -199,7 +204,7 @@ def demo_stress_concentration(mesh, traction=1.0):
     ax.plot(y_strip[~below], ratio_strip[~below], 'o-', color='tab:blue', markersize=3)
     ax.axhline(3.0, color='tab:red', linestyle='--', label='Kirsch: 3x at the rim')
     ax.axhline(1.0, color='gray', linestyle=':', label='far field')
-    ax.set_title(f'Peak {peak:.2f}x the applied stress')
+    ax.set_title(f'Peak {peak:.1f}x the applied stress')
     ax.grid(alpha=0.3)
     # Below the curve: the peak is what this panel exists to show, and a default-placed
     # legend sat on top of it.
@@ -210,19 +215,21 @@ def demo_stress_concentration(mesh, traction=1.0):
                 f'A plate pulled from the right, with the hole left traction-free -- '
                 f'which is what an edge means when no condition is written on it. The '
                 f'stress crowds into the material either side of the hole and relaxes '
-                f'to the applied value within about a diameter, peaking at {peak:.2f}x '
+                f'to the applied value within about a diameter, peaking at {peak:.1f}x '
                 f'the applied stress. Kirsch gives 3x -- for a hole in an *infinite* '
                 f'plate. This one is three hole-diameters tall, so the hole removes '
                 f'enough section to push the peak above that limit, and the excess '
                 f'shrinks as the hole does. A textbook constant is a limit, not a '
-                f'target.')],
+                f'target -- and one digit is all this measurement supports, since the '
+                f'peak is sampled at element centroids near the steepest gradient in '
+                f'the field.')],
         text=(f'applied traction         {traction:.3g}\n'
               f'hole diameter / height   {2*radius/height:.2f}\n'
               f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)\n'
               f'generated elements       {len(mesh.elements)}'),
     )
 
-def demo_elastic_3d(n=13):
+def demo_elastic_3d(n=17):
     """Bend a 3D cantilever beam of tetrahedra, drawn without the optional 3D viewer."""
     # The package solves in 3D throughout -- the same assembly, the same element
     # hierarchy, `Solver` reading the element type off the connectivity -- and the
@@ -525,24 +532,25 @@ SOLIDS = 'Solids & structures'
 ACCURACY = 'Accuracy & performance'
 
 DEMOS = [
-    Demo('poisson', demo_poisson_equation, section=SOLVING, domain=square),
+    Demo('poisson', demo_poisson_equation, section=SOLVING, domain=partial(square, 80)),
     Demo('heat', demo_heat_equation, section=SOLVING, domain=square),
     # 20 steps of tet rendering is ~4.4s against ~1.9s for 3; the frames are identical
     # work, so the test takes the short run.
     Demo('heat_3d', demo_heat_3d, section=SOLVING,
          smoke_requires='pyvista', smoke_kwargs={'steps': 3}),
     Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
-    Demo('robin', demo_robin_bc, section=SOLVING, domain=square),
+    Demo('robin', demo_robin_bc, section=SOLVING, domain=partial(square, 80)),
 
     # A cantilever is a beam. On the square this used to load, the "bending" was a
     # square bulging sideways, and the stress concentration had nowhere to run to.
     Demo('linear_elastic', demo_linear_elastic, section=SOLIDS,
-         domain=partial(beam, 4.0, 1.0, 80)),
+         domain=partial(beam, 4.0, 1.0, 140)),
     # Stretched end to end, so the domain is incidental; a square keeps the deformed
     # and undeformed shapes comparable at a glance.
-    Demo('elasticity_models', demo_elasticity_models, section=SOLIDS, domain=square),
+    Demo('elasticity_models', demo_elasticity_models, section=SOLIDS,
+         domain=partial(square, 60)),
     Demo('stress_invariants', demo_stress_invariants, section=SOLIDS,
-         domain=partial(beam, 4.0, 1.0, 80)),
+         domain=partial(beam, 4.0, 1.0, 140)),
     # The one solve on a generated mesh: a domain with a hole in it has no
     # structured triangulation, so this is Ruppert's output going into the solver.
     Demo('stress_concentration', demo_stress_concentration, section=SOLIDS,
@@ -559,7 +567,7 @@ DEMOS = [
     # The point is which oscillations of sin(40 r^2) the space can represent, so this
     # one is meshed finer than the rest: at 40 a side the inner rings alias too. It
     # leads the accuracy section because representation error is what the rest measures.
-    Demo('l2_projection', demo_l2_projection, section=ACCURACY, domain=partial(square, 70)),
+    Demo('l2_projection', demo_l2_projection, section=ACCURACY, domain=partial(square, 120)),
     # Builds its own sequence of meshes rather than taking a domain: the refinement
     # sequence *is* the demo. The smoke run keeps the two coarsest -- an order needs
     # two points, and the 81x81 solve is most of the cost.
