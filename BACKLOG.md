@@ -14,7 +14,6 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
-| Scaling | Sparsify the smoothing matrix (topology) | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -42,12 +41,6 @@ operator and load. `TopologyOptimizer` does this once per iteration, where only 
 changed — the SIMP scaling suggests re-weighting the element matrices per iteration instead of
 rebuilding them. (Time-stepping is already handled: the integrators build one `DiscreteSystem`
 and reuse its factorization across steps.)
-
-### 🟠 `calculate_smoothing_matrix` is dense `O(n_elem²)`
-`fem/numerics.py:calculate_smoothing_matrix` materializes a full element-by-element
-distance matrix. For topology optimization at any real resolution this dominates memory. A
-spatial hash / KD-tree (`scipy.spatial.cKDTree.query_ball_point`) building a sparse weight
-matrix would scale far better and is a near drop-in.
 
 ### 🟠 Ruppert's per-pass cost is down to qhull plus one integer scan
 Refinement grows the triangulation incrementally, carries encroachment in a mask, and
