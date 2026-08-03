@@ -526,13 +526,6 @@ ACCURACY = 'Accuracy & performance'
 
 DEMOS = [
     Demo('poisson', demo_poisson_equation, section=SOLVING, domain=square),
-    # The one solve on a generated mesh: a domain with a hole in it has no
-    # structured triangulation, so this is Ruppert's output going into the solver.
-    Demo('stress_concentration', demo_stress_concentration, section=SOLIDS,
-         domain=plate_with_hole),
-    # Builds its own box: the only 3D domain, and the tet count is what sets the
-    # cost, so the smoke run takes a coarser one.
-    Demo('elastic_3d', demo_elastic_3d, section=SOLIDS, smoke_kwargs={'n': 5}),
     Demo('heat', demo_heat_equation, section=SOLVING, domain=square),
     # 20 steps of tet rendering is ~4.4s against ~1.9s for 3; the frames are identical
     # work, so the test takes the short run.
@@ -550,6 +543,13 @@ DEMOS = [
     Demo('elasticity_models', demo_elasticity_models, section=SOLIDS, domain=square),
     Demo('stress_invariants', demo_stress_invariants, section=SOLIDS,
          domain=partial(beam, 4.0, 1.0, 80)),
+    # The one solve on a generated mesh: a domain with a hole in it has no
+    # structured triangulation, so this is Ruppert's output going into the solver.
+    Demo('stress_concentration', demo_stress_concentration, section=SOLIDS,
+         domain=plate_with_hole),
+    # Builds its own box: the only 3D domain, and the tet count is what sets the
+    # cost, so the smoke run takes a coarser one.
+    Demo('elastic_3d', demo_elastic_3d, section=SOLIDS, smoke_kwargs={'n': 5}),
     # 2:1 at ~1600 vertices: the aspect ratio is what makes SIMP produce the truss it
     # is known for, and the vertex count is what keeps 40 iterations affordable in the
     # gallery workflow.
