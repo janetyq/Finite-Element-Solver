@@ -145,7 +145,9 @@ through a form**:
   `Gᵀ C G · volume` stiffness family) — scatter through `FunctionSpace.assemble`, one loop that
   does not know what it is scattering. `ScaledForm(c², form)` and `MaskedMassForm(mask)` are the
   two combinators that exist because a term needed them (the wave operator's `c²K`, the Robin
-  boundary integral); no speculative `OperatorSum` waits ahead of a second use.
+  boundary integral); no speculative `OperatorSum` waits ahead of a second use. `PrecomputedForm`
+  is the escape hatch beside them, for a driver that can derive its element matrices more cheaply
+  than by re-integrating them — SIMP rescales one set by `rho^p`.
 - **The nonlinear energy path** is `EnergyForm`, the sibling that maps an element *and a state*
   to an energy, residual, and tangent; the energy path scatters it through
   `FunctionSpace.assemble_residual`/`assemble_tangent`, which `EnergyProblem` calls. A quadratic energy has a constant tangent, so the
@@ -316,8 +318,9 @@ the energy path runs through `NewtonSolve`, whose tangent is not guaranteed SPD 
 
 `AdaptiveRefinement` and `TopologyOptimizer` are the two studies, and they share one shape: each
 owns a solver (or strategy) and re-solves. `AdaptiveRefinement` owns a `RefinableSolver` and
-advances it across meshes via `remesh`; `TopologyOptimizer` owns a `SolveStrategy` and rebuilds a
-fresh `LinearProblem` from the current density each iteration. Its objective is an injected object
+advances it across meshes via `remesh`; `TopologyOptimizer` owns a `SolveStrategy` and derives a
+fresh `LinearProblem` from the current density each iteration, via `with_operator`, over the
+constraints and load the density does not reach. Its objective is an injected object
 (`MinCompliance`, `TargetCompliance`) and its result a typed `TopologyHistory`. Neither driver
 reaches into a solver's internals: adaptivity uses `remesh` and `solve`, and the optimizer only
 builds and solves fresh `Problem`s.

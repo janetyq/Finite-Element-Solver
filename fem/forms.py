@@ -279,6 +279,31 @@ class ScaledForm:
         return self.factor * self.form.element_matrices(geometry)
 
 
+@dataclass(frozen=True, eq=False)
+class PrecomputedForm:
+    '''Element matrices computed elsewhere, handed to assembly as they are.
+
+    The escape hatch for a driver that can derive its element matrices more cheaply
+    than by re-integrating them. SIMP is the case in hand: scaling the modulus by
+    `rho^p` scales each element matrix by exactly `rho^p`, since the constitutive
+    matrix is linear in E, so a topology optimization iteration rescales one
+    precomputed set rather than re-contracting `B^T D B` over the mesh.
+
+    Valid only for the geometry the matrices were computed on, which is why the
+    element count is checked -- `matrices` carries the geometry's imprint but no
+    way to identify it, so a mismatched *shape* is the one error catchable here.
+    '''
+    matrices: FloatArray   # (n_elements, k, k)
+
+    def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        if len(self.matrices) != geometry.n_elements:
+            raise ValueError(
+                f'precomputed matrices cover {len(self.matrices)} elements but the '
+                f'geometry has {geometry.n_elements}'
+            )
+        return self.matrices
+
+
 class EnergyDensity(Protocol):
     '''The material law an `EnergyForm` integrates: `fem.energies` implements it.'''
 

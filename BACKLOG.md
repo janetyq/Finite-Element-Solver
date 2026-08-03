@@ -37,10 +37,9 @@ estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
 
 ### 🟠 Every `solve()` re-assembles from scratch
 `Solver._steady_problem` builds a fresh `LinearProblem` per call, whose constructor assembles the
-operator and load. `TopologyOptimizer` does this once per iteration, where only the material has
-changed — the SIMP scaling suggests re-weighting the element matrices per iteration instead of
-rebuilding them. (Time-stepping is already handled: the integrators build one `DiscreteSystem`
-and reuse its factorization across steps.)
+operator and load. (The two drivers that re-solve in a loop no longer pay this: the integrators
+build one `DiscreteSystem` and reuse its factorization across steps, and `TopologyOptimizer`
+rescales one set of element matrices and derives its problem with `LinearProblem.with_operator`.)
 
 ### 🟠 Ruppert's per-pass cost is down to qhull plus one integer scan
 Refinement grows the triangulation incrementally, carries encroachment in a mask, and
