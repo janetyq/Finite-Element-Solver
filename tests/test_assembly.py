@@ -20,11 +20,12 @@ The invariants are the mathematically meaningful half and are worth stating:
 """
 import numpy as np
 import pytest
+from scipy.sparse import csr_array
 
 from fem.forms import LaplacianForm, LinearElasticForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.ruppert import create_box_mesh, create_rect_mesh
-from fem.space import FunctionSpace
+from fem.space import FunctionSpace, dof_indices
 
 
 def fingerprint(A):
@@ -190,3 +191,45 @@ def test_per_element_modulus_reaches_the_global_matrix(mesh):
         V.assemble(LinearElasticForm(LinearElasticMaterial(0.5 * E, 0.3))).toarray(),
         0.5 * uniform, atol=1e-9,
     )
+
+
+def test_scatter_matches_a_direct_coo_sum(mesh):
+    """The cached scatter plan against the obvious way of writing the same sum.
+
+    A space resolves each element matrix entry's destination once and reuses it
+    across assemblies; handing the same entries to scipy as raw COO triplets sums
+    them independently, and the two must agree entry for entry."""
+    d = mesh.spatial_dim
+    V = FunctionSpace(mesh, n_components=d)
+    form = LinearElasticForm(LinearElasticMaterial(np.linspace(50.0, 200.0, len(mesh.elements)), 0.3))
+    element_matrices = form.element_matrices(V.geometry)
+
+    dofs = dof_indices(mesh.elements, d)
+    k = dofs.shape[1]
+    reference = csr_array(
+        (element_matrices.ravel(),
+         (np.repeat(dofs, k, axis=1).ravel(), np.tile(dofs, (1, k)).ravel())),
+        shape=(V.n_dofs, V.n_dofs),
+    )
+
+    assembled = V.assemble(form)
+    np.testing.assert_array_equal(assembled.indptr, reference.indptr)
+    np.testing.assert_array_equal(assembled.indices, reference.indices)
+    np.testing.assert_allclose(assembled.data, reference.data, rtol=1e-12)
+
+
+def test_scatter_plan_is_not_bound_to_the_first_form_assembled(mesh):
+    """The plan caches destinations, which are connectivity; it must not cache
+    values. Assembling a second operator over a space that has already assembled
+    one has to give what a fresh space would."""
+    d = mesh.spatial_dim
+    V = FunctionSpace(mesh, n_components=d)
+    elastic = LinearElasticForm(LinearElasticMaterial(200.0, 0.3))
+
+    V.assemble(elastic)                      # populates the cached plan
+    reassembled = V.assemble(elastic).toarray()
+    mass_after = V.mass_matrix.toarray()     # a different form over the same plan
+
+    fresh = FunctionSpace(mesh, n_components=d)
+    np.testing.assert_allclose(reassembled, fresh.assemble(elastic).toarray(), atol=1e-9)
+    np.testing.assert_allclose(mass_after, fresh.mass_matrix.toarray(), atol=1e-12)
