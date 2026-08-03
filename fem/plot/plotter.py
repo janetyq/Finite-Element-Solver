@@ -289,23 +289,34 @@ class Plotter:
         self.format_axs()
         self.fig.savefig(path, dpi=dpi if dpi is not None else self.fig.dpi)
 
-    def save_frames(self, path_template: str) -> list[str]:
-        '''Write each animation frame as a still image; returns the paths written.
+    def save_frames(self, path_template: str, max_frames: int | None = None) -> list[str]:
+        '''Write animation frames as still images; returns the paths written.
 
         `path_template` is formatted with the frame number, e.g. `'heat/{:03d}.png'`.
         Every animation on this figure is stepped together, which is why this lives
         here rather than on `FuncAnimation`: a figure with two animated panels has two
         of those, and saving through either one leaves the other panel frozen.
+
+        `max_frames` samples the run down to at most that many images, evenly and
+        keeping both ends -- the last frame of a topology optimization is the result,
+        so it is never the one dropped. The *solve* is untouched; this is only how
+        much of it gets rasterized, which is what a frame sequence actually costs.
         '''
         if not self._anim_updates:
             raise ValueError('this figure has no animation to write frames for')
 
+        frames = range(self.frame_count())
+        if max_frames is not None and self.frame_count() > max_frames:
+            frames = np.unique(np.linspace(0, self.frame_count() - 1, max_frames).astype(int))
+
         paths = []
-        for frame in range(self.frame_count()):
+        for image, frame in enumerate(frames):
             for update, _ in self._anim_updates.values():
-                update(frame)
+                update(int(frame))
             self.format_axs()
-            path = path_template.format(frame)
+            # Numbered by image rather than by frame, so a sampled run still writes a
+            # contiguous 000, 001, 002 for the player to step through.
+            path = path_template.format(image)
             self.fig.savefig(path, dpi=FRAME_DPI)
             paths.append(path)
         return paths
