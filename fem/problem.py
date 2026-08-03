@@ -112,7 +112,11 @@ class LinearProblem:
             + Traction(self._resolved.neumann_load).vector(space)
             + robin_load
         )
-        self._A = self._assemble(operator)
+        # Assembled on first use, not here. Stating a problem is cheap; assembling
+        # its operator is the expensive half, and a problem can be built without
+        # ever being solved -- a topology optimization iteration derives its own
+        # operator from a template whose own operator is never assembled.
+        self._A: Operator | None = None
 
     def _assemble(self, operator: Form) -> Operator:
         A = self.space.assemble(operator)
@@ -132,7 +136,10 @@ class LinearProblem:
         '''
         derived = copy.copy(self)
         derived.operator = operator
-        derived._A = self._assemble(operator)
+        # The copy carries this problem's assembled operator, which is precisely what
+        # the derived one must not answer with. Dropping it is what makes the new
+        # operator take effect; keeping it would hand back the old stiffness silently.
+        derived._A = None
         return derived
 
     @property
@@ -145,10 +152,14 @@ class LinearProblem:
         return self._b
 
     def tangent(self, u: DofVector | None = None) -> Operator:
+        # Assembled once, on the first call, and held: the operator is constant, so
+        # a Newton loop or a time-stepper asking repeatedly pays for one assembly.
+        if self._A is None:
+            self._A = self._assemble(self.operator)
         return self._A
 
     def residual(self, u: DofVector) -> DofVector:
-        return self._A @ u - self._b
+        return self.tangent() @ u - self._b
 
 
 class EnergyProblem:

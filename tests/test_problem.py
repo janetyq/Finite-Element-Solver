@@ -109,6 +109,54 @@ def test_with_operator_reapplies_the_robin_boundary_term(make_unit_square):
     assert np.abs(derived.tangent().toarray() - bare).max() > 1e-6
 
 
+def test_derived_problem_does_not_answer_with_the_parents_operator(make_unit_square):
+    """The dangerous ordering for a lazily assembled tangent: the parent has already
+    assembled its own, so the copy `with_operator` makes starts out holding it. A
+    derived problem that kept it would return the old operator with no error at all."""
+    space = FunctionSpace(make_unit_square(6), n_components=1)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    parent = LinearProblem(space, LaplacianForm(), 1.0, bc)
+    parent.tangent()   # populate the parent's cache *before* deriving
+
+    derived = parent.with_operator(ScaledForm(3.0, LaplacianForm()))
+
+    np.testing.assert_allclose(
+        derived.tangent().toarray(), 3.0 * parent.tangent().toarray(), atol=1e-12,
+    )
+
+
+def test_tangent_is_assembled_once_and_held(make_unit_square):
+    """Deferring the assembly must not turn into repeating it: the operator is
+    constant, so every later call answers from the first assembly."""
+    space = FunctionSpace(make_unit_square(6), n_components=1)
+    problem = LinearProblem(space, LaplacianForm(), 1.0)
+
+    assert problem.tangent() is problem.tangent()
+
+
+def test_stating_a_problem_does_not_assemble_it(make_unit_square, monkeypatch):
+    """A problem that is never solved costs nothing to state -- which is what lets
+    TopologyOptimizer hold a template it only ever derives from."""
+    space = FunctionSpace(make_unit_square(6), n_components=1)
+    assembled = []
+    assemble = FunctionSpace.assemble
+
+    def recording(self, form, boundary=False):
+        assembled.append(form)
+        return assemble(self, form, boundary)
+
+    monkeypatch.setattr(FunctionSpace, 'assemble', recording)
+
+    # The load still assembles a mass matrix, so it is the operator specifically
+    # that must not have been touched yet.
+    problem = LinearProblem(space, LaplacianForm(), 1.0)
+    assert not any(isinstance(form, LaplacianForm) for form in assembled)
+
+    problem.tangent()
+    assert any(isinstance(form, LaplacianForm) for form in assembled)
+
+
 def test_with_operator_leaves_the_original_alone(make_unit_square):
     """The derived problem is a new one; the operator it was derived from still
     answers with its own tangent."""
