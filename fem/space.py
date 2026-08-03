@@ -22,6 +22,7 @@ the mesh is not mutated underneath them. Build a new space instead of editing on
 -- the same contract `ResolvedBC` has with `BoundaryConditions`.
 """
 from collections.abc import Sequence
+from dataclasses import dataclass
 from functools import cached_property
 
 import numpy as np
@@ -83,6 +84,68 @@ def element_type_for(mesh: Mesh) -> type[LinearElement]:
             f'no linear element for {n_nodes}-node elements'
         )
     return _SIMPLEX_ELEMENTS[n_nodes]
+
+
+@dataclass(frozen=True, eq=False)
+class _ScatterPlan:
+    '''Where the entries of a batch of element matrices land in the global matrix.
+
+    Assembly sums every element-matrix entry into the global slot its (row, col)
+    names, so entries from elements sharing a node land together. Which slots exist
+    and which entries share one is fixed by the connectivity, not by the form or
+    the geometry -- so it is resolved once, here, and each assembly is then a
+    weighted `bincount` into a CSR matrix whose index arrays are already built.
+
+    That matters for a driver that assembles the same elements repeatedly: a
+    topology optimization iteration rescales the element matrices and reassembles,
+    and would otherwise re-sort the same COO triplets into CSR every time.
+    '''
+    n_entries: int      # element-matrix entries this plan expects
+    order: IntArray     # sorts those entries by destination slot
+    group: IntArray     # destination slot of each entry, once sorted
+    indices: IntArray   # CSR column indices, one per slot
+    indptr: IntArray
+    shape: tuple[int, int]
+
+    @classmethod
+    def build(cls, rows: IntArray, cols: IntArray, n_dofs: int) -> '_ScatterPlan':
+        '''Resolve flat (row, col) COO coordinates into a reusable scatter.'''
+        # One integer per coordinate, ordered as CSR wants its entries: by row,
+        # then by column within the row.
+        destination = rows * n_dofs + cols
+        order = np.argsort(destination, kind='stable')
+        in_order = destination[order]
+
+        # Equal neighbours in the sorted run are entries summing into one slot, so
+        # a running count of the distinct ones numbers the slots.
+        starts_slot = np.ones(len(in_order), dtype=bool)
+        starts_slot[1:] = in_order[1:] != in_order[:-1]
+        group = np.cumsum(starts_slot) - 1
+
+        slots = in_order[starts_slot]
+        per_row = np.bincount(slots // n_dofs, minlength=n_dofs)
+        return cls(
+            n_entries=len(destination),
+            order=order,
+            group=group,
+            indices=slots % n_dofs,
+            indptr=np.concatenate([[0], np.cumsum(per_row)]),
+            shape=(n_dofs, n_dofs),
+        )
+
+    def scatter(self, element_matrices: FloatArray) -> SparseMatrix:
+        '''Sum `element_matrices` into the global matrix this plan was built for.'''
+        if element_matrices.size != self.n_entries:
+            raise ValueError(
+                f'expected element matrices covering {self.n_entries} entries, got '
+                f'{element_matrices.size} (shape {element_matrices.shape})'
+            )
+        data = np.bincount(
+            self.group,
+            weights=element_matrices.ravel()[self.order],
+            minlength=len(self.indices),
+        )
+        return csr_array((data, self.indices, self.indptr), shape=self.shape)
 
 
 class FunctionSpace:
@@ -275,8 +338,8 @@ class FunctionSpace:
 
     # -- the scatter -------------------------------------------------------
 
-    def _scatter_indices(self, elements: Elements) -> tuple[IntArray, IntArray]:
-        '''Flat (row, col) COO coordinates for every entry of every element block.
+    def _scatter_plan(self, elements: Elements) -> _ScatterPlan:
+        '''Where every entry of every element block lands in the global matrix.
 
         Depends only on connectivity and `n_components`, never on the form or the
         geometry, so it is computed once per element set and reused by every
@@ -288,15 +351,17 @@ class FunctionSpace:
         k = dofs.shape[1]
         # Row index varies down the block, column index across it -- the vectorized
         # form of the (k, k) index grid, one block per element.
-        return np.repeat(dofs, k, axis=1).ravel(), np.tile(dofs, (1, k)).ravel()
+        rows = np.repeat(dofs, k, axis=1).ravel()
+        cols = np.tile(dofs, (1, k)).ravel()
+        return _ScatterPlan.build(rows, cols, self.n_dofs)
 
     @cached_property
-    def _volume_scatter(self) -> tuple[IntArray, IntArray]:
-        return self._scatter_indices(self.mesh.elements)
+    def _volume_scatter(self) -> _ScatterPlan:
+        return self._scatter_plan(self.mesh.elements)
 
     @cached_property
-    def _boundary_scatter(self) -> tuple[IntArray, IntArray]:
-        return self._scatter_indices(self.mesh.boundary)
+    def _boundary_scatter(self) -> _ScatterPlan:
+        return self._scatter_plan(self.mesh.boundary)
 
     def _assemble(
         self,
@@ -305,17 +370,9 @@ class FunctionSpace:
     ) -> SparseMatrix:
         '''Scatter (n_elements, k, k) element matrices into the global operator.
 
-        Emitted as COO triplets (row, col, value) and built into a CSR matrix,
-        which sums entries at repeated (row, col) -- exactly the scatter-add that
-        `A[np.ix_(idxs, idxs)] += block` did densely, now in O(nonzeros) memory.
+        The scatter-add that `A[np.ix_(idxs, idxs)] += block` did densely, in
+        O(nonzeros) memory: entries sharing a (row, col) are summed, and the
+        destinations come from the cached `_ScatterPlan`.
         '''
-        rows, cols = self._boundary_scatter if boundary else self._volume_scatter
-        if element_matrices.size != rows.size:
-            raise ValueError(
-                f'expected element matrices covering {rows.size} entries, got '
-                f'{element_matrices.size} (shape {element_matrices.shape})'
-            )
-        return csr_array(
-            (element_matrices.ravel(), (rows, cols)),
-            shape=(self.n_dofs, self.n_dofs),
-        )
+        plan = self._boundary_scatter if boundary else self._volume_scatter
+        return plan.scatter(element_matrices)
