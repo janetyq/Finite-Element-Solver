@@ -75,7 +75,7 @@ def test_colored_animation_scales_to_the_data(mesh):
     plotter = Plotter(1, 1)
     plotter.plot_animation(mesh, values, mode='colored')
 
-    _cmap, norm = plotter.cbar_infos[(0, 0)]
+    norm = plotter.cbar_infos[(0, 0)].norm
     assert (norm.vmin, norm.vmax) == (300.0, 350.0)
     plotter.close()
 
@@ -115,6 +115,29 @@ def test_colorbar_carries_the_quantity_it_shows(mesh):
     plotter.close()
 
 
+def test_colorbar_matches_the_height_of_the_panel_it_annotates():
+    """Constrained layout sizes a colorbar to the subplot *cell*; `set_aspect('equal')`
+    then shrinks the axes inside that cell. On a flat domain the bar ended up around
+    three times the height of the plot it was annotating.
+
+    Measured after `format_axs`, which is what every save and show path calls.
+    """
+    wide = create_rect_mesh(corners=[[0, 0], [4, 1]], resolution=(8, 4))
+    values = np.linspace(0.0, 1.0, len(wide.vertices))
+
+    plotter = Plotter(1, 1, panel_aspect=4.0)
+    plotter.plot(wide, values, mode='colored', label='v')
+    plotter.format_axs()
+
+    panel = plotter.axs[0, 0].get_position()
+    bar = plotter.cbar_infos[(0, 0)].bar.ax.get_position()
+    assert bar.height == pytest.approx(panel.height, rel=0.02), (
+        f'colorbar is {bar.height / panel.height:.1f}x the height of its panel'
+    )
+    assert bar.y0 == pytest.approx(panel.y0, abs=0.02), 'colorbar is not aligned with it'
+    plotter.close()
+
+
 def test_a_chart_panel_keeps_its_own_labels_and_scale(mesh):
     """Domain formatting applied to a log-log plot squashes it to equal aspect, labels
     its axes x and y, and `ticklabel_format` raises outright on a log scale."""
@@ -138,6 +161,6 @@ def test_explicit_colorbar_limits_are_respected(mesh):
     plotter = Plotter(1, 1)
     plotter.plot_animation(mesh, values, mode='colored', cbar_lims=(0.0, 400.0))
 
-    _cmap, norm = plotter.cbar_infos[(0, 0)]
+    norm = plotter.cbar_infos[(0, 0)].norm
     assert (norm.vmin, norm.vmax) == (0.0, 400.0)
     plotter.close()

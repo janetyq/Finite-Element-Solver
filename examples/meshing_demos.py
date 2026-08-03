@@ -17,11 +17,11 @@ from matplotlib.widgets import Slider
 from fem.geometry import calculate_triangle_min_angle
 from fem.plot.plotter import Plotter
 from fem.mesh.ruppert import RuppertsAlgorithm
-from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker, PSLG
+from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker
 from fem.regions import in_box, intersect, on_plane
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import beam
+from domains import beam, plate_with_hole_pslg
 
 # Resolved against the repo rather than the working directory: the input files ship
 # with the project, so a demo should not depend on where it was launched from. Output
@@ -185,15 +185,13 @@ def demo_plate_with_hole(min_angle=25, max_area_fraction=0.004):
     The shape a flow-around-an-obstacle problem needs: one loop inside another is
     a hole under the even-odd rule, and the two boundaries have to be separable
     for the obstacle and the outer wall to take different conditions."""
-    plate = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 3.0], [0.0, 3.0]])
-    angles = np.linspace(0, 2*np.pi, 24, endpoint=False)
-    hole = np.column_stack([1.6 + 0.55*np.cos(angles), 1.5 + 0.55*np.sin(angles)])
-
-    pslg = PSLG.from_loops([plate, hole])
+    # The same geometry `stress_concentration` solves on, from one definition: this
+    # demo builds the mesh, that one puts conditions on the boundaries it separates.
+    pslg = plate_with_hole_pslg()
     mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
                                    max_area_fraction=max_area_fraction)
 
-    plotter = Plotter(title='Plate with a hole', axis_labels=False)
+    plotter = Plotter(title='Plate with a hole', axis_labels=False, panel_aspect=2.0)
     plotter.plot(mesh, mode='mesh')
     ax = plotter.get_ax()
     for loop_id, colour, label in ((0, 'blue', 'outer wall'), (1, 'red', 'obstacle')):

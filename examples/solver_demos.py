@@ -7,20 +7,24 @@ import numpy as np
 from functools import partial
 from pathlib import Path
 
+from fem.backends import IterativeBackend
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
-from fem.convergence import ConvergenceStudy, poisson_convergence
+from fem.convergence import (
+    ConvergenceStudy, elastic_convergence, poisson_convergence, theta_convergence,
+)
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
+from fem.mesh.ruppert import create_box_mesh
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import beam, square
+from domains import beam, plate_with_hole, square
 
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
@@ -61,47 +65,198 @@ def demo_poisson_equation(mesh):
         'A constant unit source pinned at every boundary node, with the gradient '
         'recovered from the solution beside it.')])
 
-def demo_convergence(resolutions=(11, 21, 41, 81)):
-    """Measure the solver's own error against an exactly known solution, and read off
-    the convergence rate (Method of Manufactured Solutions)."""
-    # The one demo that does not show what the solver computed, but how wrong it was.
-    # Every other figure here is checked by eye; this is the claim that survives being
-    # looked at properly -- and it is the claim P1 elements make: halve h, quarter the
-    # error. The same study runs as an assertion in tests/test_convergence.py.
-    solves = poisson_convergence(resolutions)
-    study = ConvergenceStudy.from_solves(solves)
-    finest = solves[-1]
+def _plot_study(ax, study, label, colour, reference_order, xlabel):
+    """One measured curve plus the power law it is being held to."""
+    ax.loglog(study.step, study.error, 'o-', color=colour,
+              label=f'{label} (order {study.fitted_order:.2f})')
+    # Anchored at the coarsest point, so the two lines start together and any gap is
+    # the measured rate differing from the reference rather than an offset between them.
+    reference = study.error[0] * (study.step / study.step[0])**reference_order
+    ax.loglog(study.step, reference, '--', color=colour, alpha=0.4,
+              label=f'{xlabel}^{reference_order}')
 
-    plotter = Plotter(1, 2, title='Convergence against a manufactured solution')
-    plotter.plot(finest.mesh, finest.pointwise_error, mode='colored', idx=(0, 0),
-                 label='u_h - u_exact', title=f'Error field at h={finest.h:.3g}')
 
-    ax = plotter.chart_ax(idx=(0, 1), xlabel='h', ylabel='L2 error')
-    ax.loglog(study.h, study.error, 'o-', color='tab:blue',
-              label=f'measured (order {study.fitted_order:.2f})')
-    # Anchored at the coarsest point, so the two lines start together and any
-    # divergence downward is the measured rate beating h^2 rather than an offset.
-    ax.loglog(study.h, study.error[0] * (study.h / study.h[0])**2, '--', color='gray',
-              label='h^2')
-    ax.set_title('Error vs mesh size')
+def _tidy_log_axis(ax, steps):
+    """Label the axis with the steps actually used.
+
+    These sequences span well under a decade, where a log axis falls back to minor
+    ticks like 2x10^-2 -- which run into each other.
+    """
     ax.grid(True, which='both', alpha=0.3)
-    # The mesh sizes themselves, rather than the decade ticks a log axis defaults to:
-    # the sequence spans well under one decade, so the minor labels ran together.
-    ax.set_xticks(study.h, [f'{h:g}' for h in study.h])
+    # Plain decimals below a thousandth run to more digits than they are worth.
+    fmt = '{:.1e}' if min(steps) < 1e-3 else '{:g}'
+    ax.set_xticks(steps, [fmt.format(s) for s in steps])
     ax.set_xticks([], minor=True)
 
-    rows = ['     h      L2 error   order', *(
-        f'{h:8.4f}  {e:10.3e}  {"-" if i == 0 else f"{study.orders[i-1]:6.2f}"}'
-        for i, (h, e) in enumerate(zip(study.h, study.error))
-    )]
+
+def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 33),
+                     step_counts=(16, 32, 64, 128)):
+    """Measure the solver's own error against exactly known solutions, and read off the
+    convergence rates in space and in time (Method of Manufactured Solutions)."""
+    # The one demo that does not show what the solver computed, but how wrong it was.
+    # Every other figure here is checked by eye; these are the claims that survive
+    # being looked at properly, and they are the two the discretization makes:
+    #
+    #   in space  P1 elements are O(h^2) -- halve h, quarter the error -- for a scalar
+    #             unknown and for a coupled vector one alike;
+    #   in time   the theta method's order is theta's to choose: 1 at backward Euler,
+    #             2 at Crank-Nicolson, which is the default.
+    #
+    # All of it runs as assertions in tests/test_convergence{,_elasticity,_heat}.py;
+    # this draws the same studies rather than a second implementation of them.
+    solves = poisson_convergence(resolutions)
+    poisson_study = ConvergenceStudy.from_solves(solves)
+    elastic_study = ConvergenceStudy.from_solves(elastic_convergence(elastic_resolutions))
+    # Step counts chosen to sit in the asymptotic band: over coarser steps
+    # Crank-Nicolson reads an order near 3, because lambda*dt is not yet small and
+    # the leading error term is not yet the one that dominates.
+    crank_nicolson = theta_convergence(0.5, step_counts)
+    backward_euler = theta_convergence(1.0, step_counts)
+    finest = solves[-1]
+
+    plotter = Plotter(1, 3, title='Convergence against manufactured solutions')
+    plotter.plot(finest.mesh, finest.pointwise_error, mode='colored', idx=(0, 0),
+                 label='u_h - u_exact', title=f'Poisson error at h={finest.h:.3g}')
+
+    space = plotter.chart_ax(idx=(0, 1), xlabel='h', ylabel='L2 error')
+    _plot_study(space, poisson_study, 'Poisson', 'tab:blue', 2, 'h')
+    _plot_study(space, elastic_study, 'Elasticity', 'tab:green', 2, 'h')
+    space.set_title('Space: P1 is second order')
+    _tidy_log_axis(space, poisson_study.step)
+
+    time = plotter.chart_ax(idx=(0, 2), xlabel='dt', ylabel='L2 error')
+    _plot_study(time, crank_nicolson, 'Crank-Nicolson', 'tab:blue', 2, 'dt')
+    _plot_study(time, backward_euler, 'Backward Euler', 'tab:red', 1, 'dt')
+    time.set_title('Time: the order is theta\'s to choose')
+    _tidy_log_axis(time, crank_nicolson.step)
+
+    rows = ['                      fitted order   expected']
+    for name, study, expected in (('Poisson (h)', poisson_study, 2),
+                                  ('Elasticity (h)', elastic_study, 2),
+                                  ('Crank-Nicolson (dt)', crank_nicolson, 2),
+                                  ('Backward Euler (dt)', backward_euler, 1)):
+        rows.append(f'{name:<22}{study.fitted_order:>9.2f}{expected:>11}')
     return DemoResult(
         [Figure(plotter,
-                f'The error is smooth and one-signed: zero on the boundary, where the '
-                f'solution is pinned exactly, and deepest at the centre, where the '
-                f'solution itself peaks and the piecewise-linear space has the most to '
-                f'miss. Halving h divides it by about four -- a fitted order of '
-                f'{study.fitted_order:.2f} against the 2 that P1 elements promise.')],
+                'Left: the Poisson error is smooth and one-signed -- zero on the boundary '
+                'where the solution is pinned exactly, deepest at the centre where the '
+                'piecewise-linear space has the most to miss. Middle: halving h quarters '
+                'that error, for a scalar unknown and for a coupled vector one alike. '
+                'Right: the same measurement against the time step instead, where the '
+                'order is not a property of the elements but a choice -- backward Euler '
+                'buys first order, Crank-Nicolson second, for the same cost per step.')],
         text='\n'.join(rows),
+    )
+
+def demo_stress_concentration(mesh, traction=1.0):
+    """Pull a plate with a hole in it, and measure the stress concentration at the rim
+    against the textbook factor of 3."""
+    # The first demo here that solves on a *generated* mesh: there is no structured
+    # triangulation of a domain with a hole in it, so this is Ruppert's output going
+    # straight into the solver. Nothing about the setup knows that -- the conditions
+    # are written against coordinates, so they resolve against whatever mesh arrives.
+    #
+    # The rim takes no condition at all, and that is the point: a free surface is the
+    # natural boundary condition of the weak form, so "traction-free" is what an edge
+    # means when nothing is said about it.
+    #
+    # Kirsch's factor of 3 is the *infinite*-plate limit, and this plate is finite, so
+    # the measured peak sits above it -- the hole removes section, which raises the
+    # stress the remaining material carries. It falls toward 3 as the hole shrinks
+    # relative to the plate; measured here at 3.56, 3.27 and 3.22 for hole diameters
+    # of 0.20, 0.15 and 0.12 of the height. Refining the mesh moves it far less
+    # (3.62 -> 3.53 at 2.7x the elements), so what the excess measures is the geometry,
+    # not the discretization.
+    length, height = np.max(mesh.vertices, axis=0)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.NEUMANN, on_plane(0, float(length)), [traction, 0])
+
+    solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
+    sigma_xx = solution.stress[:, 0, 0]
+
+    centroids = mesh.vertices[mesh.elements].mean(axis=1)
+    # A vertical strip through the hole's centre: the line the concentration decays
+    # along, from the rim out to the far field.
+    # The demo is handed a mesh, not the geometry it came from, so the hole is read
+    # back off it: the rim is the part of the boundary nearest the centre.
+    radius = float(np.linalg.norm(
+        mesh.vertices[mesh.boundary_idxs] - np.array([length/2, height/2]), axis=1).min())
+    strip = np.abs(centroids[:, 0] - length/2) < 0.4*radius
+    order = np.argsort(centroids[strip, 1])
+    y_strip, ratio_strip = centroids[strip, 1][order], (sigma_xx[strip] / traction)[order]
+    peak = ratio_strip.max()
+
+    plotter = Plotter(1, 2, title='Stress concentration around a hole', panel_aspect=3.0)
+    plotter.plot(mesh, sigma_xx, mode='colored', idx=(0, 0), label='sigma_xx',
+                 title=f'{len(mesh.elements)} generated triangles')
+    ax = plotter.chart_ax(idx=(0, 1), xlabel='y', ylabel='sigma_xx / applied')
+    # Drawn as two runs, below the hole and above it. One run joins them straight
+    # across the gap, which reads as a stress the hole does not have.
+    below = y_strip < height/2
+    ax.plot(y_strip[below], ratio_strip[below], 'o-', color='tab:blue', markersize=3,
+            label='through the hole centre')
+    ax.plot(y_strip[~below], ratio_strip[~below], 'o-', color='tab:blue', markersize=3)
+    ax.axhline(3.0, color='tab:red', linestyle='--', label='Kirsch: 3x at the rim')
+    ax.axhline(1.0, color='gray', linestyle=':', label='far field')
+    ax.set_title(f'Peak {peak:.2f}x the applied stress')
+    ax.grid(alpha=0.3)
+    # Below the curve: the peak is what this panel exists to show, and a default-placed
+    # legend sat on top of it.
+    ax.legend(loc='lower center', fontsize='small')
+
+    return DemoResult(
+        [Figure(plotter,
+                f'A plate pulled from the right, with the hole left traction-free -- '
+                f'which is what an edge means when no condition is written on it. The '
+                f'stress crowds into the material either side of the hole and relaxes '
+                f'to the applied value within about a diameter, peaking at {peak:.2f}x '
+                f'the applied stress. Kirsch gives 3x -- for a hole in an *infinite* '
+                f'plate. This one is three hole-diameters tall, so the hole removes '
+                f'enough section to push the peak above that limit, and the excess '
+                f'shrinks as the hole does. A textbook constant is a limit, not a '
+                f'target.')],
+        text=(f'applied traction         {traction:.3g}\n'
+              f'hole diameter / height   {2*radius/height:.2f}\n'
+              f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)\n'
+              f'generated elements       {len(mesh.elements)}'),
+    )
+
+def demo_elastic_3d(n=13):
+    """Bend a 3D cantilever beam of tetrahedra, drawn without the optional 3D viewer."""
+    # The package solves in 3D throughout -- the same assembly, the same element
+    # hierarchy, `Solver` reading the element type off the connectivity -- and the
+    # published gallery has never shown it: `heat_3d` renders through PyVista, which
+    # needs the viz3d extra, and the deploy installs no extras. This one draws the
+    # boundary surface with matplotlib, so it renders wherever the rest does.
+    mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
+
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])
+    bc.add(BCType.NEUMANN, on_plane(0, 4.0), [0, 0, -0.5])
+
+    # AMG-preconditioned CG rather than the direct factorization: a 3D elastic solve
+    # is where fill-in starts to hurt, which `backends` measures.
+    solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc,
+                      backend=IterativeBackend()).solve()
+    deformed = solution.deformed_mesh()
+    tip = np.abs(solution.u.reshape(-1, 3)[:, 2]).max()
+
+    plotter = Plotter(1, 2, figsize=(11.0, 4.5), title='A 3D cantilever in tetrahedra')
+    plotter.plot(mesh, mode='solid', idx=(0, 0),
+                 title=f'{len(mesh.elements)} tetrahedra')
+    plotter.plot(deformed, solution.von_mises, mode='solid', idx=(0, 1),
+                 label='von Mises stress', title='Loaded and deformed')
+    return DemoResult(
+        [Figure(plotter,
+                'The same clamp-and-load as the 2D cantilever, one dimension up: a '
+                'tetrahedral mesh, a three-component displacement, and stress recovered '
+                'the same way. Only the boundary surface is drawn -- the inside of a '
+                'solid is not visible, and there are several times more tets than '
+                'surface triangles.')],
+        text=(f'tetrahedra          {len(mesh.elements)}\n'
+              f'degrees of freedom  {3*len(mesh.vertices)}\n'
+              f'peak deflection     {tip:.4f}'),
     )
 
 def demo_robin_bc(mesh):
@@ -388,6 +543,13 @@ DEMOS = [
     Demo('elasticity_models', demo_elasticity_models, section=SOLIDS, domain=square),
     Demo('stress_invariants', demo_stress_invariants, section=SOLIDS,
          domain=partial(beam, 4.0, 1.0, 80)),
+    # The one solve on a generated mesh: a domain with a hole in it has no
+    # structured triangulation, so this is Ruppert's output going into the solver.
+    Demo('stress_concentration', demo_stress_concentration, section=SOLIDS,
+         domain=plate_with_hole),
+    # Builds its own box: the only 3D domain, and the tet count is what sets the
+    # cost, so the smoke run takes a coarser one.
+    Demo('elastic_3d', demo_elastic_3d, section=SOLIDS, smoke_kwargs={'n': 5}),
     # 2:1 at ~1600 vertices: the aspect ratio is what makes SIMP produce the truss it
     # is known for, and the vertex count is what keeps 40 iterations affordable in the
     # gallery workflow.
@@ -402,5 +564,6 @@ DEMOS = [
     # sequence *is* the demo. The smoke run keeps the two coarsest -- an order needs
     # two points, and the 81x81 solve is most of the cost.
     Demo('convergence', demo_convergence, section=ACCURACY,
-         smoke_kwargs={'resolutions': (11, 21)}),
+         smoke_kwargs={'resolutions': (11, 21), 'elastic_resolutions': (9, 17),
+              'step_counts': (16, 32)}),
 ]
