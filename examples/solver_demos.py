@@ -558,11 +558,14 @@ DEMOS = [
     # Builds its own box: the only 3D domain, and the tet count is what sets the
     # cost, so the smoke run takes a coarser one.
     Demo('elastic_3d', demo_elastic_3d, section=SOLIDS, smoke_kwargs={'n': 5}),
-    # 2:1 at ~1600 vertices: the aspect ratio is what makes SIMP produce the truss it
-    # is known for, and the vertex count is what keeps 40 iterations affordable in the
-    # gallery workflow.
+    # 2:1, because the aspect ratio is what makes SIMP produce the truss it is known
+    # for. The resolution is now set by what the *filter* needs rather than by what 40
+    # iterations cost: `smoothing_radius` is a fixed physical length, so refining
+    # resolves the same structure more finely instead of growing thinner members. At
+    # 56 a side that radius spanned about three elements, which is thin cover for the
+    # thing keeping the design off a checkerboard; at 140 it spans seven.
     Demo('topology_optimization', demo_topology_optimization, section=SOLIDS,
-         domain=partial(beam, 2.0, 1.0, 56)),
+         domain=partial(beam, 2.0, 1.0, 140)),
 
     # The point is which oscillations of sin(40 r^2) the space can represent, so this
     # one is meshed finer than the rest: at 40 a side the inner rings alias too. It

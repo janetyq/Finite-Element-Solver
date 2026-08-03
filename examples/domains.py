@@ -7,11 +7,11 @@ which were cached `create_rect_mesh` output: the same function reproduces any of
 vertex for vertex in about 40 ms, so they were fixtures that could only drift.
 
 Sizes are chosen for what the figure needs to show, within what the gallery workflow
-can afford -- it renders every demo on each push. Resolution is not what that build
-costs, though: of ~3.5 minutes, three quarters goes on rendering animation frames and
-on the 3D timing sweep, so a static solve can afford to be several times finer than
-the animated ones beside it. `tests/test_demos.py` substitutes a tiny mesh for every
-domain, so none of this reaches the per-commit gate.
+can afford -- it renders every demo on each push. There is more room there than the
+sizes suggest: a `tripcolor` is flat-shaded per element, so a coarse mesh is visibly
+faceted, while the build's cost sits mostly in rasterizing animation frames rather
+than in solving. `tests/test_demos.py` substitutes a tiny mesh for every domain, so
+none of this reaches the per-commit gate either.
 """
 import numpy as np
 
