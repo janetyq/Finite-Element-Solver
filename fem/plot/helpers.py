@@ -139,10 +139,37 @@ def _fit_3d_limits(ax, mesh):
     ax.locator_params(nbins=4)
 
 
-def plot_arrows(ax, mesh, values):
+# Arrows a quiver panel draws, at most. A vector field is read from the pattern the
+# arrows make, and past this many they overlap into a grey mat that hides it -- so this
+# is a property of the picture, not of the mesh, and holds as the mesh is refined.
+MAX_ARROWS = 700
+
+
+def _spread_sample(points, target):
+    """Indices of up to `target` points, spread evenly over the area they cover.
+
+    Bins on a regular grid and takes one point per occupied bin, rather than every
+    n-th point: element numbering follows the meshing order, so a stride through it
+    samples in bands on a structured mesh and clumps on a generated one.
+    """
+    if len(points) <= target:
+        return np.arange(len(points))
+
+    lower, upper = points.min(axis=0), points.max(axis=0)
+    span = np.where(upper > lower, upper - lower, 1.0)
+    # A grid of about `target` cells, shaped like the domain.
+    side = max(1, int(np.sqrt(target * span[0] / span[1])))
+    cells = np.floor((points - lower) / span * [side, max(1, target // side)]).astype(int)
+    _, first = np.unique(cells, axis=0, return_index=True)
+    return first
+
+
+def plot_arrows(ax, mesh, values, max_arrows=MAX_ARROWS):
     # TODO: colored arrows, hard to see scale currently
     element_vertices = np.mean(mesh.vertices[mesh.elements], axis=1)
-    ax.quiver(element_vertices[:, 0], element_vertices[:, 1], values[:, 0], values[:, 1], alpha=0.5, scale=10)
+    keep = _spread_sample(element_vertices, max_arrows)
+    ax.quiver(element_vertices[keep, 0], element_vertices[keep, 1],
+              values[keep, 0], values[keep, 1], alpha=0.5, scale=10)
 
 
 def plot_refinement(ax, mesh, classifications, linewidth=0.5):
@@ -157,7 +184,10 @@ def plot_refinement(ax, mesh, classifications, linewidth=0.5):
 def plot_bc(ax, mesh, bc):
     from fem.boundary import BCType
 
-    plot_mesh(ax, mesh)
+    # The outline, not the triangulation: this panel is about where the conditions sit,
+    # and a fine mesh drawn under them is a grey field that hides the markers. The mesh
+    # itself has demos of its own.
+    plot_boundary(ax, mesh)
     # entries() resolves regions against this mesh without needing a component count, which
     # is all plotting needs -- no DOF numbering involved.
     for bc_type, idxs, values in bc.entries(mesh):

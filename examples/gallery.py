@@ -26,6 +26,12 @@ from demo_registry import Demo, DemoResult
 
 IMAGES = 'img'
 
+# Frames written per animated figure. Rasterizing frames is the largest single cost of
+# a gallery build -- the heat demo solves in 0.4s and spends 24s drawing its run -- and
+# the player steps at 120ms, so twenty images is a two-second loop. The solve keeps
+# every step it took; this is only how much of it becomes PNGs.
+FRAMES_PER_PLAYER = 20
+
 # The index in the order a newcomer should meet the project: build a domain, solve on
 # it, apply that to solids, then ask whether the answer is right and fast. Each demo
 # names its own section (`Demo.section`); this is the order they appear in, and within
@@ -83,7 +89,8 @@ def _render_figures(result: DemoResult, name: str, out_dir: Path) -> list[Panel]
         if figure.animated:
             frame_dir = images / stem
             frame_dir.mkdir(exist_ok=True)
-            written = figure.plotter.save_frames(str(frame_dir / '{:03d}.png'))
+            written = figure.plotter.save_frames(str(frame_dir / '{:03d}.png'),
+                                                 max_frames=FRAMES_PER_PLAYER)
             frames = [f'{IMAGES}/{stem}/{Path(p).name}' for p in written]
             panels.append(Panel(figure.caption, frames[0], frames))
         else:
