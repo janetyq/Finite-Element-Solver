@@ -30,7 +30,7 @@ from fem.solution import ElasticSolution
 from fem.solve import LinearSolve, SolveStrategy
 from fem.equations import LinearElastic
 from fem.space import FunctionSpace
-from fem.typing import DofVector, ElementField, FieldValue
+from fem.typing import DofVector, ElementField, FieldValue, FloatArray
 
 
 class Objective(Protocol):
@@ -131,7 +131,7 @@ class TopologyOptimizer:
         #
         # `_problem` carries the constraints and the load, which the density does not
         # reach -- an iteration derives its own from this one with `with_operator`.
-        self._solid_stiffness: ElementField = LinearElasticForm(
+        self._solid_stiffness: FloatArray = LinearElasticForm(
             LinearElasticMaterial(self.base_E, self.nu)
         ).element_matrices(self.space.geometry)
         self._problem = LinearProblem(
@@ -142,9 +142,20 @@ class TopologyOptimizer:
         self.history: TopologyHistory | None = None  # the per-iteration series
 
     @property
+    def dilution(self) -> ElementField:
+        '''The SIMP factor rho^p for the current density.
+
+        Stated once because it applies twice over: to the modulus, and -- since the
+        element stiffness is linear in the modulus -- to the element stiffness by the
+        same factor. Two spellings of rho^p could drift into descending different
+        gradients, exactly as two literal 3s once could.
+        '''
+        return self.rho**self.penalty
+
+    @property
     def scaled_modulus(self) -> ElementField:
         '''The SIMP-scaled modulus E(rho) = rho^p * E_0 for the current density.'''
-        return self.rho**self.penalty * self.base_E
+        return self.dilution * self.base_E
 
     def set_rho(self, rho: ElementField) -> None:
         self.rho = rho
@@ -163,7 +174,7 @@ class TopologyOptimizer:
         one the Solver facade runs, over the optimizer's cached space, constraints,
         and solid-material element stiffness.
         '''
-        stiffness = PrecomputedForm(self.rho[:, None, None]**self.penalty * self._solid_stiffness)
+        stiffness = PrecomputedForm(self.dilution[:, None, None] * self._solid_stiffness)
         u = self.strategy.solve(self._problem.with_operator(stiffness))
 
         # Stress recovery wants the diluted material itself, not the element matrices

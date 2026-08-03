@@ -9,6 +9,8 @@ import pytest
 from fem.boundary import BCType, BoundaryConditions
 from fem.forms import LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
+from fem.problem import LinearProblem
+from fem.solve import LinearSolve
 from fem.space import FunctionSpace
 from fem.numerics import calculate_smoothing_matrix
 from fem.regions import on_plane
@@ -84,22 +86,26 @@ def test_density_scales_the_solid_element_stiffness(make_unit_square):
     np.testing.assert_allclose(rho[:, None, None]**penalty * solid, diluted, rtol=1e-12)
 
 
-def test_optimizer_assembles_the_operator_its_material_describes(make_unit_square):
-    """The optimizer assembles from rescaled solid element matrices rather than from
-    `scaled_modulus`; the two must name the same operator."""
+def test_solve_matches_a_problem_built_from_the_scaled_material(make_unit_square):
+    """The optimizer builds its operator by rescaling cached solid-material element
+    matrices. Stating the same problem the long way round -- one `LinearElasticForm`
+    over `scaled_modulus`, assembled from scratch -- has to give the same displacement.
+
+    Drives `_solve` rather than restating its arithmetic: a test that rebuilt the
+    operator expression itself would agree with any exponent `_solve` happened to use.
+    """
     optimizer = _optimizer(make_unit_square(6), penalty=3.0)
     optimizer.set_rho(np.linspace(0.3, 1.0, len(optimizer.mesh.elements)))
-    optimizer._solve()
 
-    from_material = optimizer.space.assemble(
-        LinearElasticForm(LinearElasticMaterial(optimizer.scaled_modulus, optimizer.nu))
+    solution = optimizer._solve()
+
+    reference = LinearProblem(
+        optimizer.space,
+        LinearElasticForm(LinearElasticMaterial(optimizer.scaled_modulus, optimizer.nu)),
+        optimizer.source,
+        optimizer.bc,
     )
-    np.testing.assert_allclose(
-        optimizer._problem.with_operator(
-            PrecomputedForm(optimizer.rho[:, None, None]**optimizer.penalty * optimizer._solid_stiffness)
-        ).tangent().toarray(),
-        from_material.toarray(), atol=1e-9,
-    )
+    np.testing.assert_allclose(solution.u, LinearSolve().solve(reference), atol=1e-10)
 
 
 def test_precomputed_form_rejects_a_mismatched_geometry(make_unit_square):
