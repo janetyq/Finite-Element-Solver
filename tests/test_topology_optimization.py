@@ -4,8 +4,12 @@ Distinct from `test_topology.py`, which is about mesh topology -- edges and
 boundary facets -- despite the name collision.
 """
 import numpy as np
+import pytest
 
 from fem.boundary import BCType, BoundaryConditions
+from fem.forms import LinearElasticForm, PrecomputedForm
+from fem.materials import LinearElasticMaterial
+from fem.space import FunctionSpace
 from fem.numerics import calculate_smoothing_matrix
 from fem.regions import on_plane
 from fem.equations import LinearElastic
@@ -60,6 +64,60 @@ def test_min_compliance_sensitivity_uses_the_configured_penalty(make_unit_square
     sensitivity = optimizer.objective.gradient(compliance, optimizer.rho, optimizer.penalty)
 
     assert np.allclose(sensitivity, compliance * penalty / optimizer.rho)
+
+
+def test_density_scales_the_solid_element_stiffness(make_unit_square):
+    """The identity the cached solid stiffness rests on: D is linear in E, so
+    diluting the modulus to rho^p E_0 scales each element matrix by exactly rho^p.
+    If that ever stopped holding, the assembled operator would silently stop being
+    the one the configured material describes."""
+    mesh = make_unit_square(6)
+    space = FunctionSpace(mesh, n_components=2)
+    rho = np.linspace(0.2, 1.0, len(mesh.elements))
+    penalty, E_0, nu = 3.0, 200.0, 0.3
+
+    solid = LinearElasticForm(LinearElasticMaterial(E_0, nu)).element_matrices(space.geometry)
+    diluted = LinearElasticForm(
+        LinearElasticMaterial(rho**penalty * E_0, nu)
+    ).element_matrices(space.geometry)
+
+    np.testing.assert_allclose(rho[:, None, None]**penalty * solid, diluted, rtol=1e-12)
+
+
+def test_optimizer_assembles_the_operator_its_material_describes(make_unit_square):
+    """The optimizer assembles from rescaled solid element matrices rather than from
+    `scaled_modulus`; the two must name the same operator."""
+    optimizer = _optimizer(make_unit_square(6), penalty=3.0)
+    optimizer.set_rho(np.linspace(0.3, 1.0, len(optimizer.mesh.elements)))
+    optimizer._solve()
+
+    from_material = optimizer.space.assemble(
+        LinearElasticForm(LinearElasticMaterial(optimizer.scaled_modulus, optimizer.nu))
+    )
+    np.testing.assert_allclose(
+        optimizer._problem.with_operator(
+            PrecomputedForm(optimizer.rho[:, None, None]**optimizer.penalty * optimizer._solid_stiffness)
+        ).tangent().toarray(),
+        from_material.toarray(), atol=1e-9,
+    )
+
+
+def test_precomputed_form_rejects_a_mismatched_geometry(make_unit_square):
+    """Precomputed matrices carry no record of the geometry they were built on, so
+    the element count is the one guard against assembling them over another mesh."""
+    space = FunctionSpace(make_unit_square(6), n_components=2)
+    other = FunctionSpace(make_unit_square(8), n_components=2)
+    matrices = LinearElasticForm(
+        LinearElasticMaterial(200.0, 0.3)
+    ).element_matrices(space.geometry)
+
+    np.testing.assert_allclose(
+        space.assemble(PrecomputedForm(matrices)).toarray(),
+        space.assemble(LinearElasticForm(LinearElasticMaterial(200.0, 0.3))).toarray(),
+        atol=1e-9,
+    )
+    with pytest.raises(ValueError, match='elements'):
+        other.assemble(PrecomputedForm(matrices))
 
 
 def test_smoothing_matrix_matches_the_dense_cone_weights(make_unit_square):

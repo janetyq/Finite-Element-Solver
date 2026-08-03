@@ -1,10 +1,11 @@
 """Density-based (SIMP) topology optimization, as a driver over the solve core.
 
-The optimizer owns a solve strategy and rebuilds a fresh `Problem` each iteration
-from the current density -- it never mutates a shared equation. The density scales
-the modulus, `E(rho) = rho^p E_0`, which becomes a fresh `LinearElasticMaterial`
-per iteration; the compliance and its sensitivity drive an optimality-criterion
-update of the density.
+The optimizer owns a solve strategy and derives a fresh `Problem` each iteration
+from the current density -- it never mutates a shared one. The density scales the
+modulus, `E(rho) = rho^p E_0`, and hence scales the element stiffness by the same
+factor; the compliance and its sensitivity drive an optimality-criterion update of
+the density. What the density does not touch -- the constraints, the load, and the
+element stiffness of the undiluted material -- is built once and reused.
 
 The objective is an injected object (`MinCompliance`, `TargetCompliance`) rather
 than a string resolved through a `_select_*` dispatch, and the optimization method
@@ -20,7 +21,7 @@ from typing import Protocol
 import numpy as np
 
 from fem.boundary import BoundaryConditions
-from fem.forms import LinearElasticForm
+from fem.forms import LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.numerics import calculate_smoothing_matrix
@@ -121,6 +122,22 @@ class TopologyOptimizer:
         self.rho: ElementField = np.full(len(self.mesh.elements), self.volume_frac)
         self.smoothing_matrix = calculate_smoothing_matrix(self.mesh, r=smoothing_radius)
 
+        # The two iteration-invariant halves of the solve, built once here.
+        #
+        # `_solid_stiffness` is the element stiffness at the undiluted modulus E_0.
+        # D is linear in E, so the density enters it as a plain factor: scaling E by
+        # rho^p scales each element matrix by rho^p, and an iteration rescales these
+        # rather than re-contracting B^T D B over the mesh.
+        #
+        # `_problem` carries the constraints and the load, which the density does not
+        # reach -- an iteration derives its own from this one with `with_operator`.
+        self._solid_stiffness: ElementField = LinearElasticForm(
+            LinearElasticMaterial(self.base_E, self.nu)
+        ).element_matrices(self.space.geometry)
+        self._problem = LinearProblem(
+            self.space, PrecomputedForm(self._solid_stiffness), self.source, self.bc,
+        )
+
         self._last: ElasticSolution | None = None   # most recent single-iteration solve
         self.history: TopologyHistory | None = None  # the per-iteration series
 
@@ -140,15 +157,18 @@ class TopologyOptimizer:
     def _solve(self) -> ElasticSolution:
         '''Solve the elastic problem at the current density and recover compliance.
 
-        A fresh material and problem each call -- the density scales the modulus,
-        so there is no shared state to mutate. The numerical path (LinearProblem ->
-        LinearSolve -> derived_fields) is the same one the Solver facade runs, reusing
-        the optimizer's cached space rather than rebuilding geometry each iteration.
+        A fresh problem each call, derived from the iteration-invariant one -- the
+        density scales the modulus, so there is no shared state to mutate. The
+        numerical path (LinearProblem -> LinearSolve -> derived_fields) is the same
+        one the Solver facade runs, over the optimizer's cached space, constraints,
+        and solid-material element stiffness.
         '''
-        form = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus, self.nu))
-        problem = LinearProblem(self.space, form, self.source, self.bc)
-        u = self.strategy.solve(problem)
+        stiffness = PrecomputedForm(self.rho[:, None, None]**self.penalty * self._solid_stiffness)
+        u = self.strategy.solve(self._problem.with_operator(stiffness))
 
+        # Stress recovery wants the diluted material itself, not the element matrices
+        # it would produce: the stress in an element is D(E(rho)) times its strain.
+        form = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus, self.nu))
         self._last = ElasticSolution.from_solve(self.space, u, form)
         return self._last
 

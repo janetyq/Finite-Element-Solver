@@ -18,6 +18,7 @@ Named PDEs survive as *factory functions* (`poisson`, `linear_elastic`, ...), no
 dispatch classes: composing a typed operator with a typed load is what "solving
 Poisson" means, so there is no PDE type to switch on.
 """
+import copy
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -91,17 +92,48 @@ class LinearProblem:
         self.operator = operator
         bc = bc if bc is not None else BoundaryConditions()
         self._resolved = bc.resolve(space.mesh, space.n_components)
-        self._A = space.assemble(operator)
-        # The load folds the Neumann contribution in as a boundary traction term,
-        # so callers pass only the volume source; the BC resolution supplies the rest.
-        self._b = Source(source).vector(space) + Traction(self._resolved.neumann_load).vector(space)
 
         # A Robin condition contributes to both sides: κ∫_∂Ω_R u·v on the operator
-        # and ∫_∂Ω_R g·v on the load, each the region-restricted boundary mass.
+        # and ∫_∂Ω_R g·v on the load, each the region-restricted boundary mass. The
+        # operator half is kept apart from `operator`'s own so that a problem derived
+        # under a new operator can re-apply it.
+        self._robin_operator: Operator | None = None
+        robin_load = np.zeros(space.n_dofs)
         for robin in self._resolved.robin:
             boundary_mass = space.assemble(MaskedMassForm(space.n_components, robin.facet_mask), boundary=True)
-            self._A = self._A + robin.kappa * boundary_mass
-            self._b = self._b + np.asarray(boundary_mass @ robin.g.flatten()).flatten()
+            term = robin.kappa * boundary_mass
+            self._robin_operator = term if self._robin_operator is None else self._robin_operator + term
+            robin_load = robin_load + np.asarray(boundary_mass @ robin.g.flatten()).flatten()
+
+        # The load folds the Neumann contribution in as a boundary traction term,
+        # so callers pass only the volume source; the BC resolution supplies the rest.
+        self._b = (
+            Source(source).vector(space)
+            + Traction(self._resolved.neumann_load).vector(space)
+            + robin_load
+        )
+        self._A = self._assemble(operator)
+
+    def _assemble(self, operator: Form) -> Operator:
+        A = self.space.assemble(operator)
+        return A if self._robin_operator is None else A + self._robin_operator
+
+    def with_operator(self, operator: Form) -> 'LinearProblem':
+        '''The same problem stated with a different operator.
+
+        Only the operator is reassembled. Which DOFs are constrained and what the
+        load is follow from the boundary conditions and the source, neither of which
+        the operator enters, so a driver re-solving under a rebuilt operator --
+        a topology optimization iteration rescaling the stiffness -- keeps them
+        rather than resolving the BCs and reassembling the load per solve.
+
+        A new problem rather than a mutation: the two share the constraints and load
+        they agree on, and nothing here writes to either.
+        '''
+        derived = copy.copy(self)
+        derived.operator = operator
+        derived._A = self._assemble(operator)
+        return derived
 
     @property
     def constraints(self) -> Constraints:
