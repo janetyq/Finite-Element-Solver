@@ -396,11 +396,13 @@ def demo_heat_equation(mesh):
     u_values = solution.u
     t_values = solution.t
 
-    animation = Plotter(1, 2, title='Heat Equation')
+    # One animated panel, not two. The second was the same field as a 3D surface, and
+    # `plot_trisurf` re-tessellates the whole mesh every frame -- it was the single most
+    # expensive thing in a gallery build, for a second view of a field the snapshots
+    # below already show at six times.
+    animation = Plotter(1, 1, title='Heat Equation')
     animation.plot_animation(mesh, u_values, mode='colored', label='temperature',
-                             titles=[f'Color t={t:.3f}' for t in t_values], idx=(0, 0))
-    animation.plot_animation(mesh, u_values, mode='surface',
-                             titles=[f'Surface t={t:.3f}' for t in t_values], idx=(0, 1))
+                             titles=[f't={t:.3f}' for t in t_values], idx=(0, 0))
 
     # The animation renders only on show(), so the diffusion needs a still form too --
     # otherwise this demo contributes nothing to a saved gallery.
@@ -410,7 +412,7 @@ def demo_heat_equation(mesh):
                        label='temperature', title=f't={t_values[i]:.3f}')
 
     return DemoResult([
-        Figure(animation, 'Crank-Nicolson diffusion, coloured and as a surface.', 'animation'),
+        Figure(animation, 'Crank-Nicolson diffusion of the corner bump.', 'animation'),
         Figure(snapshots,
                'The same run sampled at six times: the corner bump spreads and the '
                'plate approaches a uniform temperature.', 'snapshots'),

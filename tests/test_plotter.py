@@ -4,6 +4,8 @@ Each of these was silent: the output existed, looked plausible, and was wrong. T
 are grouped because they share a cause -- reaching for pyplot's global current figure
 and axes instead of the ones the Plotter owns.
 """
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -135,6 +137,37 @@ def test_colorbar_matches_the_height_of_the_panel_it_annotates():
         f'colorbar is {bar.height / panel.height:.1f}x the height of its panel'
     )
     assert bar.y0 == pytest.approx(panel.y0, abs=0.02), 'colorbar is not aligned with it'
+    plotter.close()
+
+
+def test_frames_can_be_sampled_down_to_a_cap(mesh, tmp_path):
+    """Rasterizing frames is the largest cost of a gallery build, and a player does not
+    need one image per solver step. The last frame is never the one dropped -- for a
+    topology optimization it is the result."""
+    values = [np.full(len(mesh.vertices), float(k)) for k in range(10)]
+
+    plotter = Plotter(1, 1)
+    plotter.plot_animation(mesh, values, mode='colored')
+    written = plotter.save_frames(str(tmp_path / '{:03d}.png'), max_frames=4)
+
+    assert len(written) == 4
+    # Contiguously numbered, so the player steps through them without gaps.
+    assert [Path(p).name for p in written] == ['000.png', '001.png', '002.png', '003.png']
+    assert all(Path(p).exists() for p in written)
+
+    # The last image is the last *frame*, not the fourth of ten: compared against the
+    # same figure writing the run in full, whose final image is frame 9 by definition.
+    full = plotter.save_frames(str(tmp_path / 'full{:03d}.png'))
+    assert Path(written[-1]).read_bytes() == Path(full[-1]).read_bytes()
+    plotter.close()
+
+
+def test_uncapped_frames_write_every_step(mesh, tmp_path):
+    values = [np.full(len(mesh.vertices), float(k)) for k in range(5)]
+
+    plotter = Plotter(1, 1)
+    plotter.plot_animation(mesh, values, mode='colored')
+    assert len(plotter.save_frames(str(tmp_path / '{:03d}.png'))) == 5
     plotter.close()
 
 
