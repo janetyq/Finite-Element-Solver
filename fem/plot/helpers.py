@@ -1,12 +1,28 @@
 """Low-level matplotlib drawing helpers used by the Plotter class: mesh, boundary,
 highlights, colored fields, surfaces, arrows, colorbars, and boundary conditions.
 """
+from dataclasses import dataclass
+
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
-from matplotlib.colors import Normalize
+from matplotlib.colorbar import Colorbar
+from matplotlib.colors import Colormap, Normalize
 from matplotlib.tri import Triangulation
+
+
+@dataclass(frozen=True)
+class ColorbarInfo:
+    """One panel's colour mapping, and the bar drawn beside it.
+
+    `bar` is kept, not just the mapping it was built from, because the bar owns an
+    axes of its own -- and that axes has to be resized to match the panel once the
+    layout is settled (`Plotter._fit_colorbars`).
+    """
+    cmap: Colormap
+    norm: Normalize
+    bar: Colorbar
 
 
 def plot_mesh(ax, mesh, color='black', linewidth=0.2):
@@ -41,7 +57,7 @@ def setup_colorbar(ax, vlim, label=None):
     cbar = plt.colorbar(sm, ax=ax)
     if label is not None:
         cbar.set_label(label)
-    return cmap, norm
+    return ColorbarInfo(cmap, norm, cbar)
 
 
 def plot_colored(ax, mesh, values, cbar_info=None, label=None):
@@ -49,7 +65,7 @@ def plot_colored(ax, mesh, values, cbar_info=None, label=None):
         cbar_info = setup_colorbar(ax, (min(values), max(values)), label)
 
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
-    ax.tripcolor(triangulation, values, cmap=cbar_info[0], norm=cbar_info[1])
+    ax.tripcolor(triangulation, values, cmap=cbar_info.cmap, norm=cbar_info.norm)
     return cbar_info
 
 
@@ -75,6 +91,52 @@ def plot_surface(ax, mesh, values):
         raise ValueError(f'Invalid values shape: {values.shape}')
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
     ax.plot_trisurf(triangulation, values, cmap='viridis')
+
+
+def plot_solid(ax, mesh, values, cbar_info=None):
+    """Draw a 3D mesh as its boundary surface, coloured by `values`.
+
+    Only the boundary facets are drawn -- the interior of a solid is not visible, and
+    a tet mesh has several times more elements than surface triangles.
+
+    `values=None` draws the surface plain, for showing a mesh rather than a field
+    on it; there is nothing for a colorbar to say in that case, so there is none.
+
+    This is the 3D path that needs no optional dependency: `fem.plot.tet` renders
+    through PyVista, which is the better viewer but pulls in VTK, so the deployed
+    gallery has never had a 3D solve on it.
+    """
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    facets = np.asarray(mesh.boundary)
+    if values is None or cbar_info is None:
+        ax.add_collection3d(Poly3DCollection(
+            mesh.vertices[facets], facecolor='#9fb8cd', edgecolor='black', linewidth=0.1))
+        _fit_3d_limits(ax, mesh)
+        return
+
+    if values.shape == (len(mesh.elements),):
+        # An element-constant field has no value at a shared node; project it, the
+        # same volume-weighted way `plot_surface` does.
+        from fem.space import FunctionSpace
+        values = FunctionSpace(mesh).element_to_vertex(values)
+
+    collection = Poly3DCollection(mesh.vertices[facets], cmap=cbar_info.cmap,
+                                  norm=cbar_info.norm, edgecolor='black', linewidth=0.1)
+    collection.set_array(values[facets].mean(axis=1))
+    ax.add_collection3d(collection)
+    _fit_3d_limits(ax, mesh)
+
+
+def _fit_3d_limits(ax, mesh):
+    """Frame a 3D mesh: `add_collection3d` does not autoscale, so the limits come from
+    the mesh. Ticks are thinned too -- a thin direction seen in projection puts six
+    labels in the space of two."""
+    lower, upper = mesh.vertices.min(axis=0), mesh.vertices.max(axis=0)
+    ax.set_xlim(lower[0], upper[0])
+    ax.set_ylim(lower[1], upper[1])
+    ax.set_zlim(lower[2], upper[2])
+    ax.locator_params(nbins=4)
 
 
 def plot_arrows(ax, mesh, values):

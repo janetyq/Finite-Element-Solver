@@ -23,6 +23,7 @@ from fem.plot.helpers import (
     change_ax_to_ax3d,
     plot_surface,
     plot_refinement,
+    plot_solid,
     plot_bc,
 )
 
@@ -35,6 +36,9 @@ class PlotMode(Enum):
     ARROWS = "arrows"
     REFINEMENT = "refinement"
     BC = "bc"
+    # The boundary surface of a 3D mesh, coloured. Distinct from SURFACE, which lifts
+    # a scalar field over a *2D* mesh into the z direction.
+    SOLID = "solid"
 
 
 # Figures are read on screens, not printed: at matplotlib's default 100 a 5-inch panel
@@ -131,6 +135,15 @@ class Plotter:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
             plot_surface(ax, mesh, values)
+        elif mode is PlotMode.SOLID:
+            # The colorbar is set up on the 3D axes, after the swap: attaching it to the
+            # 2D one it replaces is what left a stray bar beside a surface animation.
+            ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
+            self.axs[idx] = ax
+            if values is not None and idx not in self.cbar_infos:
+                self.cbar_infos[idx] = setup_colorbar(
+                    ax, (float(np.min(values)), float(np.max(values))), label)
+            plot_solid(ax, mesh, values, self.cbar_infos.get(idx))
         elif mode is PlotMode.REFINEMENT:
             plot_refinement(ax, mesh, values)
         elif mode is PlotMode.ARROWS:
@@ -231,6 +244,33 @@ class Plotter:
             # being discarded here rather than respected.
             if ax.get_legend() is None and any(ax.get_legend_handles_labels()[1]):
                 ax.legend()
+
+        self._fit_colorbars()
+
+    def _fit_colorbars(self) -> None:
+        """Resize each colorbar to the panel it annotates.
+
+        Constrained layout sizes a colorbar to the whole subplot *cell*, while an
+        equal-aspect axes fills only part of that cell -- so a 4:1 domain got a bar
+        three times the height of the plot beside it.
+
+        A panel's drawn box is only known once the layout has run, and the layout
+        would undo any position set by hand, so it is run once here and then switched
+        off. Later calls (a frame sequence makes one per frame) reapply the same
+        boxes, which is what `ax.clear()` would otherwise lose.
+        """
+        if not self.cbar_infos:
+            return
+
+        if self.fig.get_layout_engine() is not None:
+            self.fig.draw_without_rendering()
+            self.fig.set_layout_engine('none')
+
+        for idx, info in self.cbar_infos.items():
+            ax: Any = self.axs[idx]
+            panel = ax.get_position()
+            bar = info.bar.ax.get_position()
+            info.bar.ax.set_position([bar.x0, panel.y0, bar.width, panel.height])
 
     def show(self) -> None:
         self.format_axs()
