@@ -13,6 +13,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
+| Correctness | qhull precision error refining tight outlines (e.g. `cloud.svg`) | 🟡 | [§1](#1-bugs--correctness) |
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -28,8 +29,19 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 ## 1. Bugs & Correctness
 
-*(No open correctness bugs. Adaptive refinement is now closed-loop except for the error
-estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
+### 🔴 Ruppert's refinement hits a qhull precision error on some outlines
+`RuppertsAlgorithm.refine()` on `files/cloud.svg` (simplified with `read_svg_to_pslg`,
+`tolerance=0.02`) raises `scipy.spatial._qhull.QhullError` ("wide merge ... precision
+error") partway through refinement, from `self.triangulation.add_points(added)` in
+`_retriangulate`. California refines cleanly on the same settings (326 vertices, 415
+insertions, 887 elements), so this is specific to cloud's geometry — its outline has
+tighter curvature than California's coastline, which may be pushing qhull's incremental
+insertion into near-coplanar points. Not yet isolated to a minimal repro or a specific
+insertion; worth a look before using cloud.svg (or any similarly tight shape) in a demo
+that runs `RuppertsAlgorithm` to completion.
+
+*(Otherwise no open correctness bugs. Adaptive refinement is closed-loop except for the
+error estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
 
 ---
 
