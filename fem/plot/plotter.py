@@ -112,12 +112,20 @@ class Plotter:
         clear: bool = False,
         empty: bool = False,
         label: str | None = None,
+        clim: tuple[float, float] | None = None,
     ) -> None:
         """Draw `values` on `mesh` into the subplot at `idx`.
 
         `label` names the quantity on the colorbar (colored mode); a colorbar is built
         once per subplot, so it is read on the call that first draws there and ignored
         by later ones redrawing the same axes.
+
+        `clim` fixes the colour range instead of taking it from `values`, which is what
+        lets a grid of panels be compared. Each panel otherwise renormalizes to its own
+        extremes, so six snapshots of a field decaying by 70% draw as six near-identical
+        squares -- the run is visible only in the colorbar's tick labels, and only to a
+        reader who thought to check them. `plot_animation` has always fixed this across
+        the frames of one panel; this is the same thing across panels.
         """
         mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
         ax = self.axs[idx]
@@ -133,13 +141,15 @@ class Plotter:
         elif mode is PlotMode.BOUNDARY:
             plot_boundary(ax, mesh)
         elif mode is PlotMode.COLORED:
+            if clim is not None and idx not in self.cbar_infos:
+                self.cbar_infos[idx] = setup_colorbar(ax, clim, label)
             cbar_info = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
                                      label=label)
             self.cbar_infos[idx] = cbar_info
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
-            plot_surface(ax, mesh, values)
+            plot_surface(ax, mesh, values, clim=clim)
         elif mode is PlotMode.SOLID:
             # The colorbar is set up on the 3D axes, after the swap: attaching it to the
             # 2D one it replaces is what left a stray bar beside a surface animation.
