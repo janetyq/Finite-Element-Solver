@@ -167,7 +167,8 @@ recovers anything. Each item below is an implementation of a seam that already e
   runs to h = 1/20 and asserts the same O(h²) band as the 2D case, and the
   `AdaptiveRefinement` driver is covered in `tests/test_refinement.py`.
 - 💡 **A flow-around-an-obstacle Poisson demo.** The meshing side is done: the
-  `plate_with_hole` demo builds the mesh, and `RuppertsAlgorithm.boundary_loops` says which
+  `stress_concentration` demo builds this mesh from `domains.plate_with_hole_pslg`, and
+  `RuppertsAlgorithm.boundary_loops` says which
   outline each boundary facet came from, so the obstacle rim and the outer wall can take
   different conditions. What is left is the solve — inlet and outlet are *parts* of the
   outer loop rather than loops of their own, so they still need a coordinate region

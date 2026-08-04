@@ -21,7 +21,7 @@ from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, doug
 from fem.regions import in_box, intersect, on_plane
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import beam, plate_with_hole_pslg
+from domains import beam
 
 # Resolved against the repo rather than the working directory: the input files ship
 # with the project, so a demo should not depend on where it was launched from. Output
@@ -179,34 +179,6 @@ def rupperts_figure(mesh, rupperts, min_angle, slug=''):
         'edges a solver needs to put conditions on.',
         slug)
 
-def demo_plate_with_hole(min_angle=25, max_area_fraction=0.004):
-    """Mesh a plate with a hole in it, colouring the boundary by which outline it came from.
-
-    The shape a flow-around-an-obstacle problem needs: one loop inside another is
-    a hole under the even-odd rule, and the two boundaries have to be separable
-    for the obstacle and the outer wall to take different conditions."""
-    # The same geometry `stress_concentration` solves on, from one definition: this
-    # demo builds the mesh, that one puts conditions on the boundaries it separates.
-    pslg = plate_with_hole_pslg()
-    mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
-                                   max_area_fraction=max_area_fraction)
-
-    plotter = Plotter(title='Plate with a hole', axis_labels=False, panel_aspect=2.0)
-    plotter.plot(mesh, mode='mesh')
-    ax = plotter.get_ax()
-    for loop_id, colour, label in ((0, 'blue', 'outer wall'), (1, 'red', 'obstacle')):
-        facets = np.asarray(mesh.boundary)[rupperts.boundary_loops == loop_id]
-        ax.add_collection(LineCollection(mesh.vertices[facets], colors=colour,
-                                         linewidths=2.0))
-        ax.plot([], [], color=colour, linewidth=2.0, label=f'{label} ({len(facets)} edges)')
-    ax.legend(loc='upper right')
-    return DemoResult([Figure(
-        plotter,
-        f'{len(mesh.elements)} triangles between the two outlines. The hole is absent from '
-        'the mesh but present in its boundary, and every boundary edge knows which outline '
-        'it came from -- which is what lets Dirichlet on the obstacle and Neumann on the '
-        'wall be written separately.')])
-
 def demo_mesh_from_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE,
                        interactive=False, min_angle=20,
                        max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
@@ -249,8 +221,6 @@ DEMOS = [
     # and nothing else -- simplifying the outline further is *not* reliably cheaper,
     # because it sharpens corners, and refinement spends extra elements around those.
     Demo('mesh_from_svg', demo_mesh_from_svg, section='Meshing a domain',
-         smoke_kwargs={'max_area_fraction': 0.05}),
-    Demo('plate_with_hole', demo_plate_with_hole, section='Meshing a domain',
          smoke_kwargs={'max_area_fraction': 0.05}),
     # Coarse, so individual edges and the selected vertices stay legible, and a beam
     # so the regions are the cantilever's own.

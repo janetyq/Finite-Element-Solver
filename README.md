@@ -158,7 +158,7 @@ Using the finite element method, we can solve for $u$ by finding the weak form o
 
 ![poissons_demo](images/poissons_demo.png)
 
-This example shows the velocity potential $u$ (where gradient of velocity potential = flow velocity) of fluid flow around an obstacle. The boundary conditions are mixed: Dirichlet $u = 0$ on the obstacle, and Neumann $n \cdot \nabla u = 3$ on the left inlet and $n \cdot \nabla u = -1$ on the right outlet. (This figure predates the current `examples/`. The mesh it needs now exists — the `plate_with_hole` demo builds one and labels the obstacle rim separately from the outer wall — but nothing yet solves on it.)
+This example shows the velocity potential $u$ (where gradient of velocity potential = flow velocity) of fluid flow around an obstacle. The boundary conditions are mixed: Dirichlet $u = 0$ on the obstacle, and Neumann $n \cdot \nabla u = 3$ on the left inlet and $n \cdot \nabla u = -1$ on the right outlet. (This figure predates the current `examples/`. The mesh it needs now exists — the `stress_concentration` demo builds one and separates the obstacle rim from the outer wall — but nothing yet solves this problem on it.)
 
 For a **Robin** condition ($\partial u/\partial n + \kappa u = g$, contributing to both the operator and the load), see the `robin` demo: a heated plate cooled through a convective boundary, sweeping $\kappa$ from nearly insulated to the Dirichlet limit.
 

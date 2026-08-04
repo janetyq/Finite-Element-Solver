@@ -7,7 +7,10 @@ import numpy as np
 from functools import partial
 from pathlib import Path
 
+from matplotlib.collections import LineCollection
+
 from fem.backends import IterativeBackend
+from fem.geometry import calculate_triangle_min_angle
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import (
@@ -17,14 +20,14 @@ from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
-from fem.mesh.ruppert import create_box_mesh
+from fem.mesh.ruppert import RuppertsAlgorithm, create_box_mesh
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import beam, plate_with_hole, square
+from domains import beam, plate_with_hole_pslg, square
 
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
@@ -148,17 +151,33 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
         text='\n'.join(rows),
     )
 
-def demo_stress_concentration(mesh, traction=1.0):
-    """Pull a plate with a hole in it, and measure the stress concentration at the rim
-    against the textbook factor of 3."""
-    # The first demo here that solves on a *generated* mesh: there is no structured
-    # triangulation of a domain with a hole in it, so this is Ruppert's output going
-    # straight into the solver. Nothing about the setup knows that -- the conditions
-    # are written against coordinates, so they resolve against whatever mesh arrives.
+def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
+                              min_angle=25, max_area_fraction=0.0005):
+    """Take a plate with a hole from an outline through meshing and boundary conditions
+    to the stress concentration at its rim, measured against the textbook factor of 3."""
+    # The one demo that runs the whole pipeline, and so the only one that builds its own
+    # mesh instead of being handed one: what the outline was, what Ruppert's was asked
+    # for, and where the conditions went are each part of what this is showing, and a
+    # domain factory would put all three somewhere the gallery page does not print.
     #
+    # A domain with a hole in it has no structured triangulation, so this is a generated
+    # mesh going straight into the solver. Nothing downstream of the meshing knows that:
+    # the conditions are written against coordinates rather than vertex numbers, so they
+    # resolve against whatever triangulation arrives.
+    pslg = plate_with_hole_pslg(length, height, radius)
+    pslg.validate()
+    # The angle bound constrains element *shape* and says nothing about size, so the
+    # area cap is what sets resolution. Neither asks for refinement at the hole; the
+    # mesh grades there anyway, because the polygonalised rim is built from short input
+    # segments and Ruppert's honours them.
+    rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle,
+                                 max_area=max_area_fraction * pslg.area())
+    mesh = rupperts.refine()
+
     # The rim takes no condition at all, and that is the point: a free surface is the
     # natural boundary condition of the weak form, so "traction-free" is what an edge
-    # means when nothing is said about it.
+    # means when nothing is said about it. The conditions panel draws it, rather than
+    # leaving a reader to notice an absence.
     #
     # Kirsch's factor of 3 is the *infinite*-plate limit, and this plate is finite, so
     # the measured peak sits above it -- the hole removes section, which raises the
@@ -172,25 +191,34 @@ def demo_stress_concentration(mesh, traction=1.0):
     # between runs. Refining does not settle it monotonically: 3.35, 3.56, 3.34, 3.34
     # over 1182, 2074, 3233 and 5272 elements. Reading the true rim value would mean
     # extrapolating to the boundary rather than sampling near it.
-    length, height = np.max(mesh.vertices, axis=0)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, float(length)), [traction, 0])
+    bc.add(BCType.NEUMANN, on_plane(0, length), [traction, 0])
 
     solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
     sigma_xx = solution.stress[:, 0, 0]
 
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     # A vertical strip through the hole's centre: the line the concentration decays
-    # along, from the rim out to the far field.
-    # The demo is handed a mesh, not the geometry it came from, so the hole is read
-    # back off it: the rim is the part of the boundary nearest the centre.
-    radius = float(np.linalg.norm(
-        mesh.vertices[mesh.boundary_idxs] - np.array([length/2, height/2]), axis=1).min())
+    # along, from the rim out to the far field. The geometry is known here rather than
+    # measured back off the mesh, which is what building the domain in the demo buys.
     strip = np.abs(centroids[:, 0] - length/2) < 0.4*radius
     order = np.argsort(centroids[strip, 1])
     y_strip, ratio_strip = centroids[strip, 1][order], (sigma_xx[strip] / traction)[order]
     peak = ratio_strip.max()
+
+    # Two figures rather than one: five panels of a 2:1 plate and a chart do not share a
+    # sensible aspect ratio, and a grid that size thumbnails to nothing legible.
+    built = Plotter(1, 2, title='From an outline to a solvable mesh', panel_aspect=2.0)
+    built.plot(mesh, mode='mesh', idx=(0, 0),
+               title=f'{len(mesh.elements)} triangles\n'
+                     f'min_angle={min_angle} deg, max_area={max_area_fraction:.2%}')
+    # The input segments over the triangulation, rather than the outline in a panel of
+    # its own: four corners and a polygonalised circle is an almost empty picture alone,
+    # and drawn here it shows which of them the mesher kept and which it split.
+    built.get_ax((0, 0)).add_collection(LineCollection(
+        rupperts.vertices[rupperts.segments], colors='blue', linewidths=1.0))
+    built.plot(mesh, mode='bc', bc=bc, idx=(0, 1), title='Boundary conditions')
 
     plotter = Plotter(1, 2, title='Stress concentration around a hole', panel_aspect=3.0)
     plotter.plot(mesh, sigma_xx, mode='colored', idx=(0, 0), label='sigma_xx',
@@ -210,10 +238,23 @@ def demo_stress_concentration(mesh, traction=1.0):
     # legend sat on top of it.
     ax.legend(loc='lower center', fontsize='small')
 
+    worst_angle = calculate_triangle_min_angle(
+        np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
+    rim_facets = int(np.sum(rupperts.boundary_loops == 1))
     return DemoResult(
-        [Figure(plotter,
-                f'A plate pulled from the right, with the hole left traction-free -- '
-                f'which is what an edge means when no condition is written on it. The '
+        [Figure(built,
+                'Left: the mesh, with the outline it was refined from in blue. Nothing '
+                'asked for smaller elements at the hole -- the area cap is uniform -- '
+                'but the rim is polygonalised into short segments, and honouring them '
+                'is what grades the mesh there. Right: where the conditions went. The '
+                'rim and the long edges carry none, which is not an omission but the '
+                'natural condition of the weak form: an edge nothing is said about is '
+                'traction-free. Every one of these is written against coordinates '
+                'rather than vertex numbers, which is what lets them be placed on a '
+                'mesh no one laid out by hand.',
+                'built'),
+         Figure(plotter,
+                f'A plate pulled from the right, with the hole left traction-free. The '
                 f'stress crowds into the material either side of the hole and relaxes '
                 f'to the applied value within about a diameter, peaking at {peak:.1f}x '
                 f'the applied stress. Kirsch gives 3x -- for a hole in an *infinite* '
@@ -222,11 +263,18 @@ def demo_stress_concentration(mesh, traction=1.0):
                 f'shrinks as the hole does. A textbook constant is a limit, not a '
                 f'target -- and one digit is all this measurement supports, since the '
                 f'peak is sampled at element centroids near the steepest gradient in '
-                f'the field.')],
-        text=(f'applied traction         {traction:.3g}\n'
+                f'the field.',
+                'stress', thumbnail=True)],
+        text=(f'outline points           {len(pslg.vertices)}  '
+              f'(rectangle + polygonalised rim)\n'
+              f'generated elements       {len(mesh.elements)}\n'
+              f'worst angle              {worst_angle:.1f} deg   '
+              f'(asked for {min_angle})\n'
+              f'boundary edges           {len(mesh.boundary)}   '
+              f'({rim_facets} of them the hole rim)\n'
+              f'applied traction         {traction:.3g}\n'
               f'hole diameter / height   {2*radius/height:.2f}\n'
-              f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)\n'
-              f'generated elements       {len(mesh.elements)}'),
+              f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)'),
     )
 
 def demo_elastic_3d(n=17):
@@ -553,10 +601,11 @@ DEMOS = [
          domain=partial(square, 60)),
     Demo('stress_invariants', demo_stress_invariants, section=SOLIDS,
          domain=partial(beam, 4.0, 1.0, 140)),
-    # The one solve on a generated mesh: a domain with a hole in it has no
-    # structured triangulation, so this is Ruppert's output going into the solver.
+    # Builds its own domain rather than taking one, because the meshing is part of what
+    # it shows -- the pipeline demo, from an outline through to a stress. The smoke run
+    # loosens the size cap, which is where all of its cost is.
     Demo('stress_concentration', demo_stress_concentration, section=SOLIDS,
-         domain=plate_with_hole),
+         smoke_kwargs={'max_area_fraction': 0.05}),
     # Builds its own box: the only 3D domain, and the tet count is what sets the
     # cost, so the smoke run takes a coarser one.
     Demo('elastic_3d', demo_elastic_3d, section=SOLIDS, smoke_kwargs={'n': 5}),
