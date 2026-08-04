@@ -56,14 +56,29 @@ def read_svg_to_list_of_path_points(svg_file):
             elif isinstance(segment, svg.path.path.Line):
                 path_points.append(end)
             elif isinstance(segment, svg.path.path.Close):
+                # A loop is returned as a ring, not closed by a repeated final
+                # vertex: `PSLG.from_loops` already closes it by wrapping the last
+                # segment back to index 0, and a stored duplicate would make that a
+                # zero-length edge (rejected by `PSLG.validate`) and, upstream, a
+                # zero-length start-to-end chord in `douglas_peucker`. Sampling a
+                # Bezier through its own true endpoint (below) can land exactly
+                # back on the Move point when the artwork already closes there,
+                # so drop that redundant last vertex rather than keep it -- a
+                # path that does *not* close exactly is left as drawn, its
+                # closing edge coming from the same implicit wraparound.
+                if path_points and np.allclose(path_points[-1], path_points[0]):
+                    path_points.pop()
                 list_of_path_points.append(path_points)
                 path_points = []
             elif isinstance(segment, svg.path.path.CubicBezier):
-                # Approximate the cubic Bezier curve with line segments
+                # Approximate the cubic Bezier curve with line segments, sampled
+                # through the segment's true endpoint (t=1): the next segment's own
+                # samples start just past its shared start point rather than at it,
+                # so nothing else ever adds this vertex.
                 control1 = (segment.control1.real, segment.control1.imag)
                 control2 = (segment.control2.real, segment.control2.imag)
                 num_segments = 10
-                for t in range(1, num_segments):
+                for t in range(1, num_segments + 1):
                     t_normalized = t / num_segments
                     x = (1 - t_normalized)**3 * start[0] + 3 * (1 - t_normalized)**2 * t_normalized * control1[0] + 3 * (1 - t_normalized) * t_normalized**2 * control2[0] + t_normalized**3 * end[0]
                     y = (1 - t_normalized)**3 * start[1] + 3 * (1 - t_normalized)**2 * t_normalized * control1[1] + 3 * (1 - t_normalized) * t_normalized**2 * control2[1] + t_normalized**3 * end[1]

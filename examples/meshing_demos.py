@@ -27,6 +27,7 @@ from domains import beam
 # with the project, so a demo should not depend on where it was launched from. Output
 # paths stay relative, and so follow the caller's directory.
 DEFAULT_SVG_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'california.svg')
+CLOUD_SVG_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'cloud.svg')
 
 # Douglas-Peucker: drop points that deviate less than this fraction of the curve's
 # bounding-box extent. Ruppert's cost grows steeply in point count, so simplifying
@@ -99,6 +100,16 @@ def get_curve_from_svg(svg_file):
     curve = max(output, key=lambda x: len(x)) # get the longest path
     return np.array(curve)
 
+def close_ring(points):
+    """`points` with its first vertex repeated at the end, for plotting.
+
+    A curve read from a closed SVG path comes back as a ring: the closing edge
+    from its last point back to its first is implied by wraparound rather than
+    stored, which is what `PSLG.from_loops` also assumes. `ax.plot` has no such
+    convention, so drawing the points as given leaves that edge missing.
+    """
+    return np.vstack([points, points[:1]])
+
 def simplify_curve(curve, save_file='douglas_peucker_output.json',
                    tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE, interactive=False):
     """Simplify `curve` with Douglas-Peucker, returning the simplified curve.
@@ -113,10 +124,11 @@ def simplify_curve(curve, save_file='douglas_peucker_output.json',
         return douglas_peucker(curve, tolerance * d)
 
     fig, ax = plt.subplots()  # a widget figure, not a Plotter: this path is interactive
-    ax.plot(curve[:, 0], curve[:, 1], color='gray', alpha=0.5)
+    closed_curve = close_ring(curve)
+    ax.plot(closed_curve[:, 0], closed_curve[:, 1], color='gray', alpha=0.5)
     plt.subplots_adjust(bottom=0.15)
 
-    initial = douglas_peucker(curve, tolerance * d)
+    initial = close_ring(douglas_peucker(curve, tolerance * d))
     sampled_plot = plt.plot(initial[:, 0], initial[:, 1], 'b-')[0]
     # Starting at zero would leave an untouched slider handing the full outline
     # downstream, which Ruppert's does not finish triangulating.
@@ -126,7 +138,7 @@ def simplify_curve(curve, save_file='douglas_peucker_output.json',
 
     def update(val):
         epsilon = slider.val
-        dp = douglas_peucker(curve, epsilon)
+        dp = close_ring(douglas_peucker(curve, epsilon))
         sampled_plot.set_xdata(dp[:, 0])
         sampled_plot.set_ydata(dp[:, 1])
         fig.canvas.draw_idle()
@@ -144,6 +156,30 @@ def simplify_curve(curve, save_file='douglas_peucker_output.json',
     plt.show()
 
     return douglas_peucker(curve, slider.val)
+
+def demo_douglas_peucker(svg_file=CLOUD_SVG_FILE, tolerances=(0.005, 0.02, 0.05, 0.15)):
+    """Simplify a curve with Douglas-Peucker at a few tolerances, to show what the
+    parameter does to the outline before it ever reaches Ruppert's algorithm."""
+    curve = get_curve_from_svg(svg_file)
+    d = max(np.max(curve, axis=0) - np.min(curve, axis=0))
+    closed_curve = close_ring(curve)
+
+    plotter = Plotter(1, len(tolerances), title='Douglas-Peucker at increasing tolerance')
+    for i, tolerance in enumerate(tolerances):
+        simplified = close_ring(douglas_peucker(curve, tolerance * d))
+        ax = plotter.get_ax((0, i))
+        ax.plot(closed_curve[:, 0], closed_curve[:, 1], color='gray', linewidth=1.0)
+        ax.plot(simplified[:, 0], simplified[:, 1], 'b-o', markersize=3)
+        ax.set_title(f'tolerance={tolerance} ({len(simplified) - 1} pts)')
+
+    return DemoResult([
+        Figure(plotter,
+               f'The same {len(curve)}-point outline simplified at four tolerances, each '
+               "a fraction of the outline's extent. A looser tolerance keeps only points "
+               'far enough from the line between their neighbours, which is why the '
+               'rounder parts of the cloud are the first detail to go.',
+               'tolerances'),
+    ])
 
 def rupperts_mesh(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
     """Triangulate a PSLG with Ruppert's algorithm; returns (mesh, algorithm)."""
@@ -198,9 +234,11 @@ def demo_mesh_from_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATI
     # way, and the only thing a saved gallery can show of it.
     simplify_plotter = Plotter(title='Douglas-Peucker simplification', axis_labels=False)
     ax = simplify_plotter.get_ax()
-    ax.plot(curve[:, 0], curve[:, 1], color='gray', linewidth=1.0,
+    closed_curve = close_ring(curve)
+    closed_simplified = close_ring(simplified)
+    ax.plot(closed_curve[:, 0], closed_curve[:, 1], color='gray', linewidth=1.0,
             label=f'original ({len(curve)} pts)')
-    ax.plot(simplified[:, 0], simplified[:, 1], 'b-',
+    ax.plot(closed_simplified[:, 0], closed_simplified[:, 1], 'b-',
             label=f'simplified ({len(simplified)} pts)')
 
     pslg = read_svg_to_pslg(svg_file, tolerance=tolerance)
@@ -222,6 +260,7 @@ DEMOS = [
     # because it sharpens corners, and refinement spends extra elements around those.
     Demo('mesh_from_svg', demo_mesh_from_svg, section='Meshing a domain',
          smoke_kwargs={'max_area_fraction': 0.05}),
+    Demo('douglas_peucker', demo_douglas_peucker, section='Meshing a domain'),
     # Coarse, so individual edges and the selected vertices stay legible, and a beam
     # so the regions are the cantilever's own.
     Demo('regions', demo_regions, section='Meshing a domain',
