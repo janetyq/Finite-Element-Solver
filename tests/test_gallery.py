@@ -17,10 +17,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
 
 import solver_demos  # noqa: E402
 from benchmark_assembly import demo_backends  # noqa: E402
-from demo_registry import Demo, DemoResult  # noqa: E402
+from demo_registry import Demo, DemoResult, Figure  # noqa: E402
 from gallery import build_gallery  # noqa: E402
 
 from fem.mesh.ruppert import create_rect_mesh  # noqa: E402
+from fem.plot.plotter import Plotter  # noqa: E402
 
 # The smallest valid GIF: a 1x1 pixel. Enough to stand in for what PyVista writes.
 ONE_PIXEL_GIF = (b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04'
@@ -32,6 +33,24 @@ def _writes_a_gif():
     """A demo whose whole output is a file, the way `3d` hands back a PyVista GIF."""
     Path('animation.gif').write_bytes(ONE_PIXEL_GIF)
     return DemoResult(artifacts=[Path('animation.gif')])
+
+
+def _two_figures(mesh, nominate=False):
+    """Two figures, optionally with the second nominated as the card image."""
+    first, second = Plotter(title='first'), Plotter(title='second')
+    first.plot(mesh, mode='mesh')
+    second.plot(mesh, mode='mesh')
+    return DemoResult([Figure(first, 'how it was built', 'setup'),
+                       Figure(second, 'what it says', 'result', thumbnail=nominate)])
+
+
+def _result_then_setup(mesh):
+    """A demo that shows what it found, then how the problem was posed."""
+    result, conditions = Plotter(title='result'), Plotter(title='conditions')
+    result.plot(mesh, mode='mesh')
+    conditions.plot(mesh, mode='mesh')
+    return DemoResult([Figure(result, 'what it found', 'fields'),
+                       Figure(conditions, 'what was imposed', 'conditions', setup=True)])
 
 
 @pytest.fixture(scope='module')
@@ -49,6 +68,12 @@ def gallery(tmp_path_factory):
         'absent': Demo('absent', solver_demos.demo_poisson_equation, domain=small,
                        section='Solving PDEs',
                        smoke_requires='a_module_that_is_not_installed'),
+        'pipeline': Demo('pipeline', partial(_two_figures, nominate=True), domain=small,
+                         section='Solids & structures'),
+        'unnominated': Demo('unnominated', _two_figures, domain=small,
+                            section='Solids & structures'),
+        'posed': Demo('posed', _result_then_setup, domain=small,
+                      section='Solids & structures'),
         # Declares no section, so it also stands for a demo the index has no heading for.
         'gif_maker': Demo('gif_maker', _writes_a_gif),
     }
@@ -130,6 +155,43 @@ def test_a_demo_declaring_no_section_still_appears(gallery):
     """Grouping must not be able to drop a demo it has no heading for."""
     out, _entries = gallery
     assert 'gif_maker.html' in (out / 'index.html').read_text(encoding='utf-8')
+
+
+def test_a_demo_can_nominate_which_figure_is_its_card_image(gallery):
+    """Read in order, a pipeline demo opens on its setup; a card wants the payoff."""
+    out, _entries = gallery
+    index = (out / 'index.html').read_text(encoding='utf-8')
+    assert 'pipeline-result.png' in index
+    assert 'pipeline-setup.png' not in index
+
+
+def test_the_first_figure_is_still_the_card_image_by_default(gallery):
+    """Nominating is an opt-in; every demo that says nothing keeps what it had."""
+    out, _entries = gallery
+    index = (out / 'index.html').read_text(encoding='utf-8')
+    assert 'unnominated-setup.png' in index
+    assert 'unnominated-result.png' not in index
+
+
+def test_a_setup_figure_gets_its_own_section_below_the_results(gallery):
+    """How a problem was posed is the same kind of thing as the source that posed it,
+    and belongs beside it rather than among what the demo found."""
+    out, _entries = gallery
+    page = (out / 'posed.html').read_text(encoding='utf-8')
+    assert 'What was imposed' in page
+    assert page.index('posed-fields.png') < page.index('What was imposed')
+    assert page.index('What was imposed') < page.index('posed-conditions.png')
+    assert page.index('posed-conditions.png') < page.index('>Source<')
+
+
+def test_a_setup_figure_is_not_the_card_image(gallery):
+    """A card is a picture and a name, and a picture of the conditions imposed says
+    nothing about what the demo found. Nothing enforces this: it follows from every
+    demo returning its results before its setup, which is what this holds in place."""
+    out, _entries = gallery
+    index = (out / 'index.html').read_text(encoding='utf-8')
+    assert 'posed-fields.png' in index
+    assert 'posed-conditions.png' not in index
 
 
 def test_a_gif_artifact_becomes_the_thumbnail(gallery):

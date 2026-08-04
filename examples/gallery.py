@@ -54,6 +54,8 @@ class Panel:
     caption: str
     src: str                       # still image, or the first frame of a sequence
     frames: list[str] = field(default_factory=list)
+    thumbnail: bool = False        # nominated as the card image; see `Figure.thumbnail`
+    setup: bool = False            # how the problem was posed; see `Figure.setup`
 
 
 @dataclass
@@ -92,10 +94,12 @@ def _render_figures(result: DemoResult, name: str, out_dir: Path) -> list[Panel]
             written = figure.plotter.save_frames(str(frame_dir / '{:03d}.png'),
                                                  max_frames=FRAMES_PER_PLAYER)
             frames = [f'{IMAGES}/{stem}/{Path(p).name}' for p in written]
-            panels.append(Panel(figure.caption, frames[0], frames))
+            panels.append(Panel(figure.caption, frames[0], frames, figure.thumbnail,
+                                figure.setup))
         else:
             figure.plotter.save(str(images / f'{stem}.png'))
-            panels.append(Panel(figure.caption, f'{IMAGES}/{stem}.png'))
+            panels.append(Panel(figure.caption, f'{IMAGES}/{stem}.png',
+                                thumbnail=figure.thumbnail, setup=figure.setup))
 
         figure.plotter.close()
 
@@ -165,7 +169,13 @@ a { color: inherit; }
 .badge { font-size: .72rem; color: var(--muted); border: 1px solid var(--line);
          border-radius: 99px; padding: .05rem .5rem; margin-left: .35rem; vertical-align: middle; }
 figure { margin: 0 0 2.5rem; }
-figure img { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+/* Bounded in both directions, not stretched to the column. Every figure is written at
+   the same dpi, so `width: 100%` blew a single square panel up to three times the
+   height of a three-panel strip -- and past its own resolution, so it was soft as well
+   as huge. */
+figure img { display: block; margin: 0 auto; width: auto; height: auto;
+             max-width: 100%; max-height: 30rem;
+             border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 figcaption { color: var(--muted); font-size: .9rem; margin-top: .5rem; }
 .player { display: flex; align-items: center; gap: .75rem; margin-top: .6rem; }
 .player button { font: inherit; padding: .25rem .9rem; border-radius: 6px;
@@ -253,7 +263,8 @@ def _demo_page(entry: Entry) -> str:
     if entry.skipped:
         parts.append(f'<p class="note">Not rendered: {html.escape(entry.skipped)}.</p>')
 
-    parts += [_panel_html(panel, i) for i, panel in enumerate(entry.panels)]
+    parts += [_panel_html(panel, i) for i, panel in enumerate(entry.panels)
+              if not panel.setup]
 
     if entry.text:
         parts.append(f'<pre>{html.escape(entry.text)}</pre>')
@@ -263,6 +274,13 @@ def _demo_page(entry: Entry) -> str:
                          f'<figcaption>{html.escape(name)}</figcaption></figure>')
         else:
             parts.append(f'<p class="sub">Wrote <a href="{name}">{html.escape(name)}</a>.</p>')
+
+    # Sectioned off rather than left among the results, for the same reason the source
+    # is: it answers "how would I state this problem" rather than "what does it show".
+    setup = [(i, p) for i, p in enumerate(entry.panels) if p.setup]
+    if setup:
+        parts.append('<h2 class="heading">What was imposed</h2>')
+        parts += [_panel_html(panel, i) for i, panel in setup]
 
     # The figures are what the demo produced; this is what produced them. Stating a
     # problem to this solver is a dozen readable lines, which is the claim the gallery
@@ -298,8 +316,12 @@ def _thumbnail(entry: Entry) -> str:
     `backends` produces a table of timings; a demo skipped for a missing dependency
     has at least the reason. The deployed gallery installs no extras, so `3d` is
     always the third case there and the first only when run locally.
+
+    A demo may nominate which of its figures this is; the first is only the default.
     """
-    src = entry.panels[0].src if entry.panels else next(
+    nominated = next((p for p in entry.panels if p.thumbnail), None)
+    chosen = nominated or (entry.panels[0] if entry.panels else None)
+    src = chosen.src if chosen else next(
         (a for a in entry.artifacts if a.lower().endswith('.gif')), '')
     if src:
         return f'<img src="{src}" alt="" loading="lazy">'
