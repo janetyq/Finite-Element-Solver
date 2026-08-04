@@ -287,11 +287,10 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     )
 
 def demo_elastic_3d(n=17):
-    """Bend a 3D cantilever beam of tetrahedra, drawn without the optional 3D viewer."""
+    """Bend a 3D cantilever beam of tetrahedra, drawn as its boundary surface."""
     # The package solves in 3D throughout -- the same assembly, the same element
-    # hierarchy, `Solver` reading the element type off the connectivity. This draws the
-    # boundary surface with matplotlib rather than through an optional 3D viewer, so it
-    # renders wherever the rest does -- `heat_3d` uses the same path.
+    # hierarchy, `Solver` reading the element type off the connectivity. `heat_3d` draws
+    # the same way, through `plot_solid` (`fem/plot/helpers.py`).
     mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
 
     # The two 3D demos are the only solves here with no conditions panel: `plot_bc`
@@ -683,9 +682,8 @@ def demo_topology_optimization(mesh, iters=40):
     ])
 
 def demo_heat_3d(steps=20, n=17):
-    """Animate transient heat diffusion on a 3D tetrahedral box, drawn without the optional 3D viewer."""
-    # Same box and resolution convention as `elastic_3d`: a structured tetrahedralization
-    # needs no optional dependency, where the PyVista/tetgen path this replaced did.
+    """Animate transient heat diffusion on a 3D tetrahedral box, drawn as its boundary surface."""
+    # Same box and resolution convention as `elastic_3d`.
     mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
 
     w = max(mesh.vertices.flatten()) - min(mesh.vertices.flatten())
