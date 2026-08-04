@@ -59,14 +59,24 @@ def demo_poisson_equation(mesh):
     solution = solver.solve()
     gradient = solver.space.gradient(solution.u)
 
+    conditions = Plotter()
+    conditions.plot(mesh, mode='bc', bc=bc)
+
     plotter = Plotter(1, 3, title='Poisson Equation')
     plotter.plot(mesh, solution.u, mode='surface', title='Solution', idx=(0, 0))
     plotter.plot(mesh, gradient, mode='arrows', title='Gradient', idx=(0, 1))
     plotter.plot(mesh, np.linalg.norm(gradient, axis=1), mode='surface', title='Gradient Norm', idx=(0, 2))
-    return DemoResult([Figure(
-        plotter,
-        'A constant unit source pinned at every boundary node, with the gradient '
-        'recovered from the solution beside it.')])
+    return DemoResult([
+        Figure(plotter,
+               'A constant unit source, with the gradient recovered from the solution '
+               'beside it.',
+               'fields'),
+        Figure(conditions,
+               'Pinned at every boundary node, so no part of this boundary is left to '
+               'the natural condition -- which is what makes the solution vanish all '
+               'the way round.',
+               'conditions', setup=True),
+    ])
 
 def _plot_study(ax, study, label, colour, reference_order, xlabel):
     """One measured curve plus the power law it is being held to."""
@@ -286,6 +296,9 @@ def demo_elastic_3d(n=17):
     # boundary surface with matplotlib, so it renders wherever the rest does.
     mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
 
+    # The two 3D demos are the only solves here with no conditions panel: `plot_bc`
+    # draws boundary facets as line segments, and in 3D they are triangles. The clamp
+    # and the tip load are the 2D cantilever's, which does show them.
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 4.0), [0, 0, -0.5])
@@ -325,23 +338,39 @@ def demo_robin_bc(mesh):
     equation = Poisson(source=50.0)
     kappas = [0.5, 5.0, 500.0]
 
-    plotter = Plotter(1, len(kappas) + 1, title='Robin BCs: convective cooling')
-    for i, kappa in enumerate(kappas):
+    # The sweep varies kappa, not where it applies, so one conditions figure covers all
+    # three: the whole boundary is a film, and each result panel's title says how free
+    # a one.
+    first = BoundaryConditions()
+    first.add_robin(everywhere(), kappa=kappas[0], g=kappas[0]*u_ambient)
+    conditions = Plotter()
+    conditions.plot(mesh, mode='bc', bc=first)
+
+    solves = []
+    for kappa in kappas:
         bc = BoundaryConditions()
         bc.add_robin(everywhere(), kappa=kappa, g=kappa*u_ambient)
-        u = Solver(mesh, equation, bc).solve().u
-        plotter.plot(mesh, u, mode='colored', idx=(0, i), label='temperature',
-                     title=f'kappa={kappa:g}\n{u.min():.1f} - {u.max():.1f}')
+        solves.append((f'kappa={kappa:g}', Solver(mesh, equation, bc).solve().u))
 
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), u_ambient)
-    u = Solver(mesh, equation, bc).solve().u
-    plotter.plot(mesh, u, mode='colored', idx=(0, len(kappas)), label='temperature',
-                 title=f'Dirichlet limit\n{u.min():.1f} - {u.max():.1f}')
-    return DemoResult([Figure(
-        plotter,
-        'Convective cooling at three film coefficients. The last Robin panel and the '
-        'Dirichlet solve beside it agree to the digit -- the limit, computed both ways.')])
+    solves.append(('Dirichlet limit', Solver(mesh, equation, bc).solve().u))
+
+    plotter = Plotter(1, len(solves), title='Robin BCs: convective cooling')
+    for i, (name, u) in enumerate(solves):
+        plotter.plot(mesh, u, mode='colored', idx=(0, i), label='temperature',
+                     title=f'{name}\n{u.min():.1f} - {u.max():.1f}')
+    return DemoResult([
+        Figure(plotter,
+               'Convective cooling at three film coefficients. The last Robin panel and '
+               'the Dirichlet solve beside it agree to the digit -- the limit, computed '
+               'both ways.',
+               'sweep'),
+        Figure(conditions,
+               'Robin the whole way round, at the first of the three coefficients. Only '
+               'kappa changes across the sweep -- where the condition applies does not.',
+               'conditions', setup=True),
+    ])
 
 def demo_elasticity_models(mesh, stretch=0.5):
     """Stretch one clamped block three ways: a linear solve, the same physics by energy
@@ -382,6 +411,9 @@ def demo_elasticity_models(mesh, stretch=0.5):
         ).solve()),
     ]
 
+    conditions = Plotter()
+    conditions.plot(mesh, mode='bc', bc=bc)
+
     plotter = Plotter(1, 3, title=f'One {stretch:.0%} stretch, three ways to solve it')
     for i, (name, solution) in enumerate(solutions):
         vm = solution.von_mises
@@ -399,7 +431,14 @@ def demo_elasticity_models(mesh, stretch=0.5):
                 'against the true Cauchy stress at the deformed configuration, which '
                 'agree only for small gradients. The third changes the physics rather '
                 'than the solve: Green-Lagrange stiffens as the stretch grows, which '
-                'small strain cannot.')],
+                'small strain cannot.',
+                'stress'),
+         Figure(conditions,
+                'Both ends are Dirichlet, and the difference between them is the whole '
+                'problem: the left is held at zero, the right is displaced to '
+                f'{stretch:.0%} of the width. Nothing is loaded -- the stress above is '
+                'what it costs to hold that shape.',
+                'conditions', setup=True)],
         text=(f'displacement, linear solve vs energy minimisation: '
               f'relative difference {drift:.1e}\n'
               f'minimised elastic energy: {energy_solver.energy(energy_u):.4g}'),
@@ -423,13 +462,24 @@ def demo_stress_invariants(mesh):
         ('Max shear', solution.max_shear),
         ('Max principal', solution.principal_stress[:, -1]),
     ]
+    conditions = Plotter(panel_aspect=4.0)
+    conditions.plot(mesh, mode='bc', bc=bc)
+
     plotter = Plotter(2, 2, title='Stress invariants of one solve', panel_aspect=4.0)
     for i, (name, values) in enumerate(fields):
         plotter.plot(deformed, values, mode='colored', idx=divmod(i, 2), title=name)
-    return DemoResult([Figure(
-        plotter,
-        'Four rotation-invariant reductions of one stress tensor: distortion, mean '
-        'normal stress, the Tresca measure, and the largest tensile principal value.')])
+    return DemoResult([
+        Figure(plotter,
+               'Four rotation-invariant reductions of one stress tensor: distortion, '
+               'mean normal stress, the Tresca measure, and the largest tensile '
+               'principal value.',
+               'invariants'),
+        Figure(conditions,
+               'The same clamp-and-tip-load as the cantilever demo, so what differs '
+               'between the four panels above is the question asked of the stress, not '
+               'the problem solved.',
+               'conditions', setup=True),
+    ])
 
 def demo_heat_equation(mesh):
     """Animate transient heat diffusion from a hot bump initial condition."""
@@ -437,10 +487,15 @@ def demo_heat_equation(mesh):
     heat_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.5*min(w, h)) + 300
 
+    # Empty on purpose, and stated rather than left as a `None` default: every edge is
+    # insulated, which is why the plate levels off at the mean of its initial state
+    # instead of cooling towards anything.
+    bc = BoundaryConditions()
+
     # dt sized to the bump's decay, not to a round number: the corner bump loses 99% of
     # its contrast by t=0.4, so a run that long is three quarters flat square. Over
     # t=0.08 the same 40 frames spread the decay out and still reach near-uniform.
-    solution = ThetaMethod(dt=0.002, steps=40).run(heat(mesh), u_initial.copy())
+    solution = ThetaMethod(dt=0.002, steps=40).run(heat(mesh, bc=bc), u_initial.copy())
     u_values = solution.u
     t_values = solution.t
 
@@ -448,6 +503,13 @@ def demo_heat_equation(mesh):
     # `plot_trisurf` re-tessellates the whole mesh every frame -- it was the single most
     # expensive thing in a gallery build, for a second view of a field the snapshots
     # below already show at six times.
+    # A transient problem is posed by two things, and the initial state is the one that
+    # decides what the picture looks like.
+    setup = Plotter(1, 2)
+    setup.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
+    setup.plot(mesh, u_initial, mode='colored', idx=(0, 1), label='temperature',
+               title=f'Initial condition u(x, 0)\n{u_initial.min():.1f} - {u_initial.max():.1f}')
+
     animation = Plotter(1, 1, title='Heat Equation')
     animation.plot_animation(mesh, u_values, mode='colored', label='temperature',
                              titles=[f't={t:.3f}' for t in t_values], idx=(0, 0))
@@ -464,6 +526,13 @@ def demo_heat_equation(mesh):
         Figure(snapshots,
                'The same run sampled at six times: the corner bump spreads and the '
                'plate approaches a uniform temperature.', 'snapshots'),
+        Figure(setup,
+               'A hot bump in one corner of a plate whose every edge is insulated. '
+               'du/dn = 0 is not an omission but the condition the weak form imposes '
+               'where nothing else is written, and here it means no heat can leave -- '
+               'so the total is conserved and the plate must level off at the mean of '
+               'where it started rather than cooling towards anything.',
+               'conditions', setup=True),
     ])
 
 def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
@@ -473,9 +542,26 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     u_initial = bump_function(mesh.vertices, wave_center, size=0.25*min(w, h))
     dudt_initial = np.zeros(len(mesh.vertices))
 
-    solution = NewmarkMethod(dt=0.03, steps=40).run(wave(mesh, c=1), u_initial, dudt_initial)
+    # Empty, so the edges are free rather than pinned. It is the difference the
+    # snapshots are of: a free edge reflects a pulse back the same way up, where a
+    # clamped one would invert it.
+    bc = BoundaryConditions()
+
+    solution = NewmarkMethod(dt=0.03, steps=40).run(wave(mesh, c=1, bc=bc),
+                                                    u_initial, dudt_initial)
     u_values = solution.u
     t_values = solution.t
+
+    # Newmark is second order in time, so it is posed by two initial conditions, not one.
+    # Both are drawn: the velocity is identically zero, and a panel of nothing is what
+    # says the membrane starts at rest -- which is why the pulse spreads outwards in
+    # every direction rather than travelling in one.
+    setup = Plotter(1, 3)
+    setup.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
+    setup.plot(mesh, u_initial, mode='colored', idx=(0, 1), label='displacement',
+               title='Initial displacement u(x, 0)')
+    setup.plot(mesh, dudt_initial, mode='colored', idx=(0, 2), label='velocity',
+               title='Initial velocity du/dt(x, 0) = 0')
 
     animation = Plotter(1, 1, title='Wave Equation')
     animation.plot_animation(mesh, u_values, mode='surface',
@@ -490,11 +576,15 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
                        title=f't={t_values[i]:.2f}')
 
     return DemoResult([
-        Figure(animation, 'Newmark time integration of a pulse on a fixed membrane.',
-               'animation'),
+        Figure(animation, 'Newmark time integration of the pulse.', 'animation'),
         Figure(snapshots,
                'Six times from the second half of the run, after the pulse has reflected '
                'off the boundary and begun interfering with itself.', 'snapshots'),
+        Figure(setup,
+               'A pulse released from rest on a membrane whose edges carry the natural '
+               'condition, du/dn = 0. That is a free edge rather than a clamped one, '
+               'which is why the pulse reflects the same way up instead of inverted.',
+               'conditions', setup=True),
     ])
 
 def demo_linear_elastic(mesh):
@@ -517,17 +607,25 @@ def demo_linear_elastic(mesh):
     deformed_mesh = solution.deformed_mesh()
     displacements = np.linalg.norm(solution.u.reshape(-1, 2), axis=1)
 
-    plotter = Plotter(1, 3, title='Linear Elasticity', panel_aspect=4.0)
-    plotter.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
+    conditions = Plotter(panel_aspect=4.0)
+    conditions.plot(mesh, mode='bc', bc=bc)
+
+    plotter = Plotter(1, 2, title='Linear Elasticity', panel_aspect=4.0)
     plotter.plot(deformed_mesh, solution.von_mises, mode='colored', title='Von Mises stress',
-                 label='von Mises stress', idx=(0, 1))
+                 label='von Mises stress', idx=(0, 0))
     plotter.plot(mesh, displacements, mode='colored', title='Displacement',
-                 label='|u|', idx=(0, 2))
-    return DemoResult([Figure(
-        plotter,
-        'A cantilever clamped at the left and loaded downwards at the tip. The bending '
-        'stress is largest at the clamp and splits top from bottom -- tension over the '
-        'neutral axis, compression under it.')])
+                 label='|u|', idx=(0, 1))
+    return DemoResult([
+        Figure(plotter,
+               'The bending stress is largest at the clamp and splits top from bottom '
+               '-- tension over the neutral axis, compression under it.',
+               'fields'),
+        Figure(conditions,
+               'Clamped along the left edge, pulled down over the middle of the right '
+               'one. Everything between is traction-free, which is what makes this a '
+               'cantilever rather than a beam being squeezed.',
+               'conditions', setup=True),
+    ])
 
 def demo_topology_optimization(mesh, iters=40):
     """Run SIMP topology optimization on a cantilever under a downward force."""
@@ -544,16 +642,27 @@ def demo_topology_optimization(mesh, iters=40):
 
     rho_final = history.rho[-1]
     stress_final = history.von_mises[-1]
+    # Only the clamp is a boundary condition here: the load is a body force over every
+    # element, not a traction on an edge, so the rest of the boundary is natural.
+    conditions = Plotter(panel_aspect=2.0)
+    conditions.plot(mesh, mode='bc', bc=bc)
+
     final_plotter = Plotter(1, 2, title='Topology Optimization', panel_aspect=2.0)
     final_plotter.plot(deformed_mesh, rho_final, mode='colored', title='Topology Optimized Structure',
                        label='density', idx=(0, 0), empty=True)
     final_plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final von Mises stress',
                        label='von Mises stress', idx=(0, 1))
     return DemoResult([
-        Figure(animation_plotter, 'Density evolving over the SIMP iterations.', 'animation'),
+        Figure(animation_plotter, 'Density evolving over the SIMP iterations.',
+               'animation'),
         Figure(final_plotter,
                'The converged structure and its stress: material has migrated into a '
                'truss carrying the load back to the supported edge.', 'final'),
+        Figure(conditions,
+               'Clamped on the left and nothing else: the load here is a body force over '
+               'every element rather than a traction on an edge, so it is the one thing '
+               'imposed that a picture of the boundary cannot show.',
+               'conditions', setup=True),
     ])
 
 def demo_heat_3d(steps=20, save_file='tetmesh_animation.gif'):
