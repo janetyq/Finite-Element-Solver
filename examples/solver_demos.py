@@ -5,7 +5,6 @@
 """
 import numpy as np
 from functools import partial
-from pathlib import Path
 
 from matplotlib.collections import LineCollection
 
@@ -290,10 +289,9 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
 def demo_elastic_3d(n=17):
     """Bend a 3D cantilever beam of tetrahedra, drawn without the optional 3D viewer."""
     # The package solves in 3D throughout -- the same assembly, the same element
-    # hierarchy, `Solver` reading the element type off the connectivity -- and the
-    # published gallery has never shown it: `heat_3d` renders through PyVista, which
-    # needs the viz3d extra, and the deploy installs no extras. This one draws the
-    # boundary surface with matplotlib, so it renders wherever the rest does.
+    # hierarchy, `Solver` reading the element type off the connectivity. This draws the
+    # boundary surface with matplotlib rather than through an optional 3D viewer, so it
+    # renders wherever the rest does -- `heat_3d` uses the same path.
     mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
 
     # The two 3D demos are the only solves here with no conditions panel: `plot_bc`
@@ -684,25 +682,29 @@ def demo_topology_optimization(mesh, iters=40):
                'conditions', setup=True),
     ])
 
-def demo_heat_3d(steps=20, save_file='tetmesh_animation.gif'):
-    """Solve transient heat diffusion on a 3D tetrahedral mesh (renders via PyVista)."""
-    # `fem.plot.tet` needs the optional viz3d extra, so it is imported where it runs. A
-    # module-level import takes down every demo in this file, and cli.py with them, on
-    # the default install CI uses -- see tests/test_examples_import.py.
-    from fem.plot.tet import create_rect_tetmesh, plot_tetmesh_animation
-
-    mesh = create_rect_tetmesh(x_lim=[0, 4], y_lim=[0, 1], z_lim=[0, 1], subdividisions=2, plot=False)
+def demo_heat_3d(steps=20, n=17):
+    """Animate transient heat diffusion on a 3D tetrahedral box, drawn without the optional 3D viewer."""
+    # Same box and resolution convention as `elastic_3d`: a structured tetrahedralization
+    # needs no optional dependency, where the PyVista/tetgen path this replaced did.
+    mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
 
     w = max(mesh.vertices.flatten()) - min(mesh.vertices.flatten())
     heat_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.3*w) + 300
 
     solution = ThetaMethod(dt=0.04, steps=steps).run(heat(mesh), u_initial.copy())
+    u_values = solution.u
+    t_values = solution.t
 
-    # PyVista writes the frames as a GIF; the path is returned rather than left for the
-    # caller to guess, which is what makes this demo collectable like any other.
-    plot_tetmesh_animation(mesh, np.array(solution.u), save_file=save_file, title='Heat Diffusion')
-    return DemoResult(artifacts=[Path(save_file)])
+    animation = Plotter(1, 1, title='Heat Diffusion')
+    animation.plot_animation(mesh, u_values, mode='solid', label='temperature',
+                             titles=[f't={t:.2f}' for t in t_values], idx=(0, 0))
+
+    return DemoResult([Figure(
+        animation,
+        'Heat diffusing from a hot corner through a tetrahedral box -- the same solve '
+        '`heat` runs in 2D, one dimension up. Only the boundary surface is drawn, so '
+        'the interior is not directly visible, but the same diffusion reaches it.')])
 
 
 SOLVING = 'Solving PDEs'
@@ -712,10 +714,7 @@ ACCURACY = 'Accuracy & performance'
 DEMOS = [
     Demo('poisson', demo_poisson_equation, section=SOLVING, domain=partial(square, 80)),
     Demo('heat', demo_heat_equation, section=SOLVING, domain=square),
-    # 20 steps of tet rendering is ~4.4s against ~1.9s for 3; the frames are identical
-    # work, so the test takes the short run.
-    Demo('heat_3d', demo_heat_3d, section=SOLVING,
-         smoke_requires='pyvista', smoke_kwargs={'steps': 3}),
+    Demo('heat_3d', demo_heat_3d, section=SOLVING, smoke_kwargs={'steps': 3, 'n': 5}),
     Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
     Demo('robin', demo_robin_bc, section=SOLVING, domain=partial(square, 80)),
 

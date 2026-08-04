@@ -36,9 +36,6 @@ jobs:
       - name: Install the pinned Python
         run: uv python install
 
-      # No extras: viz3d would pull ~330 MB of VTK, and PyVista rendering headlessly
-      # needs xvfb or an OSMesa build on top of that. The 3D demo instead gets a page
-      # saying it needs the optional dependency, which the gallery handles by design.
       - name: Sync dependencies
         run: uv sync
 

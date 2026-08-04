@@ -23,14 +23,14 @@ from gallery import build_gallery  # noqa: E402
 from fem.mesh.ruppert import create_rect_mesh  # noqa: E402
 from fem.plot.plotter import Plotter  # noqa: E402
 
-# The smallest valid GIF: a 1x1 pixel. Enough to stand in for what PyVista writes.
+# The smallest valid GIF: a 1x1 pixel. Enough to stand in for a demo's rendered output.
 ONE_PIXEL_GIF = (b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04'
                  b'\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D'
                  b'\x01\x00;')
 
 
 def _writes_a_gif():
-    """A demo whose whole output is a file, the way `3d` hands back a PyVista GIF."""
+    """A demo whose whole output is a file rather than a figure the gallery renders."""
     Path('animation.gif').write_bytes(ONE_PIXEL_GIF)
     return DemoResult(artifacts=[Path('animation.gif')])
 

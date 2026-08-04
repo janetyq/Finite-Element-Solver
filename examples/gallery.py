@@ -312,10 +312,8 @@ def _thumbnail(entry: Entry) -> str:
     """The tile at the top of a card.
 
     A demo with no figure is not a demo with nothing to show, and an invisible tile
-    reads as a broken card. `3d` renders through PyVista and hands back a GIF;
-    `backends` produces a table of timings; a demo skipped for a missing dependency
-    has at least the reason. The deployed gallery installs no extras, so `3d` is
-    always the third case there and the first only when run locally.
+    reads as a broken card. `backends` produces a table of timings; a demo skipped for
+    a missing dependency has at least the reason.
 
     A demo may nominate which of its figures this is; the first is only the default.
     """
