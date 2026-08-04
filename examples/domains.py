@@ -16,7 +16,7 @@ none of this reaches the per-commit gate either.
 import numpy as np
 
 from fem.mesh.mesh import Mesh
-from fem.mesh.ruppert import RuppertsAlgorithm, create_rect_mesh
+from fem.mesh.ruppert import create_rect_mesh
 from fem.mesh.svg import PSLG
 
 
@@ -52,19 +52,3 @@ def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float
     hole = np.column_stack([length/2 + radius*np.cos(angles),
                             height/2 + radius*np.sin(angles)])
     return PSLG.from_loops([outline, hole])
-
-
-def plate_with_hole(length: float = 6.0, height: float = 3.0, radius: float = 0.3,
-                    min_angle: float = 25, max_area_fraction: float = 0.0005) -> Mesh:
-    """The plate above, triangulated by Ruppert's algorithm.
-
-    Unlike every other domain here this one is *generated* rather than laid out on a
-    grid: there is no structured triangulation of a domain with a hole in it. The
-    element size is set by `max_area_fraction` of the plate's area, since the angle
-    bound constrains element shape but says nothing about size.
-    """
-    pslg = plate_with_hole_pslg(length, height, radius)
-    pslg.validate()
-    rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle,
-                                 max_area=max_area_fraction * pslg.area())
-    return rupperts.refine()
