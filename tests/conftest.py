@@ -8,13 +8,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-try:  # the optional viz3d extra; the 3D demo renders through it
-    import pyvista
-
-    pyvista.OFF_SCREEN = True  # the Agg equivalent: render to a buffer, open no window
-except ImportError:
-    pass
-
 import pytest
 
 from fem.mesh.ruppert import create_rect_mesh

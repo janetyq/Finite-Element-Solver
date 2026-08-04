@@ -17,20 +17,13 @@ dependencies = [
     # AMG-preconditioned CG for large SPD systems (fem.backends.IterativeBackend), the
     # solver's answer to 3D factorization fill-in. Base, not an extra: it needs only
     # numpy/scipy (already here), so it adds no transitive weight, and it is the core
-    # scaling path rather than a niche feature like the meshing/rendering extras below.
+    # scaling path rather than a niche feature.
     "pyamg",
     # SVG-outline meshing (fem.mesh.svg). Base rather than an extra: it is 13 files of
     # pure Python with no dependencies of its own, so gating it bought nothing and cost
     # a skipped test plus two demos that could not run on a default install.
     "svg.path",
 ]
-
-[project.optional-dependencies]
-# 3D tetrahedral meshing / rendering (fem.mesh + fem.plot.tet). An extra, unlike the
-# deps above: pyvista pulls vtk, ~330 MB and over half the installed environment, to
-# serve one module and one demo. `[io]` is pyvista's own extra for imageio, which its
-# open_gif needs -- ours to request, not to depend on directly.
-viz3d = ["pyvista[io]", "tetgen"]
 
 # Development tooling (installed by default with `uv sync`)
 [dependency-groups]
@@ -52,8 +45,8 @@ pythonVersion = "3.11"
 # annotations everywhere, so the checker is useful while only the public API is
 # typed. Tighten toward "standard" as coverage grows.
 typeCheckingMode = "basic"
-# The optional extras (pyvista, tetgen, svg.path) and matplotlib ship partial or
-# no stubs; missing-import noise from them would drown out real findings.
+# svg.path and matplotlib ship partial or no stubs; missing-import noise from them
+# would drown out real findings.
 reportMissingTypeStubs = false
 
 [tool.setuptools.packages.find]

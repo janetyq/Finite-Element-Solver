@@ -14,16 +14,12 @@ management. `uv sync` creates a project-local `.venv`, installs the `fem` packag
 in editable mode, and pins exact versions in `uv.lock`.
 
 ```bash
-uv sync                 # core solver, SVG-outline meshing, and dev tools (pytest)
-uv sync --extra viz3d   # + 3D tetrahedral meshing/rendering (pyvista, tetgen)
+uv sync   # core solver, SVG-outline meshing, 3D tetrahedral meshing/rendering, and dev tools (pytest)
 ```
-
-`viz3d` is the one extra: pyvista pulls `vtk`, which is larger than the rest of the
-environment put together, so a 2D solve does not pay for it.
 
 Prefer plain pip? It is a standard `pyproject.toml` package:
 ```bash
-pip install -e ".[viz3d]"
+pip install -e .
 ```
 
 ## Quick Start
