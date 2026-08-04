@@ -24,8 +24,8 @@ from fem.plot.helpers import (
     plot_surface,
     plot_refinement,
     plot_solid,
-    plot_bc,
 )
+from fem.plot.bc import plot_bc
 
 
 class PlotMode(Enum):
@@ -89,6 +89,11 @@ class Plotter:
         # see `chart_ax`.
         self._charts: dict[tuple[int, int], tuple[str, str]] = {}
 
+        # Panels of boundary conditions. Their axes *are* the domain's, so they keep
+        # equal aspect and their ticks, but not the x/y labels: `plot_bc` puts a legend
+        # under the panel, which is where those words sit.
+        self._bc_panels: set[tuple[int, int]] = set()
+
         self.anims = {}
         # The frame-update callable behind each animation, kept because a FuncAnimation
         # renders only through show()/save(); `save_frames` steps these directly.
@@ -150,6 +155,7 @@ class Plotter:
             plot_arrows(ax, mesh, values) # inside arrows, assert the correct shape
         elif mode is PlotMode.BC:
             plot_bc(ax, mesh, bc)
+            self._bc_panels.add(idx)
 
         ax.set_title(title) # overrides any existing title
         if empty:
@@ -229,7 +235,7 @@ class Plotter:
                 ax.set_ylabel(ylabel)
             else:
                 ax.ticklabel_format(useOffset=False)
-                if self.axis_labels:
+                if self.axis_labels and idx not in self._bc_panels:
                     ax.set_xlabel('x')
                     ax.set_ylabel('y')
                 if hasattr(ax, 'get_zlim'):

@@ -56,7 +56,7 @@ def test_bc_plotting_runs(make_unit_square):
     needing a component count; exercise it so a break surfaces here, not on a human's screen."""
     import matplotlib.pyplot as plt
 
-    from fem.plot.helpers import plot_bc
+    from fem.plot.bc import plot_bc
 
     mesh = make_unit_square(6)
     bc = BoundaryConditions()

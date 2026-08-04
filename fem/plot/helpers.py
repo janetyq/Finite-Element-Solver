@@ -1,5 +1,6 @@
 """Low-level matplotlib drawing helpers used by the Plotter class: mesh, boundary,
-highlights, colored fields, surfaces, arrows, colorbars, and boundary conditions.
+highlights, colored fields, surfaces, arrows, and colorbars. Boundary conditions are a
+picture with a vocabulary of their own and live in `fem.plot.bc`.
 """
 from dataclasses import dataclass
 
@@ -179,20 +180,3 @@ def plot_refinement(ax, mesh, classifications, linewidth=0.5):
         color = '#e06666' if kind == 'red' else '#93c47d'
         ax.fill(verts[:, 0], verts[:, 1], color=color, alpha=0.45)
     plot_mesh(ax, mesh, color='black', linewidth=linewidth)
-
-
-def plot_bc(ax, mesh, bc):
-    from fem.boundary import BCType
-
-    # The outline, not the triangulation: this panel is about where the conditions sit,
-    # and a fine mesh drawn under them is a grey field that hides the markers. The mesh
-    # itself has demos of its own.
-    plot_boundary(ax, mesh)
-    # entries() resolves regions against this mesh without needing a component count, which
-    # is all plotting needs -- no DOF numbering involved.
-    for bc_type, idxs, values in bc.entries(mesh):
-        points = mesh.vertices[idxs]
-        if bc_type is BCType.DIRICHLET:
-            ax.plot(points[:, 0], points[:, 1], 'ro')
-        elif bc_type is BCType.NEUMANN:
-            ax.quiver(points[:, 0], points[:, 1], values[:, 0], values[:, 1])
