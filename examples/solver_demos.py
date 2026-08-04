@@ -356,15 +356,21 @@ def demo_robin_bc(mesh):
     bc.add(BCType.DIRICHLET, everywhere(), u_ambient)
     solves.append(('Dirichlet limit', Solver(mesh, equation, bc).solve().u))
 
+    # One scale across the sweep, which is what the demo is claiming with. Renormalized
+    # per panel the four look alike and the reader has to compare colorbar ticks; shared,
+    # the plate visibly cools towards ambient as kappa rises, and the last two are the
+    # same picture -- which *is* the claim that the Robin limit is the Dirichlet solve.
+    span = (min(float(u.min()) for _, u in solves), max(float(u.max()) for _, u in solves))
     plotter = Plotter(1, len(solves), title='Robin BCs: convective cooling')
     for i, (name, u) in enumerate(solves):
         plotter.plot(mesh, u, mode='colored', idx=(0, i), label='temperature',
-                     title=f'{name}\n{u.min():.1f} - {u.max():.1f}')
+                     title=f'{name}\n{u.min():.1f} - {u.max():.1f}', clim=span)
     return DemoResult([
         Figure(plotter,
-               'Convective cooling at three film coefficients. The last Robin panel and '
-               'the Dirichlet solve beside it agree to the digit -- the limit, computed '
-               'both ways.',
+               'Convective cooling at three film coefficients, all four on one colour '
+               'scale -- so the plate is seen to cool towards ambient as the film opens '
+               'up. The last Robin panel and the Dirichlet solve beside it are the same '
+               'picture and agree to the digit: the limit, computed both ways.',
                'sweep'),
         Figure(conditions,
                'Robin the whole way round, at the first of the three coefficients. Only '
@@ -516,10 +522,14 @@ def demo_heat_equation(mesh):
 
     # The animation renders only on show(), so the diffusion needs a still form too --
     # otherwise this demo contributes nothing to a saved gallery.
+    # One scale across the six, spanning the whole run. Renormalized per panel, a field
+    # losing 70% of its contrast drew as six near-identical squares under a caption
+    # promising it approaches uniform -- the decay was in the colorbars and nowhere else.
+    span = (float(np.min(u_values)), float(np.max(u_values)))
     snapshots = Plotter(2, 3, title='Heat Equation: diffusion from the corner')
     for panel, i in enumerate(np.linspace(0, len(u_values) - 1, 6).astype(int)):
         snapshots.plot(mesh, u_values[i], mode='colored', idx=divmod(panel, 3),
-                       label='temperature', title=f't={t_values[i]:.3f}')
+                       label='temperature', title=f't={t_values[i]:.3f}', clim=span)
 
     return DemoResult([
         Figure(animation, 'Crank-Nicolson diffusion of the corner bump.', 'animation'),
@@ -570,10 +580,19 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     # Snapshots from the second half of the run, once the pulse has reflected off the
     # boundary and started interfering with itself. One grid, rather than the window
     # per frame this used to open.
+    # Shared z limits, so the six are the same membrane seen at six times rather than
+    # six differently-scaled drawings: autoscaled, a pulse that has spread out is drawn
+    # to the same height as the one that has not. Spanned over the frames shown and not
+    # the whole run -- the tallest thing here is the initial pulse before it disperses,
+    # which none of these panels contains, and scaling to it drew every one of them at
+    # about a third of its axis.
+    shown = [int(i) for i in np.linspace(len(u_values)//2, len(u_values) - 1, 6)]
+    span = (min(float(u_values[i].min()) for i in shown),
+            max(float(u_values[i].max()) for i in shown))
     snapshots = Plotter(2, 3, title='Wave Equation: reflection and interference')
-    for panel, i in enumerate(np.linspace(len(u_values)//2, len(u_values) - 1, 6).astype(int)):
+    for panel, i in enumerate(shown):
         snapshots.plot(mesh, u_values[i], mode='surface', idx=divmod(panel, 3),
-                       title=f't={t_values[i]:.2f}')
+                       title=f't={t_values[i]:.2f}', clim=span)
 
     return DemoResult([
         Figure(animation, 'Newmark time integration of the pulse.', 'animation'),

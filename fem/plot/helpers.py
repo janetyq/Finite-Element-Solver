@@ -79,7 +79,13 @@ def change_ax_to_ax3d(ax, fig, ax_shape, ax_idx):
     return ax
 
 
-def plot_surface(ax, mesh, values):
+def plot_surface(ax, mesh, values, clim=None):
+    """Lift `values` over a 2D mesh into the z direction.
+
+    `clim` fixes both the colour mapping and the z axis, so a grid of surfaces can be
+    compared: left to autoscale, each panel is drawn to its own height, and a wave
+    losing amplitude looks exactly like one that is not.
+    """
     if values.shape == (len(mesh.vertices),):
         pass
     elif values.shape == (len(mesh.elements),):
@@ -91,7 +97,10 @@ def plot_surface(ax, mesh, values):
     else:
         raise ValueError(f'Invalid values shape: {values.shape}')
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
-    ax.plot_trisurf(triangulation, values, cmap='viridis')
+    vmin, vmax = clim if clim is not None else (None, None)
+    ax.plot_trisurf(triangulation, values, cmap='viridis', vmin=vmin, vmax=vmax)
+    if clim is not None:
+        ax.set_zlim(*clim)
 
 
 def plot_solid(ax, mesh, values, cbar_info=None):

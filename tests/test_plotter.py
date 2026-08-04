@@ -210,6 +210,48 @@ def test_a_conditions_panel_keeps_its_aspect_but_not_the_x_y_labels(mesh):
     plotter.close()
 
 
+def test_clim_holds_one_scale_across_panels(mesh):
+    """Each panel renormalized to its own extremes, so six snapshots of a field decaying
+    by 70% drew as six near-identical squares -- the run visible only in the colorbar
+    ticks. `plot_animation` had always fixed this across frames; `plot` could not."""
+    cool = np.full(len(mesh.vertices), 300.0)
+    cool[0] = 314.0
+    hot = np.full(len(mesh.vertices), 300.0)
+    hot[0] = 350.0
+
+    plotter = Plotter(1, 2)
+    for i, values in enumerate((hot, cool)):
+        plotter.plot(mesh, values, mode='colored', idx=(0, i), clim=(300.0, 350.0))
+
+    for idx in ((0, 0), (0, 1)):
+        norm = plotter.cbar_infos[idx].norm
+        assert (norm.vmin, norm.vmax) == (300.0, 350.0)
+    plotter.close()
+
+
+def test_without_clim_each_panel_still_scales_to_itself(mesh):
+    """Sharing is opt-in: a grid of unrelated quantities must not be forced onto one."""
+    values = np.linspace(0.0, 1.0, len(mesh.vertices))
+
+    plotter = Plotter(1, 2)
+    plotter.plot(mesh, values, mode='colored', idx=(0, 0))
+    plotter.plot(mesh, 10*values, mode='colored', idx=(0, 1))
+
+    assert plotter.cbar_infos[(0, 0)].norm.vmax == pytest.approx(1.0)
+    assert plotter.cbar_infos[(0, 1)].norm.vmax == pytest.approx(10.0)
+    plotter.close()
+
+
+def test_clim_fixes_the_z_axis_of_a_surface_too(mesh):
+    """A grid of surfaces autoscales each to its own height, so a pulse that has spread
+    out is drawn the same size as one that has not."""
+    plotter = Plotter(1, 1)
+    plotter.plot(mesh, np.linspace(0.0, 0.1, len(mesh.vertices)), mode='surface',
+                 clim=(-1.0, 1.0))
+    assert plotter.axs[0, 0].get_zlim() == (-1.0, 1.0)
+    plotter.close()
+
+
 def test_explicit_colorbar_limits_are_respected(mesh):
     values = [np.full(len(mesh.vertices), 300.0), np.full(len(mesh.vertices), 350.0)]
 
