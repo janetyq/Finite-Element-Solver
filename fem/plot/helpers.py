@@ -111,10 +111,6 @@ def plot_solid(ax, mesh, values, cbar_info=None):
 
     `values=None` draws the surface plain, for showing a mesh rather than a field
     on it; there is nothing for a colorbar to say in that case, so there is none.
-
-    This is the 3D path that needs no optional dependency: `fem.plot.tet` renders
-    through PyVista, which is the better viewer but pulls in VTK, so the deployed
-    gallery has never had a 3D solve on it.
     """
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 

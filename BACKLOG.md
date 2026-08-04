@@ -189,8 +189,8 @@ recovers anything. Each item below is an implementation of a seam that already e
 - 💡 **The `refinement` demo shows both ends of the loop and not the join** — the peaked
   Poisson problem that motivates refining, and red-green splitting on a small mesh —
   because driving one from the other needs the error estimator above, plus Dirichlet
-  conditions that survive a remesh. Every demo now runs under `tests/test_demos.py`;
-  the only skip is `heat_3d`, on the optional `pyvista`.
+  conditions that survive a remesh. Every demo now runs under `tests/test_demos.py`,
+  with no skips.
 - 💡 **Report the minimum corner angle alongside the demo's simplification tolerance.**
   Output size used to be non-monotonic in *input* size, because cost tracked the sharpest
   corner Douglas-Peucker left behind rather than the point count. The corner treatment
