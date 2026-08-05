@@ -4,7 +4,7 @@ from functools import cached_property
 
 import numpy as np
 
-from fem.typing import Elements, IntArray, Vertices
+from fem.typing import Elements, FloatArray, IntArray, Vertices
 
 Edge = tuple[int, int]
 
@@ -76,6 +76,18 @@ class Mesh:
                 edge: Edge = pair  # type: ignore[assignment]
                 mapping.setdefault(edge, []).append(e_idx)
         return mapping
+
+    @cached_property
+    def element_diameters(self) -> FloatArray:
+        '''Maximum edge length per element -- the h_K in error estimates.'''
+        diameters = np.zeros(len(self.elements))
+        for e_idx, element in enumerate(self.elements):
+            max_len_sq = 0.0
+            for v0, v1 in itertools.combinations(element, 2):
+                len_sq = float(np.sum((self.vertices[v1] - self.vertices[v0])**2))
+                max_len_sq = max(max_len_sq, len_sq)
+            diameters[e_idx] = np.sqrt(max_len_sq)
+        return diameters
 
     @cached_property
     def element_neighbours(self) -> list[list[int]]:

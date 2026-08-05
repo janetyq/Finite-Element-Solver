@@ -113,6 +113,8 @@ class Plotter:
         empty: bool = False,
         label: str | None = None,
         clim: tuple[float, float] | None = None,
+        cmap: str | None = None,
+        log_scale: bool = False,
     ) -> None:
         """Draw `values` on `mesh` into the subplot at `idx`.
 
@@ -126,6 +128,9 @@ class Plotter:
         squares -- the run is visible only in the colorbar's tick labels, and only to a
         reader who thought to check them. `plot_animation` has always fixed this across
         the frames of one panel; this is the same thing across panels.
+
+        `cmap` selects the colormap (default 'viridis'); `log_scale` uses logarithmic
+        normalization.
         """
         mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
         ax = self.axs[idx]
@@ -141,10 +146,11 @@ class Plotter:
         elif mode is PlotMode.BOUNDARY:
             plot_boundary(ax, mesh)
         elif mode is PlotMode.COLORED:
+            cmap_name = cmap if cmap is not None else 'viridis'
             if clim is not None and idx not in self.cbar_infos:
-                self.cbar_infos[idx] = setup_colorbar(ax, clim, label)
+                self.cbar_infos[idx] = setup_colorbar(ax, clim, label, cmap_name, log_scale)
             cbar_info = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
-                                     label=label)
+                                     label=label, cmap_name=cmap_name, log_scale=log_scale)
             self.cbar_infos[idx] = cbar_info
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)

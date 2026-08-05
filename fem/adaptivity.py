@@ -20,7 +20,8 @@ import numpy as np
 from fem.boundary import BoundaryConditions
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
-from fem.solution import Solution
+from fem.solution import FieldSolution
+from fem.space import FunctionSpace
 from fem.typing import ElementField
 
 logger = logging.getLogger(__name__)
@@ -36,12 +37,13 @@ class RefinableSolver(Protocol):
     that shape, not of which physics is being solved.
     '''
     mesh: Mesh
+    space: FunctionSpace
     boundary_conditions: BoundaryConditions
-    solution: Solution | None
+    solution: FieldSolution | None
 
     def remesh(self, mesh: Mesh) -> None: ...
 
-    def solve(self) -> Solution: ...
+    def solve(self) -> FieldSolution: ...
 
 
 class AdaptiveRefinement:
@@ -66,7 +68,7 @@ class AdaptiveRefinement:
         self.max_iters = max_iters
         self.refine_fraction = refine_fraction
 
-    def run(self) -> Solution:
+    def run(self) -> FieldSolution:
         '''Refine and re-solve until a budget is hit; return the final solution.
 
         Elements whose estimate is within `refine_fraction` of the largest are
