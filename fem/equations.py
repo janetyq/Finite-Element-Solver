@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 from fem.fields import FieldShape, Scalar, Vector
 from fem.forms import EnergyDensity, Form, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
+from fem.solution import ElasticSolution
 from fem.typing import ElementField, FieldValue
 
 
@@ -198,3 +199,94 @@ class LinearElastic(Equation):
             StrainMeasure.GREEN_LAGRANGE: StVenantKirchhoff,
         }[self.kinematics]
         return density(self.E, self.nu)
+
+    def error_estimate(self, solver: RefinableSolver) -> ElementField:
+        '''Residual-based a posteriori error estimator for adaptive refinement.
+
+        Elasticity's analogue of Poisson.error_estimate: the same interior and
+        jump terms, with the scalar flux grad(u) replaced throughout by the
+        traction sigma.n. For P1 elements stress is constant per element, so
+        div(sigma) vanishes inside each element and the interior term reduces
+        to the body force alone, exactly as the Laplacian term does for
+        Poisson.
+
+        A third term has no Poisson analogue: a residual on Neumann/natural
+        boundary edges, ||g - sigma.n||^2. Poisson's estimator does not need
+        it -- its demo is pure Dirichlet -- but elasticity problems commonly
+        have a free (traction-free) boundary, and that is exactly where a
+        stress concentration lives: the discrete solution's traction there
+        should be zero but generally is not, and this term is what lets that
+        show up as error rather than being invisible to the estimator.
+
+            eta_K^2 = h_K^2 ||f||^2_K
+                    + (h_K/2) sum_edges ||[[sigma.n]]||^2_e
+                    + h_K sum_(Neumann/free edges) ||g - sigma.n||^2_e
+
+        Dirichlet edges (both endpoints pinned) are skipped: the essential
+        condition holds exactly at the nodes, so there is nothing to measure
+        there. 2D only, like Poisson's estimator -- extending to 3D needs face
+        normals rather than edge ones.
+        '''
+        mesh = solver.mesh
+        space = solver.space
+
+        if solver.solution is None:
+            raise ValueError('error_estimate requires a solved system')
+        if not isinstance(solver.solution, ElasticSolution):
+            raise TypeError(
+                'error_estimate needs recovered stress; got a bare FieldSolution'
+            )
+        if mesh.spatial_dim != 2:
+            raise NotImplementedError('3D error estimator needs face normals')
+
+        stress = solver.solution.stress  # (n_elements, 3, 3)
+        h_K = mesh.element_diameters
+        n_elements = len(mesh.elements)
+
+        from fem.regions import evaluate_field
+        centroids = mesh.vertices[mesh.elements].mean(axis=1)
+        f_values = evaluate_field(self.source, centroids, n_components=2)
+        interior_term = h_K**2 * np.sum(f_values**2, axis=1) * space.element_volumes
+
+        resolved = solver.boundary_conditions.resolve(mesh, space.n_components)
+        dirichlet_set = set(int(v) for v in resolved.dirichlet_vertices)
+
+        jump_term = np.zeros(n_elements)
+        boundary_term = np.zeros(n_elements)
+
+        for edge, adjacent in mesh.edge_to_elements.items():
+            v0, v1 = edge
+            edge_vec = mesh.vertices[v1] - mesh.vertices[v0]
+            edge_len = float(np.linalg.norm(edge_vec))
+            normal = np.array([-edge_vec[1], edge_vec[0]]) / edge_len
+
+            if len(adjacent) == 2:
+                e0, e1 = adjacent
+                t0 = stress[e0][:2, :2] @ normal
+                t1 = stress[e1][:2, :2] @ normal
+                jump2 = float(np.sum((t0 - t1)**2))
+                edge_contribution = edge_len * jump2
+                jump_term[e0] += (h_K[e0] / 2) * edge_contribution / 2
+                jump_term[e1] += (h_K[e1] / 2) * edge_contribution / 2
+                continue
+
+            # Boundary edge. Unlike the interior jump above, g is directional,
+            # so the normal must actually point outward rather than just be
+            # consistent between two sides -- orient the same rotate-90
+            # candidate by the element it belongs to.
+            (e0,) = adjacent
+            centroid = mesh.vertices[mesh.elements[e0]].mean(axis=0)
+            midpoint = 0.5 * (mesh.vertices[v0] + mesh.vertices[v1])
+            if np.dot(midpoint - centroid, normal) < 0:
+                normal = -normal
+
+            if v0 in dirichlet_set and v1 in dirichlet_set:
+                continue  # essential BC satisfied exactly at the nodes
+
+            g = 0.5 * (resolved.neumann_load[v0] + resolved.neumann_load[v1])
+            t = stress[e0][:2, :2] @ normal
+            residual2 = float(np.sum((g - t)**2))
+            boundary_term[e0] += h_K[e0] * edge_len * residual2
+
+        eta_squared = interior_term + jump_term + boundary_term
+        return np.sqrt(np.maximum(eta_squared, 0.0))

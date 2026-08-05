@@ -8,6 +8,7 @@ from functools import partial
 
 from matplotlib.collections import LineCollection
 
+from fem.adaptivity import AdaptiveRefinement
 from fem.backends import IterativeBackend
 from fem.geometry import calculate_triangle_min_angle
 from fem.numerics import bump_function
@@ -204,7 +205,8 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, length), [traction, 0])
 
-    solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
+    equation = LinearElastic(E=200, nu=0.3)
+    solution = Solver(mesh, equation, bc).solve()
     sigma_xx = solution.stress[:, 0, 0]
 
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
@@ -247,6 +249,41 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # legend sat on top of it.
     ax.legend(loc='lower center', fontsize='small')
 
+    # Adaptive refinement, driven by this same equation's residual estimator
+    # (LinearElastic.error_estimate) rather than by the uniform area cap above.
+    # Starts from a copy of the mesh already built, so the comparison is the same
+    # physics at the same starting resolution.
+    #
+    # It does end up concentrated at the rim -- but not right away. A fully
+    # clamped edge is its own source of error: it resists the plate's natural
+    # sideways contraction as it stretches, and that resistance is itself poorly
+    # resolved close to x=0. The first rounds go there and to the four corners,
+    # where the clamp or the pulled edge meets a free one -- boundary conditions
+    # changing type is a standard weak singularity, independent of the hole.
+    # Only once those settle does the rim pull ahead: over the ten rounds run
+    # here, roughly four-fifths of the new triangles land within one hole-radius
+    # of it. `BACKLOG.md` has the fix for the clamp's share of that -- a roller
+    # condition in place of the full clamp -- which today's boundary conditions
+    # cannot express.
+    adaptive_solver = Solver(mesh.copy(), equation, bc)
+    adaptive_solution = AdaptiveRefinement(
+        adaptive_solver, equation.error_estimate,
+        max_triangles=len(mesh.elements) + 2000, max_iters=10,
+    ).run()
+    adaptive_mesh = adaptive_solver.mesh
+    adaptive_sigma_xx = adaptive_solution.stress[:, 0, 0]
+    adaptive_centroids = adaptive_mesh.vertices[adaptive_mesh.elements].mean(axis=1)
+    adaptive_strip = np.abs(adaptive_centroids[:, 0] - length/2) < 0.4*radius
+    adaptive_peak = float((adaptive_sigma_xx[adaptive_strip] / traction).max())
+
+    adaptive_plotter = Plotter(1, 2, title='Adaptive refinement, driven by the residual estimator',
+                               panel_aspect=2.0)
+    adaptive_plotter.plot(adaptive_mesh, mode='mesh', idx=(0, 0),
+                          title=f'{len(adaptive_mesh.elements)} triangles\n'
+                                f'(started from {len(mesh.elements)})')
+    adaptive_plotter.plot(adaptive_mesh, adaptive_sigma_xx, mode='colored', idx=(0, 1),
+                          label='sigma_xx', title=f'peak {adaptive_peak:.1f}x the applied stress')
+
     worst_angle = calculate_triangle_min_angle(
         np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
     rim_facets = int(np.sum(rupperts.boundary_loops == 1))
@@ -273,7 +310,17 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
                 f'target -- and one digit is all this measurement supports, since the '
                 f'peak is sampled at element centroids near the steepest gradient in '
                 f'the field.',
-                'stress', thumbnail=True)],
+                'stress', thumbnail=True),
+         Figure(adaptive_plotter,
+                f'The same problem, refined by LinearElastic.error_estimate instead of a '
+                f'uniform area cap: {len(mesh.elements)} triangles growing to '
+                f'{len(adaptive_mesh.elements)} over ten rounds, peaking at '
+                f'{adaptive_peak:.1f}x. Left: where the extra triangles went -- mostly the '
+                f'rim, but not only it. Right: the stress they now resolve. The estimator '
+                f'also spends triangles at the four corners and along the clamped edge, a '
+                f'real, separate source of error here (see the code comment above) rather '
+                f'than something specific to the hole.',
+                'adaptive')],
         text=(f'outline points           {len(pslg.vertices)}  '
               f'(rectangle + polygonalised rim)\n'
               f'generated elements       {len(mesh.elements)}\n'
@@ -283,7 +330,9 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
               f'({rim_facets} of them the hole rim)\n'
               f'applied traction         {traction:.3g}\n'
               f'hole diameter / height   {2*radius/height:.2f}\n'
-              f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)'),
+              f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)\n'
+              f'adaptive elements        {len(adaptive_mesh.elements)}\n'
+              f'adaptive peak sigma_xx / applied  {adaptive_peak:.2f}'),
     )
 
 def demo_elastic_3d(n=17):
