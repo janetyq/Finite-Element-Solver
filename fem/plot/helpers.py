@@ -9,7 +9,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.colorbar import Colorbar
-from matplotlib.colors import Colormap, Normalize
+from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.tri import Triangulation
 
 
@@ -47,9 +47,13 @@ def plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode='vertices')
                 first = False
 
 
-def setup_colorbar(ax, vlim, label=None):
-    cmap = matplotlib.colormaps['viridis']  # Choose a colormap
-    norm = Normalize(vmin=vlim[0], vmax=vlim[1])  # Normalize values between vmin and vmax
+def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False):
+    cmap = matplotlib.colormaps[cmap_name]
+    if log_scale:
+        vmin = max(vlim[0], 1e-10)  # floor to avoid log(0)
+        norm = LogNorm(vmin=vmin, vmax=vlim[1])
+    else:
+        norm = Normalize(vmin=vlim[0], vmax=vlim[1])
 
     # Create a scalar mappable for the colorbar
     sm = cm.ScalarMappable(cmap=cmap, norm=norm)
@@ -61,9 +65,9 @@ def setup_colorbar(ax, vlim, label=None):
     return ColorbarInfo(cmap, norm, cbar)
 
 
-def plot_colored(ax, mesh, values, cbar_info=None, label=None):
+def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridis', log_scale=False):
     if cbar_info is None:
-        cbar_info = setup_colorbar(ax, (min(values), max(values)), label)
+        cbar_info = setup_colorbar(ax, (min(values), max(values)), label, cmap_name, log_scale)
 
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
     ax.tripcolor(triangulation, values, cmap=cbar_info.cmap, norm=cbar_info.norm)

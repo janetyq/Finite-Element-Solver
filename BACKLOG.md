@@ -18,7 +18,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Numerics | A-posteriori error estimator | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | ZZ recovery error estimator (alternative to residual) | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize Newton (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -40,8 +40,8 @@ insertion into near-coplanar points. Not yet isolated to a minimal repro or a sp
 insertion; worth a look before using cloud.svg (or any similarly tight shape) in a demo
 that runs `RuppertsAlgorithm` to completion.
 
-*(Otherwise no open correctness bugs. Adaptive refinement is closed-loop except for the
-error estimator itself — see [§3](#3-open-ended-suggestions--future-ideas).)*
+*(Otherwise no open correctness bugs. Adaptive refinement is now fully closed-loop with
+the residual error estimator — see the `refinement` demo.)*
 
 ---
 
@@ -87,16 +87,11 @@ Two things measured and rejected, so they do not get proposed again:
   integrals. A general quadrature layer (reference element + Gauss points + Jacobian) would
   make adding new element types and variable coefficients far easier, and is a prerequisite for
   the quadratic elements above. Decide `quadrature.py`'s fate: integrate it or mark it WIP.
-- 💡 **A posteriori error estimator** so adaptive refinement is fully closed-loop. The driver
-  and its refine/remesh loop are done; only the estimate is missing, and `AdaptiveRefinement`
-  takes it as a callable `(solver) -> per-element error`, so it drops straight in. Two flavours
-  are still wanted: the *a priori* bound `||e|| <= C h² ||f''||`, which needs only the mesh and
-  the source, and the *a posteriori* element residual, which needs the computed solution. They
-  are per-equation — the Poisson residual is not the elasticity one — so the natural home is a
-  method on the `Equation` subclass rather than a dispatch table in a driver. The seam is
-  deliberately *not* pre-declared: an abstract `Equation.error_estimate` with no implementations
-  would be the speculative generality `ARCHITECTURE.md` §5 argues against. Write the first
-  estimator and the method together.
+- 💡 **Zienkiewicz-Zhu (ZZ) recovery error estimator.** An alternative to the residual
+  estimator now in `Poisson.error_estimate`. ZZ computes a "recovered" gradient by nodal
+  averaging, then measures the difference from the raw per-element gradient. Simpler to
+  implement (no edge-neighbor bookkeeping), widely used in commercial codes, equally
+  legitimate mathematically. Would live as a sibling method or a second estimator option.
 
 **Post-processing coverage**
 
@@ -186,11 +181,10 @@ recovers anything. Each item below is an implementation of a seam that already e
   outer loop rather than loops of their own, so they still need a coordinate region
   (`fem.regions.on_plane`) to separate them, and the demo has to wire that to the Poisson
   equation and reproduce the README figure.
-- 💡 **The `refinement` demo shows both ends of the loop and not the join** — the peaked
-  Poisson problem that motivates refining, and red-green splitting on a small mesh —
-  because driving one from the other needs the error estimator above, plus Dirichlet
-  conditions that survive a remesh. Every demo now runs under `tests/test_demos.py`,
-  with no skips.
+- 💡 ~~**The `refinement` demo shows both ends of the loop and not the join.**~~ Done: the
+  demo now runs the full adaptive loop with `Poisson.error_estimate` driving refinement,
+  showing before/after meshes with refinement concentrated around the peaked source.
+  Every demo now runs under `tests/test_demos.py`, with no skips.
 - 💡 **Report the minimum corner angle alongside the demo's simplification tolerance.**
   Output size used to be non-monotonic in *input* size, because cost tracked the sharpest
   corner Douglas-Peucker left behind rather than the point count. The corner treatment
@@ -235,5 +229,5 @@ recovers anything. Each item below is an implementation of a seam that already e
 ## Suggested Priority Order
 
 1. **Coverage + type hints** (§3) — deepen the safety net before the bigger numerics work.
-2. **Then the numerics roadmap** — quadrature → higher-order elements → the error estimator
-   that closes the adaptive-refinement loop.
+2. **Then the numerics roadmap** — quadrature → higher-order elements. (The error estimator
+   that closes the adaptive-refinement loop is now done.)
