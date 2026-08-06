@@ -22,7 +22,6 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize Newton (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Physics | Per-component (roller-style) Dirichlet BCs | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Post-proc | Poisson flux, transient derived fields | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
@@ -115,23 +114,6 @@ recovers anything. Each item below is an implementation of a seam that already e
   as a different out-of-plane component, so it is a second branch in both places plus a way for a
   caller to choose. Worth doing when a thin-plate problem actually appears; a single-member enum
   ahead of that is generality with no second case.
-- 💡 **Per-component (roller-style) Dirichlet boundary conditions.** `BoundaryConditions.add`
-  only supports pinning every component of a vector field at once; `[0, None]` (meant as "pin
-  x, leave y free") resolves to `NaN` rather than raising or working, because `None` is coerced
-  through `np.asarray(..., dtype=float)` in `evaluate_field`. This blocks a physically faithful
-  symmetry/roller condition — pin the normal displacement on a symmetry plane, leave the
-  in-plane one free — which a proper quarter-model comparison against a textbook solution needs.
-  Concretely surfaced by `stress_concentration`: it fully clamps the left edge (`[0, 0]`) rather
-  than using a roller, which is not a pure-traction problem, so the measured peak ratio is not
-  independent of `nu` the way the textbook Kirsch comparison assumes — empirically 3.21x (nu=0)
-  to 4.88x (nu=0.499) on the demo's own mesh, vs. 3.34x at the demo's actual `nu=0.3`. The same
-  full clamp also turns out to be a genuine competing source of local error next to the hole:
-  `LinearElastic.error_estimate`'s adaptive-refinement pass on that demo spends its first several
-  rounds on the clamped edge and the four plate corners (where a boundary condition changes type,
-  a standard weak singularity) before the hole's rim pulls ahead — see the `adaptive` figure's
-  caption. A roller condition would remove the dominant, whole-plate disturbance driving both of
-  these; the residual corner effect is a separate, more generic property of BC-transition corners
-  that a roller condition would likely shrink but probably not eliminate outright.
 - 💡 **Hand-rolled geometric two-grid V-cycle preconditioner.** The SPD iterative path
   (`fem/backends.py:IterativeBackend`, AMG-CG) currently gets its multigrid from `pyamg`. A
   geometric two-grid V-cycle built on the adaptive-refinement mesh hierarchy would drop in
