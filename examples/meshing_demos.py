@@ -42,7 +42,7 @@ DEFAULT_MAX_AREA_FRACTION = 0.005
 
 def demo_regions(mesh):
     """Name parts of a domain by position, which is how a boundary condition says where
-    it applies -- and works the same for vertices and for elements."""
+    it applies -- and survives a remesh the way a vertex index could not."""
     # The alternative is naming vertex indices, and an index means nothing after a
     # remesh renumbers them. Everything here is written against coordinates, so the
     # same three lines select the same three places on any mesh of this beam -- which
@@ -82,6 +82,31 @@ def demo_regions(mesh):
     )
     selected.get_ax().legend(loc='upper center', bbox_to_anchor=(0.5, -0.08), ncol=3,
                              frameon=False)
+
+    # The claim these regions are worth anything rests on: resolved fresh against
+    # whatever mesh is current, not tied to one triangulation's vertex numbering.
+    # Shown rather than asserted -- the same three predicates land on the same physical
+    # patches on a second, differently-resolved mesh of this beam, whose vertices are
+    # numbered nothing like the first's.
+    finer = beam(w, h, 90)
+    resolved = Plotter(1, 2, title='The same regions, resolved on two different meshes',
+                       axis_labels=False, figsize=(figsize[0], figsize[1] + 0.4))
+    for col, m in enumerate((mesh, finer)):
+        m_centroids = m.vertices[m.elements].mean(axis=1)
+        resolved.plot(m, mode='mesh', idx=(0, col), title=f'{len(m.elements)} triangles')
+        resolved.plot_highlights(m, [np.flatnonzero(far_half(m_centroids))], ['lightblue'],
+                                 ['in_box: far half' if col == 0 else ''],
+                                 mode='elements', idx=(0, col))
+        resolved.plot_highlights(
+            m,
+            [np.flatnonzero(clamped(m.vertices)), np.flatnonzero(loaded(m.vertices))],
+            ['red', 'green'],
+            (['on_plane: clamped edge', 'intersect: loaded patch'] if col == 0 else ['', '']),
+            idx=(0, col),
+        )
+    resolved.get_ax((0, 0)).legend(loc='upper center', bbox_to_anchor=(0.5, -0.08), ncol=3,
+                                   frameon=False)
+
     return DemoResult([
         Figure(boundary,
                'The boundary a mesh knows about: the facets it carries, and the vertices '
@@ -93,6 +118,13 @@ def demo_regions(mesh):
                'a boundary condition intersects it with the boundary, so a plane through '
                'the middle of the domain yields only the two vertices where it emerges.',
                'regions'),
+        Figure(resolved,
+               f'The same three predicates, re-evaluated on a {len(finer.elements)}-triangle '
+               f'mesh of the same beam -- more elements, differently numbered, and every '
+               'region still lands on the same physical patch. A vertex index could not '
+               'survive this; a coordinate does, which is what lets a condition be placed '
+               'once and stay put through whatever remeshing happens after.',
+               'resolved'),
     ])
 
 def get_curve_from_svg(svg_file):

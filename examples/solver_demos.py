@@ -447,43 +447,6 @@ def demo_elasticity_models(mesh, stretch=0.5):
               f'minimised elastic energy: {energy_solver.energy(energy_u):.4g}'),
     )
 
-def demo_stress_invariants(mesh):
-    """Show the four rotation-invariant stress measures recovered from one elastic solve."""
-    w = np.max(mesh.vertices[:, 0])
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])), [0, -0.5])
-
-    solution = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
-    deformed = solution.deformed_mesh()
-
-    # Each is a different question asked of the same stress tensor: distortion, mean
-    # normal stress, the Tresca measure, and the largest tensile principal value.
-    fields = [
-        ('Von Mises', solution.von_mises),
-        ('Pressure', solution.pressure),
-        ('Max shear', solution.max_shear),
-        ('Max principal', solution.principal_stress[:, -1]),
-    ]
-    conditions = Plotter(panel_aspect=4.0)
-    conditions.plot(mesh, mode='bc', bc=bc)
-
-    plotter = Plotter(2, 2, title='Stress invariants of one solve', panel_aspect=4.0)
-    for i, (name, values) in enumerate(fields):
-        plotter.plot(deformed, values, mode='colored', idx=divmod(i, 2), title=name)
-    return DemoResult([
-        Figure(plotter,
-               'Four rotation-invariant reductions of one stress tensor: distortion, '
-               'mean normal stress, the Tresca measure, and the largest tensile '
-               'principal value.',
-               'invariants'),
-        Figure(conditions,
-               'The same clamp-and-tip-load as the cantilever demo, so what differs '
-               'between the four panels above is the question asked of the stress, not '
-               'the problem solved.',
-               'conditions', setup=True),
-    ])
-
 def demo_heat_equation(mesh):
     """Animate transient heat diffusion from a hot bump initial condition."""
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
@@ -604,7 +567,8 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     ])
 
 def demo_linear_elastic(mesh):
-    """Solve linear elasticity for a cantilever fixed on the left with a traction load."""
+    """Solve linear elasticity for a cantilever fixed on the left with a traction load,
+    then read four rotation-invariant stress measures off that one solve."""
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
@@ -631,11 +595,30 @@ def demo_linear_elastic(mesh):
                  label='von Mises stress', idx=(0, 0))
     plotter.plot(mesh, displacements, mode='colored', title='Displacement',
                  label='|u|', idx=(0, 1))
+
+    # The same stress tensor admits other rotation-invariant reductions besides von
+    # Mises: mean normal stress, the Tresca measure, and the largest tensile principal
+    # value. Each is its own question asked of one solve, not a different problem.
+    invariant_fields = [
+        ('Von Mises', solution.von_mises),
+        ('Pressure', solution.pressure),
+        ('Max shear', solution.max_shear),
+        ('Max principal', solution.principal_stress[:, -1]),
+    ]
+    invariants = Plotter(2, 2, title='Stress invariants of the same solve', panel_aspect=4.0)
+    for i, (name, values) in enumerate(invariant_fields):
+        invariants.plot(deformed_mesh, values, mode='colored', idx=divmod(i, 2), title=name)
+
     return DemoResult([
         Figure(plotter,
                'The bending stress is largest at the clamp and splits top from bottom '
                '-- tension over the neutral axis, compression under it.',
                'fields'),
+        Figure(invariants,
+               'Four rotation-invariant reductions of that same stress tensor: distortion, '
+               'mean normal stress, the Tresca measure, and the largest tensile principal '
+               'value.',
+               'invariants'),
         Figure(conditions,
                'Clamped along the left edge, pulled down over the middle of the right '
                'one. Everything between is traction-free, which is what makes this a '
@@ -724,8 +707,6 @@ DEMOS = [
     # and undeformed shapes comparable at a glance.
     Demo('elasticity_models', demo_elasticity_models, section=SOLIDS,
          domain=partial(square, 60)),
-    Demo('stress_invariants', demo_stress_invariants, section=SOLIDS,
-         domain=partial(beam, 4.0, 1.0, 140)),
     # Builds its own domain rather than taking one, because the meshing is part of what
     # it shows -- the pipeline demo, from an outline through to a stress. The smoke run
     # loosens the size cap, which is where all of its cost is.
