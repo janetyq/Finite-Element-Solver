@@ -18,6 +18,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
 | Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Mixed (u-p) formulation for near-incompressible elasticity | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | ZZ recovery error estimator (alternative to residual) | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize Newton (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -83,6 +84,24 @@ Two things measured and rejected, so they do not get proposed again:
   hierarchy is well-positioned — add `QuadraticTriangleElement` with its own shape functions
   and a real quadrature rule (the `fem/quadrature.py` rules are written but not yet wired into
   assembly).
+- 💡 **Mixed (u-p) formulation, to remove volumetric locking near nu -> 0.5.** The linear
+  triangle has one constant strain per element, which cannot represent deviatoric and
+  volumetric deformation independently -- as `nu` approaches incompressibility the element
+  gets artificially stiff, worst in curved/high-gradient regions (found via the
+  `stress_concentration` demo: a nu-sweep at the hole rim showed real growth from `nu`=0 to
+  0.3, then a sharp additional rise from 0.3 to 0.499, the classic locking signature, while a
+  uniform-stress patch far from any curvature stayed essentially flat -- see the git history
+  around the roller-boundary-conditions branch for the numbers). Selective/reduced integration
+  and B-bar don't apply to a constant-strain triangle -- there is nothing to integrate at
+  reduced order within one constant-strain element. The standard fix for this element family is
+  a mixed formulation: interpolate pressure (mean stress) as its own field, one polynomial
+  degree below displacement (Taylor-Hood P2-P1 is the standard pairing), and enforce the
+  volumetric constraint weakly instead of purely through displacement. This is more than an
+  element swap -- the assembled system becomes a saddle-point (indefinite) one, not the SPD
+  system every solve path here currently assumes (`fem/backends.py`'s CG path and its
+  rigid-body near-null-space handling, in particular), so it needs its own solver strategy
+  alongside the new element. Depends on quadratic elements existing first (P2 is one half of
+  the P2-P1 pair).
 - 💡 **Proper Gaussian quadrature.** Assembly currently uses closed-form linear-element
   integrals. A general quadrature layer (reference element + Gauss points + Jacobian) would
   make adding new element types and variable coefficients far easier, and is a prerequisite for

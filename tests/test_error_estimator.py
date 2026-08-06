@@ -264,6 +264,38 @@ def test_elastic_error_estimator_neumann_matching_traction_is_quiet():
     assert np.allclose(eta, [expected_e0, expected_e1])
 
 
+def test_elastic_error_estimator_roller_edge_only_tests_its_free_component():
+    """A roller (bottom pinned in x, free in y) rather than a full clamp: the
+    x-component has a live essential condition (no residual, matching the
+    fully-clamped case), but y is natural there and must still be tested --
+    using the full vector residual would wrongly count the pinned x-direction's
+    reaction stress as error, which is exactly the false signal a roller fix
+    needs the estimator not to produce."""
+    mesh = _unit_square_two_triangles()
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, None])  # bottom: roller
+    equation = LinearElastic(E=200, nu=0.3)
+    solver = Solver(mesh, equation, bc)
+
+    Sxx, Syy, Sxy = 3.0, 1.0, 0.5
+    _inject_constant_stress(solver, Sxx, Syy, Sxy)
+
+    eta = equation.error_estimate(solver)
+
+    h_K = np.sqrt(2.0)
+    # bottom's outward normal is (0, -1), so sigma.n = (-Sxy, -Syy); only the
+    # free y-component (residual Syy^2, g=0) counts, not x (-Sxy is pinned
+    # reaction stress, not error).
+    bottom_residual = Syy**2
+    right_residual = Sxx**2 + Sxy**2   # untouched: same free edge as before
+    top_residual = Sxy**2 + Syy**2     # untouched: bottom's roller doesn't reach it
+    left_residual = Sxx**2 + Sxy**2    # untouched
+    expected_e0 = np.sqrt(h_K * (bottom_residual + right_residual))
+    expected_e1 = np.sqrt(h_K * (top_residual + left_residual))
+
+    assert np.allclose(eta, [expected_e0, expected_e1])
+
+
 def test_adaptive_refinement_elasticity_runs_end_to_end(make_unit_square):
     """The full loop, mirroring test_adaptive_refinement_with_error_estimator:
     the mesh grows, the solution stays finite, and Dirichlet BCs -- carried as
