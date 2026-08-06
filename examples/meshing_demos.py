@@ -55,42 +55,16 @@ def demo_regions(mesh):
     # Sized for the domain plus a row of labels under it: the axes are equal-aspect, so
     # a 4:1 beam in the default square-ish figure is a thin strip, and a legend inside
     # one covers the mesh it is annotating.
-    figsize = (9.0, 3.2)
-
-    boundary = Plotter(title='The mesh and its boundary', axis_labels=False,
-                       figsize=figsize)
-    boundary.plot(mesh, mode='mesh')
-    boundary.plot(mesh, mode='boundary')
-    boundary.plot_highlights(mesh, [mesh.boundary_idxs], ['red'],
-                             [f'boundary ({len(mesh.boundary_idxs)} vertices)'])
-    boundary.get_ax().legend(loc='upper center', bbox_to_anchor=(0.5, -0.08),
-                             frameon=False)
-
-    # A region is a callable from coordinates to a mask, so it reads element centroids
-    # as happily as it reads vertices.
-    centroids = mesh.vertices[mesh.elements].mean(axis=1)
-    selected = Plotter(title='Three regions, selected by position', axis_labels=False,
-                       figsize=figsize)
-    selected.plot(mesh, mode='mesh')
-    selected.plot_highlights(mesh, [np.flatnonzero(far_half(centroids))], ['lightblue'],
-                             ['in_box: far half'], mode='elements')
-    selected.plot_highlights(
-        mesh,
-        [np.flatnonzero(clamped(mesh.vertices)), np.flatnonzero(loaded(mesh.vertices))],
-        ['red', 'green'],
-        ['on_plane: clamped edge', 'intersect: loaded patch'],
-    )
-    selected.get_ax().legend(loc='upper center', bbox_to_anchor=(0.5, -0.08), ncol=3,
-                             frameon=False)
+    figsize = (9.0, 3.6)
 
     # The claim these regions are worth anything rests on: resolved fresh against
-    # whatever mesh is current, not tied to one triangulation's vertex numbering.
-    # Shown rather than asserted -- the same three predicates land on the same physical
+    # whatever mesh is current, not tied to one triangulation's vertex numbering. Shown
+    # rather than asserted -- the same three predicates land on the same physical
     # patches on a second, differently-resolved mesh of this beam, whose vertices are
     # numbered nothing like the first's.
     finer = beam(w, h, 90)
     resolved = Plotter(1, 2, title='The same regions, resolved on two different meshes',
-                       axis_labels=False, figsize=(figsize[0], figsize[1] + 0.4))
+                       axis_labels=False, figsize=figsize)
     for col, m in enumerate((mesh, finer)):
         m_centroids = m.vertices[m.elements].mean(axis=1)
         resolved.plot(m, mode='mesh', idx=(0, col), title=f'{len(m.elements)} triangles')
@@ -108,23 +82,15 @@ def demo_regions(mesh):
                                    frameon=False)
 
     return DemoResult([
-        Figure(boundary,
-               'The boundary a mesh knows about: the facets it carries, and the vertices '
-               'on them. Every condition in the gallery is placed somewhere on this.',
-               'boundary'),
-        Figure(selected,
-               'The same three regions the cantilever demos use, drawn rather than solved '
-               'on. Note the regions are geometric, not boundary-aware: resolving one into '
-               'a boundary condition intersects it with the boundary, so a plane through '
-               'the middle of the domain yields only the two vertices where it emerges.',
-               'regions'),
         Figure(resolved,
-               f'The same three predicates, re-evaluated on a {len(finer.elements)}-triangle '
-               f'mesh of the same beam -- more elements, differently numbered, and every '
-               'region still lands on the same physical patch. A vertex index could not '
-               'survive this; a coordinate does, which is what lets a condition be placed '
-               'once and stay put through whatever remeshing happens after.',
-               'resolved'),
+               'Three regions selected by position -- on_plane, in_box, and their '
+               f'intersect -- resolved on two different meshes of the same beam: '
+               f'{len(mesh.elements)} triangles, then {len(finer.elements)}, differently '
+               'numbered. Every region lands on the same physical patch either way, which '
+               'is what lets a boundary condition be placed once and survive whatever '
+               'remeshing happens after. The regions themselves are geometric, not '
+               "boundary-aware -- a plane through the domain's middle would keep only the "
+               'two vertices where it meets the edge, once resolved against one.'),
     ])
 
 def get_curve_from_svg(svg_file):
