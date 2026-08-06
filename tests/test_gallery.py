@@ -1,7 +1,7 @@
 """The gallery generator produces a browsable directory.
 
-Built on a small hand-made registry rather than the real one: rendering all nineteen
-demos takes minutes, and what needs covering here is the generator's four paths -- a
+Built on a small hand-made registry rather than the real one: rendering all of the
+real demos takes minutes, and what needs covering here is the generator's four paths -- a
 still figure, an animated figure rendered as frames, text output, and a demo skipped
 for a missing dependency -- not the demos themselves, which `test_demos.py` runs.
 """
@@ -35,6 +35,11 @@ def _writes_a_gif():
     return DemoResult(artifacts=[Path('animation.gif')])
 
 
+def _text_only():
+    """A demo whose whole output is a table of numbers, with nothing for a Plotter to draw."""
+    return DemoResult(text='n=5 dofs=375 time=0.01s')
+
+
 def _two_figures(mesh, nominate=False):
     """Two figures, optionally with the second nominated as the card image."""
     first, second = Plotter(title='first'), Plotter(title='second')
@@ -65,6 +70,7 @@ def gallery(tmp_path_factory):
                        domain=small, section='Solids & structures'),
         'backends': Demo('backends', partial(demo_backends, sizes=(5,)),
                          section='Accuracy & performance'),
+        'text_only': Demo('text_only', _text_only, section='Accuracy & performance'),
         'absent': Demo('absent', solver_demos.demo_poisson_equation, domain=small,
                        section='Solving PDEs',
                        smoke_requires='a_module_that_is_not_installed'),
@@ -201,11 +207,11 @@ def test_a_gif_artifact_becomes_the_thumbnail(gallery):
 
 
 def test_a_text_only_demo_shows_its_output_on_its_card(gallery):
-    """`backends` has nothing to draw, and an empty tile reads as a broken card."""
+    """A demo with nothing to draw still needs a card, not an empty tile."""
     out, _entries = gallery
     index = (out / 'index.html').read_text(encoding='utf-8')
     assert 'thumb-text' in index
-    assert 'amg_cg' in index
+    assert 'n=5 dofs=375' in index
 
 
 def test_missing_dependency_is_reported_not_omitted(gallery):
