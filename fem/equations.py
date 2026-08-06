@@ -201,31 +201,40 @@ class LinearElastic(Equation):
         return density(self.E, self.nu)
 
     def error_estimate(self, solver: RefinableSolver) -> ElementField:
-        '''Residual-based a posteriori error estimator for adaptive refinement.
+        '''Residual-based a posteriori error estimator.
 
-        Elasticity's analogue of Poisson.error_estimate: the same interior and
-        jump terms, with the scalar flux grad(u) replaced throughout by the
-        traction sigma.n. For P1 elements stress is constant per element, so
-        div(sigma) vanishes inside each element and the interior term reduces
-        to the body force alone, exactly as the Laplacian term does for
-        Poisson.
-
-        A third term has no Poisson analogue: a residual on Neumann/natural
-        boundary edges, ||g - sigma.n||^2. Poisson's estimator does not need
-        it -- its demo is pure Dirichlet -- but elasticity problems commonly
-        have a free (traction-free) boundary, and that is exactly where a
-        stress concentration lives: the discrete solution's traction there
-        should be zero but generally is not, and this term is what lets that
-        show up as error rather than being invisible to the estimator.
+        Returns a per-element indicator eta_K measuring how badly the discrete
+        solution fails to satisfy elastic equilibrium. No exact solution is
+        needed -- each term measures a violation the computed stress should not
+        have.
 
             eta_K^2 = h_K^2 ||f||^2_K
                     + (h_K/2) sum_edges ||[[sigma.n]]||^2_e
                     + h_K sum_(Neumann/free edges) ||g - sigma.n||^2_e
 
+        h_K is the element diameter, and the three terms check the three ways
+        equilibrium can break:
+
+        - Interior: inside K, div(sigma) + f = 0 must hold. P1 elements have
+          constant stress per element, so div(sigma) = 0 identically and only
+          the body force f survives -- the term is f at the centroid, squared,
+          times area.
+        - Jump: the traction sigma.n is continuous across an interior edge in
+          the true solution, but the piecewise-constant discrete stress jumps
+          between neighbours. A large [[sigma.n]] means the two elements
+          disagree about the stress state -- the field is under-resolved there.
+        - Boundary: on a Neumann/free edge the traction should equal the
+          applied load g (zero on a traction-free surface). The discrete
+          sigma.n generally is not g, and that mismatch is real error. This is
+          the term that lets a stress concentration register: without it a
+          traction-free hole rim has no jump neighbour and would score zero,
+          hiding the very place the error is largest.
+
         Dirichlet edges (both endpoints pinned) are skipped: the essential
         condition holds exactly at the nodes, so there is nothing to measure
-        there. 2D only, like Poisson's estimator -- extending to 3D needs face
-        normals rather than edge ones.
+        there.
+
+        2D only -- extending to 3D needs face normals rather than edge ones.
         '''
         mesh = solver.mesh
         space = solver.space

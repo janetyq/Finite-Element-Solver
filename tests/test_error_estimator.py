@@ -106,19 +106,24 @@ def test_adaptive_refinement_with_error_estimator(make_unit_square):
 
 # -- LinearElastic.error_estimate --------------------------------------------
 #
-# Elasticity's estimator has a term Poisson's does not: a residual on
-# Neumann/natural boundary edges (the traction-free-rim case a stress-
-# concentration problem needs). Rather than solve a real elasticity problem and
-# check where error lands -- which turns out to depend heavily on mesh
-# resolution and refinement budget, since a fully clamped edge produces a real,
-# competing source of error next to any corner or along its own length -- these
-# tests inject a known constant stress directly into a solver's `.solution`
-# (`ElasticSolution` and `Solver` never need to actually solve for this: the
-# estimator only reads `.mesh`, `.space`, `.solution.stress`, and
-# `.boundary_conditions`) and check the formula's arithmetic against a
-# hand-derived expected value. This sidesteps physical-realism questions
-# entirely and pins down the one thing a unit test should: that the formula is
-# implemented correctly.
+# An error estimator can be tested two ways, and these tests use the second:
+#
+#   1. Solve a real problem and check refinement lands where the error should
+#      be. This is what the Poisson tests above do -- a peaked source pulls
+#      refinement toward the centre.
+#   2. Feed in a stress by hand and check eta equals the number the formula
+#      gives for it.
+#
+# Way 1 is unreliable for elasticity: the error has no single home. A clamped
+# edge and the corners are real sources of error competing with the hole rim,
+# and which one dominates depends on mesh resolution and refinement budget. An
+# assertion about *where* refinement lands would test this problem's physics,
+# not whether the formula is implemented correctly.
+#
+# Way 2 works because error_estimate never solves -- it only reads `.mesh`,
+# `.space`, `.solution.stress`, and `.boundary_conditions`. So these tests set a
+# known constant stress on a hand-sized mesh (`_inject_constant_stress`) and
+# check eta against a value worked out by hand.
 
 def _inject_constant_stress(solver, sigma_xx, sigma_yy, sigma_xy):
     """Replace `solver.solution` with a synthetic ElasticSolution carrying the
@@ -177,10 +182,10 @@ def test_elastic_error_estimator_requires_solved_system(make_unit_square):
 
 def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):
     """A globally linear displacement field is constant-strain, hence an exact
-    equilibrium solution with zero body force -- elasticity's analogue of
-    Poisson's equivalent test. Dirichlet everywhere means every boundary edge
-    is skipped (both endpoints pinned), so this exercises the interior/jump
-    terms only; the boundary term is covered separately below."""
+    equilibrium solution with zero body force, so eta should vanish. Dirichlet
+    everywhere means every boundary edge is skipped (both endpoints pinned), so
+    this exercises the interior/jump terms only; the boundary term is covered
+    separately below."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), lambda p: [0.01 * p[0], -0.003 * p[1]])
