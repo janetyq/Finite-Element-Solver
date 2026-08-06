@@ -79,8 +79,6 @@ def demo_backends(sizes=DEFAULT_SIZES):
     timings = [benchmark(n) for n in sizes]
     dofs = [t.dofs for t in timings]
 
-    # The sweep is the point -- a crossover is a claim about two curves, which a table
-    # of numbers states but a log-log plot shows.
     plotter = Plotter(title='Assembly and solve time vs problem size')
     ax = plotter.chart_ax(xlabel='degrees of freedom', ylabel='time (s)')
     ax.loglog(dofs, [t.assemble for t in timings], 'o-', label='assemble')

@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 from matplotlib.widgets import Slider
 
 from fem.geometry import calculate_triangle_min_angle
@@ -69,17 +71,21 @@ def demo_regions(mesh):
         m_centroids = m.vertices[m.elements].mean(axis=1)
         resolved.plot(m, mode='mesh', idx=(0, col), title=f'{len(m.elements)} triangles')
         resolved.plot_highlights(m, [np.flatnonzero(far_half(m_centroids))], ['lightblue'],
-                                 ['in_box: far half' if col == 0 else ''],
-                                 mode='elements', idx=(0, col))
+                                 [''], mode='elements', idx=(0, col))
         resolved.plot_highlights(
             m,
             [np.flatnonzero(clamped(m.vertices)), np.flatnonzero(loaded(m.vertices))],
-            ['red', 'green'],
-            (['on_plane: clamped edge', 'intersect: loaded patch'] if col == 0 else ['', '']),
-            idx=(0, col),
+            ['red', 'green'], ['', ''], idx=(0, col),
         )
-    resolved.get_ax((0, 0)).legend(loc='upper center', bbox_to_anchor=(0.5, -0.08), ncol=3,
-                                   frameon=False)
+    legend_handles = [
+        Patch(facecolor='lightblue', alpha=0.2, label='in_box: far half'),
+        Line2D([], [], marker='o', linestyle='', color='red', markersize=5,
+              label='on_plane: clamped edge'),
+        Line2D([], [], marker='o', linestyle='', color='green', markersize=5,
+              label='intersect: loaded patch'),
+    ]
+    resolved.fig.legend(handles=legend_handles, loc='outside lower center', ncol=3,
+                        frameon=False)
 
     return DemoResult([
         Figure(resolved,
