@@ -5,6 +5,8 @@ primitives. This is a small picture with its own vocabulary -- who is drawn as d
 who as arrows, how a value is written, what an unconstrained edge means -- and that
 vocabulary is what the conditions panel of every solver demo is read through.
 """
+import warnings
+
 import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap
@@ -32,21 +34,35 @@ MAX_BC_ARROWS = 12
 BC_ARROW_LENGTH = 0.10
 
 
+def _format_component(c):
+    """One component: a number, or 'free' for the NaN a roller leaves unpinned."""
+    return 'free' if np.isnan(c) else f'{c:g}'
+
+
 def _format_vector(value):
     """A condition's value: bare if scalar, in parentheses if it has components."""
     value = np.atleast_1d(np.asarray(value, dtype=float))
     if len(value) == 1:
-        return f'{value[0]:g}'
-    return '(' + ', '.join(f'{c:g}' for c in value) + ')'
+        return _format_component(value[0])
+    return '(' + ', '.join(_format_component(c) for c in value) + ')'
 
 
 def _format_values(values):
     """What a condition is set to over its region: one value, or the range it spans."""
     if len(values) == 0:
         return '?'
-    if np.allclose(values, values[0]):
+    # equal_nan: a roller's free component is NaN at every vertex, and that
+    # shared NaN is itself the single value being reported, not a range.
+    if np.allclose(values, values[0], equal_nan=True):
         return _format_vector(values[0])
-    return f'{_format_vector(values.min(axis=0))} to {_format_vector(values.max(axis=0))}'
+    # nanmin/nanmax warn on a component that is NaN at every vertex (a free
+    # component spanning a callable value that varies in its pinned
+    # component) -- expected here, and `_format_component` already turns the
+    # resulting NaN back into 'free'.
+    with np.errstate(invalid='ignore'), warnings.catch_warnings():
+        warnings.simplefilter('ignore', RuntimeWarning)
+        return (f'{_format_vector(np.nanmin(values, axis=0))} to '
+                f'{_format_vector(np.nanmax(values, axis=0))}')
 
 
 def _spread_along(points, target):
@@ -186,8 +202,10 @@ def plot_bc(ax, mesh, bc):
             ax.plot(points[:, 0], points[:, 1], 'o', color=color, markersize=4,
                     label=None if label in labelled else label)
             # A nonzero vector pin is a displacement being applied; say which way. No
-            # label of its own -- the dots underneath it already carry one.
-            if values.shape[1] >= 2 and np.any(values):
+            # label of its own -- the dots underneath it already carry one. A roller's
+            # free (NaN) component is not a displacement being imposed, so it must not
+            # itself trigger an arrow -- nan_to_num zeroes it before the check.
+            if values.shape[1] >= 2 and np.any(np.nan_to_num(values)):
                 _draw_arrows(ax, mesh, points, values, color, None)
             labelled.add(label)
             continue

@@ -109,6 +109,31 @@ def _propagate_mesh_bound(combined: Region, regions: tuple[Region, ...]) -> Regi
     return combined
 
 
+def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
+    '''Normalize a constant or a callable-of-position into an (N, n_components) array.
+
+    Mechanical only: a `None` found among a value's components becomes `np.nan`,
+    with no judgment about whether that is meaningful. `evaluate_field` and
+    `BoundaryConditions`' Dirichlet resolver both build on this and differ only in
+    what a `NaN` component means to each of them.
+    '''
+    if value is None:
+        return np.zeros((len(points), n_components))
+
+    def coerce(raw: float | Sequence[float | None] | FloatArray) -> FloatArray:
+        # object dtype defers numeric coercion to the comprehension below, so a
+        # scalar and a sequence -- with or without a None in it -- all flatten
+        # to something iterable the same way.
+        components = np.atleast_1d(np.asarray(raw, dtype=object))
+        return np.array([np.nan if c is None else float(c) for c in components])
+
+    if callable(value):
+        values = np.array([coerce(value(p)) for p in points])
+    else:
+        values = np.tile(coerce(value), (len(points), 1))
+    return values
+
+
 def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
     '''Normalize a constant or a callable-of-position into an (N, n_components) array.
 
@@ -117,19 +142,21 @@ def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> Fl
     comparing `len(indices) == len(values)`, so `add('dirichlet', left, [0, 0])`
     on 2D elasticity silently changed meaning when the edge happened to hold
     exactly two nodes.
-    '''
-    if value is None:
-        return np.zeros((len(points), n_components))
 
-    if callable(value):
-        values = np.array([np.atleast_1d(np.asarray(value(p), dtype=float)) for p in points])
-    else:
-        single = np.atleast_1d(np.asarray(value, dtype=float))
-        values = np.tile(single, (len(points), 1))
+    Every component must be a real number: `None` has no meaning for a source,
+    a traction, or a Robin `g` -- there is nothing "left free" about a load. Use
+    `BoundaryConditions`' own Dirichlet resolver for a value that may leave a
+    component unconstrained.
+    '''
+    values = _coerce_components(value, points, n_components)
 
     if values.shape != (len(points), n_components):
         raise ValueError(
             f'field must give {n_components} component(s) per point, got shape {values.shape} '
             f'for {len(points)} point(s)'
+        )
+    if np.any(np.isnan(values)):
+        raise ValueError(
+            'field component is None (or NaN) -- every component must be a real number here'
         )
     return values
