@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from fem.regions import evaluate_field, is_mesh_bound
+from fem.regions import _coerce_components, evaluate_field, is_mesh_bound
 from fem.typing import (
     BoolArray,
     DofIndices,
@@ -26,12 +26,27 @@ from fem.typing import (
     Region,
     VertexIndices,
     VertexField,
+    Vertices,
 )
 
 if TYPE_CHECKING:
     from fem.mesh.mesh import Mesh
 
 logger = logging.getLogger(__name__)
+
+
+def _evaluate_dirichlet_value(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
+    '''Like `evaluate_field`, but a component may be `None` -- left as `NaN`, meaning
+    "this DOF stays free" rather than "pinned to this value". Dirichlet-specific: a
+    free component is only meaningful for an essential condition, never a load.
+    '''
+    values = _coerce_components(value, points, n_components)
+    if values.shape != (len(points), n_components):
+        raise ValueError(
+            f'field must give {n_components} component(s) per point, got shape {values.shape} '
+            f'for {len(points)} point(s)'
+        )
+    return values
 
 
 class BCType(Enum):
@@ -103,6 +118,14 @@ class BoundaryConditions:
         is either a constant or a callable of position. Both are resolved lazily,
         so a condition means the same thing on any mesh. For Robin conditions use
         `add_robin`, which also takes the coefficient.
+
+        For DIRICHLET on a vector field, a component may be `None` to leave it
+        free rather than pinned -- `[0, None]` pins x and leaves y natural, a
+        roller rather than a clamp. A vertex may pick up its remaining component
+        from a second, overlapping `add` call (e.g. one point elsewhere pinning y
+        to remove the last rigid-body mode); the two merge rather than conflict as
+        long as they agree on any component both specify. Meaningless for
+        NEUMANN/Robin -- a load has no "free" component -- so `None` there raises.
         '''
         bc_type = BCType(bc_type)  # accepts BCType or its value; unknown raises ValueError
         if bc_type is BCType.ROBIN:
@@ -164,9 +187,13 @@ class BoundaryConditions:
         what inspection and plotting use.
         '''
         def resolved_values(idxs, value):
-            return np.array([np.atleast_1d(np.asarray(
-                value(mesh.vertices[i]) if callable(value) else value, dtype=float
-            )) for i in idxs]) if len(idxs) else np.zeros((0, 1))
+            # Display only, so this stays permissive rather than dispatching on
+            # bc_type the way resolve() does: a Dirichlet component may
+            # legitimately be None/free, and a stray None elsewhere is a user
+            # mistake worth *seeing* here (as a literal NaN) rather than one
+            # this inspection path hides by raising before resolve() can.
+            return _coerce_components(value, mesh.vertices[idxs], 1) if len(idxs) \
+                else np.zeros((0, 1))
 
         out = []
         for bc_type, region, value in self.conditions:
@@ -187,21 +214,30 @@ class BoundaryConditions:
 
         for bc_type, region, value in self.conditions:
             idxs = self.select(mesh, region)
-            values = evaluate_field(value, mesh.vertices[idxs], n_components)
 
             if bc_type is BCType.DIRICHLET:
+                values = _evaluate_dirichlet_value(value, mesh.vertices[idxs], n_components)
                 for v_idx, v in zip(idxs, values):
                     # Overlapping regions are normal (a corner belongs to two
-                    # edges); overlapping regions that disagree are a real
-                    # conflict, and last-write-wins would bury it.
-                    if v_idx in dirichlet and not np.allclose(dirichlet[v_idx], v):
-                        raise ValueError(
-                            f'conflicting Dirichlet values at vertex {v_idx}: '
-                            f'{dirichlet[v_idx]} and {v}'
-                        )
+                    # edges, or -- for a roller -- an edge and the one point
+                    # that pins its other component); a component that both
+                    # conditions specify but disagree on is a real conflict,
+                    # and last-write-wins would bury it. A component either
+                    # side leaves free (NaN) never conflicts -- the other
+                    # side's value (fixed or itself free) wins.
+                    if v_idx in dirichlet:
+                        existing = dirichlet[v_idx]
+                        both_given = ~np.isnan(existing) & ~np.isnan(v)
+                        if both_given.any() and not np.allclose(existing[both_given], v[both_given]):
+                            raise ValueError(
+                                f'conflicting Dirichlet values at vertex {v_idx}: '
+                                f'{existing} and {v}'
+                            )
+                        v = np.where(np.isnan(v), existing, v)
                     dirichlet[v_idx] = v
                 dirichlet_vertices.extend(int(i) for i in idxs)
             else:
+                values = evaluate_field(value, mesh.vertices[idxs], n_components)
                 neumann[idxs] += values
                 neumann_vertices.extend(int(i) for i in idxs)
 
@@ -218,17 +254,31 @@ class BoundaryConditions:
         neumann_vertices = np.unique(neumann_vertices).astype(int)
 
         # A fixed node ignores its traction, so the pairing is ambiguous either way.
+        # Whole-vertex, not per-component: a roller that pins one component and
+        # leaves the other genuinely natural (no Neumann condition on it at all)
+        # passes this fine. A vertex that mixes a Dirichlet component with an
+        # explicit Neumann one on a *different* component -- pin the normal, drive
+        # the tangential with a traction -- would still be rejected here; nothing
+        # currently needs that finer a mix, so it stays out of scope.
         overlap = np.intersect1d(dirichlet_vertices, neumann_vertices)
         if len(overlap):
             raise ValueError(
                 f'vertices carry both Dirichlet and Neumann conditions: {sorted(overlap)}'
             )
 
+        # Per (vertex, component): a NaN entry is a component a condition left free
+        # (a roller's tangential direction, say), so it contributes no fixed DOF --
+        # free_idxs, being the complement over the whole DOF range, picks it up
+        # without needing to know that is why.
         fixed_idxs = np.array(
-            [n_components*v + d for v in sorted(dirichlet) for d in range(n_components)], dtype=int
+            [n_components*v + d for v in sorted(dirichlet) for d in range(n_components)
+             if not np.isnan(dirichlet[v][d])],
+            dtype=int,
         )
         fixed_values = np.array(
-            [dirichlet[v][d] for v in sorted(dirichlet) for d in range(n_components)], dtype=float
+            [dirichlet[v][d] for v in sorted(dirichlet) for d in range(n_components)
+             if not np.isnan(dirichlet[v][d])],
+            dtype=float,
         )
         free_idxs = np.setdiff1d(np.arange(n * n_components), fixed_idxs)
 

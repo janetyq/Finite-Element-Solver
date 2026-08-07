@@ -162,9 +162,11 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
     )
 
 def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
-                              min_angle=25, max_area_fraction=0.0005):
-    """Take a plate with a hole from an outline through meshing and boundary conditions
-    to the stress concentration at its rim, measured against the textbook factor of 3."""
+                              min_angle=25, max_area_fraction=0.01, circle_segments=192,
+                              refinement_iters=34, refinement_budget=11000):
+    """Take a plate with a hole from an outline through meshing, boundary conditions and
+    adaptive refinement to the stress concentration at its rim, measured against the
+    textbook factor of 3."""
     # The one demo that runs the whole pipeline, and so the only one that builds its own
     # mesh instead of being handed one: what the outline was, what Ruppert's was asked
     # for, and where the conditions went are each part of what this is showing, and a
@@ -173,40 +175,73 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # A domain with a hole in it has no structured triangulation, so this is a generated
     # mesh going straight into the solver. Nothing downstream of the meshing knows that:
     # the conditions are written against coordinates rather than vertex numbers, so they
-    # resolve against whatever triangulation arrives.
-    pslg = plate_with_hole_pslg(length, height, radius)
+    # resolve against whatever triangulation arrives -- including the one adaptive
+    # refinement (below) rebuilds several times over.
+    #
+    # The circle needs many more segments than its default here specifically because
+    # this mesh is going to be refined well past what the area cap alone would produce:
+    # honouring a 48-gon down to elements smaller than one of its own straight sides
+    # subdivides the polygon rather than resolving a rounder hole. Pushed as far as it
+    # is below (some 4000 triangles from a deliberately coarse start), even a 48-gon's
+    # chord (about 0.039 here) is far bigger than the smallest elements it would be
+    # asked to sit under; 192 segments (chord about 0.010) is what keeps the polygon
+    # ahead of the triangulation rather than the other way around.
+    pslg = plate_with_hole_pslg(length, height, radius, segments=circle_segments)
     pslg.validate()
-    # The angle bound constrains element *shape* and says nothing about size, so the
-    # area cap is what sets resolution. Neither asks for refinement at the hole; the
-    # mesh grades there anyway, because the polygonalised rim is built from short input
-    # segments and Ruppert's honours them.
+    # Deliberately coarse: the angle bound constrains element *shape* and says nothing
+    # about size, and this area cap is generous rather than tight, because resolving
+    # the rim is adaptive refinement's job below, not this uniform pass's. The rim still
+    # grades finer than the interior even here, since the polygonalised rim is built
+    # from short input segments and Ruppert's honours them -- adaptive refinement starts
+    # from that head start rather than from scratch.
     rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=max_area_fraction * pslg.area())
     mesh = rupperts.refine()
+    n_initial = len(mesh.elements)
+    initial_worst_angle = calculate_triangle_min_angle(
+        np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
 
     # The rim takes no condition at all, and that is the point: a free surface is the
     # natural boundary condition of the weak form, so "traction-free" is what an edge
     # means when nothing is said about it. The conditions panel draws it, rather than
     # leaving a reader to notice an absence.
     #
-    # Kirsch's factor of 3 is the *infinite*-plate limit, and this plate is finite, so
-    # the measured peak sits above it -- the hole removes section, which raises the
-    # stress the remaining material carries. It falls toward 3 as the hole shrinks
-    # relative to the plate: around 3.3 at a hole 0.20 of the height, 3.27 at 0.15,
-    # 3.22 at 0.12.
-    #
-    # Only one digit of that is worth quoting. The peak is read at element centroids,
-    # and Ruppert's lays down a different triangulation at every size cap, so how close
-    # the nearest centroid falls to the rim -- where the gradient is steepest -- varies
-    # between runs. Refining does not settle it monotonically: 3.35, 3.56, 3.34, 3.34
-    # over 1182, 2074, 3233 and 5272 elements. Reading the true rim value would mean
-    # extrapolating to the boundary rather than sampling near it.
+    # The left edge is a roller, not a clamp: pinned normal to itself (x = 0) so the
+    # plate cannot drift, free tangentially (y) so it can still narrow as it stretches
+    # -- the Poisson contraction a real clamp would resist. That resistance is itself a
+    # local disturbance with nothing to do with the hole, and it used to compete with
+    # the hole for the adaptive-refinement estimator's attention (see below). A roller
+    # cannot be built from one `add` alone -- pinning y anywhere along the edge would
+    # resist the same contraction a clamp does -- so a second condition pins y at just
+    # the one corner point the two conditions share, removing the last rigid-body mode
+    # without adding back what the roller exists to avoid.
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, None])
+    bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0])
     bc.add(BCType.NEUMANN, on_plane(0, length), [traction, 0])
 
+    # Adaptive refinement, driven by this same equation's residual estimator
+    # (LinearElastic.error_estimate), replaces the uniform mesh above with one built
+    # by repeatedly re-solving and splitting wherever the estimator finds the most
+    # error -- everything the rest of this demo plots and measures is read off the
+    # *result* of this loop, not off the coarse mesh it started from.
+    #
+    # Thirty-four rounds from a starting mesh this coarse spend a real share of their
+    # budget bringing the whole plate up to a baseline before they can behave like
+    # they are chasing the hole specifically -- a finer starting mesh reaches that
+    # point in far fewer rounds (see BACKLOG.md), but starting coarse and letting
+    # this loop do more of the work is the trade made here. The ceiling on pushing
+    # this further isn't the budget, it's the circle above: past roughly this many
+    # rounds the smallest elements at the rim start to undercut even a 192-gon's own
+    # chord length, at which point more refinement would be subdividing the polygon
+    # rather than resolving a rounder hole.
     equation = LinearElastic(E=200, nu=0.3)
-    solution = Solver(mesh, equation, bc).solve()
+    solver = Solver(mesh, equation, bc)
+    solution = AdaptiveRefinement(
+        solver, equation.error_estimate,
+        max_triangles=n_initial + refinement_budget, max_iters=refinement_iters,
+    ).run()
+    mesh = solver.mesh
     sigma_xx = solution.stress[:, 0, 0]
 
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
@@ -218,22 +253,39 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     y_strip, ratio_strip = centroids[strip, 1][order], (sigma_xx[strip] / traction)[order]
     peak = ratio_strip.max()
 
+    # Kirsch's factor of 3 is the *infinite*-plate limit, and this plate is finite, so
+    # the measured peak sits above it -- the hole removes section, which raises the
+    # stress the remaining material carries. Sampled at three hole/height ratios (0.20,
+    # 0.15, 0.12) it reads 3.24, 3.16, 3.12: falling toward 3 as the hole shrinks, and
+    # cleanly enough to say so -- adaptive sampling reads the peak from elements the
+    # estimator put exactly where the gradient is steepest, rather than from whichever
+    # elements a uniform cap happened to land nearby.
+    #
+    # Even so, only one digit of that is worth quoting. Refining further does not
+    # settle it much closer than this: 3.23, 3.24, 3.24, 3.24 over 3600, 4249, 5209 and
+    # 5614 elements. That is tighter than a uniform mesh manages at any single size --
+    # the point of putting the resolution where the gradient is steepest -- but reading
+    # the true rim value would still mean extrapolating to the boundary rather than
+    # sampling near it.
+
     # Two figures rather than one: five panels of a 2:1 plate and a chart do not share a
     # sensible aspect ratio, and a grid that size thumbnails to nothing legible.
     built = Plotter(1, 2, title='From an outline to a solvable mesh', panel_aspect=2.0)
     built.plot(mesh, mode='mesh', idx=(0, 0),
                title=f'{len(mesh.elements)} triangles\n'
-                     f'min_angle={min_angle} deg, max_area={max_area_fraction:.2%}')
+                     f'(adaptively refined from {n_initial})')
     # The input segments over the triangulation, rather than the outline in a panel of
     # its own: four corners and a polygonalised circle is an almost empty picture alone,
-    # and drawn here it shows which of them the mesher kept and which it split.
+    # and drawn here it shows which of them the mesher kept and which it split. Fixed
+    # data from the original PSLG, so it overlays the refined mesh as validly as it did
+    # the coarse one.
     built.get_ax((0, 0)).add_collection(LineCollection(
         rupperts.vertices[rupperts.segments], colors='blue', linewidths=1.0))
     built.plot(mesh, mode='bc', bc=bc, idx=(0, 1), title='Boundary conditions')
 
     plotter = Plotter(1, 2, title='Stress concentration around a hole', panel_aspect=3.0)
     plotter.plot(mesh, sigma_xx, mode='colored', idx=(0, 0), label='sigma_xx',
-                 title=f'{len(mesh.elements)} generated triangles')
+                 title=f'{len(mesh.elements)} triangles after adaptive refinement')
     ax = plotter.chart_ax(idx=(0, 1), xlabel='y', ylabel='sigma_xx / applied')
     # Drawn as two runs, below the hole and above it. One run joins them straight
     # across the gap, which reads as a stress the hole does not have.
@@ -249,55 +301,31 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # legend sat on top of it.
     ax.legend(loc='lower center', fontsize='small')
 
-    # Adaptive refinement, driven by this same equation's residual estimator
-    # (LinearElastic.error_estimate) rather than by the uniform area cap above.
-    # Starts from a copy of the mesh already built, so the comparison is the same
-    # physics at the same starting resolution.
-    #
-    # It does end up concentrated at the rim -- but not right away. A fully
-    # clamped edge is its own source of error: it resists the plate's natural
-    # sideways contraction as it stretches, and that resistance is itself poorly
-    # resolved close to x=0. The first rounds go there and to the four corners,
-    # where the clamp or the pulled edge meets a free one -- boundary conditions
-    # changing type is a standard weak singularity, independent of the hole.
-    # Only once those settle does the rim pull ahead: over the ten rounds run
-    # here, roughly four-fifths of the new triangles land within one hole-radius
-    # of it. `BACKLOG.md` has the fix for the clamp's share of that -- a roller
-    # condition in place of the full clamp -- which today's boundary conditions
-    # cannot express.
-    adaptive_solver = Solver(mesh.copy(), equation, bc)
-    adaptive_solution = AdaptiveRefinement(
-        adaptive_solver, equation.error_estimate,
-        max_triangles=len(mesh.elements) + 2000, max_iters=10,
-    ).run()
-    adaptive_mesh = adaptive_solver.mesh
-    adaptive_sigma_xx = adaptive_solution.stress[:, 0, 0]
-    adaptive_centroids = adaptive_mesh.vertices[adaptive_mesh.elements].mean(axis=1)
-    adaptive_strip = np.abs(adaptive_centroids[:, 0] - length/2) < 0.4*radius
-    adaptive_peak = float((adaptive_sigma_xx[adaptive_strip] / traction).max())
-
-    adaptive_plotter = Plotter(1, 2, title='Adaptive refinement, driven by the residual estimator',
-                               panel_aspect=2.0)
-    adaptive_plotter.plot(adaptive_mesh, mode='mesh', idx=(0, 0),
-                          title=f'{len(adaptive_mesh.elements)} triangles\n'
-                                f'(started from {len(mesh.elements)})')
-    adaptive_plotter.plot(adaptive_mesh, adaptive_sigma_xx, mode='colored', idx=(0, 1),
-                          label='sigma_xx', title=f'peak {adaptive_peak:.1f}x the applied stress')
-
+    # Ruppert's own quality guarantee does not survive: `min_angle` bounds what
+    # RuppertsAlgorithm builds, but red-green refinement bisects existing triangles
+    # rather than re-triangulating for shape, so it is not a Delaunay construction and
+    # carries no angle guarantee of its own. Worth reporting rather than hiding --
+    # `tests/test_refinement_conformity.py` covers that the mesh stays conforming
+    # through this, not that it stays well-shaped.
     worst_angle = calculate_triangle_min_angle(
         np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
+    # rupperts.boundary_loops describes the *initial* triangulation's boundary facets,
+    # not the refined mesh's -- adaptive refinement does not carry it forward (see
+    # BACKLOG.md), so this counts the rim facets Ruppert's produced, before refinement
+    # added more of its own.
     rim_facets = int(np.sum(rupperts.boundary_loops == 1))
     return DemoResult(
         [Figure(built,
-                'Left: the mesh, with the outline it was refined from in blue. Nothing '
-                'asked for smaller elements at the hole -- the area cap is uniform -- '
-                'but the rim is polygonalised into short segments, and honouring them '
-                'is what grades the mesh there. Right: where the conditions went. The '
-                'rim and the long edges carry none, which is not an omission but the '
-                'natural condition of the weak form: an edge nothing is said about is '
-                'traction-free. Every one of these is written against coordinates '
-                'rather than vertex numbers, which is what lets them be placed on a '
-                'mesh no one laid out by hand.',
+                f'Left: the mesh after adaptive refinement, with the outline it started '
+                f'from in blue -- {n_initial} triangles from a deliberately coarse '
+                f'uniform pass, grown to {len(mesh.elements)} by putting the rest where '
+                f'the residual estimator found the most error. Right: where the '
+                f'conditions went. The rim and the long edges carry none, which is not '
+                f'an omission but the natural condition of the weak form: an edge '
+                f'nothing is said about is traction-free. Every one of these is written '
+                f'against coordinates rather than vertex numbers, which is what lets '
+                f'them be placed on a mesh no one laid out by hand -- including the one '
+                f'adaptive refinement rebuilds several times over.',
                 'built'),
          Figure(plotter,
                 f'A plate pulled from the right, with the hole left traction-free. The '
@@ -310,29 +338,20 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
                 f'target -- and one digit is all this measurement supports, since the '
                 f'peak is sampled at element centroids near the steepest gradient in '
                 f'the field.',
-                'stress', thumbnail=True),
-         Figure(adaptive_plotter,
-                f'The same problem, refined by LinearElastic.error_estimate instead of a '
-                f'uniform area cap: {len(mesh.elements)} triangles growing to '
-                f'{len(adaptive_mesh.elements)} over ten rounds, peaking at '
-                f'{adaptive_peak:.1f}x. Left: where the extra triangles went -- mostly the '
-                f'rim, but not only it. Right: the stress they now resolve. The estimator '
-                f'also spends triangles at the four corners and along the clamped edge, a '
-                f'real, separate source of error here (see the code comment above) rather '
-                f'than something specific to the hole.',
-                'adaptive')],
+                'stress', thumbnail=True)],
         text=(f'outline points           {len(pslg.vertices)}  '
               f'(rectangle + polygonalised rim)\n'
-              f'generated elements       {len(mesh.elements)}\n'
-              f'worst angle              {worst_angle:.1f} deg   '
+              f'initial elements         {n_initial}\n'
+              f'adaptively refined to    {len(mesh.elements)}\n'
+              f'worst angle, initial     {initial_worst_angle:.1f} deg   '
               f'(asked for {min_angle})\n'
+              f'worst angle, refined     {worst_angle:.1f} deg   '
+              f'(red-green carries no angle guarantee)\n'
               f'boundary edges           {len(mesh.boundary)}   '
-              f'({rim_facets} of them the hole rim)\n'
+              f'({rim_facets} of them the hole rim, before refinement)\n'
               f'applied traction         {traction:.3g}\n'
               f'hole diameter / height   {2*radius/height:.2f}\n'
-              f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)\n'
-              f'adaptive elements        {len(adaptive_mesh.elements)}\n'
-              f'adaptive peak sigma_xx / applied  {adaptive_peak:.2f}'),
+              f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)'),
     )
 
 def demo_elastic_3d(n=17):
@@ -758,9 +777,11 @@ DEMOS = [
          domain=partial(square, 60)),
     # Builds its own domain rather than taking one, because the meshing is part of what
     # it shows -- the pipeline demo, from an outline through to a stress. The smoke run
-    # loosens the size cap, which is where all of its cost is.
+    # loosens the size cap and shortens the adaptive-refinement loop, which together are
+    # where all of its cost is -- refinement_iters/_budget aren't reachable through
+    # max_area_fraction alone, since they're independent knobs on top of it.
     Demo('stress_concentration', demo_stress_concentration, section=SOLIDS,
-         smoke_kwargs={'max_area_fraction': 0.05}),
+         smoke_kwargs={'max_area_fraction': 0.05, 'refinement_iters': 3, 'refinement_budget': 200}),
     # Builds its own box: the only 3D domain, and the tet count is what sets the
     # cost, so the smoke run takes a coarser one.
     Demo('elastic_3d', demo_elastic_3d, section=SOLIDS, smoke_kwargs={'n': 5}),

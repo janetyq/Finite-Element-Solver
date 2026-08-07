@@ -210,7 +210,7 @@ class LinearElastic(Equation):
 
             eta_K^2 = h_K^2 ||f||^2_K
                     + (h_K/2) sum_edges ||[[sigma.n]]||^2_e
-                    + h_K sum_(Neumann/free edges) ||g - sigma.n||^2_e
+                    + h_K sum_(Neumann/free edges) ||g - sigma.n||_free^2_e
 
         h_K is the element diameter, and the three terms check the three ways
         equilibrium can break:
@@ -230,9 +230,17 @@ class LinearElastic(Equation):
           traction-free hole rim has no jump neighbour and would score zero,
           hiding the very place the error is largest.
 
-        Dirichlet edges (both endpoints pinned) are skipped: the essential
-        condition holds exactly at the nodes, so there is nothing to measure
-        there.
+        The boundary residual sums only over components with a live test
+        function on that edge (`||.||_free`, a masked norm). A component fixed
+        at *both* endpoints has no free hat function there and contributes
+        nothing -- a fully clamped edge is the case where every component is
+        fixed at both ends. A roller (pinned in one direction, natural in the
+        other) still earns a residual on its free direction even at the one
+        point that also pins it, because the *other* endpoint's hat function is
+        still live. Using the full vector residual everywhere would wrongly
+        count a pinned direction's reaction stress as error; skipping a whole
+        edge because one endpoint is fully pinned would miss real error on the
+        direction the other endpoint leaves free.
 
         2D only -- extending to 3D needs face normals rather than edge ones.
         '''
@@ -258,7 +266,8 @@ class LinearElastic(Equation):
         interior_term = h_K**2 * np.sum(f_values**2, axis=1) * space.element_volumes
 
         resolved = solver.boundary_conditions.resolve(mesh, space.n_components)
-        dirichlet_set = set(int(v) for v in resolved.dirichlet_vertices)
+        is_fixed = np.zeros((len(mesh.vertices), space.n_components), dtype=bool)
+        is_fixed.ravel()[resolved.fixed_idxs] = True
 
         jump_term = np.zeros(n_elements)
         boundary_term = np.zeros(n_elements)
@@ -289,12 +298,18 @@ class LinearElastic(Equation):
             if np.dot(midpoint - centroid, normal) < 0:
                 normal = -normal
 
-            if v0 in dirichlet_set and v1 in dirichlet_set:
-                continue  # essential BC satisfied exactly at the nodes
+            # A component has a live test function on this edge as long as
+            # *either* endpoint's hat function is free there -- fixed at both
+            # is what removes it from the assembled system entirely. (AND of
+            # "not fixed" would wrongly drop a roller's free direction the
+            # moment the edge touches its one fully-pinned corner point.)
+            free = ~(is_fixed[v0] & is_fixed[v1])
+            if not free.any():
+                continue  # essential BC satisfied exactly at the nodes, in every direction
 
             g = 0.5 * (resolved.neumann_load[v0] + resolved.neumann_load[v1])
             t = stress[e0][:2, :2] @ normal
-            residual2 = float(np.sum((g - t)**2))
+            residual2 = float(np.sum(((g - t) * free)**2))
             boundary_term[e0] += h_K[e0] * edge_len * residual2
 
         eta_squared = interior_term + jump_term + boundary_term
