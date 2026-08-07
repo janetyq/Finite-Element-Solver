@@ -148,6 +148,10 @@ def main():
     gallery_parser.add_argument(
         '--out', default=DEFAULT_GALLERY_DIR,
         help=f'directory to write (replaced if it exists; default: {DEFAULT_GALLERY_DIR})')
+    gallery_parser.add_argument(
+        '--workers', type=int, default=None,
+        help='how many demos to render in parallel (default: one per CPU); 1 renders '
+             'them serially in this process')
 
     args = parser.parse_args()
 
@@ -160,7 +164,7 @@ def main():
         from gallery import build_gallery
 
         print(f'Rendering {len(registry)} demos into {args.out}/ ...')
-        build_gallery(registry, Path(args.out))
+        build_gallery(registry, Path(args.out), workers=args.workers)
         print(f'\nOpen {Path(args.out).resolve() / "index.html"}')
         return
 

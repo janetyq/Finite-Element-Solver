@@ -84,8 +84,40 @@ def gallery(tmp_path_factory):
         'gif_maker': Demo('gif_maker', _writes_a_gif),
     }
     out = tmp_path_factory.mktemp('gallery') / 'out'
-    entries = build_gallery(registry, out)
+    # Serial: several of these demos are defined in this test module, which a spawned
+    # worker process could not import to unpickle. The parallel path -- which needs
+    # importable, picklable demos -- is covered by `test_parallel_build` below.
+    entries = build_gallery(registry, out, workers=1)
     return out, {entry.name: entry for entry in entries}
+
+
+def test_parallel_build_renders_every_demo(tmp_path):
+    """Across worker processes, each demo still produces its page and its figures.
+
+    Only module-level demos from `solver_demos` are used, since a worker unpickles each
+    by importing the module it lives in -- which is the constraint the real registry
+    already meets and the test-local demos above do not.
+    """
+    from functools import partial
+
+    small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
+    registry = {
+        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
+                        section='Solving PDEs'),
+        'linear_elastic': Demo('linear_elastic', solver_demos.demo_linear_elastic,
+                               domain=small, section='Solids & structures'),
+        'l2_projection': Demo('l2_projection', solver_demos.demo_l2_projection, domain=small,
+                              section='Accuracy & performance'),
+    }
+    out = tmp_path / 'out'
+    entries = build_gallery(registry, out, workers=2)
+
+    assert {e.name for e in entries} == set(registry)
+    assert [e.name for e in entries] == list(registry), 'registry order not preserved'
+    for entry in entries:
+        assert (out / f'{entry.name}.html').exists()
+        assert entry.panels, f'{entry.name} rendered no figures'
+        assert all((out / p.src).exists() for p in entry.panels)
 
 
 def test_writes_an_index_and_a_page_per_demo(gallery):
