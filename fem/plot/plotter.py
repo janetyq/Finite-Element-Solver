@@ -20,6 +20,8 @@ from fem.plot.helpers import (
     plot_arrows,
     setup_colorbar,
     plot_colored,
+    face_values,
+    solid_face_values,
     change_ax_to_ax3d,
     plot_surface,
     plot_refinement,
@@ -99,6 +101,10 @@ class Plotter:
         # renders only through show()/save(); `save_frames` steps these directly.
         self._anim_updates: dict[tuple[int, int], tuple[Callable[[int], None], int]] = {}
         self.cbar_infos = {}
+        # Whether the one-off layout pass in `_fit_colorbars` has run. Tracked here
+        # rather than read back off the figure because freezing the layout leaves a
+        # placeholder engine in place, not `None`, so the figure cannot report it.
+        self._layout_frozen = False
 
     # function for plotting at a specific index
     def plot(
@@ -115,7 +121,7 @@ class Plotter:
         clim: tuple[float, float] | None = None,
         cmap: str | None = None,
         log_scale: bool = False,
-    ) -> None:
+    ) -> Any:
         """Draw `values` on `mesh` into the subplot at `idx`.
 
         `label` names the quantity on the colorbar (colored mode); a colorbar is built
@@ -131,6 +137,9 @@ class Plotter:
 
         `cmap` selects the colormap (default 'viridis'); `log_scale` uses logarithmic
         normalization.
+
+        Returns the recolourable collection for the colored and solid modes -- the
+        artist an animation updates in place across frames -- and `None` otherwise.
         """
         mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
         ax = self.axs[idx]
@@ -140,6 +149,7 @@ class Plotter:
         if values is not None:
             values = np.array(values)
 
+        artist = None
         # TODO: check that values/bc are provided for intended mode
         if mode is PlotMode.MESH:
             plot_mesh(ax, mesh)
@@ -149,8 +159,8 @@ class Plotter:
             cmap_name = cmap if cmap is not None else 'viridis'
             if clim is not None and idx not in self.cbar_infos:
                 self.cbar_infos[idx] = setup_colorbar(ax, clim, label, cmap_name, log_scale)
-            cbar_info = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
-                                     label=label, cmap_name=cmap_name, log_scale=log_scale)
+            cbar_info, artist = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
+                                             label=label, cmap_name=cmap_name, log_scale=log_scale)
             self.cbar_infos[idx] = cbar_info
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
@@ -164,7 +174,7 @@ class Plotter:
             if values is not None and idx not in self.cbar_infos:
                 self.cbar_infos[idx] = setup_colorbar(
                     ax, (float(np.min(values)), float(np.max(values))), label)
-            plot_solid(ax, mesh, values, self.cbar_infos.get(idx))
+            artist = plot_solid(ax, mesh, values, self.cbar_infos.get(idx))
         elif mode is PlotMode.REFINEMENT:
             plot_refinement(ax, mesh, values)
         elif mode is PlotMode.ARROWS:
@@ -176,6 +186,7 @@ class Plotter:
         ax.set_title(title) # overrides any existing title
         if empty:
             ax.axis('off')
+        return artist
 
     def plot_highlights(
         self,
@@ -229,10 +240,24 @@ class Plotter:
                 self.axs[idx] = ax
             self.cbar_infos[idx] = setup_colorbar(ax, cbar_lims, label=label)
 
-        self.plot(mesh, values[0], mode=mode, idx=idx, title=frame_titles[0])
+        artist = self.plot(mesh, values[0], mode=mode, idx=idx, title=frame_titles[0])
 
-        def update(frame: int) -> None:
-            self.plot(mesh, values[frame], mode=mode, idx=idx, title=frame_titles[frame], clear=True)
+        # Colored and solid draw one collection over a fixed mesh, so a frame only
+        # changes its colours -- recolour that artist in place rather than clearing the
+        # axes and rebuilding it, which re-lays out every tick and label each frame and
+        # was the bulk of an animated demo's render cost. Surface lifts the field into
+        # z, so its geometry changes frame to frame and it has to be redrawn.
+        if mode in (PlotMode.COLORED, PlotMode.SOLID) and artist is not None:
+            ax = self.axs[idx]
+            to_array = solid_face_values if mode is PlotMode.SOLID else face_values
+
+            def update(frame: int) -> None:
+                artist.set_array(to_array(mesh, values[frame]))
+                ax.set_title(frame_titles[frame])
+        else:
+            def update(frame: int) -> None:
+                self.plot(mesh, values[frame], mode=mode, idx=idx, title=frame_titles[frame],
+                          clear=True)
 
         self.anims[idx] = FuncAnimation(self.fig, update, frames=range(len(values)), blit=False, repeat=True)
         self._anim_updates[idx] = (update, len(values))
@@ -293,9 +318,10 @@ class Plotter:
         if not self.cbar_infos:
             return
 
-        if self.fig.get_layout_engine() is not None:
+        if not self._layout_frozen:
             self.fig.draw_without_rendering()
             self.fig.set_layout_engine('none')
+            self._layout_frozen = True
 
         for idx, info in self.cbar_infos.items():
             ax: Any = self.axs[idx]
