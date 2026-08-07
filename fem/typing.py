@@ -83,10 +83,13 @@ Region: TypeAlias = Callable[[Vertices], BoolArray]
 
 # A field value: a constant, a per-component constant, or a function of position.
 # `fem.regions.evaluate_field` normalizes all three to (n_points, n_components).
+# A component may itself be `None` -- meaningful only for a Dirichlet value
+# (BoundaryConditions' own resolver leaves it free rather than pinned);
+# `evaluate_field` rejects it for every other use (a load has no free component).
 FieldValue: TypeAlias = Union[
     float,
-    Sequence[float],
+    Sequence[Union[float, None]],
     FloatArray,
-    Callable[[Point], Union[float, Sequence[float], FloatArray]],
+    Callable[[Point], Union[float, Sequence[Union[float, None]], FloatArray]],
     None,
 ]

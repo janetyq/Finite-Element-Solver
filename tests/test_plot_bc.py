@@ -120,3 +120,20 @@ def test_repeated_conditions_of_one_kind_get_one_legend_entry(mesh):
     for side in (0.0, 1.0):
         bc.add(BCType.DIRICHLET, on_plane(0, side), 0.0)
     assert _labels(mesh, bc).count('Dirichlet: u = 0') == 1
+
+
+def test_a_roller_reads_as_free_rather_than_nan(mesh):
+    """A roller's free component must read as 'free', not the literal NaN it is
+    internally -- and must not be mistaken for a displacement being imposed."""
+    from matplotlib.quiver import Quiver
+
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, None])
+    fig, ax = plt.subplots()
+    plot_bc(ax, mesh, bc)
+    labels = ax.get_legend_handles_labels()[1]
+    plt.close(fig)
+
+    assert 'Dirichlet: u = (0, free)' in labels
+    assert not any('nan' in label for label in labels)
+    assert not any(isinstance(c, Quiver) for c in ax.collections)
