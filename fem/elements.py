@@ -23,6 +23,7 @@ from typing import ClassVar
 
 import numpy as np
 
+from fem.quadrature import QuadratureRule, quadrature_rule
 from fem.typing import ElementVertices, FloatArray, Matrix
 
 
@@ -109,6 +110,35 @@ class LinearElement(Element):
         component; that is `MassForm`'s job.
         '''
         return (np.ones((cls.N, cls.N)) + np.eye(cls.N)) / (cls.N * (cls.N + 1))
+
+    @classmethod
+    def shape_values(cls, points: FloatArray) -> FloatArray:
+        '''(n_points, N) shape functions evaluated at reference `points` (n_points, N-1).
+
+        Barycentric: phi_0 = 1 - sum(xi) and phi_i = xi_i, so the first column is
+        the node-0 hat and the rest are the reference coordinates themselves. Nodal
+        (1 at its own node, 0 at the others), which is what makes a DOF the value at
+        its node.
+        '''
+        P = np.atleast_2d(np.asarray(points, dtype=float))
+        first = 1.0 - P.sum(axis=1, keepdims=True)
+        return np.concatenate([first, P], axis=1)
+
+    @classmethod
+    def shape_gradients(cls, points: FloatArray) -> FloatArray:
+        '''(n_points, N, N-1) reference-coordinate shape gradients.
+
+        Constant for a linear element -- the same `_dshape` at every point -- so
+        this broadcasts it over the requested points. `geometry` maps these through
+        the inverse Jacobian to get physical gradients.
+        '''
+        n_points = len(np.atleast_2d(np.asarray(points, dtype=float)))
+        return np.broadcast_to(cls._dshape(), (n_points, cls.N, cls.N - 1))
+
+    @classmethod
+    def quadrature(cls, min_degree: int) -> QuadratureRule:
+        '''The cheapest rule on this element's reference simplex exact to `min_degree`.'''
+        return quadrature_rule(cls.reference_dim(), min_degree)
 
 
 class LinearLineElement(LinearElement):
