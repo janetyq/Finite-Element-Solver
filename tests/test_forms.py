@@ -75,7 +75,8 @@ def test_laplacian_is_symmetric_and_annihilates_constants(geometry):
 def test_strain_displacement_maps_uniform_stretch_to_uniform_strain():
     """A unit x-stretch (u_x = x, u_y = 0) has strain [1, 0, 0] everywhere."""
     u = np.array([0.0, 0, 1, 0, 0, 0])  # node coords are (0,0),(1,0),(0,1)
-    B = strain_displacement(TRI.grad_phi)[0]
+    # grad_phi is (n_el, n_qp, N, dim); index element 0 and its single quad point.
+    B = strain_displacement(TRI.grad_phi)[0, 0]
     np.testing.assert_allclose(B @ u, [1.0, 0.0, 0.0])
 
 
@@ -86,7 +87,7 @@ def test_strain_displacement_is_batched_over_elements():
         [[0.0, 0], [2, 0], [0, 2]],  # twice the size -> half the gradients
     ]))
     B = strain_displacement(pair.grad_phi)
-    assert B.shape == (2, 3, 6)
+    assert B.shape == (2, 1, 3, 6)   # (n_el, n_qp, n_strains, N*dim)
     np.testing.assert_allclose(B[1], 0.5 * B[0])
 
 

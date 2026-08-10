@@ -35,33 +35,34 @@ from fem.typing import BoolArray, ElementField, FloatArray
 def strain_displacement(grad_phi: FloatArray) -> FloatArray:
     '''Voigt strain-displacement matrices B: nodal DOFs -> element strain vector.
 
-    Batched: takes `(n_elements, n_nodes, dim)` shape-function gradients and
-    returns `(n_elements, n_strains, n_nodes*dim)`. Strain is ordered
-    [xx, yy, (zz,) engineering shears] to match the rows and columns of
-    `fem.materials.hooke_matrix`. DOFs are interleaved per node, so column
-    `dim*n + d` is node n's displacement component d.
+    Operates on the trailing `(n_nodes, dim)` axes and preserves any leading batch
+    axes, so it takes either `(n_elements, n_nodes, dim)` or the quadrature-aware
+    `(n_elements, n_qp, n_nodes, dim)` and returns those same leading axes followed
+    by `(n_strains, n_nodes*dim)`. Strain is ordered [xx, yy, (zz,) engineering
+    shears] to match the rows and columns of `fem.materials.hooke_matrix`. DOFs are
+    interleaved per node, so column `dim*n + d` is node n's displacement component d.
     '''
-    n_elements, n_nodes, dim = grad_phi.shape
+    *batch, n_nodes, dim = grad_phi.shape
     if dim == 2:
         b, c = grad_phi[..., 0], grad_phi[..., 1]
-        B = np.zeros((n_elements, 3, 2 * n_nodes))
-        B[:, 0, 0::2] = b
-        B[:, 1, 1::2] = c
-        B[:, 2, 0::2] = c
-        B[:, 2, 1::2] = b
+        B = np.zeros((*batch, 3, 2 * n_nodes))
+        B[..., 0, 0::2] = b
+        B[..., 1, 1::2] = c
+        B[..., 2, 0::2] = c
+        B[..., 2, 1::2] = b
         return B
     if dim == 3:
         a, b, c = grad_phi[..., 0], grad_phi[..., 1], grad_phi[..., 2]
-        B = np.zeros((n_elements, 6, 3 * n_nodes))
-        B[:, 0, 0::3] = a
-        B[:, 1, 1::3] = b
-        B[:, 2, 2::3] = c
-        B[:, 3, 0::3] = b
-        B[:, 3, 1::3] = a
-        B[:, 4, 1::3] = c
-        B[:, 4, 2::3] = b
-        B[:, 5, 0::3] = c
-        B[:, 5, 2::3] = a
+        B = np.zeros((*batch, 6, 3 * n_nodes))
+        B[..., 0, 0::3] = a
+        B[..., 1, 1::3] = b
+        B[..., 2, 2::3] = c
+        B[..., 3, 0::3] = b
+        B[..., 3, 1::3] = a
+        B[..., 4, 1::3] = c
+        B[..., 4, 2::3] = b
+        B[..., 5, 0::3] = c
+        B[..., 5, 2::3] = a
         return B
     raise NotImplementedError(
         f'no strain-displacement matrix for dim={dim}'
@@ -206,8 +207,10 @@ class LaplacianForm:
     '''The scalar Laplacian ∫ ∇u·∇v -- material-free, so G = grad_phi, C = I.'''
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        # Sum over quadrature points q and spatial index d. For a 1-point P1 rule
+        # this is the old `eid,ejd,e->eij` with a singleton q axis -- identical.
         grad_phi = geometry.grad_phi
-        return np.einsum('eid,ejd,e->eij', grad_phi, grad_phi, geometry.volumes)
+        return np.einsum('eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ)
 
 
 @dataclass(frozen=True)
@@ -216,14 +219,16 @@ class LinearElasticForm:
     material: LinearElasticMaterial
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
-        B = strain_displacement(geometry.grad_phi)
+        B = strain_displacement(geometry.grad_phi)   # (n_el, n_qp, n_strains, k)
         D = self.material.constitutive_matrices(
             geometry.reference_dim, geometry.n_elements
         )
-        # B^T D B scaled by the measure, contracted per element. optimize=True is
-        # load-bearing rather than cosmetic: the default left-to-right order
-        # forms an (n_elements, k, s) intermediate and runs ~60x slower here.
-        return np.einsum('eji,ejk,ekl,e->eil', B, D, B, geometry.volumes, optimize=True)
+        # B^T D B summed over quadrature points q and strain indices j, k, weighted
+        # per point. D does not vary within an element, so it carries no q axis. For
+        # a 1-point P1 rule this is the old `eji,ejk,ekl,e->eil` -- identical.
+        # optimize=True is load-bearing rather than cosmetic: the default
+        # left-to-right order forms a large intermediate and runs far slower here.
+        return np.einsum('eqji,ejk,eqkl,eq->eil', B, D, B, geometry.weight_detJ, optimize=True)
 
     def derived_fields(
         self, geometry: ElementGeometry, u_elements: FloatArray,
@@ -236,8 +241,13 @@ class LinearElasticForm:
         Returns full `(n_elements, 3, 3)` tensors, not the Voigt vectors assembly
         works in (see `voigt_to_tensor`); a 2D result is lifted to the 3D state
         its plane-strain assumption implies.
+
+        Recovered per element at the first quadrature point. For P1 the strain is
+        constant over the element, so any point gives its one value; a higher-order
+        field varies, and reducing it to one per-element tensor is a reporting
+        choice this makes explicit rather than a property of the element.
         '''
-        B = strain_displacement(geometry.grad_phi)
+        B = strain_displacement(geometry.grad_phi[:, 0])   # (n_el, n_strains, k)
         D = self.material.constitutive_matrices(
             geometry.reference_dim, geometry.n_elements
         )
@@ -345,28 +355,40 @@ class EnergyForm:
     '''
     energy_density: EnergyDensity
 
-    def _dF_dx(self, geometry: ElementGeometry) -> FloatArray:
-        '''(n_el, d, d, N, d) -- dF/dx = I ⊗ grad_phiᵀ, batched.'''
+    def _dF_dx(self, geometry: ElementGeometry, q: int) -> FloatArray:
+        '''(n_el, d, d, N, d) -- dF/dx at quadrature point q = I ⊗ grad_phi_qᵀ.'''
         d = geometry.spatial_dim
-        return np.einsum('emi,jn->eijmn', geometry.grad_phi[:, :, :d], np.eye(d))
+        return np.einsum('emi,jn->eijmn', geometry.grad_phi[:, q, :, :d], np.eye(d))
 
     def element_energies(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> FloatArray:
-        '''(n_elements,) element energies at the given nodal displacements.'''
-        grad_u = geometry.gradients(u_elements)
-        t = self.energy_density.evaluate(grad_u)
-        return t.W * geometry.volumes
+        '''(n_elements,) element energies at the given nodal displacements.
+
+        Summed over the quadrature points, each contributing its density evaluated
+        at that point weighted by `weight_detJ`. One iteration for a 1-point P1
+        rule -- the density's derivative chain is reused across orders unchanged.
+        '''
+        grad_u = geometry.gradients(u_elements)   # (n_el, n_qp, d, d)
+        total = np.zeros(geometry.n_elements)
+        for q in range(geometry.n_qp):
+            t = self.energy_density.evaluate(grad_u[:, q])
+            total += t.W * geometry.weight_detJ[:, q]
+        return total
 
     def element_residuals(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> FloatArray:
         '''(n_elements, N, d) element residuals -- dPi/dx per element.'''
         grad_u = geometry.gradients(u_elements)
-        t = self.energy_density.evaluate(grad_u)
-        dF_dx = self._dF_dx(geometry)
-        dW_dx = np.einsum('eij,eijmn->emn', t.dW_dF, dF_dx)
-        return dW_dx * geometry.volumes[:, None, None]
+        n_nodes, d = geometry.grad_phi.shape[2], geometry.spatial_dim
+        residual = np.zeros((geometry.n_elements, n_nodes, d))
+        for q in range(geometry.n_qp):
+            t = self.energy_density.evaluate(grad_u[:, q])
+            dF_dx = self._dF_dx(geometry, q)
+            dW_dx = np.einsum('eij,eijmn->emn', t.dW_dF, dF_dx)
+            residual += dW_dx * geometry.weight_detJ[:, q][:, None, None]
+        return residual
 
     def element_tangents(
         self, geometry: ElementGeometry, u_elements: FloatArray,
@@ -384,24 +406,32 @@ class EnergyForm:
         # of the left operand against the first two of the right; each ":" above
         # is one such contraction, i.e. one "...ij,ij...->..." einsum below (with
         # a leading "e" element axis on everything that varies per element).
+        #
+        # Summed over the quadrature points, each evaluated at its own dF_dx and
+        # weighted by `weight_detJ`. The per-point contraction is exactly the old
+        # single-pass one, so a 1-point P1 rule reproduces it term for term.
         grad_u = geometry.gradients(u_elements)
-        t = self.energy_density.evaluate(grad_u)
-        dF_dx = self._dF_dx(geometry)
+        n_nodes, d = geometry.grad_phi.shape[2], geometry.spatial_dim
+        tangent = np.zeros((geometry.n_elements, n_nodes, d, n_nodes, d))
+        for q in range(geometry.n_qp):
+            t = self.energy_density.evaluate(grad_u[:, q])
+            dF_dx = self._dF_dx(geometry, q)
 
-        dS_dx = np.einsum('eklij,eijmn->eklmn', t.dS_dF, dF_dx)
+            dS_dx = np.einsum('eklij,eijmn->eklmn', t.dS_dF, dF_dx)
 
-        # term1: dW_dS : d²S_dF² : dF_dx : dF_dx
-        # d2S_dF2 is constant (no element axis), broadcast over elements.
-        term1 = np.einsum('abcdij,eijmn->eabcdmn', t.d2S_dF2, dF_dx)
-        term1 = np.einsum('eabijcd,eijmn->eabcdmn', term1, dF_dx)
-        term1 = np.einsum('eij,eijklmn->eklmn', t.dW_dS, term1)
+            # term1: dW_dS : d²S_dF² : dF_dx : dF_dx
+            # d2S_dF2 is constant (no element axis), broadcast over elements.
+            term1 = np.einsum('abcdij,eijmn->eabcdmn', t.d2S_dF2, dF_dx)
+            term1 = np.einsum('eabijcd,eijmn->eabcdmn', term1, dF_dx)
+            term1 = np.einsum('eij,eijklmn->eklmn', t.dW_dS, term1)
 
-        # term2: d²W_dS² : dS_dx : dS_dx
-        # d2W_dS2 is constant (no element axis), broadcast over elements.
-        term2 = np.einsum('klij,eijmn->eklmn', t.d2W_dS2, dS_dx)
-        term2 = np.einsum('eijkl,eijmn->eklmn', term2, dS_dx)
+            # term2: d²W_dS² : dS_dx : dS_dx
+            # d2W_dS2 is constant (no element axis), broadcast over elements.
+            term2 = np.einsum('klij,eijmn->eklmn', t.d2W_dS2, dS_dx)
+            term2 = np.einsum('eijkl,eijmn->eklmn', term2, dS_dx)
 
-        return (term1 + term2) * geometry.volumes[:, None, None, None, None]
+            tangent += (term1 + term2) * geometry.weight_detJ[:, q][:, None, None, None, None]
+        return tangent
 
     def derived_fields(
         self, geometry: ElementGeometry, u_elements: FloatArray,
@@ -416,8 +446,11 @@ class EnergyForm:
         Reconciles two conventions from `fem.energies` -- the gradient orientation
         it works in and the plane-strain reduction a 2D solve makes -- both
         explained there under "Solving versus reporting".
+
+        Recovered per element at the first quadrature point, matching the linear
+        path: constant over the element for P1, one representative value otherwise.
         '''
-        grad_u = geometry.gradients(u_elements)
+        grad_u = geometry.gradients(u_elements)[:, 0]   # (n_el, d, d), first quad point
         t = self.energy_density.evaluate(grad_u)
         d = grad_u.shape[-1]
 

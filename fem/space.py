@@ -213,8 +213,11 @@ class FunctionSpace:
         return self.geometry.volumes
 
     def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
-        '''Gradient of a field over one element, from its nodal values.'''
-        return self.geometry.grad_phi[e_idx].T @ u_element
+        '''Gradient of a field over one element, from its nodal values.
+
+        At the first quadrature point -- constant over the element for P1.
+        '''
+        return self.geometry.grad_phi[e_idx, 0].T @ u_element
 
     # -- integrals ----------------------------------------------------------
 
@@ -239,9 +242,10 @@ class FunctionSpace:
     def gradient(self, u: VertexField) -> FloatArray:
         '''(n_elements, spatial_dim) gradient of a nodal field, one value per element.
 
-        Constant per element for P1, which is why it is an element field.
+        Taken at the first quadrature point; constant per element for P1, which is
+        why it is an element field.
         '''
-        return self.geometry.gradients(u[self.mesh.elements])
+        return self.geometry.gradients(u[self.mesh.elements])[:, 0]
 
     # -- projections between element and nodal fields -----------------------
 

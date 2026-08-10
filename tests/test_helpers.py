@@ -171,4 +171,5 @@ class TestDimensions:
         # The gradients carry all three ambient components, but the element is
         # still 2D -- this is the pair that a single `dim` used to conflate.
         assert (geometry.reference_dim, geometry.spatial_dim) == (2, 3)
-        assert geometry.grad_phi.shape == (1, 3, 3)
+        # (n_el, n_qp, N, spatial): one element, one quad point, 3 nodes, 3D grads.
+        assert geometry.grad_phi.shape == (1, 1, 3, 3)
