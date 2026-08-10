@@ -18,7 +18,14 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import LaplacianForm, LinearElasticForm, MassForm, strain_displacement
+from fem.forms import (
+    DiffusionForm,
+    LaplacianForm,
+    LinearElasticForm,
+    LinearForm,
+    MassForm,
+    strain_displacement,
+)
 from fem.materials import LinearElasticMaterial
 
 
@@ -143,3 +150,29 @@ def test_per_element_modulus_length_is_checked():
     material = LinearElasticMaterial(np.array([100.0, 200.0]), 0.3)
     with pytest.raises(ValueError, match='2 entries but the mesh has 1'):
         LinearElasticForm(material).element_matrices(TRI)
+
+
+def test_diffusion_form_with_unit_coefficient_is_the_laplacian():
+    """kappa == 1 recovers the constant-coefficient Laplacian, element for element --
+    the variable-coefficient form's constant case is the form it generalizes."""
+    np.testing.assert_allclose(
+        DiffusionForm(1.0).element_matrices(TRI),
+        LaplacianForm().element_matrices(TRI),
+    )
+
+
+def test_diffusion_form_scales_with_the_coefficient():
+    """A constant kappa scales the stiffness by kappa, since it factors out of the integral."""
+    np.testing.assert_allclose(
+        DiffusionForm(5.0).element_matrices(TRI),
+        5.0 * LaplacianForm().element_matrices(TRI),
+    )
+
+
+def test_linear_form_constant_source_integrates_the_hat_exactly():
+    """For a constant source c, each node's load is the exact integral of c times its
+    P1 hat -- c * volume / N -- and the loads sum to c * volume (partition of unity)."""
+    volume = float(TRI.volumes[0])
+    b = LinearForm(3.0, 1).element_vectors(TRI)[0]   # (N,)
+    np.testing.assert_allclose(b, 3.0 * volume / 3)  # 3 nodes, integral of a P1 hat
+    np.testing.assert_allclose(b.sum(), 3.0 * volume)

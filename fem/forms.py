@@ -29,7 +29,8 @@ import numpy as np
 from fem.elements import ElementGeometry
 from fem.energies import StrainEnergyDerivatives
 from fem.materials import LinearElasticMaterial
-from fem.typing import BoolArray, ElementField, FloatArray
+from fem.regions import evaluate_field
+from fem.typing import BoolArray, ElementField, FieldValue, FloatArray
 
 
 def strain_displacement(grad_phi: FloatArray) -> FloatArray:
@@ -211,6 +212,65 @@ class LaplacianForm:
         # this is the old `eid,ejd,e->eij` with a singleton q axis -- identical.
         grad_phi = geometry.grad_phi
         return np.einsum('eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ)
+
+
+def _sample_field(field: FieldValue, geometry: ElementGeometry, n_components: int) -> FloatArray:
+    '''Evaluate a coefficient or source at every quadrature point: (n_el, n_qp, n_components).
+
+    The point of a real quadrature layer: a value that varies *within* an element,
+    read at the interior points assembly integrates over rather than only at the
+    nodes. Flattens the (element, point) pair for `evaluate_field`, which works
+    point-by-point, then restores it.
+    '''
+    n_el, n_qp = geometry.weight_detJ.shape
+    flat = geometry.points.reshape(n_el * n_qp, geometry.spatial_dim)
+    values = evaluate_field(field, flat, n_components)
+    return values.reshape(n_el, n_qp, n_components)
+
+
+@dataclass(frozen=True)
+class DiffusionForm:
+    '''Variable-coefficient diffusion ∫ κ(x) ∇u·∇v, κ sampled at the quadrature points.
+
+    `LaplacianForm` is the κ ≡ 1 special case, kept as the cheaper constant path
+    that needs no sampling and no interior points. Here κ is a `FieldValue` -- a
+    constant or a callable of position -- and the only change from the Laplacian is
+    that it scales each point's weight, so a spatially varying conductivity, a
+    material property that changes across the domain, is one multiply in the sum.
+
+    `quadrature_degree` selects the rule the space integrates this against; 2 (three
+    points on a triangle) resolves a smoothly varying κ against a P1 field.
+    '''
+    coefficient: FieldValue
+    quadrature_degree: int = 2
+
+    def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        kappa = _sample_field(self.coefficient, geometry, 1)[..., 0]   # (n_el, n_qp)
+        grad_phi = geometry.grad_phi
+        return np.einsum(
+            'eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ * kappa)
+
+
+@dataclass(frozen=True)
+class LinearForm:
+    '''The linear form L(v) = ∫ f(x)·v, assembled by sampling f at the quadrature points.
+
+    The counterpart of the bilinear `Form`: it produces one element *vector* per
+    element, which `FunctionSpace.assemble_load` scatters into the global load.
+    `problem.Source` is the cheaper special case that integrates f's P1 interpolant
+    through the cached mass matrix; this samples f itself, so it captures variation
+    within an element the interpolant cannot -- the load half of the quadrature layer.
+    '''
+    field: FieldValue
+    n_components: int = 1
+    quadrature_degree: int = 2
+
+    def element_vectors(self, geometry: ElementGeometry) -> FloatArray:
+        '''(n_elements, N*n_components) element load vectors, DOFs interleaved per node.'''
+        f = _sample_field(self.field, geometry, self.n_components)   # (n_el, n_qp, c)
+        # b[e, n, c] = sum_q weight_detJ[e,q] * shape[q,n] * f[e,q,c]
+        b = np.einsum('eq,qn,eqc->enc', geometry.weight_detJ, geometry.shape, f)
+        return b.reshape(geometry.n_elements, -1)
 
 
 @dataclass(frozen=True)

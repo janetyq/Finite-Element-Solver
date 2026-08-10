@@ -34,7 +34,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import EnergyForm, Form, MassForm
+from fem.forms import EnergyForm, Form, LinearForm, MassForm
 from fem.mesh.mesh import Mesh
 from fem.typing import (
     DofIndices,
@@ -173,6 +173,10 @@ class FunctionSpace:
         self.element_type = element_type
         self.boundary_type = element_type.SUB_TYPE
         self.n_components = n_components
+        # Volume geometry keyed by the rule's exactness degree: the default 1-point
+        # rule for constant-coefficient P1 forms, higher rules for variable
+        # coefficients and higher-order elements, each built once and shared.
+        self._geometry_cache: dict[int, ElementGeometry] = {}
 
     def __repr__(self) -> str:
         return (
@@ -197,10 +201,25 @@ class FunctionSpace:
 
     # -- element geometry ---------------------------------------------------
 
-    @cached_property
+    def geometry_at(self, min_degree: int) -> ElementGeometry:
+        '''Volume-element geometry integrated at a rule of at least `min_degree`.
+
+        Cached per rule: `geometry` is this at degree 1 (a single point, exact for
+        the constant integrand of a P1 stiffness), and a variable-coefficient or
+        higher-order form asks for the degree its integrand needs. Built once per
+        distinct rule and shared by every form that wants it.
+        '''
+        rule = self.element_type.quadrature(min_degree)
+        cached = self._geometry_cache.get(rule.degree)
+        if cached is None:
+            cached = self.element_type.geometry(self.mesh.vertices[self.mesh.elements], rule)
+            self._geometry_cache[rule.degree] = cached
+        return cached
+
+    @property
     def geometry(self) -> ElementGeometry:
-        '''Batched geometry of the volume elements: one array of grad_phi, one of measures.'''
-        return self.element_type.geometry(self.mesh.vertices[self.mesh.elements])
+        '''Batched geometry at the default rule -- a single point for a linear element.'''
+        return self.geometry_at(1)
 
     @cached_property
     def boundary_geometry(self) -> ElementGeometry:
@@ -302,12 +321,33 @@ class FunctionSpace:
         The space owns the loop; the form owns the integrand, so the space stays
         free of any physics. `boundary=True` integrates over the boundary facets
         instead of the volume elements -- the same scatter, a different mesh of
-        elements. Not cached: a form may carry material data that changes (a
-        topology-optimization iteration rescales the modulus). The geometry-only
-        results the callers *want* cached, the mass matrices, cache themselves.
+        elements. A form may request a higher-degree rule via a `quadrature_degree`
+        attribute (a variable coefficient needs interior points a constant one does
+        not); without it, the default single-point volume geometry is used. Not
+        cached: a form may carry material data that changes (a topology-optimization
+        iteration rescales the modulus). The geometry itself is cached per rule.
         '''
-        geometry = self.boundary_geometry if boundary else self.geometry
+        if boundary:
+            geometry = self.boundary_geometry
+        else:
+            degree = getattr(form, 'quadrature_degree', None)
+            geometry = self.geometry if degree is None else self.geometry_at(degree)
         return self._assemble(form.element_matrices(geometry), boundary=boundary)
+
+    def assemble_load(self, form: LinearForm) -> DofVector:
+        '''Scatter a `LinearForm`'s element vectors into the global load vector.
+
+        The vector counterpart of `assemble`: element load vectors summed into the
+        DOFs their nodes own -- the same scatter `assemble_residual` runs for the
+        nonlinear residual. This is the general load path; `problem.Source` is the
+        mass-matrix special case that suffices when the source is given at the nodes.
+        '''
+        geometry = self.geometry_at(form.quadrature_degree)
+        vectors = form.element_vectors(geometry)
+        dofs = dof_indices(self.mesh.elements, self.n_components)
+        b = np.zeros(self.n_dofs)
+        np.add.at(b, dofs, vectors)
+        return b
 
     # -- nonlinear assembly -------------------------------------------------
     #

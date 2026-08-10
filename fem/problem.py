@@ -26,7 +26,8 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions
 from fem.forms import (
-    EnergyForm, Form, LaplacianForm, LinearElasticForm, MaskedMassForm, MassForm, ScaledForm,
+    DiffusionForm, EnergyForm, Form, LaplacianForm, LinearElasticForm, LinearForm, MaskedMassForm,
+    MassForm, ScaledForm,
 )
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
@@ -85,7 +86,7 @@ class LinearProblem:
         self,
         space: FunctionSpace,
         operator: Form,
-        source: FieldValue = None,
+        source: FieldValue | LinearForm = None,
         bc: BoundaryConditions | None = None,
     ) -> None:
         self.space = space
@@ -106,9 +107,16 @@ class LinearProblem:
             robin_load = robin_load + np.asarray(boundary_mass @ robin.g.flatten()).flatten()
 
         # The load folds the Neumann contribution in as a boundary traction term,
-        # so callers pass only the volume source; the BC resolution supplies the rest.
+        # so callers pass only the volume source; the BC resolution supplies the
+        # rest. The source is either a field -- integrated as its P1 interpolant via
+        # the cached mass matrix -- or a LinearForm sampled at the quadrature points,
+        # for a source that varies within an element.
+        if isinstance(source, LinearForm):
+            volume_load = space.assemble_load(source)
+        else:
+            volume_load = Source(source).vector(space)
         self._b = (
-            Source(source).vector(space)
+            volume_load
             + Traction(self._resolved.neumann_load).vector(space)
             + robin_load
         )
@@ -228,6 +236,22 @@ def poisson(mesh: Mesh, source: FieldValue, bc: BoundaryConditions | None = None
     '''Poisson K u = b, the material-free Laplacian.'''
     space = FunctionSpace(mesh, n_components=1)
     return LinearProblem(space, LaplacianForm(), source, bc)
+
+
+def diffusion(
+    mesh: Mesh,
+    coefficient: FieldValue,
+    source: FieldValue | LinearForm = None,
+    bc: BoundaryConditions | None = None,
+) -> LinearProblem:
+    '''Variable-coefficient diffusion -div(κ(x) grad u) = f.
+
+    Poisson with a position-dependent coefficient κ, sampled at the quadrature
+    points rather than assumed constant. Pass a `LinearForm` source to sample f at
+    the quadrature points too; a plain field is integrated as its nodal interpolant.
+    '''
+    space = FunctionSpace(mesh, n_components=1)
+    return LinearProblem(space, DiffusionForm(coefficient), source, bc)
 
 
 def linear_elastic(

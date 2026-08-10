@@ -110,10 +110,11 @@ class LinearElement(Element):
             scale = np.sqrt(np.abs(np.linalg.det(gram)))
 
         dshape = cls.shape_gradients(rule.points)   # (n_qp, N, reference_dim)
+        shape = cls.shape_values(rule.points)       # (n_qp, N)
         return ElementGeometry(
             element_type=cls,
             rule=rule,
-            shape=cls.shape_values(rule.points),        # (n_qp, N)
+            shape=shape,
             # (n_qp, N, r) @ (n_el, r, s) -> (n_el, n_qp, N, s): the reference shape
             # gradients mapped through each element's inverse Jacobian.
             grad_phi=np.einsum('qnr,ers->eqns', dshape, J_inv),
@@ -121,6 +122,10 @@ class LinearElement(Element):
             # measure scale. The reference weights sum to 1/d!, so this sums over
             # points to `scale / d!` -- the closed-form element volume.
             weight_detJ=scale[:, None] * rule.weights[None, :],
+            # (n_el, n_qp, spatial): where each quadrature point lands in space,
+            # interpolated through the shape functions -- for a form or load that
+            # samples a coefficient or source there.
+            points=np.einsum('qn,ens->eqs', shape, X),
         )
 
     @classmethod
@@ -210,6 +215,10 @@ class ElementGeometry:
     # coefficient every integrand is summed against. Replaces the old scalar
     # `volumes`, which is now these summed over the points.
     weight_detJ: FloatArray
+    # (n_elements, n_qp, spatial_dim) -- physical coordinates of the quadrature
+    # points. Empty of meaning for a constant-coefficient form, which never samples
+    # anything; carried so a variable coefficient or source can be evaluated there.
+    points: FloatArray
 
     @property
     def n_elements(self) -> int:
