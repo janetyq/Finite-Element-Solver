@@ -353,21 +353,22 @@ standalone record that aggregates the per-iteration `ElasticSolution`s rather th
 
 ## 5. What the model leaves open
 
-`quadrature.py` is the one piece of unused generality — five rules, zero callers, and shaped
-wrong for the layer that would replace them; its fate is a `BACKLOG.md` decision. The extension
-the roadmap wants is *vertical* — new layers between existing ones — and each item is additive
-against the composition model rather than blocked by it:
+The *vertical* extension the roadmap wanted — new layers between existing ones — has largely
+landed (`HIGHER_ORDER_DESIGN.md`): `quadrature.py` is now the real reference-element layer,
+`ElementGeometry` carries a quadrature-point axis, `DiffusionForm` / `LinearForm` sample
+variable coefficients and sources, and `QuadraticTriangleElement` numbers DOFs over vertices ∪
+edges for O(h³). What remains is additive against the composition model rather than blocked by it:
 
-| Wanted (from `BACKLOG.md`) | Where it sits |
-|---|---|
-| Quadratic / higher-order elements | DOFs assumed one-per-vertex; needs a real quadrature layer |
-| Variable coefficients / a `LinearForm` | assembly uses closed-form linear-simplex integrals; needs the quadrature hook |
-| Time-varying loads / BCs | loads are built once; the field callables take position only, no `t` |
-| A geometric two-grid preconditioner | a `Backend` implementation; the seam exists, `pyamg` currently fills it |
+| Wanted (from `BACKLOG.md`) | Where it sits | State |
+|---|---|---|
+| Quadratic / higher-order elements | DOFs over vertices ∪ edges; the quadrature-point axis | **done (2D)**; 3D P2 open |
+| Variable coefficients / a `LinearForm` | `DiffusionForm`, `LinearForm`, sampled at quadrature points | **done** |
+| Time-varying loads / BCs | loads are built once; the field callables take position only, no `t` | open |
+| A geometric two-grid preconditioner | a `Backend` implementation; the seam exists, `pyamg` currently fills it | open |
 
-The unused generality is *lateral* (more options on existing operations); the wanted extension is
-*vertical* (new layers) — except the two-grid row, which is a second implementation of a protocol
-that already exists. Speculative generality widens; real extension deepens.
+The two open rows are each a further implementation of a seam that now exists — the two-grid one
+a second `Backend`, the time-varying one a `t` argument on the field callables. Speculative
+generality widens; real extension deepens.
 
 **Post-processing is organised but not complete.** The rule in §3 has an owner for every derived
 quantity that exists, and the elastic paths both report through `RecoversElasticFields` — a
@@ -424,11 +425,12 @@ Legend: 🟡 design / maintainability · 🟢 small
 
 ### Dead paths and unused code
 
-- 🟡 **`fem/quadrature.py`** — no importers anywhere in the repo, and not a head start on the
-  quadrature layer either: the rules take `(func, polygon_vertices)`, where a real layer needs
-  reference-element points and weights. Delete or rewrite; `BACKLOG.md` flags "decide its fate".
 - 🟢 **`fem/numerics.py` `class color`** — no callers, superseded by the move to `logging`.
 - 🟢 **`fem/numerics.py` `timer`** — no callers.
+
+(`fem/quadrature.py` was the standout here — rules shaped `(func, polygon_vertices)` with no
+callers. It is now the real reference-element layer, `QuadratureRule` + Gauss rules per simplex,
+wired into `ElementGeometry` and every form; see `HIGHER_ORDER_DESIGN.md`.)
 
 ### Structural items
 
@@ -438,13 +440,13 @@ owns it. The stricter choice is the mass-matrix L2 projection (solve `M u = ∫ 
 accurate on a graded mesh and costs a solve. Worth revisiting only if a nodal-output consumer
 needs the accuracy — plotting does not.
 
-**🟡 The load vector waits on quadrature, not on a `LinearForm`.** The load `L(v) = ∫ f·v` is a
-typed `Source` term assembled as `mass_matrix @ f` — the mass form as a load operator, which is
-the *exact* integral of `f`'s P1 interpolant (`M_ij = ∫ φ_i φ_j`), with `Traction` the boundary
-sibling. A standalone `LinearForm` adds capability only once `f` varies *within* an element, which
-needs quadrature to sample it at interior points — the same machinery non-constant coefficients
-(`∫ κ(x) ∇u·∇v`) and P2 elements need. So a `LinearForm` belongs with the quadrature work, not
-before it: until then the load is `mass_matrix @ f` and needs no new object.
+**🟢 The load vector, now with a `LinearForm` beside `Source`.** The load `L(v) = ∫ f·v` still
+has the typed `Source` term assembled as `mass_matrix @ f` — the mass form as a load operator, the
+*exact* integral of `f`'s P1 interpolant (`M_ij = ∫ φ_i φ_j`), with `Traction` the boundary
+sibling — and that stays the cheap default for a source given at the nodes. `fem.forms.LinearForm`
+is now its quadrature-sampled sibling (`FunctionSpace.assemble_load`), which captures an `f` that
+varies *within* an element, the same machinery `DiffusionForm`'s `∫ κ(x) ∇u·∇v` and the P2 load
+use. It arrived with the quadrature layer, exactly where this note said it belonged.
 
 **🟢 `import fem` re-exports the plot layer.** `fem/__init__.py` re-exports `Plotter` and
 `PlotMode` as public API — a deliberate core → plot edge, worth revisiting only if the package
@@ -456,13 +458,11 @@ minimal-import goal would want both edges lazy.
 
 ### Suggested order
 
-1. **Quadrature, then `LinearForm`** — a real quadrature layer is what lets `f` vary within an
-   element; the linear form (and variable-coefficient bilinear forms) follow from it. This is the
-   top of the numeric roadmap in `BACKLOG.md`. Note it is **two** coupled assumptions, not one:
-   the missing quadrature-point axis on `ElementGeometry.grad_phi`, *and* the one-DOF-per-vertex
-   numbering baked into `FunctionSpace.n_dofs`, `dof_indices`, and `FieldSolution.deformed_mesh`.
-   Variable coefficients need only the first; P2 elements need both.
-2. **Clear the unused modules** — decide `quadrature.py`'s fate, delete `color` / `timer`.
+1. ~~**Quadrature, then `LinearForm`**~~ — done (`HIGHER_ORDER_DESIGN.md`). The two coupled
+   assumptions it named both fell: the quadrature-point axis is on `ElementGeometry.grad_phi`, and
+   the DOF numbering runs through `FunctionSpace.element_nodes` / `node_coords` rather than the
+   mesh vertices. What is left is the 3D P2 element and P2-aware plotting / adaptivity (`BACKLOG.md`).
+2. **Clear the unused modules** — delete `numerics.py`'s `color` / `timer`.
 3. **Fill in the post-processing coverage gaps** (§5) — each is an implementation of an existing
-   seam, and the error estimator is what closes the adaptive-refinement loop.
+   seam (Poisson flux, transient derived fields).
 4. **Clear the remaining core → plot re-export** — only if headless import becomes a goal.

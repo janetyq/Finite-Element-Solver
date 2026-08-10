@@ -225,10 +225,11 @@ The iterations are also recorded as a video — [`images/topopt.mp4`](images/top
 
 
 ## Methods
- - Galerkin Finite Element Method, P1 (linear) basis on triangles and tetrahedra
+ - Galerkin Finite Element Method: P1 (linear) basis on triangles and tetrahedra,
+   and P2 (quadratic) triangles for O(h³) accuracy, over a Gaussian quadrature layer
  - Boundary conditions: Dirichlet, Neumann, Robin
- - PDEs: L2 projection, Poisson, heat, wave, Navier-Cauchy (linear elasticity),
-   St Venant-Kirchhoff hyperelasticity
+ - PDEs: L2 projection, Poisson, variable-coefficient diffusion, heat, wave,
+   Navier-Cauchy (linear elasticity), St Venant-Kirchhoff hyperelasticity
  - Kinematics: infinitesimal strain, or geometrically exact Green-Lagrange
    (2D elasticity is **plane strain**)
  - Time integration: theta-method (backward Euler, Crank-Nicolson) for first-order
@@ -248,8 +249,9 @@ The iterations are also recorded as a video — [`images/topopt.mp4`](images/top
   driver and its refine/remesh loop are done and take the estimate as an injected
   callable; the estimate itself is the missing piece, which is why the adaptive
   demo is gated.
-- **Quadrature layer**, and the quadratic (P2) basis functions that depend on it.
-  Assembly currently uses closed-form linear-simplex integrals.
+- **3D P2 and P2-aware output.** The Gaussian quadrature layer and 2D quadratic (P2)
+  triangles are done (`HIGHER_ORDER_DESIGN.md`); still open are the 3D P2 tetrahedron,
+  plotting the quadratic field's edge values, and adaptive refinement on a P2 mesh.
 - **More PDEs**: thermal expansion, transport equations, fluid mechanics;
   Neo-Hookean hyperelasticity is stubbed.
 - **Time-varying loads and boundary data** -- sources and BC values are functions

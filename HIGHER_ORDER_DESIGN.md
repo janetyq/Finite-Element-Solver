@@ -9,6 +9,27 @@ numbers, which drift.
 `ARCHITECTURE.md` §5 names this as the anticipated *vertical* extension; `BACKLOG.md` §3
 lists the pieces. This is the account of how they fit together and in what order.
 
+## Status — shipped
+
+All five phases landed on the `higher-order-elements` branch. Phase 1 is P1
+value-identical (bit-identical in 2D; to round-off in 3D), and the MMS studies prove
+the rest: variable-coefficient Poisson at O(h²), scalar **and** vector P2 at O(h³), plus
+a constant-stress patch test. P2 is reachable through the `Solver` facade
+(`element_type=QuadraticTriangleElement`). The full suite stays green throughout.
+
+**Deferred, and honestly out of what shipped:**
+
+- **3D P2 (`QuadraticTetrahedralElement`).** Only 2D P2 (triangles, with a P2 line
+  boundary) shipped. The reference-element and numbering machinery generalizes — 3D P2
+  needs the ten-node tet's shape functions and an edge/face numbering — but the O(h³)
+  proof the endpoint asked for is 2D, so 3D P2 was left for a follow-up.
+- **P2 plotting and `deformed_mesh`.** Both read the vertex DOFs and drop the
+  edge-midpoint values, so a P2 field plots as its P1 restriction. Correct for the mesh
+  drawn; the quadratic bump between vertices is simply not shown.
+- **P2 adaptive refinement.** The residual estimator is P1/2D-only, so a *refined* P2
+  solve is unsupported; a single P2 solve is fine.
+- **Mixed u–p** stays out of scope, as decided below.
+
 ---
 
 ## The decision on record

@@ -16,8 +16,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Correctness | qhull precision error refining tight outlines (e.g. `cloud.svg`) | 🟡 | [§1](#1-bugs--correctness) |
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
-| Numerics | Gaussian quadrature layer (decide `quadrature.py`'s fate) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Numerics | Higher-order (quadratic) elements | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | 3D P2 (`QuadraticTetrahedralElement`); P2 plotting / adaptivity | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Mixed (u-p) formulation for near-incompressible elasticity | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | ZZ recovery error estimator (alternative to residual) | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -25,6 +24,9 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Post-proc | Poisson flux, transient derived fields | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+
+*(The quadrature layer, variable coefficients, and 2D P2 elements landed on the
+`higher-order-elements` branch — see `HIGHER_ORDER_DESIGN.md`.)*
 
 ---
 
@@ -80,10 +82,16 @@ Two things measured and rejected, so they do not get proposed again:
 ## 3. Open-Ended Suggestions & Future Ideas
 
 **Numerics**
-- 💡 **Higher-order elements.** Already on the roadmap (quadratic basis). The `Element` class
-  hierarchy is well-positioned — add `QuadraticTriangleElement` with its own shape functions
-  and a real quadrature rule (the `fem/quadrature.py` rules are written but not yet wired into
-  assembly).
+- 💡 **Finish P2: 3D, plotting, adaptivity.** The 2D P2 path shipped (`HIGHER_ORDER_DESIGN.md`);
+  three pieces of it are still open. **3D P2** wants a `QuadraticTetrahedralElement` (ten nodes)
+  and the edge/face numbering to match — the `Element` base and the `FunctionSpace` node set
+  generalize, but the 3D shape functions and connectivity are not written. **Plotting and
+  `deformed_mesh`** read the vertex DOFs and drop the edge-midpoint values, so a P2 field draws
+  as its P1 restriction; a display-subdivision pass would show the quadratic bump. **Adaptive
+  refinement** is P1-only (the residual estimator is 2D-P1), so a *refined* P2 solve is
+  unsupported. (Quadrature, variable coefficients, and 2D P2 elements themselves are done —
+  `fem/quadrature.py` is now the real reference-element layer, `DiffusionForm` / `LinearForm`
+  carry variable coefficients and sources, and `QuadraticTriangleElement` gives O(h³).)
 - 💡 **Mixed (u-p) formulation, to remove volumetric locking near nu -> 0.5.** The linear
   triangle has one constant strain per element, which cannot represent deviatoric and
   volumetric deformation independently -- as `nu` approaches incompressibility the element
@@ -91,21 +99,17 @@ Two things measured and rejected, so they do not get proposed again:
   `stress_concentration` demo: a nu-sweep at the hole rim showed real growth from `nu`=0 to
   0.3, then a sharp additional rise from 0.3 to 0.499, the classic locking signature, while a
   uniform-stress patch far from any curvature stayed essentially flat -- see the git history
-  around the roller-boundary-conditions branch for the numbers). Selective/reduced integration
-  and B-bar don't apply to a constant-strain triangle -- there is nothing to integrate at
-  reduced order within one constant-strain element. The standard fix for this element family is
-  a mixed formulation: interpolate pressure (mean stress) as its own field, one polynomial
-  degree below displacement (Taylor-Hood P2-P1 is the standard pairing), and enforce the
-  volumetric constraint weakly instead of purely through displacement. This is more than an
+  around the roller-boundary-conditions branch for the numbers). P2 displacement *alleviates*
+  this but does not cure it; the standard cure for this element family is a mixed formulation:
+  interpolate pressure (mean stress) as its own field, one polynomial degree below displacement
+  (Taylor-Hood P2-P1 is the standard pairing, and P2 now exists as one half of it), and enforce
+  the volumetric constraint weakly instead of purely through displacement. This is more than an
   element swap -- the assembled system becomes a saddle-point (indefinite) one, not the SPD
   system every solve path here currently assumes (`fem/backends.py`'s CG path and its
   rigid-body near-null-space handling, in particular), so it needs its own solver strategy
-  alongside the new element. Depends on quadratic elements existing first (P2 is one half of
-  the P2-P1 pair).
-- 💡 **Proper Gaussian quadrature.** Assembly currently uses closed-form linear-element
-  integrals. A general quadrature layer (reference element + Gauss points + Jacobian) would
-  make adding new element types and variable coefficients far easier, and is a prerequisite for
-  the quadratic elements above. Decide `quadrature.py`'s fate: integrate it or mark it WIP.
+  alongside the new element. Now that P2 elements exist, selective/reduced integration on the
+  volumetric term is also available as a lighter-weight partial answer the constant-strain
+  triangle could not offer.
 - 💡 **Zienkiewicz-Zhu (ZZ) recovery error estimator.** An alternative to the residual
   estimator now in `Poisson.error_estimate`. ZZ computes a "recovered" gradient by nodal
   averaging, then measures the difference from the raw per-element gradient. Simpler to
@@ -247,6 +251,9 @@ recovers anything. Each item below is an implementation of a seam that already e
 
 ## Suggested Priority Order
 
-1. **Coverage + type hints** (§3) — deepen the safety net before the bigger numerics work.
-2. **Then the numerics roadmap** — quadrature → higher-order elements. (The error estimator
-   that closes the adaptive-refinement loop is now done.)
+1. **Coverage + type hints** (§3) — deepen the safety net.
+2. **Finish the P2 story** — 3D P2, then P2-aware plotting and adaptivity (§3), so the
+   higher-order path is complete rather than 2D-only. (The quadrature layer, variable
+   coefficients, 2D P2 elements, and the residual error estimator are all now done.)
+3. **Then the harder numerics** — mixed u–p for incompressibility (P2 is now in place as its
+   displacement half), or the hand-rolled two-grid preconditioner.
