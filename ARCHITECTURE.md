@@ -349,6 +349,52 @@ deliberately *not* in this hierarchy: it is a driver-layer trajectory of designs
 optimization iteration, and `rho` is a design variable, not a solved field), so it stays a
 standalone record that aggregates the per-iteration `ElasticSolution`s rather than being one.
 
+### The integration stack and the DOF numbering — where quadrature and P2 fit
+
+The higher-order work (`HIGHER_ORDER_DESIGN.md`) added no new tier. It deepened two of the
+existing layers along two orthogonal axes, the "two coupled assumptions" the design doc named:
+
+- **Fact A — how a form becomes numbers** (the assembly layer, §1 row 4). The *integration stack*:
+
+  ```
+  QuadratureRule ──→ Element ──→ ElementGeometry ──→ Form
+   (reference          (a shape:      (physical, batched   (physics:
+    pts + weights)      basis fns)     geometry at a rule)   integrand)
+  ```
+
+  `QuadratureRule` is reference-simplex data alone. `Element` is the bridge to physical space: a
+  stateless shape that answers `shape_values` / `shape_gradients` (the basis at reference points),
+  `quadrature(degree)` (pick a rule), and `geometry(coords, rule)` (the affine, corners-only map).
+  Its batched output `ElementGeometry` carries `grad_phi (n_el, n_qp, N, spatial)`, `weight_detJ`,
+  and `points` — the resolved, per-mesh geometry a form integrates against. The new
+  quadrature-point axis on `grad_phi` *is* Fact A; P1 is the `n_qp == 1` special case, which is why
+  the same forms serve both orders.
+
+- **Fact B — where the DOFs live** (the discretization layer, §1 row 2). Nothing reads DOFs off the
+  mesh any more. `FunctionSpace` exposes `element_nodes` / `node_coords` / `boundary_nodes`; for P1
+  these are the mesh's own arrays, for P2 the `NodeSet` that `p2_connectivity` builds — vertices
+  then one edge-midpoint node per edge. `BoundaryConditions.resolve` takes a `NodeGeometry` (which
+  `Mesh` and `NodeSet` both satisfy), so a geometric condition pins the edge DOFs with no change to
+  the resolver: the boundary edge-midpoint satisfies the same region its endpoints do.
+
+The two axes meet at **`FunctionSpace.assemble`**, the one place both are read:
+
+```
+1. degree = form.quadrature_degree (or the element's default)
+2. ElementGeometry = element.geometry( node_coords[element_nodes], rule(degree) )   # A over B
+3. blocks = form.element_matrices(ElementGeometry)                                  # A
+4. _ScatterPlan( dof_indices(element_nodes) ).scatter(blocks)                       # B
+```
+
+So `FunctionSpace` holds `mesh + element + n_components` and produces both outputs — the geometry
+(cached per rule in `geometry_at`) and the DOF map — and every form flows through this path, which
+is what kept the P1 numbers identical while the machinery under them changed. `ElementGeometry` is
+the resolved view of *(element, rule)* against a mesh, and `NodeSet` the resolved numbering of a P2
+discretization: both are the "spec → resolved-per-discretization" shape the rest of the model uses.
+Three consumers that had baked in "nodes == vertices" learned the numbering axis in one line each —
+`Source.vector` samples `node_coords`, `ElasticSolution.from_solve` gathers `element_nodes`, and
+`Solver` / `rigid_body_modes` build from `node_coords`.
+
 ---
 
 ## 5. What the model leaves open
