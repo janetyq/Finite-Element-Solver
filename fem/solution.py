@@ -83,8 +83,9 @@ class ElasticSolution(FieldSolution):
         '''Recover the elastic fields for `u` and package them.'''
         mesh, n_components = space.mesh, space.n_components
         # (n_elements, N, n_components) -- the layout RecoversElasticFields takes,
-        # and the same one FunctionSpace.assemble_residual gathers.
-        u_elements = np.asarray(u).reshape(-1, n_components)[mesh.elements]
+        # and the same one FunctionSpace.assemble_residual gathers. Indexed by the
+        # space's element nodes, not the mesh triangles: a P2 element has six nodes.
+        u_elements = np.asarray(u).reshape(-1, n_components)[space.element_nodes]
         fields = form.derived_fields(space.geometry, u_elements)
         return cls(mesh, n_components, u, fields.strain, fields.stress, fields.compliance)
 
