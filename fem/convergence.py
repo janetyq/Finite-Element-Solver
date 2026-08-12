@@ -1,5 +1,7 @@
 """The Method of Manufactured Solutions: check the discretization against an answer
-that is known exactly.
+that is known exactly. It runs backwards from an ordinary solve -- the exact solution
+u is *chosen* first and the forcing f (and boundary data) derived from it, so the
+answer is known before the solver runs, and the solver never sees it.
 
 Nothing here validates a *model*. The manufactured solution is picked for convenience
 rather than for physics -- what it establishes is that the assembly, the boundary
@@ -200,15 +202,17 @@ def elastic_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 # --- variable coefficient: -div(kappa(x) grad u) = f ----------------------------
 #
 # The same manufactured u = sin(pi x) sin(pi y) (zero on the boundary), but the
-# operator now carries a position-dependent conductivity kappa = 1 + x + y. The
-# forcing gains the grad(kappa).grad(u) term a constant coefficient does not have:
+# operator now carries a position-dependent conductivity kappa = 1 + x + y.
+# Differentiating that known u through the operator gives a forcing with an extra
+# grad(kappa).grad(u) term a constant coefficient does not have:
 #
 #     f = -div(kappa grad u) = -(grad kappa . grad u) - kappa laplacian(u)
 #
-# kappa varies within every element, so a constant-coefficient assembly cannot
-# represent this at all. It exercises the quadrature layer on both sides -- the
-# DiffusionForm operator and a LinearForm load, each sampling its field at the
-# quadrature points. Asserted in tests/test_convergence_variable_coefficient.py.
+# The two varying fields feed opposite sides of the solve: kappa the operator
+# (DiffusionForm -> stiffness matrix), the whole of f the load (LinearForm -> load
+# vector). Neither is constant within an element, so both sides exercise the
+# quadrature layer that a constant-coefficient assembly lacks. Asserted in
+# tests/test_convergence_variable_coefficient.py.
 
 
 def variable_coefficient(point: FloatArray) -> float:
@@ -233,10 +237,9 @@ def solve_variable_coefficient_mms(n: int) -> MMSSolve:
 
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    # Both sides sampled at the quadrature points: the operator's kappa through the
-    # DiffusionForm, the load's f through a LinearForm. A plain-field source would
-    # integrate f's nodal interpolant instead, and also converge; the LinearForm is
-    # the load half of what the quadrature layer added.
+    # f is fed as a LinearForm so it too is sampled at the quadrature points. A plain
+    # field source would instead integrate f's nodal interpolant -- also convergent, but
+    # LinearForm is the load half of what the quadrature layer added.
     problem = LinearProblem(
         space,
         DiffusionForm(variable_coefficient),
