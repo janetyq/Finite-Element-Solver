@@ -18,7 +18,14 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import LaplacianForm, LinearElasticForm, MassForm, strain_displacement
+from fem.forms import (
+    DiffusionForm,
+    LaplacianForm,
+    LinearElasticForm,
+    LinearForm,
+    MassForm,
+    strain_displacement,
+)
 from fem.materials import LinearElasticMaterial
 
 
@@ -75,7 +82,8 @@ def test_laplacian_is_symmetric_and_annihilates_constants(geometry):
 def test_strain_displacement_maps_uniform_stretch_to_uniform_strain():
     """A unit x-stretch (u_x = x, u_y = 0) has strain [1, 0, 0] everywhere."""
     u = np.array([0.0, 0, 1, 0, 0, 0])  # node coords are (0,0),(1,0),(0,1)
-    B = strain_displacement(TRI.grad_phi)[0]
+    # grad_phi is (n_el, n_qp, N, dim); index element 0 and its single quad point.
+    B = strain_displacement(TRI.grad_phi)[0, 0]
     np.testing.assert_allclose(B @ u, [1.0, 0.0, 0.0])
 
 
@@ -86,7 +94,7 @@ def test_strain_displacement_is_batched_over_elements():
         [[0.0, 0], [2, 0], [0, 2]],  # twice the size -> half the gradients
     ]))
     B = strain_displacement(pair.grad_phi)
-    assert B.shape == (2, 3, 6)
+    assert B.shape == (2, 1, 3, 6)   # (n_el, n_qp, n_strains, N*dim)
     np.testing.assert_allclose(B[1], 0.5 * B[0])
 
 
@@ -142,3 +150,29 @@ def test_per_element_modulus_length_is_checked():
     material = LinearElasticMaterial(np.array([100.0, 200.0]), 0.3)
     with pytest.raises(ValueError, match='2 entries but the mesh has 1'):
         LinearElasticForm(material).element_matrices(TRI)
+
+
+def test_diffusion_form_with_unit_coefficient_is_the_laplacian():
+    """kappa == 1 recovers the constant-coefficient Laplacian, element for element --
+    the variable-coefficient form's constant case is the form it generalizes."""
+    np.testing.assert_allclose(
+        DiffusionForm(1.0).element_matrices(TRI),
+        LaplacianForm().element_matrices(TRI),
+    )
+
+
+def test_diffusion_form_scales_with_the_coefficient():
+    """A constant kappa scales the stiffness by kappa, since it factors out of the integral."""
+    np.testing.assert_allclose(
+        DiffusionForm(5.0).element_matrices(TRI),
+        5.0 * LaplacianForm().element_matrices(TRI),
+    )
+
+
+def test_linear_form_constant_source_integrates_the_hat_exactly():
+    """For a constant source c, each node's load is the exact integral of c times its
+    P1 hat -- c * volume / N -- and the loads sum to c * volume (partition of unity)."""
+    volume = float(TRI.volumes[0])
+    b = LinearForm(3.0, 1).element_vectors(TRI)[0]   # (N,)
+    np.testing.assert_allclose(b, 3.0 * volume / 3)  # 3 nodes, integral of a P1 hat
+    np.testing.assert_allclose(b.sum(), 3.0 * volume)

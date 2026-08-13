@@ -47,11 +47,13 @@ from fem.equations import (
     StrainMeasure,
 )
 from fem.solver import Solver
+from fem.forms import LinearForm
 from fem.problem import (
     LinearProblem,
     EnergyProblem,
     projection,
     poisson,
+    diffusion,
     linear_elastic,
     heat,
     wave,
@@ -99,8 +101,10 @@ __all__ = [
     "StrainMeasure",
     "LinearProblem",
     "EnergyProblem",
+    "LinearForm",
     "projection",
     "poisson",
+    "diffusion",
     "linear_elastic",
     "heat",
     "wave",

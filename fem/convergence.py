@@ -1,5 +1,7 @@
 """The Method of Manufactured Solutions: check the discretization against an answer
-that is known exactly.
+that is known exactly. It runs backwards from an ordinary solve -- the exact solution
+u is *chosen* first and the forcing f (and boundary data) derived from it, so the
+answer is known before the solver runs, and the solver never sees it.
 
 Nothing here validates a *model*. The manufactured solution is picked for convenience
 rather than for physics -- what it establishes is that the assembly, the boundary
@@ -22,13 +24,15 @@ import numpy as np
 
 from fem.boundary import BCType, BoundaryConditions
 from fem.equations import LinearElastic, Poisson
+from fem.forms import DiffusionForm, LinearForm
 from fem.integrators import ThetaMethod
 from fem.materials import Enu_to_Lame
 from fem.mesh.mesh import Mesh
 from fem.mesh.ruppert import create_rect_mesh
-from fem.problem import heat
+from fem.problem import LinearProblem, heat
 from fem.regions import everywhere
 from fem.solution import FieldSolution, TransientSolution
+from fem.solve import LinearSolve
 from fem.solver import Solver
 from fem.space import FunctionSpace
 from fem.typing import FloatArray, Vertices, VertexField
@@ -193,6 +197,70 @@ def solve_elastic_mms(n: int) -> MMSSolve:
 def elastic_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
     """Solve the manufactured elasticity problem once per resolution, coarsest first."""
     return [solve_elastic_mms(n) for n in sorted(resolutions)]
+
+
+# --- variable coefficient: -div(kappa(x) grad u) = f ----------------------------
+#
+# The same manufactured u = sin(pi x) sin(pi y) (zero on the boundary), but the
+# operator now carries a position-dependent conductivity kappa = 1 + x + y.
+# Differentiating that known u through the operator gives a forcing with an extra
+# grad(kappa).grad(u) term a constant coefficient does not have:
+#
+#     f = -div(kappa grad u) = -(grad kappa . grad u) - kappa laplacian(u)
+#
+# The two varying fields feed opposite sides of the solve: kappa the operator
+# (DiffusionForm -> stiffness matrix), the whole of f the load (LinearForm -> load
+# vector). Neither is constant within an element, so both sides exercise the
+# quadrature layer that a constant-coefficient assembly lacks. Asserted in
+# tests/test_convergence_variable_coefficient.py.
+
+
+def variable_coefficient(point: FloatArray) -> float:
+    """kappa(x, y) = 1 + x + y -- smooth and positive on the unit square."""
+    return 1.0 + point[0] + point[1]
+
+
+def variable_source(point: FloatArray) -> list[float]:
+    """f = -div(kappa grad u) for the kappa above and u = sin(pi x) sin(pi y)."""
+    x, y = point[0], point[1]
+    sx, sy = np.sin(np.pi * x), np.sin(np.pi * y)
+    cx, cy = np.cos(np.pi * x), np.cos(np.pi * y)
+    grad_kappa_dot_grad_u = np.pi * cx * sy + np.pi * sx * cy
+    kappa_times_laplacian = (1.0 + x + y) * (-2 * np.pi**2 * sx * sy)
+    return [-(grad_kappa_dot_grad_u + kappa_times_laplacian)]
+
+
+def solve_variable_coefficient_mms(n: int) -> MMSSolve:
+    """Solve the manufactured variable-coefficient problem on an `n` x `n` grid."""
+    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    space = FunctionSpace(mesh, n_components=1)
+
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    # f is fed as a LinearForm so it too is sampled at the quadrature points. A plain
+    # field source would instead integrate f's nodal interpolant -- also convergent, but
+    # LinearForm is the load half of what the quadrature layer added.
+    problem = LinearProblem(
+        space,
+        DiffusionForm(variable_coefficient),
+        LinearForm(variable_source, n_components=1),
+        bc,
+    )
+    u = LinearSolve().solve(problem)
+
+    exact = exact_solution(mesh.vertices)
+    return MMSSolve(
+        h=1.0 / (n - 1),
+        mesh=mesh,
+        u=u,
+        exact=exact,
+        l2_error=l2_norm(space, u - exact),
+    )
+
+
+def variable_coefficient_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
+    """Solve the manufactured variable-coefficient problem per resolution, coarsest first."""
+    return [solve_variable_coefficient_mms(n) for n in sorted(resolutions)]
 
 
 # --- the heat integrators: convergence in dt rather than in h -------------------
