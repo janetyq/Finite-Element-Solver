@@ -14,13 +14,17 @@ from fem.geometry import calculate_triangle_min_angle
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import (
-    ConvergenceStudy, elastic_convergence, poisson_convergence, theta_convergence,
+    LOAD_MMS_FREQUENCY, ConvergenceStudy, elastic_convergence, load_comparison_convergence,
+    oscillatory_exact, poisson_convergence, poisson_p2_convergence, solve_load_comparison,
+    theta_convergence,
 )
+from fem.elements import QuadraticTriangleElement
+from fem.space import FunctionSpace
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
-from fem.mesh.ruppert import RuppertsAlgorithm, create_box_mesh
+from fem.mesh.ruppert import RuppertsAlgorithm, create_box_mesh, create_rect_mesh
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
@@ -158,6 +162,130 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
                 'Right: the same measurement against the time step instead, where the '
                 'order is not a property of the elements but a choice -- backward Euler '
                 'buys first order, Crank-Nicolson second, for the same cost per step.')],
+        text='\n'.join(rows),
+    )
+
+def demo_higher_order(resolutions=(11, 21, 41, 81)):
+    """Compare P1 and P2 elements on the same manufactured Poisson problem: quadratic
+    elements are third order in L2 where linear ones are second, and so reach a given
+    accuracy at far fewer degrees of freedom."""
+    # Same problem, two element orders. P2 carries the extra edge-midpoint DOFs that
+    # let its solution curve within an element; the rate is what that buys.
+    p1_solves = poisson_convergence(resolutions)
+    p2_solves = poisson_p2_convergence(resolutions)
+    p1 = ConvergenceStudy.from_solves(p1_solves)
+    p2 = ConvergenceStudy.from_solves(p2_solves)
+    # DOF counts drive the accuracy-per-cost view: P2 spends more unknowns per element,
+    # and the question is whether its faster rate pays that back.
+    p1_dofs = np.array([FunctionSpace(s.mesh).n_dofs for s in p1_solves])
+    p2_dofs = np.array([FunctionSpace(s.mesh, QuadraticTriangleElement).n_dofs
+                        for s in p2_solves])
+
+    plotter = Plotter(1, 2, title='Higher-order accuracy: P1 vs P2')
+    rate = plotter.chart_ax(idx=(0, 0), xlabel='h', ylabel='L2 error')
+    _plot_study(rate, p1, 'P1', 'tab:blue', 2, 'h')
+    _plot_study(rate, p2, 'P2', 'tab:orange', 3, 'h')
+    rate.set_title('Rate: P2 is third order, P1 second')
+    _tidy_log_axis(rate, p1.step)
+
+    cost = plotter.chart_ax(idx=(0, 1), xlabel='degrees of freedom', ylabel='L2 error')
+    cost.loglog(p1_dofs, p1.error, 'o-', color='tab:blue', label='P1')
+    cost.loglog(p2_dofs, p2.error, 'o-', color='tab:orange', label='P2')
+    cost.set_title('Cost: P2 reaches a given accuracy first')
+    cost.grid(True, which='both', alpha=0.3)
+
+    rows = ['            fitted order   expected']
+    for name, study, expected in (('P1', p1, 2), ('P2', p2, 3)):
+        rows.append(f'{name:<12}{study.fitted_order:>9.2f}{expected:>11}')
+    return DemoResult(
+        [Figure(plotter,
+                'Left: on the same meshes, halving h quarters the P1 error (order 2) but '
+                'divides the P2 error by eight (order 3) -- the steeper line is the whole '
+                'point of a higher-order element. Right: the same errors against the '
+                'number of unknowns. P2 spends more DOFs per element, yet reaches a given '
+                'accuracy well to the left of P1, so it is the cheaper choice where the '
+                'solution is smooth.')],
+        text='\n'.join(rows),
+    )
+
+def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
+    """Show what sampling the load at the quadrature points buys. Both solves use the same
+    P1 elements; they differ only in how the source f becomes the right-hand side -- read
+    at the vertices, or at the interior quadrature points. The vertex shortcut undershoots
+    wherever f swings within an element."""
+    k = LOAD_MMS_FREQUENCY
+
+    # Setup: the load and the solution it drives, on a fine mesh so these are the ideal
+    # shapes rather than a coarse approximation of them.
+    fine = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(41, 41))
+    u_fine = oscillatory_exact(fine.vertices)
+    f_fine = 2 * (k * np.pi) ** 2 * u_fine     # the source is proportional to u here
+    setup = Plotter(1, 2, title='The problem: a source f drives a solution u')
+    setup.plot(fine, f_fine, mode='colored', idx=(0, 0), label='source f',
+               title='The load: source f')
+    setup.plot(fine, u_fine, mode='surface', idx=(0, 1), title='The solution: u')
+
+    # Convergence over the sequence, plus one coarse mesh reused for the slice and the
+    # error fields, so the 1D cut is literally a row through the 2D error.
+    loads = load_comparison_convergence(resolutions)
+    steps = np.array([lc.h for lc in loads])
+    nodal = ConvergenceStudy(steps, np.array([lc.nodal_error for lc in loads]))
+    sampled = ConvergenceStudy(steps, np.array([lc.sampled_error for lc in loads]))
+    cut_lc = solve_load_comparison(15)
+
+    n = cut_lc.n
+    xs = np.linspace(0, 1, n)
+    j = int(np.argmin(np.abs(xs - 1 / (2 * k))))   # a row through the bump peaks
+    row = slice(j * n, (j + 1) * n)
+    xf = np.linspace(0, 1, 400)
+    u_line = np.sin(k * np.pi * xf) * np.sin(k * np.pi * xs[j])
+    nodal_err = np.abs(cut_lc.nodal - cut_lc.exact)
+    sampled_err = np.abs(cut_lc.sampled - cut_lc.exact)
+    emax = float(max(nodal_err.max(), sampled_err.max()))
+
+    comp = Plotter(2, 2, title='One P1 problem, two ways to build the load')
+    cut = comp.chart_ax(idx=(0, 0), xlabel='x', ylabel='u')
+    cut.plot(xf, u_line, '-', color='0.45', label='exact u')
+    cut.plot(xs, cut_lc.nodal[row], 'o-', color='tab:red', ms=4,
+             label='nodal load (f at vertices)')
+    cut.plot(xs, cut_lc.sampled[row], 's-', color='tab:blue', ms=4,
+             label='sampled load (f at quad. pts)')
+    cut.set_title(f'Solution on a slice at y={xs[j]:.2g} (both P1)')
+
+    conv = comp.chart_ax(idx=(0, 1), xlabel='h', ylabel='L2 error')
+    _plot_study(conv, nodal, 'nodal load', 'tab:red', 2, 'h')
+    _plot_study(conv, sampled, 'sampled load', 'tab:blue', 2, 'h')
+    conv.set_title('L2 error: both order 2, sampling wins the constant')
+    _tidy_log_axis(conv, steps)
+
+    comp.plot(cut_lc.mesh, nodal_err, mode='colored', idx=(1, 0), clim=(0, emax),
+              label='|u_h - u|', title=f'Error with nodal load (h={cut_lc.h:.2g})')
+    comp.plot(cut_lc.mesh, sampled_err, mode='colored', idx=(1, 1), clim=(0, emax),
+              label='|u_h - u|', title='Error with sampled load')
+
+    coarse = loads[0]
+    rows = [f'coarsest mesh (h={coarse.h:.3g}):',
+            f'  nodal load    L2 error {coarse.nodal_error:.3e}',
+            f'  sampled load  L2 error {coarse.sampled_error:.3e}',
+            f'  the nodal shortcut is {coarse.nodal_error / coarse.sampled_error:.1f}x worse']
+    return DemoResult(
+        [Figure(comp,
+                'Both solves use the same P1 (linear) elements -- neither is higher order. '
+                'They differ only in how the source f becomes the load: the nodal load reads '
+                'f at the vertices only (integrating its linear interpolant), the sampled '
+                'load reads f at the interior quadrature points. Top-left: on a slice '
+                'through a row of bumps, the exact solution (grey) against the two P1 '
+                'solutions -- the nodal load undershoots each peak. Top-right: both converge '
+                'at order 2, the sampled load about 3x lower. Bottom: the absolute error '
+                'over the mesh for each, at the same colour scale.',
+                'comparison'),
+         Figure(setup,
+                'The manufactured problem: -div(grad u) = f on the unit square, zero on the '
+                'boundary. The load is the source f (left) -- an oscillating field of '
+                'sources and sinks; the solution u (right) is what it drives, a grid of '
+                'bumps pinned to zero all around. Both solves in the comparison target this '
+                'u and differ only in how f is sampled to build the load.',
+                'setup', setup=True)],
         text='\n'.join(rows),
     )
 
@@ -804,4 +932,10 @@ DEMOS = [
     Demo('convergence', demo_convergence, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21), 'elastic_resolutions': (9, 17),
               'step_counts': (16, 32)}),
+    # Both build their own refinement sequences rather than taking a domain -- the
+    # sequence is the demo -- so the smoke run keeps only the two coarsest.
+    Demo('higher_order', demo_higher_order, section=ACCURACY,
+         smoke_kwargs={'resolutions': (11, 21)}),
+    Demo('quadrature_load', demo_quadrature_load, section=ACCURACY,
+         smoke_kwargs={'resolutions': (11, 21)}),
 ]
