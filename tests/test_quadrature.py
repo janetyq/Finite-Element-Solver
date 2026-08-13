@@ -15,10 +15,25 @@ from fem.elements import (
     LinearLineElement,
     LinearTetrahedralElement,
     LinearTriangleElement,
+    QuadraticLineElement,
+    QuadraticTriangleElement,
 )
 from fem.quadrature import _RULES, quadrature_rule
 
 ELEMENTS = [LinearLineElement, LinearTriangleElement, LinearTetrahedralElement]
+
+# Reference-node coordinates per element, in the element's own node ordering. The
+# nodal test checks each hat is 1 at its own node and 0 at the others.
+REFERENCE_NODES = {
+    LinearLineElement: [[0.0], [1.0]],
+    LinearTriangleElement: [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+    LinearTetrahedralElement: [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+    QuadraticLineElement: [[0.0], [1.0], [0.5]],
+    QuadraticTriangleElement: [
+        [0.0, 0.0], [1.0, 0.0], [0.0, 1.0],   # corners
+        [0.5, 0.5], [0.0, 0.5], [0.5, 0.0],   # m12, m02, m01
+    ],
+}
 
 
 def _monomials(dim: int, total_degree: int):
@@ -78,19 +93,20 @@ def test_rule_selection_returns_the_cheapest_adequate_rule():
         quadrature_rule(2, 99)
 
 
-@pytest.mark.parametrize("element", ELEMENTS)
-def test_linear_shape_functions_are_nodal(element):
+@pytest.mark.parametrize("element", list(REFERENCE_NODES))
+def test_shape_functions_are_nodal(element):
     """1 at their own node, 0 at the others -- the property that makes a DOF the
-    value at its node. Reference nodes are the origin and the unit basis vectors."""
-    d = element.reference_dim()
-    reference_nodes = np.vstack([np.zeros(d), np.eye(d)])
-    np.testing.assert_allclose(element.shape_values(reference_nodes), np.eye(element.N),
-                               atol=1e-15)
+    value at its node. Holds for linear and quadratic elements alike."""
+    nodes = np.asarray(REFERENCE_NODES[element], dtype=float)
+    np.testing.assert_allclose(element.shape_values(nodes), np.eye(element.N), atol=1e-14)
 
 
-@pytest.mark.parametrize("element", ELEMENTS)
-def test_linear_shape_functions_partition_unity(element):
-    """The hats sum to 1 everywhere, so a constant field is represented exactly."""
-    rule = element.quadrature(1)
+@pytest.mark.parametrize("element", list(REFERENCE_NODES))
+def test_shape_functions_partition_unity(element):
+    """The hats sum to 1 everywhere (a constant field is represented exactly), so
+    their gradients sum to zero (a constant field has no gradient)."""
+    rule = element.quadrature(2)
     values = element.shape_values(rule.points)
     np.testing.assert_allclose(values.sum(axis=1), 1.0)
+    gradients = element.shape_gradients(rule.points)
+    np.testing.assert_allclose(gradients.sum(axis=1), 0.0, atol=1e-14)

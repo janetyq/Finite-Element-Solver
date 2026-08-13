@@ -23,10 +23,11 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import BCType, BoundaryConditions
+from fem.elements import QuadraticTriangleElement
 from fem.equations import LinearElastic, Poisson
-from fem.forms import DiffusionForm, LinearForm
+from fem.forms import DiffusionForm, LaplacianForm, LinearElasticForm, LinearForm
 from fem.integrators import ThetaMethod
-from fem.materials import Enu_to_Lame
+from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.mesh.ruppert import create_rect_mesh
 from fem.problem import LinearProblem, heat
@@ -261,6 +262,81 @@ def solve_variable_coefficient_mms(n: int) -> MMSSolve:
 def variable_coefficient_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
     """Solve the manufactured variable-coefficient problem per resolution, coarsest first."""
     return [solve_variable_coefficient_mms(n) for n in sorted(resolutions)]
+
+
+# --- P2 elements: the same Poisson problem, one polynomial degree higher ---------
+#
+# The same manufactured u = sin(pi x) sin(pi y), solved on the quadratic space. The
+# only differences from solve_poisson_mms are the element type and that the exact
+# solution and the error norm are sampled at *all* the P2 nodes -- corners and edge
+# midpoints -- since the extra DOFs live there. The payoff is the rate: P2 is O(h^3)
+# in L2 where P1 is O(h^2), which is what test_convergence_p2.py asserts and what
+# Fact B (the edge-node DOFs) was built to deliver.
+
+
+def solve_poisson_mms_p2(n: int) -> MMSSolve:
+    """Solve the manufactured Poisson problem on a P2 space over an `n` x `n` grid."""
+    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=1)
+
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    # The P2 stiffness integrand is degree 2, integrated exactly by the space's
+    # default rule; the load int f phi is degree-4-ish, so the LinearForm samples f
+    # at a degree-4 rule to keep quadrature error below the O(h^3) discretization error.
+    problem = LinearProblem(
+        space, LaplacianForm(), LinearForm(source_term, quadrature_degree=4), bc,
+    )
+    u = LinearSolve().solve(problem)
+
+    # Sampled at the P2 nodes, not just the vertices: the L2 norm needs the edge-node
+    # values the mass matrix is sized to.
+    exact = exact_solution(space.node_coords)
+    return MMSSolve(
+        h=1.0 / (n - 1),
+        mesh=mesh,
+        u=u,
+        exact=exact,
+        l2_error=l2_norm(space, u - exact),
+    )
+
+
+def poisson_p2_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
+    """Solve the manufactured Poisson problem on P2 per resolution, coarsest first."""
+    return [solve_poisson_mms_p2(n) for n in sorted(resolutions)]
+
+
+def solve_elastic_mms_p2(n: int) -> MMSSolve:
+    """Solve the manufactured elasticity problem on a P2 space over an `n` x `n` grid.
+
+    The vector P2 path: two DOFs on every node, corners and edge midpoints alike. It
+    exercises the node numbering under `n_components = 2` and the coupled elastic
+    operator, and it must converge at O(h^3) like the scalar P2 Poisson does.
+    """
+    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
+
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0])
+    operator = LinearElasticForm(LinearElasticMaterial(ELASTIC_E, ELASTIC_NU))
+    load = LinearForm(elastic_source, n_components=2, quadrature_degree=4)
+    problem = LinearProblem(space, operator, load, bc)
+    u = LinearSolve().solve(problem)
+
+    exact = elastic_exact(space.node_coords)   # (n_nodes, 2)
+    error = u.reshape(exact.shape) - exact
+    return MMSSolve(
+        h=1.0 / (n - 1),
+        mesh=mesh,
+        u=u,
+        exact=exact.flatten(),
+        l2_error=l2_norm(space, error.flatten()),
+    )
+
+
+def elastic_p2_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
+    """Solve the manufactured elasticity problem on P2 per resolution, coarsest first."""
+    return [solve_elastic_mms_p2(n) for n in sorted(resolutions)]
 
 
 # --- the heat integrators: convergence in dt rather than in h -------------------

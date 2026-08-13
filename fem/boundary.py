@@ -13,7 +13,7 @@ when handed to a solver for a different equation.
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import Protocol
 
 import numpy as np
 
@@ -21,18 +21,35 @@ from fem.regions import _coerce_components, evaluate_field, is_mesh_bound
 from fem.typing import (
     BoolArray,
     DofIndices,
+    Elements,
     FieldValue,
     FloatArray,
+    IntArray,
     Region,
     VertexIndices,
     VertexField,
     Vertices,
 )
 
-if TYPE_CHECKING:
-    from fem.mesh.mesh import Mesh
-
 logger = logging.getLogger(__name__)
+
+
+class NodeGeometry(Protocol):
+    '''The node geometry `resolve` and `select` read: coordinates, the boundary
+    facets as node-index tuples, and the boundary node indices.
+
+    `Mesh` satisfies it directly (its nodes are the vertices), and so does the
+    `NodeSet` a P2 `FunctionSpace` builds (whose nodes include the edge midpoints),
+    which is what lets one resolver pin vertex and edge DOFs alike. The members are
+    read-only properties so both a plain-attribute `Mesh` and a frozen `NodeSet`
+    satisfy it.
+    '''
+    @property
+    def vertices(self) -> Vertices: ...
+    @property
+    def boundary(self) -> Elements: ...
+    @property
+    def boundary_idxs(self) -> IntArray: ...
 
 
 def _evaluate_dirichlet_value(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
@@ -158,15 +175,17 @@ class BoundaryConditions:
                 'remeshable.'
             )
 
-    def select(self, mesh: 'Mesh', region: Region) -> VertexIndices:
-        '''Boundary vertices of `mesh` inside `region`.
+    def select(self, nodes: NodeGeometry, region: Region) -> VertexIndices:
+        '''Boundary nodes of `nodes` inside `region`.
 
-        Regions are evaluated over every vertex and then intersected with the
-        boundary, which makes "a boundary condition on an interior vertex"
-        unrepresentable rather than something to diagnose afterwards.
+        Regions are evaluated over every node and then intersected with the
+        boundary, which makes "a boundary condition on an interior node"
+        unrepresentable rather than something to diagnose afterwards. For a P2 node
+        set this picks up the edge-midpoint nodes on the boundary automatically,
+        since they satisfy the same geometric region their endpoints do.
         '''
-        selected = np.flatnonzero(region(mesh.vertices))
-        boundary = np.asarray(mesh.boundary_idxs, dtype=int)
+        selected = np.flatnonzero(region(nodes.vertices))
+        boundary = np.asarray(nodes.boundary_idxs, dtype=int)
 
         if is_mesh_bound(region):
             # Naming a node explicitly is a claim about that node, so silently
@@ -175,13 +194,13 @@ class BoundaryConditions:
             interior = np.setdiff1d(selected, boundary)
             if len(interior):
                 raise ValueError(
-                    f'boundary conditions on non-boundary vertices: {sorted(interior)}'
+                    f'boundary conditions on non-boundary nodes: {sorted(interior)}'
                 )
             return selected
         return np.intersect1d(selected, boundary)
 
-    def entries(self, mesh: 'Mesh') -> list[tuple[BCType, VertexIndices, FloatArray]]:
-        '''[(bc_type, vertex_idxs, values), ...] resolved against `mesh`.
+    def entries(self, nodes: NodeGeometry) -> list[tuple[BCType, VertexIndices, FloatArray]]:
+        '''[(bc_type, node_idxs, values), ...] resolved against `nodes`.
 
         Region resolution only -- no DOF numbering, so this needs no `n_components` and is
         what inspection and plotting use.
@@ -192,31 +211,31 @@ class BoundaryConditions:
             # legitimately be None/free, and a stray None elsewhere is a user
             # mistake worth *seeing* here (as a literal NaN) rather than one
             # this inspection path hides by raising before resolve() can.
-            return _coerce_components(value, mesh.vertices[idxs], 1) if len(idxs) \
+            return _coerce_components(value, nodes.vertices[idxs], 1) if len(idxs) \
                 else np.zeros((0, 1))
 
         out = []
         for bc_type, region, value in self.conditions:
-            idxs = self.select(mesh, region)
+            idxs = self.select(nodes, region)
             out.append((bc_type, idxs, resolved_values(idxs, value)))
         for region, _kappa, g in self.robin_conditions:
-            idxs = self.select(mesh, region)
+            idxs = self.select(nodes, region)
             out.append((BCType.ROBIN, idxs, resolved_values(idxs, g)))
         return out
 
-    def resolve(self, mesh: 'Mesh', n_components: int) -> ResolvedBC:
-        '''Reduce this specification to a `ResolvedBC` for `mesh` at `n_components` DOFs per node.'''
-        n = len(mesh.vertices)
+    def resolve(self, nodes: NodeGeometry, n_components: int) -> ResolvedBC:
+        '''Reduce this specification to a `ResolvedBC` for `nodes` at `n_components` DOFs per node.'''
+        n = len(nodes.vertices)
         dirichlet: dict[int, FloatArray] = {}
         neumann = np.zeros((n, n_components))
         robin: list[RobinContribution] = []
         dirichlet_vertices, neumann_vertices = [], []
 
         for bc_type, region, value in self.conditions:
-            idxs = self.select(mesh, region)
+            idxs = self.select(nodes, region)
 
             if bc_type is BCType.DIRICHLET:
-                values = _evaluate_dirichlet_value(value, mesh.vertices[idxs], n_components)
+                values = _evaluate_dirichlet_value(value, nodes.vertices[idxs], n_components)
                 for v_idx, v in zip(idxs, values):
                     # Overlapping regions are normal (a corner belongs to two
                     # edges, or -- for a roller -- an edge and the one point
@@ -237,17 +256,17 @@ class BoundaryConditions:
                     dirichlet[v_idx] = v
                 dirichlet_vertices.extend(int(i) for i in idxs)
             else:
-                values = evaluate_field(value, mesh.vertices[idxs], n_components)
+                values = evaluate_field(value, nodes.vertices[idxs], n_components)
                 neumann[idxs] += values
                 neumann_vertices.extend(int(i) for i in idxs)
 
         for region, kappa, g_field in self.robin_conditions:
-            idxs = self.select(mesh, region)
+            idxs = self.select(nodes, region)
             g = np.zeros((n, n_components))
-            g[idxs] = evaluate_field(g_field, mesh.vertices[idxs], n_components)
+            g[idxs] = evaluate_field(g_field, nodes.vertices[idxs], n_components)
             # A boundary facet is in the region iff all its nodes are -- the
             # all-nodes rule that keeps the boundary integral crisp.
-            facet_mask = np.asarray(np.isin(mesh.boundary, idxs).all(axis=1), dtype=bool)
+            facet_mask = np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
             robin.append(RobinContribution(facet_mask, kappa, g))
 
         dirichlet_vertices = np.unique(dirichlet_vertices).astype(int)

@@ -20,6 +20,7 @@ boundary facets of a 3D mesh -- a triangle in 3D -- which is why the Jacobian
 below is not assumed square.
 """
 from dataclasses import dataclass
+from math import factorial
 from typing import ClassVar
 
 import numpy as np
@@ -29,39 +30,82 @@ from fem.typing import ElementVertices, FloatArray, Matrix
 
 
 class Element:
-    '''Base class for elements with N nodes.'''
-    # Annotation without a value: a concrete element type must supply its node
-    # count, and reaching this attribute on the base raises rather than yielding
-    # a None that would only fail later inside the shape-function arithmetic.
+    '''Base class for a simplex element: a shape, its nodes, and its shape functions.
+
+    An element is defined by its node count `N`, the polynomial degree of its shape
+    functions `SHAPE_DEGREE`, and the boundary-facet element `SUB_TYPE`. The shared
+    machinery -- quadrature selection, the reference mass matrix, and the batched
+    geometry -- lives here; a subclass supplies only `shape_values` / `shape_gradients`
+    and, for a higher-order element, its own `reference_dim`.
+    '''
+    # Annotations without values: a concrete element type must supply these, and
+    # reaching one on the base raises rather than yielding a None that would only
+    # fail later inside the arithmetic.
     N: ClassVar[int]
+    SHAPE_DEGREE: ClassVar[int]                    # polynomial degree of the shape functions
+    SUB_TYPE: ClassVar[type['Element'] | None]     # element of a boundary facet
 
     @classmethod
     def reference_dim(cls) -> int:
         '''Dimension of the element itself: 1 for a line, 2 for a triangle, 3 for a tet.
 
-        Equals `N - 1` for a simplex. Distinct from the spatial dimension: a
-        triangle embedded in 3D has reference_dim 2 and spatial_dim 3.
+        Distinct from the spatial dimension: a triangle embedded in 3D has
+        reference_dim 2 and spatial_dim 3. Equals `N - 1` only for a *linear*
+        simplex, so a higher-order element overrides it -- a 6-node quadratic
+        triangle is still a 2D element.
         '''
         return cls.N - 1
 
+    @classmethod
+    def n_corners(cls) -> int:
+        '''The simplex corners that define the affine geometry map: reference_dim + 1.
 
-class LinearElement(Element):
-    '''Base class for linear (P1) simplex elements.
-
-    Shape function phi(x) = a + b*x_1 + c*x_2 + ... + z*x_{N-1}, so the gradient
-    is constant over the element and the geometry reduces to one Jacobian per
-    element.
-    '''
-    SUB_TYPE: ClassVar[type['LinearElement'] | None]
+        A quadratic element has more nodes than corners; the extra ones carry field
+        DOFs but do not move the (straight-sided) geometry, so only the corners enter
+        the Jacobian. Nodes are ordered corners-first, which is what lets this take a
+        prefix.
+        '''
+        return cls.reference_dim() + 1
 
     @classmethod
-    def _dshape(cls) -> Matrix:
-        '''(N, N-1) shape-function gradients on the reference simplex.
+    def quadrature(cls, min_degree: int) -> QuadratureRule:
+        '''The cheapest rule on this element's reference simplex exact to `min_degree`.'''
+        return quadrature_rule(cls.reference_dim(), min_degree)
 
-        Constant per element type -- the reference simplex does not move -- so the
-        only per-element work is mapping these through the inverse Jacobian.
+    @classmethod
+    def default_quadrature_degree(cls) -> int:
+        '''The degree a plain stiffness needs: the shape-gradient product's degree.
+
+        A gradient drops one degree, and the stiffness pairs two of them, so the
+        integrand is `2 * (SHAPE_DEGREE - 1)` -- 0 for P1 (a single point suffices),
+        2 for P2. Floored at 1 so it always names a real rule.
         '''
-        return np.vstack([-np.ones(cls.N - 1), np.eye(cls.N - 1)])
+        return max(1, 2 * (cls.SHAPE_DEGREE - 1))
+
+    @classmethod
+    def shape_values(cls, points: FloatArray) -> FloatArray:
+        '''(n_points, N) shape functions at reference `points` (n_points, reference_dim).'''
+        raise NotImplementedError
+
+    @classmethod
+    def shape_gradients(cls, points: FloatArray) -> FloatArray:
+        '''(n_points, N, reference_dim) reference-coordinate shape gradients.'''
+        raise NotImplementedError
+
+    @classmethod
+    def reference_mass_matrix(cls) -> Matrix:
+        '''Consistent mass matrix per unit measure -- `int phi_i phi_j` over the
+        reference simplex, divided by the simplex measure so `MassForm` recovers the
+        element's mass by scaling with its volume.
+
+        Integrated by quadrature at a degree that captures `phi_i phi_j` exactly
+        (twice the shape degree). Exact for an affine element, whose Jacobian is
+        constant, so the physical mass is just this scaled by the measure.
+        '''
+        rule = cls.quadrature(2 * cls.SHAPE_DEGREE)
+        shape = cls.shape_values(rule.points)           # (n_qp, N)
+        reference_measure = 1.0 / factorial(cls.reference_dim())
+        return np.einsum('qi,qj,q->ij', shape, shape, rule.weights) / reference_measure
 
     @classmethod
     def geometry(
@@ -69,16 +113,15 @@ class LinearElement(Element):
     ) -> 'ElementGeometry':
         '''Batched quadrature-aware geometry for `(n_elements, N, spatial_dim)` coords.
 
-        `rule` defaults to the cheapest rule that integrates this element's own
-        stiffness exactly -- a single point for a linear simplex, whose gradients
-        are constant. A caller integrating a higher-degree form (a consistent mass
-        matrix, a variable coefficient, a higher-order field) passes a rule of the
-        degree it needs.
+        `rule` defaults to the degree a plain stiffness needs on this element. A
+        caller integrating a higher-degree form (a mass matrix, a variable
+        coefficient) passes a rule of the degree it needs.
 
-        The geometry map is affine -- straight-sided simplices -- so the Jacobian
-        is constant per element and only the reference shape gradients differ
-        between quadrature points. P1 falls out as the single-point case: one point,
-        one constant gradient, and `weight_detJ` summing to the closed-form measure.
+        The geometry map is affine -- subparametric: the Jacobian is built from the
+        `n_corners` simplex corners alone, while the field's shape functions may be
+        higher order. So the Jacobian is constant per element and only the reference
+        shape gradients differ between quadrature points. P1 falls out as the case
+        where the corners *are* all the nodes and the gradients are constant.
         '''
         X = np.asarray(element_vertices, dtype=np.float64)
         if X.ndim != 3 or X.shape[1] != cls.N:
@@ -86,11 +129,13 @@ class LinearElement(Element):
                 f'{cls.__name__}.geometry expects (n_elements, {cls.N}, spatial_dim) '
                 f'coordinates, got shape {X.shape}'
             )
-        rule = rule if rule is not None else cls.quadrature(1)
+        rule = rule if rule is not None else cls.quadrature(cls.default_quadrature_degree())
 
-        # Columns of J are the edge vectors from node 0, so J maps the reference
-        # simplex onto the element: (n_elements, spatial_dim, N-1).
-        J = np.swapaxes(X[:, 1:] - X[:, :1], 1, 2)
+        # Columns of J are the edge vectors from corner 0, so J maps the reference
+        # simplex onto the element: (n_elements, spatial_dim, reference_dim). Only the
+        # corners enter -- the affine map does not see the higher-order nodes.
+        corners = X[:, :cls.n_corners()]
+        J = np.swapaxes(corners[:, 1:] - corners[:, :1], 1, 2)
         spatial_dim, reference_dim = J.shape[1], J.shape[2]
 
         if spatial_dim == reference_dim:
@@ -128,14 +173,31 @@ class LinearElement(Element):
             points=np.einsum('qn,ens->eqs', shape, X),
         )
 
+
+class LinearElement(Element):
+    '''Base class for linear (P1) simplex elements.
+
+    Shape function phi(x) = a + b*x_1 + c*x_2 + ... + z*x_{N-1}, so the gradient
+    is constant over the element -- the reason a P1 assembly reduces to one
+    Jacobian per element and a single quadrature point.
+    '''
+    SHAPE_DEGREE = 1
+
+    @classmethod
+    def _dshape(cls) -> Matrix:
+        '''(N, N-1) shape-function gradients on the reference simplex.
+
+        Constant per element type -- the reference simplex does not move -- so the
+        only per-element work is mapping these through the inverse Jacobian.
+        '''
+        return np.vstack([-np.ones(cls.N - 1), np.eye(cls.N - 1)])
+
     @classmethod
     def reference_mass_matrix(cls) -> Matrix:
-        '''Consistent scalar P1 mass matrix per unit measure, `(1 + delta_ij) / (N (N+1))`.
+        '''Consistent P1 mass matrix per unit measure, `(1 + delta_ij) / (N (N+1))`.
 
-        The `int phi_i phi_j` integral divided out by the element's measure. Pure
-        geometry and identical for every element of a type, so it is computed once
-        and scaled by `ElementGeometry.volumes`. A vector field replicates it per
-        component; that is `MassForm`'s job.
+        Overrides the quadrature-integrated base with the exact rational closed form,
+        so the P1 mass stays bit-identical to what it was before the quadrature layer.
         '''
         return (np.ones((cls.N, cls.N)) + np.eye(cls.N)) / (cls.N * (cls.N + 1))
 
@@ -163,11 +225,6 @@ class LinearElement(Element):
         n_points = len(np.atleast_2d(np.asarray(points, dtype=float)))
         return np.broadcast_to(cls._dshape(), (n_points, cls.N, cls.N - 1))
 
-    @classmethod
-    def quadrature(cls, min_degree: int) -> QuadratureRule:
-        '''The cheapest rule on this element's reference simplex exact to `min_degree`.'''
-        return quadrature_rule(cls.reference_dim(), min_degree)
-
 
 class LinearLineElement(LinearElement):
     '''1D linear element. Shape function phi(x) = a + b*x.'''
@@ -175,17 +232,97 @@ class LinearLineElement(LinearElement):
     SUB_TYPE = None # TODO: add subtype point element? need to test 1D solve
 
 
-class LinearTriangleElement(LinearElement): # TODO: perhaps put quadrature in here too?
+class LinearTriangleElement(LinearElement):
     '''2D linear triangle element. Shape function phi(x) = a + b*x + c*y.'''
     N = 3
     SUB_TYPE = LinearLineElement
-    # d2F_dx2 = 0
 
 
 class LinearTetrahedralElement(LinearElement):
     '''3D linear tetrahedral element.'''
     N = 4
     SUB_TYPE = LinearTriangleElement
+
+
+class QuadraticLineElement(Element):
+    '''1D quadratic element: two endpoint nodes and one midpoint, ordered [start, end, mid].
+
+    The boundary facet of a quadratic triangle. Its shape functions are the P2
+    Lagrange basis on [0, 1], quadratic rather than linear, so their gradients are
+    no longer constant.
+    '''
+    N = 3
+    SHAPE_DEGREE = 2
+    SUB_TYPE = None
+
+    @classmethod
+    def reference_dim(cls) -> int:
+        return 1
+
+    @classmethod
+    def shape_values(cls, points: FloatArray) -> FloatArray:
+        P = np.atleast_2d(np.asarray(points, dtype=float))
+        xi = P[:, 0]
+        l0, l1 = 1.0 - xi, xi   # barycentric: start, end
+        return np.stack([l0 * (2 * l0 - 1), l1 * (2 * l1 - 1), 4 * l0 * l1], axis=1)
+
+    @classmethod
+    def shape_gradients(cls, points: FloatArray) -> FloatArray:
+        P = np.atleast_2d(np.asarray(points, dtype=float))
+        xi = P[:, 0]
+        g = np.zeros((len(P), 3, 1))
+        g[:, 0, 0] = 4 * xi - 3
+        g[:, 1, 0] = 4 * xi - 1
+        g[:, 2, 0] = 4 - 8 * xi
+        return g
+
+
+class QuadraticTriangleElement(Element):
+    '''2D quadratic triangle: three corner nodes and three edge-midpoint nodes.
+
+    Nodes are ordered corners-first -- [c0, c1, c2, m12, m02, m01] -- where mij is the
+    midpoint of the edge between corners i and j, and each edge-midpoint hat is the one
+    opposite the corner it is *not* named by. That ordering is what lets the affine map
+    read the first three nodes as the simplex corners, and it must match the (element ->
+    global node) map `FunctionSpace` builds. The field is quadratic (O(h^3) in L2) while
+    the geometry stays straight-sided.
+    '''
+    N = 6
+    SHAPE_DEGREE = 2
+    SUB_TYPE = QuadraticLineElement
+
+    @classmethod
+    def reference_dim(cls) -> int:
+        return 2
+
+    @classmethod
+    def shape_values(cls, points: FloatArray) -> FloatArray:
+        P = np.atleast_2d(np.asarray(points, dtype=float))
+        xi, eta = P[:, 0], P[:, 1]
+        l0, l1, l2 = 1.0 - xi - eta, xi, eta   # barycentric of the three corners
+        return np.stack([
+            l0 * (2 * l0 - 1), l1 * (2 * l1 - 1), l2 * (2 * l2 - 1),
+            4 * l1 * l2, 4 * l0 * l2, 4 * l0 * l1,
+        ], axis=1)
+
+    @classmethod
+    def shape_gradients(cls, points: FloatArray) -> FloatArray:
+        P = np.atleast_2d(np.asarray(points, dtype=float))
+        xi, eta = P[:, 0], P[:, 1]
+        l0, l1, l2 = 1.0 - xi - eta, xi, eta
+        g = np.zeros((len(P), 6, 2))
+        # Corner hats phi_i = l_i(2 l_i - 1); grad l0 = (-1, -1), l1 = (1, 0), l2 = (0, 1).
+        g[:, 0, 0] = g[:, 0, 1] = -(4 * l0 - 1)
+        g[:, 1, 0] = 4 * l1 - 1
+        g[:, 2, 1] = 4 * l2 - 1
+        # Edge hats: m12 = 4 l1 l2, m02 = 4 l0 l2, m01 = 4 l0 l1.
+        g[:, 3, 0] = 4 * l2
+        g[:, 3, 1] = 4 * l1
+        g[:, 4, 0] = -4 * l2
+        g[:, 4, 1] = 4 * l0 - 4 * l2
+        g[:, 5, 0] = 4 * l0 - 4 * l1
+        g[:, 5, 1] = -4 * l1
+        return g
 
 
 @dataclass(frozen=True)
@@ -201,7 +338,7 @@ class ElementGeometry:
     while the mesh underneath it is not mutated, the same contract the space's
     operators have.
     '''
-    element_type: type[LinearElement]
+    element_type: type[Element]
     rule: QuadratureRule
     # (n_qp, N) -- shape functions at the quadrature points, for mass and load
     # integrals; the gradients alone are not enough once the integrand samples the

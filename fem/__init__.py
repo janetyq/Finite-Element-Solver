@@ -29,6 +29,8 @@ from fem.elements import (
     LinearLineElement,
     LinearTriangleElement,
     LinearTetrahedralElement,
+    QuadraticLineElement,
+    QuadraticTriangleElement,
 )
 from fem.boundary import BoundaryConditions, BCType, ResolvedBC
 from fem.regions import (
@@ -84,6 +86,8 @@ __all__ = [
     "LinearLineElement",
     "LinearTriangleElement",
     "LinearTetrahedralElement",
+    "QuadraticLineElement",
+    "QuadraticTriangleElement",
     "BoundaryConditions",
     "BCType",
     "ResolvedBC",

@@ -265,7 +265,7 @@ class LinearElastic(Equation):
         f_values = evaluate_field(self.source, centroids, n_components=2)
         interior_term = h_K**2 * np.sum(f_values**2, axis=1) * space.element_volumes
 
-        resolved = solver.boundary_conditions.resolve(mesh, space.n_components)
+        resolved = solver.boundary_conditions.resolve(space.nodes, space.n_components)
         is_fixed = np.zeros((len(mesh.vertices), space.n_components), dtype=bool)
         is_fixed.ravel()[resolved.fixed_idxs] = True
 

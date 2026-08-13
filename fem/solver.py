@@ -10,6 +10,7 @@ import logging
 
 from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
+from fem.elements import Element
 from fem.equations import Equation, LinearElastic
 from fem.solution import ElasticSolution, FieldSolution, Solution
 from fem.space import FunctionSpace
@@ -28,6 +29,7 @@ class Solver:
         equation: Equation,
         boundary_conditions: BoundaryConditions | None = None,
         backend: Backend | None = None,
+        element_type: type[Element] | None = None,
     ) -> None:
         self.mesh = mesh
         self.equation = equation
@@ -36,11 +38,16 @@ class Solver:
         # IterativeBackend for a large SPD system. A steady LinearElastic / Poisson is
         # SPD; the facade forwards it to LinearSolve untouched.
         self.backend = backend
+        # The element order, `None` meaning the linear element for the mesh's node
+        # count. Pass `QuadraticTriangleElement` for a P2 solve (O(h^3)); the
+        # adaptive-refinement estimator is P1-only, so a refined P2 solve is not yet
+        # supported, but a single P2 solve is.
+        self.element_type = element_type
         # Derived, never passed: the component count follows from the equation's
         # field and the mesh, so a space that disagrees with the equation it is
         # solving is not constructible here.
         self.n_components = self.equation.field.components_for(mesh.spatial_dim)
-        self.space = FunctionSpace(mesh, n_components=self.n_components)
+        self.space = FunctionSpace(mesh, element_type, n_components=self.n_components)
         # The most recent solve, so an adaptive-refinement estimator can read it.
         self.solution: Solution | None = None
 
@@ -55,7 +62,7 @@ class Solver:
         across meshes without reaching into its state.
         '''
         self.mesh = mesh
-        self.space = FunctionSpace(mesh, n_components=self.n_components)
+        self.space = FunctionSpace(mesh, self.element_type, n_components=self.n_components)
 
     def solve(self) -> Solution:
         self.solution = self._solve_steady()
@@ -85,7 +92,9 @@ class Solver:
         if isinstance(self.equation, LinearElastic) and isinstance(self.backend, IterativeBackend) \
                 and self.backend.near_null_space is None:
             free = problem.constraints[0]
-            modes = rigid_body_modes(self.mesh.vertices, self.n_components)[free]
+            # Built from the space's node coordinates, not the mesh vertices, so a P2
+            # elastic solve gives AMG the rigid-body modes at its edge nodes too.
+            modes = rigid_body_modes(self.space.node_coords, self.n_components)[free]
             return self.backend.with_near_null_space(modes)
         return self.backend
 
