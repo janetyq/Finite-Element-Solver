@@ -339,6 +339,76 @@ def elastic_p2_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
     return [solve_elastic_mms_p2(n) for n in sorted(resolutions)]
 
 
+# --- quadrature-sampled load vs the nodal shortcut ------------------------------
+#
+# The MMS idea aimed at the load rather than the operator. The manufactured
+# u = sin(k pi x) sin(k pi y) (still zero on the boundary) has a source
+# f = 2 (k pi)^2 u that oscillates on a length scale 1/k. On a mesh that only just
+# resolves it the two ways of building the load part company: a plain field source is
+# integrated as its P1 interpolant (mass_matrix @ f(nodes)), which reads f only at the
+# vertices and misses its swing between them, while a LinearForm samples f at the
+# interior quadrature points. Both loads give O(h^2); the sampled one has the smaller
+# constant. Drawn by the `quadrature_load` demo.
+
+LOAD_MMS_FREQUENCY = 3   # source wavelengths across the unit square
+
+
+def oscillatory_exact(vertices: Vertices) -> VertexField:
+    """u = sin(k pi x) sin(k pi y): the manufactured solution, zero on the boundary."""
+    k = LOAD_MMS_FREQUENCY
+    x, y = vertices[:, 0], vertices[:, 1]
+    return np.sin(k * np.pi * x) * np.sin(k * np.pi * y)
+
+
+def oscillatory_source(point: FloatArray) -> list[float]:
+    """f = -laplacian(u) = 2 (k pi)^2 sin(k pi x) sin(k pi y)."""
+    k = LOAD_MMS_FREQUENCY
+    return [2 * (k * np.pi) ** 2 * np.sin(k * np.pi * point[0]) * np.sin(k * np.pi * point[1])]
+
+
+@dataclass
+class LoadComparison:
+    """One solve of the oscillatory problem with each kind of load, and how far off."""
+    h: float
+    mesh: Mesh
+    exact: VertexField
+    nodal: VertexField        # source integrated as its P1 interpolant
+    sampled: VertexField      # source sampled at the quadrature points (LinearForm)
+    nodal_error: float
+    sampled_error: float
+
+
+def solve_load_comparison(n: int, quadrature_degree: int = 4) -> LoadComparison:
+    """Solve -laplacian(u) = f on an `n` x `n` grid two ways.
+
+    The same P1 space and operator both times; only the load differs -- a plain field
+    source (integrated as its nodal interpolant) against a LinearForm that samples the
+    source at the quadrature points.
+    """
+    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    space = FunctionSpace(mesh, n_components=1)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+
+    nodal = LinearSolve().solve(
+        LinearProblem(space, LaplacianForm(), oscillatory_source, bc))
+    sampled = LinearSolve().solve(
+        LinearProblem(space, LaplacianForm(),
+                      LinearForm(oscillatory_source, quadrature_degree=quadrature_degree), bc))
+
+    exact = oscillatory_exact(mesh.vertices)
+    return LoadComparison(
+        h=1.0 / (n - 1), mesh=mesh, exact=exact, nodal=nodal, sampled=sampled,
+        nodal_error=l2_norm(space, nodal - exact),
+        sampled_error=l2_norm(space, sampled - exact),
+    )
+
+
+def load_comparison_convergence(resolutions: tuple[int, ...]) -> list[LoadComparison]:
+    """Solve the oscillatory-load comparison per resolution, coarsest first."""
+    return [solve_load_comparison(n) for n in sorted(resolutions)]
+
+
 # --- the heat integrators: convergence in dt rather than in h -------------------
 
 def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.02,

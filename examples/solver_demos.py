@@ -14,8 +14,11 @@ from fem.geometry import calculate_triangle_min_angle
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import (
-    ConvergenceStudy, elastic_convergence, poisson_convergence, theta_convergence,
+    ConvergenceStudy, elastic_convergence, load_comparison_convergence,
+    poisson_convergence, poisson_p2_convergence, theta_convergence,
 )
+from fem.elements import QuadraticTriangleElement
+from fem.space import FunctionSpace
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
@@ -158,6 +161,91 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
                 'Right: the same measurement against the time step instead, where the '
                 'order is not a property of the elements but a choice -- backward Euler '
                 'buys first order, Crank-Nicolson second, for the same cost per step.')],
+        text='\n'.join(rows),
+    )
+
+def demo_higher_order(resolutions=(11, 21, 41, 81)):
+    """Compare P1 and P2 elements on the same manufactured Poisson problem: quadratic
+    elements are third order in L2 where linear ones are second, and so reach a given
+    accuracy at far fewer degrees of freedom."""
+    # Same problem, two element orders. P2 carries the extra edge-midpoint DOFs that
+    # let its solution curve within an element; the rate is what that buys.
+    p1_solves = poisson_convergence(resolutions)
+    p2_solves = poisson_p2_convergence(resolutions)
+    p1 = ConvergenceStudy.from_solves(p1_solves)
+    p2 = ConvergenceStudy.from_solves(p2_solves)
+    # DOF counts drive the accuracy-per-cost view: P2 spends more unknowns per element,
+    # and the question is whether its faster rate pays that back.
+    p1_dofs = np.array([FunctionSpace(s.mesh).n_dofs for s in p1_solves])
+    p2_dofs = np.array([FunctionSpace(s.mesh, QuadraticTriangleElement).n_dofs
+                        for s in p2_solves])
+
+    plotter = Plotter(1, 2, title='Higher-order accuracy: P1 vs P2')
+    rate = plotter.chart_ax(idx=(0, 0), xlabel='h', ylabel='L2 error')
+    _plot_study(rate, p1, 'P1', 'tab:blue', 2, 'h')
+    _plot_study(rate, p2, 'P2', 'tab:orange', 3, 'h')
+    rate.set_title('Rate: P2 is third order, P1 second')
+    _tidy_log_axis(rate, p1.step)
+
+    cost = plotter.chart_ax(idx=(0, 1), xlabel='degrees of freedom', ylabel='L2 error')
+    cost.loglog(p1_dofs, p1.error, 'o-', color='tab:blue', label='P1')
+    cost.loglog(p2_dofs, p2.error, 'o-', color='tab:orange', label='P2')
+    cost.set_title('Cost: P2 reaches a given accuracy first')
+    cost.grid(True, which='both', alpha=0.3)
+
+    rows = ['            fitted order   expected']
+    for name, study, expected in (('P1', p1, 2), ('P2', p2, 3)):
+        rows.append(f'{name:<12}{study.fitted_order:>9.2f}{expected:>11}')
+    return DemoResult(
+        [Figure(plotter,
+                'Left: on the same meshes, halving h quarters the P1 error (order 2) but '
+                'divides the P2 error by eight (order 3) -- the steeper line is the whole '
+                'point of a higher-order element. Right: the same errors against the '
+                'number of unknowns. P2 spends more DOFs per element, yet reaches a given '
+                'accuracy well to the left of P1, so it is the cheaper choice where the '
+                'solution is smooth.')],
+        text='\n'.join(rows),
+    )
+
+def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
+    """Show what sampling the load at the quadrature points buys. An oscillatory source
+    integrated as its nodal interpolant lags a LinearForm that reads it at the interior
+    points, most on the coarse meshes where the source swings within an element."""
+    solves = load_comparison_convergence(resolutions)
+    coarse = solves[0]
+    steps = np.array([s.h for s in solves])
+    nodal = ConvergenceStudy(steps, np.array([s.nodal_error for s in solves]))
+    sampled = ConvergenceStudy(steps, np.array([s.sampled_error for s in solves]))
+
+    # Absolute error on the coarsest mesh, shared colour scale so the two panels are
+    # directly comparable rather than each renormalized to its own extremes.
+    nodal_err = np.abs(coarse.nodal - coarse.exact)
+    sampled_err = np.abs(coarse.sampled - coarse.exact)
+    vmax = float(max(nodal_err.max(), sampled_err.max()))
+
+    plotter = Plotter(1, 3, title='Sampling the load at the quadrature points')
+    plotter.plot(coarse.mesh, nodal_err, mode='colored', idx=(0, 0), clim=(0, vmax),
+                 label='|u_h - u|', title=f'Nodal load (h={coarse.h:.3g})')
+    plotter.plot(coarse.mesh, sampled_err, mode='colored', idx=(0, 1), clim=(0, vmax),
+                 label='|u_h - u|', title='Quadrature-sampled load')
+    conv = plotter.chart_ax(idx=(0, 2), xlabel='h', ylabel='L2 error')
+    _plot_study(conv, nodal, 'nodal load', 'tab:red', 2, 'h')
+    _plot_study(conv, sampled, 'sampled load', 'tab:blue', 2, 'h')
+    conv.set_title('Both order 2; sampling wins the constant')
+    _tidy_log_axis(conv, steps)
+
+    rows = [f'coarsest mesh (h={coarse.h:.3g}):',
+            f'  nodal load    L2 error {coarse.nodal_error:.3e}',
+            f'  sampled load  L2 error {coarse.sampled_error:.3e}',
+            f'  the nodal shortcut is {coarse.nodal_error / coarse.sampled_error:.1f}x worse']
+    return DemoResult(
+        [Figure(plotter,
+                'One oscillatory source, solved on the same meshes two ways. Left and '
+                'middle: the pointwise error on the coarsest mesh at the same colour scale '
+                '-- the nodal load, which reads the source only at the vertices, is visibly '
+                'worse than the LinearForm that samples it at the interior quadrature '
+                'points. Right: both loads converge at order 2, but sampling the source '
+                'keeps a smaller error throughout.')],
         text='\n'.join(rows),
     )
 
@@ -804,4 +892,10 @@ DEMOS = [
     Demo('convergence', demo_convergence, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21), 'elastic_resolutions': (9, 17),
               'step_counts': (16, 32)}),
+    # Both build their own refinement sequences rather than taking a domain -- the
+    # sequence is the demo -- so the smoke run keeps only the two coarsest.
+    Demo('higher_order', demo_higher_order, section=ACCURACY,
+         smoke_kwargs={'resolutions': (11, 21)}),
+    Demo('quadrature_load', demo_quadrature_load, section=ACCURACY,
+         smoke_kwargs={'resolutions': (11, 21)}),
 ]
