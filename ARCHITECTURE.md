@@ -351,8 +351,8 @@ standalone record that aggregates the per-iteration `ElasticSolution`s rather th
 
 ### The integration stack and the DOF numbering — where quadrature and P2 fit
 
-The higher-order work (`HIGHER_ORDER_DESIGN.md`) added no new tier. It deepened two of the
-existing layers along two orthogonal axes, the "two coupled assumptions" the design doc named:
+The higher-order work added no new tier. It deepened two of the
+existing layers along two orthogonal axes, the "two coupled assumptions" behind the old P1 ceiling:
 
 - **Fact A — how a form becomes numbers** (the assembly layer, §1 row 4). The *integration stack*:
 
@@ -400,7 +400,7 @@ Three consumers that had baked in "nodes == vertices" learned the numbering axis
 ## 5. What the model leaves open
 
 The *vertical* extension the roadmap wanted — new layers between existing ones — has largely
-landed (`HIGHER_ORDER_DESIGN.md`): `quadrature.py` is now the real reference-element layer,
+landed: `quadrature.py` is now the real reference-element layer,
 `ElementGeometry` carries a quadrature-point axis, `DiffusionForm` / `LinearForm` sample
 variable coefficients and sources, and `QuadraticTriangleElement` numbers DOFs over vertices ∪
 edges for O(h³). What remains is additive against the composition model rather than blocked by it:
@@ -476,7 +476,7 @@ Legend: 🟡 design / maintainability · 🟢 small
 
 (`fem/quadrature.py` was the standout here — rules shaped `(func, polygon_vertices)` with no
 callers. It is now the real reference-element layer, `QuadratureRule` + Gauss rules per simplex,
-wired into `ElementGeometry` and every form; see `HIGHER_ORDER_DESIGN.md`.)
+wired into `ElementGeometry` and every form.)
 
 ### Structural items
 
@@ -504,8 +504,8 @@ minimal-import goal would want both edges lazy.
 
 ### Suggested order
 
-1. ~~**Quadrature, then `LinearForm`**~~ — done (`HIGHER_ORDER_DESIGN.md`). The two coupled
-   assumptions it named both fell: the quadrature-point axis is on `ElementGeometry.grad_phi`, and
+1. ~~**Quadrature, then `LinearForm`**~~ — done. The two coupled
+   assumptions behind the P1 ceiling both fell: the quadrature-point axis is on `ElementGeometry.grad_phi`, and
    the DOF numbering runs through `FunctionSpace.element_nodes` / `node_coords` rather than the
    mesh vertices. What is left is the 3D P2 element and P2-aware plotting / adaptivity (`BACKLOG.md`).
 2. **Clear the unused modules** — delete `numerics.py`'s `color` / `timer`.

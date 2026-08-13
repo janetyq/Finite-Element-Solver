@@ -250,7 +250,7 @@ The iterations are also recorded as a video — [`images/topopt.mp4`](images/top
   callable; the estimate itself is the missing piece, which is why the adaptive
   demo is gated.
 - **3D P2 and P2-aware output.** The Gaussian quadrature layer and 2D quadratic (P2)
-  triangles are done (`HIGHER_ORDER_DESIGN.md`); still open are the 3D P2 tetrahedron,
+  triangles are done; still open are the 3D P2 tetrahedron,
   plotting the quadratic field's edge values, and adaptive refinement on a P2 mesh.
 - **More PDEs**: thermal expansion, transport equations, fluid mechanics;
   Neo-Hookean hyperelasticity is stubbed.

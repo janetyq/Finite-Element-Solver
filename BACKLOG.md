@@ -26,7 +26,7 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 *(The quadrature layer, variable coefficients, and 2D P2 elements landed on the
-`higher-order-elements` branch — see `HIGHER_ORDER_DESIGN.md`.)*
+`higher-order-elements` branch.)*
 
 ---
 
@@ -82,7 +82,7 @@ Two things measured and rejected, so they do not get proposed again:
 ## 3. Open-Ended Suggestions & Future Ideas
 
 **Numerics**
-- 💡 **Finish P2: 3D, plotting, adaptivity.** The 2D P2 path shipped (`HIGHER_ORDER_DESIGN.md`);
+- 💡 **Finish P2: 3D, plotting, adaptivity.** The 2D P2 path shipped;
   three pieces of it are still open. **3D P2** wants a `QuadraticTetrahedralElement` (ten nodes)
   and the edge/face numbering to match — the `Element` base and the `FunctionSpace` node set
   generalize, but the 3D shape functions and connectivity are not written. **Plotting and
