@@ -152,6 +152,11 @@ def main():
         '--workers', type=int, default=None,
         help='how many demos to render in parallel (default: one per CPU); 1 renders '
              'them serially in this process')
+    gallery_parser.add_argument(
+        '--only', action='append', metavar='NAME', choices=sorted(registry),
+        help='render just this demo into --out, leaving the rest of the gallery and its '
+             'index untouched (repeatable); a quick single-page rebuild rather than a '
+             'full one')
 
     args = parser.parse_args()
 
@@ -163,9 +168,17 @@ def main():
     if args.command == 'gallery':
         from gallery import build_gallery
 
-        print(f'Rendering {len(registry)} demos into {args.out}/ ...')
-        build_gallery(registry, Path(args.out), workers=args.workers)
-        print(f'\nOpen {Path(args.out).resolve() / "index.html"}')
+        out = Path(args.out)
+        if args.only:
+            print(f'Rendering {len(args.only)} demo(s) into {out}/ ...')
+            entries = build_gallery(registry, out, workers=args.workers, only=args.only)
+            for entry in entries:
+                print(f'\nOpen {out.resolve() / f"{entry.name}.html"}')
+            print('(index.html left as it was; run gallery without --only to refresh it)')
+        else:
+            print(f'Rendering {len(registry)} demos into {out}/ ...')
+            build_gallery(registry, out, workers=args.workers)
+            print(f'\nOpen {out.resolve() / "index.html"}')
         return
 
     demo = registry[args.name]

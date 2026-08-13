@@ -17,6 +17,7 @@ import html
 import os
 import shutil
 import tempfile
+from collections.abc import Iterable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -376,9 +377,33 @@ def _index_page(entries: list[Entry]) -> str:
     return _page('FEM demo gallery', '\n'.join(body))
 
 
+def _selected_demos(registry: dict[str, Demo], only: Iterable[str] | None) -> list[Demo]:
+    """The demos to render, in registry order.
+
+    Registry order, not alphabetical: it is the order each module lists its demos in,
+    which is the order they appear within a section, and `pool.map` preserves it. `only`
+    names a subset to render; an unknown name is an error rather than a silent no-op, so
+    a mistyped `--only` fails loudly instead of rebuilding nothing.
+    """
+    if only is None:
+        return list(registry.values())
+    wanted = set(only)
+    unknown = sorted(wanted - registry.keys())
+    if unknown:
+        raise ValueError(f'no such demo(s): {", ".join(unknown)}')
+    return [demo for name, demo in registry.items() if name in wanted]
+
+
 def build_gallery(registry: dict[str, Demo], out_dir: Path,
-                  workers: int | None = None) -> list[Entry]:
-    """Render every demo into `out_dir` and write the pages. Returns what was collected.
+                  workers: int | None = None,
+                  only: Iterable[str] | None = None) -> list[Entry]:
+    """Render demos into `out_dir` and write their pages. Returns what was collected.
+
+    By default every demo is rendered: `out_dir` is rebuilt from scratch and an
+    `index.html` linking all of them is written. Pass `only` to render just those demos'
+    pages in place -- `out_dir` and its other pages are kept, and the index is left
+    untouched, because rebuilding it faithfully would mean re-running every demo to
+    recover its card. It is the quick single-page rebuild; a full run refreshes the index.
 
     The demos are independent -- each renders its own figures under demo-prefixed names
     -- so they run across `workers` processes, bounding the build by the slowest single
@@ -386,13 +411,15 @@ def build_gallery(registry: dict[str, Demo], out_dir: Path,
     runs them in this process, which is what the generator's own tests use.
     """
     out_dir = Path(out_dir).resolve()
-    if out_dir.exists():
-        shutil.rmtree(out_dir)          # a stale image is worse than a missing one
-    out_dir.mkdir(parents=True)
+    demos = _selected_demos(registry, only)
 
-    # Registry order, not alphabetical: it is the order each module lists its demos in,
-    # which is the order they appear within a section. `pool.map` preserves it.
-    demos = list(registry.values())
+    if only is None:
+        if out_dir.exists():
+            shutil.rmtree(out_dir)      # a stale image is worse than a missing one
+        out_dir.mkdir(parents=True)
+    else:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
     if workers is None:
         workers = min(len(demos), os.cpu_count() or 1)
 
@@ -407,6 +434,7 @@ def build_gallery(registry: dict[str, Demo], out_dir: Path,
 
     for entry in entries:
         (out_dir / f'{entry.name}.html').write_text(_demo_page(entry), encoding='utf-8')
-    (out_dir / 'index.html').write_text(_index_page(entries), encoding='utf-8')
+    if only is None:
+        (out_dir / 'index.html').write_text(_index_page(entries), encoding='utf-8')
 
     return entries
