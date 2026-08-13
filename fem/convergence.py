@@ -369,6 +369,7 @@ def oscillatory_source(point: FloatArray) -> list[float]:
 @dataclass
 class LoadComparison:
     """One solve of the oscillatory problem with each kind of load, and how far off."""
+    n: int                    # grid resolution (n x n nodes), for slicing a row of it
     h: float
     mesh: Mesh
     exact: VertexField
@@ -398,7 +399,7 @@ def solve_load_comparison(n: int, quadrature_degree: int = 4) -> LoadComparison:
 
     exact = oscillatory_exact(mesh.vertices)
     return LoadComparison(
-        h=1.0 / (n - 1), mesh=mesh, exact=exact, nodal=nodal, sampled=sampled,
+        n=n, h=1.0 / (n - 1), mesh=mesh, exact=exact, nodal=nodal, sampled=sampled,
         nodal_error=l2_norm(space, nodal - exact),
         sampled_error=l2_norm(space, sampled - exact),
     )

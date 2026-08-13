@@ -14,8 +14,9 @@ from fem.geometry import calculate_triangle_min_angle
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import (
-    ConvergenceStudy, elastic_convergence, load_comparison_convergence,
-    poisson_convergence, poisson_p2_convergence, theta_convergence,
+    LOAD_MMS_FREQUENCY, ConvergenceStudy, elastic_convergence, load_comparison_convergence,
+    oscillatory_exact, poisson_convergence, poisson_p2_convergence, solve_load_comparison,
+    theta_convergence,
 )
 from fem.elements import QuadraticTriangleElement
 from fem.space import FunctionSpace
@@ -23,7 +24,7 @@ from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
-from fem.mesh.ruppert import RuppertsAlgorithm, create_box_mesh
+from fem.mesh.ruppert import RuppertsAlgorithm, create_box_mesh, create_rect_mesh
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
@@ -209,43 +210,68 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
 
 def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
     """Show what sampling the load at the quadrature points buys. An oscillatory source
-    integrated as its nodal interpolant lags a LinearForm that reads it at the interior
-    points, most on the coarse meshes where the source swings within an element."""
-    solves = load_comparison_convergence(resolutions)
-    coarse = solves[0]
-    steps = np.array([s.h for s in solves])
-    nodal = ConvergenceStudy(steps, np.array([s.nodal_error for s in solves]))
-    sampled = ConvergenceStudy(steps, np.array([s.sampled_error for s in solves]))
+    integrated as its nodal interpolant undershoots a LinearForm that reads it at the
+    interior points -- clearest where the source swings within an element."""
+    k = LOAD_MMS_FREQUENCY
 
-    # Absolute error on the coarsest mesh, shared colour scale so the two panels are
-    # directly comparable rather than each renormalized to its own extremes.
-    nodal_err = np.abs(coarse.nodal - coarse.exact)
-    sampled_err = np.abs(coarse.sampled - coarse.exact)
-    vmax = float(max(nodal_err.max(), sampled_err.max()))
+    # Setup: the load and the solution it drives, on a fine mesh so these are the ideal
+    # shapes rather than a coarse approximation of them.
+    fine = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(41, 41))
+    u_fine = oscillatory_exact(fine.vertices)
+    f_fine = 2 * (k * np.pi) ** 2 * u_fine     # the source is proportional to u here
+    setup = Plotter(1, 2, title='The problem: a source f drives a solution u')
+    setup.plot(fine, f_fine, mode='colored', idx=(0, 0), label='source f',
+               title='The load: source f')
+    setup.plot(fine, u_fine, mode='surface', idx=(0, 1), title='The solution: u')
 
-    plotter = Plotter(1, 3, title='Sampling the load at the quadrature points')
-    plotter.plot(coarse.mesh, nodal_err, mode='colored', idx=(0, 0), clim=(0, vmax),
-                 label='|u_h - u|', title=f'Nodal load (h={coarse.h:.3g})')
-    plotter.plot(coarse.mesh, sampled_err, mode='colored', idx=(0, 1), clim=(0, vmax),
-                 label='|u_h - u|', title='Quadrature-sampled load')
-    conv = plotter.chart_ax(idx=(0, 2), xlabel='h', ylabel='L2 error')
+    # Comparison: the two loads over the refinement sequence, and a 1D slice through a row
+    # of bumps on one coarse mesh where the gap between them is plain.
+    loads = load_comparison_convergence(resolutions)
+    steps = np.array([lc.h for lc in loads])
+    nodal = ConvergenceStudy(steps, np.array([lc.nodal_error for lc in loads]))
+    sampled = ConvergenceStudy(steps, np.array([lc.sampled_error for lc in loads]))
+
+    cut_lc = solve_load_comparison(15)
+    n = cut_lc.n
+    xs = np.linspace(0, 1, n)
+    j = int(np.argmin(np.abs(xs - 1 / (2 * k))))   # a row through the bump peaks
+    row = slice(j * n, (j + 1) * n)
+    xf = np.linspace(0, 1, 400)
+    u_line = np.sin(k * np.pi * xf) * np.sin(k * np.pi * xs[j])
+
+    comp = Plotter(1, 2, title='Reading the source at the vertices vs the quadrature points')
+    cut = comp.chart_ax(idx=(0, 0), xlabel='x', ylabel='u')
+    cut.plot(xf, u_line, '-', color='0.45', label='exact u')
+    cut.plot(xs, cut_lc.nodal[row], 'o-', color='tab:red', ms=4, label='nodal load')
+    cut.plot(xs, cut_lc.sampled[row], 's-', color='tab:blue', ms=4, label='sampled load')
+    cut.set_title(f'Slice at y={xs[j]:.2g}: the nodal load undershoots the peaks')
+
+    conv = comp.chart_ax(idx=(0, 1), xlabel='h', ylabel='L2 error')
     _plot_study(conv, nodal, 'nodal load', 'tab:red', 2, 'h')
     _plot_study(conv, sampled, 'sampled load', 'tab:blue', 2, 'h')
     conv.set_title('Both order 2; sampling wins the constant')
     _tidy_log_axis(conv, steps)
 
+    coarse = loads[0]
     rows = [f'coarsest mesh (h={coarse.h:.3g}):',
             f'  nodal load    L2 error {coarse.nodal_error:.3e}',
             f'  sampled load  L2 error {coarse.sampled_error:.3e}',
             f'  the nodal shortcut is {coarse.nodal_error / coarse.sampled_error:.1f}x worse']
     return DemoResult(
-        [Figure(plotter,
-                'One oscillatory source, solved on the same meshes two ways. Left and '
-                'middle: the pointwise error on the coarsest mesh at the same colour scale '
-                '-- the nodal load, which reads the source only at the vertices, is visibly '
-                'worse than the LinearForm that samples it at the interior quadrature '
-                'points. Right: both loads converge at order 2, but sampling the source '
-                'keeps a smaller error throughout.')],
+        [Figure(comp,
+                'Left: a horizontal slice through a row of bumps. The smooth curve is the '
+                'exact solution; the nodal load, reading the source only at the vertices, '
+                'undershoots each peak, while the LinearForm that samples the source at the '
+                'interior quadrature points tracks it. Right: both loads converge at order '
+                '2, but sampling keeps a smaller error at every resolution.',
+                'comparison'),
+         Figure(setup,
+                'The manufactured problem: -div(grad u) = f on the unit square, zero on the '
+                'boundary. The load is the source f (left) -- an oscillating field of '
+                'sources and sinks; the solution u (right) is what it drives, a grid of '
+                'bumps pinned to zero all around. Both solves in the comparison target this '
+                'u and differ only in how f is sampled to build the load.',
+                'setup', setup=True)],
         text='\n'.join(rows),
     )
 
