@@ -14,7 +14,11 @@ them lazily and cache them.
     uv run python examples/cli.py gallery
 """
 import html
+import os
 import shutil
+import tempfile
+from collections.abc import Iterable
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -109,10 +113,14 @@ def _render_figures(result: DemoResult, name: str, out_dir: Path) -> list[Panel]
 def run_demo(demo: Demo, out_dir: Path) -> Entry:
     """Run one demo and collect everything it produced into an `Entry`.
 
-    Demos write their artifacts relative to the working directory, so this runs with
-    `out_dir` as the cwd -- the same arrangement `tests/test_demos.py` uses to keep
-    stray files out of the repo.
+    Runs with its own temporary directory as the cwd, so a demo that writes a file
+    relative to the working directory is detected without racing the other demos a
+    parallel build runs alongside it. Figures go straight into the shared images dir
+    under `out_dir`, whose names are demo-prefixed and so cannot collide; whatever
+    else the demo wrote is then moved out of the temporary directory into `out_dir`.
+    Callable in a worker process because it depends on nothing but its arguments.
     """
+    out_dir = Path(out_dir)
     entry = Entry(demo.name, demo.description(), source=demo.source(), section=demo.section)
 
     skip = _missing_dependency(demo)
@@ -120,18 +128,25 @@ def run_demo(demo: Demo, out_dir: Path) -> Entry:
         entry.skipped = skip
         return entry
 
-    before = set(out_dir.iterdir())
-    # No overrides -- not the arguments, and not the domain: the gallery shows what
-    # `cli.py run <name>` shows.
-    args = [demo.domain()] if demo.domain is not None else []
-    result = demo.func(*args)
+    cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as work:
+        work_dir = Path(work)
+        os.chdir(work_dir)
+        try:
+            # No overrides -- not the arguments, and not the domain: the gallery shows
+            # what `cli.py run <name>` shows.
+            args = [demo.domain()] if demo.domain is not None else []
+            result = demo.func(*args)
+            entry.panels = _render_figures(result, demo.name, out_dir)
+            entry.text = result.text
+            written = sorted(p for p in work_dir.iterdir() if p.is_file())
+        finally:
+            os.chdir(cwd)
 
-    entry.panels = _render_figures(result, demo.name, out_dir)
-    entry.text = result.text
-    # Whatever the demo wrote lands in out_dir; name them relative to the page.
-    entry.artifacts = sorted(
-        p.name for p in set(out_dir.iterdir()) - before if p.is_file()
-    )
+        # Whatever the demo wrote lands beside the page; name them relative to it.
+        for path in written:
+            shutil.move(str(path), str(out_dir / path.name))
+        entry.artifacts = [path.name for path in written]
     return entry
 
 
@@ -362,30 +377,64 @@ def _index_page(entries: list[Entry]) -> str:
     return _page('FEM demo gallery', '\n'.join(body))
 
 
-def build_gallery(registry: dict[str, Demo], out_dir: Path) -> list[Entry]:
-    """Render every demo into `out_dir` and write the pages. Returns what was collected."""
-    import os
+def _selected_demos(registry: dict[str, Demo], only: Iterable[str] | None) -> list[Demo]:
+    """The demos to render, in registry order.
 
+    Registry order, not alphabetical: it is the order each module lists its demos in,
+    which is the order they appear within a section, and `pool.map` preserves it. `only`
+    names a subset to render; an unknown name is an error rather than a silent no-op, so
+    a mistyped `--only` fails loudly instead of rebuilding nothing.
+    """
+    if only is None:
+        return list(registry.values())
+    wanted = set(only)
+    unknown = sorted(wanted - registry.keys())
+    if unknown:
+        raise ValueError(f'no such demo(s): {", ".join(unknown)}')
+    return [demo for name, demo in registry.items() if name in wanted]
+
+
+def build_gallery(registry: dict[str, Demo], out_dir: Path,
+                  workers: int | None = None,
+                  only: Iterable[str] | None = None) -> list[Entry]:
+    """Render demos into `out_dir` and write their pages. Returns what was collected.
+
+    By default every demo is rendered: `out_dir` is rebuilt from scratch and an
+    `index.html` linking all of them is written. Pass `only` to render just those demos'
+    pages in place -- `out_dir` and its other pages are kept, and the index is left
+    untouched, because rebuilding it faithfully would mean re-running every demo to
+    recover its card. It is the quick single-page rebuild; a full run refreshes the index.
+
+    The demos are independent -- each renders its own figures under demo-prefixed names
+    -- so they run across `workers` processes, bounding the build by the slowest single
+    demo rather than the sum. `workers` defaults to the machine's CPU count; `workers=1`
+    runs them in this process, which is what the generator's own tests use.
+    """
     out_dir = Path(out_dir).resolve()
-    if out_dir.exists():
-        shutil.rmtree(out_dir)          # a stale image is worse than a missing one
-    out_dir.mkdir(parents=True)
+    demos = _selected_demos(registry, only)
 
-    entries = []
-    cwd = Path.cwd()
-    try:
-        os.chdir(out_dir)
-        # Registry order, not alphabetical: it is the order each module lists its demos
-        # in, which is the order they appear within a section.
-        for name in registry:
-            entry = run_demo(registry[name], out_dir)
-            entries.append(entry)
-            print(f'  {name}' + (f' - skipped ({entry.skipped})' if entry.skipped else ''))
-    finally:
-        os.chdir(cwd)
+    if only is None:
+        if out_dir.exists():
+            shutil.rmtree(out_dir)      # a stale image is worse than a missing one
+        out_dir.mkdir(parents=True)
+    else:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    if workers is None:
+        workers = min(len(demos), os.cpu_count() or 1)
+
+    if workers <= 1:
+        entries = [run_demo(demo, out_dir) for demo in demos]
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            entries = list(pool.map(run_demo, demos, [out_dir] * len(demos)))
+
+    for entry in entries:
+        print(f'  {entry.name}' + (f' - skipped ({entry.skipped})' if entry.skipped else ''))
 
     for entry in entries:
         (out_dir / f'{entry.name}.html').write_text(_demo_page(entry), encoding='utf-8')
-    (out_dir / 'index.html').write_text(_index_page(entries), encoding='utf-8')
+    if only is None:
+        (out_dir / 'index.html').write_text(_index_page(entries), encoding='utf-8')
 
     return entries

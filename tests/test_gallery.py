@@ -84,8 +84,84 @@ def gallery(tmp_path_factory):
         'gif_maker': Demo('gif_maker', _writes_a_gif),
     }
     out = tmp_path_factory.mktemp('gallery') / 'out'
-    entries = build_gallery(registry, out)
+    # Serial: several of these demos are defined in this test module, which a spawned
+    # worker process could not import to unpickle. The parallel path -- which needs
+    # importable, picklable demos -- is covered by `test_parallel_build` below.
+    entries = build_gallery(registry, out, workers=1)
     return out, {entry.name: entry for entry in entries}
+
+
+def test_parallel_build_renders_every_demo(tmp_path):
+    """Across worker processes, each demo still produces its page and its figures.
+
+    Only module-level demos from `solver_demos` are used, since a worker unpickles each
+    by importing the module it lives in -- which is the constraint the real registry
+    already meets and the test-local demos above do not.
+    """
+    from functools import partial
+
+    small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
+    registry = {
+        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
+                        section='Solving PDEs'),
+        'linear_elastic': Demo('linear_elastic', solver_demos.demo_linear_elastic,
+                               domain=small, section='Solids & structures'),
+        'l2_projection': Demo('l2_projection', solver_demos.demo_l2_projection, domain=small,
+                              section='Accuracy & performance'),
+    }
+    out = tmp_path / 'out'
+    entries = build_gallery(registry, out, workers=2)
+
+    assert {e.name for e in entries} == set(registry)
+    assert [e.name for e in entries] == list(registry), 'registry order not preserved'
+    for entry in entries:
+        assert (out / f'{entry.name}.html').exists()
+        assert entry.panels, f'{entry.name} rendered no figures'
+        assert all((out / p.src).exists() for p in entry.panels)
+
+
+def test_only_rebuilds_one_page_and_leaves_the_rest(tmp_path):
+    """`only` is a single-page rebuild: it re-renders the named demo in place without
+    disturbing the sibling pages or the index a full build wrote."""
+    small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
+    registry = {
+        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
+                        section='Solving PDEs'),
+        'text_only': Demo('text_only', _text_only, section='Accuracy & performance'),
+    }
+    out = tmp_path / 'out'
+    build_gallery(registry, out, workers=1)          # a full build first
+    index_before = (out / 'index.html').read_bytes()
+    sibling_before = (out / 'text_only.html').read_bytes()
+
+    entries = build_gallery(registry, out, workers=1, only=['poisson'])
+
+    assert [e.name for e in entries] == ['poisson']
+    assert (out / 'poisson.html').exists()
+    assert entries[0].panels and all((out / p.src).exists() for p in entries[0].panels)
+    assert (out / 'index.html').read_bytes() == index_before
+    assert (out / 'text_only.html').read_bytes() == sibling_before
+
+
+def test_only_into_a_fresh_dir_writes_the_page_but_no_index(tmp_path):
+    """With no prior full build there is nothing to index faithfully, so `only` writes
+    the page and leaves the index unwritten rather than one listing a lone demo."""
+    small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
+    registry = {'poisson': Demo('poisson', solver_demos.demo_poisson_equation,
+                                domain=small, section='Solving PDEs')}
+    out = tmp_path / 'out'
+    entries = build_gallery(registry, out, workers=1, only=['poisson'])
+
+    assert (out / 'poisson.html').exists()
+    assert entries[0].panels
+    assert not (out / 'index.html').exists()
+
+
+def test_only_rejects_an_unknown_demo(tmp_path):
+    """A mistyped name rebuilds nothing silently; it names the demo that does not exist."""
+    registry = {'poisson': Demo('poisson', _text_only)}
+    with pytest.raises(ValueError, match='no such demo'):
+        build_gallery(registry, tmp_path / 'out', workers=1, only=['posson'])
 
 
 def test_writes_an_index_and_a_page_per_demo(gallery):

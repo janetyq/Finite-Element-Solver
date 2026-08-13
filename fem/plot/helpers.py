@@ -70,8 +70,39 @@ def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridi
         cbar_info = setup_colorbar(ax, (min(values), max(values)), label, cmap_name, log_scale)
 
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
-    ax.tripcolor(triangulation, values, cmap=cbar_info.cmap, norm=cbar_info.norm)
-    return cbar_info
+    # The collection is returned so an animation can recolour it in place across frames
+    # rather than clearing the axes and rebuilding it; its array is per-face, which
+    # `face_values` below matches for either a per-vertex or a per-element field.
+    collection = ax.tripcolor(triangulation, values, cmap=cbar_info.cmap, norm=cbar_info.norm)
+    return cbar_info, collection
+
+
+def face_values(mesh, values):
+    """The per-face array a flat-shaded 2D `tripcolor` carries.
+
+    A per-element field is already one value per triangle; a per-vertex field is
+    averaged over each triangle's corners, which is exactly what `tripcolor` does
+    internally for flat shading. This lets an animation update the collection's array
+    frame to frame instead of rebuilding it.
+    """
+    values = np.asarray(values)
+    if values.shape == (len(mesh.elements),):
+        return values
+    return values[np.asarray(mesh.elements)].mean(axis=1)
+
+
+def solid_face_values(mesh, values):
+    """The per-facet array the boundary-surface `Poly3DCollection` carries.
+
+    A 3D solid is drawn as its boundary facets, coloured by the field averaged over
+    each facet's vertices. An element-constant field is projected to the vertices
+    first, the same volume-weighted way `plot_surface` does.
+    """
+    values = np.asarray(values)
+    if values.shape == (len(mesh.elements),):
+        from fem.space import FunctionSpace
+        values = FunctionSpace(mesh).element_to_vertex(values)
+    return values[np.asarray(mesh.boundary)].mean(axis=1)
 
 
 def change_ax_to_ax3d(ax, fig, ax_shape, ax_idx):
@@ -123,19 +154,16 @@ def plot_solid(ax, mesh, values, cbar_info=None):
         ax.add_collection3d(Poly3DCollection(
             mesh.vertices[facets], facecolor='#9fb8cd', edgecolor='black', linewidth=0.1))
         _fit_3d_limits(ax, mesh)
-        return
+        return None
 
-    if values.shape == (len(mesh.elements),):
-        # An element-constant field has no value at a shared node; project it, the
-        # same volume-weighted way `plot_surface` does.
-        from fem.space import FunctionSpace
-        values = FunctionSpace(mesh).element_to_vertex(values)
-
+    # Returned so an animation can recolour the boundary surface in place: the facets
+    # are fixed across frames, only the field on them changes.
     collection = Poly3DCollection(mesh.vertices[facets], cmap=cbar_info.cmap,
                                   norm=cbar_info.norm, edgecolor='black', linewidth=0.1)
-    collection.set_array(values[facets].mean(axis=1))
+    collection.set_array(solid_face_values(mesh, values))
     ax.add_collection3d(collection)
     _fit_3d_limits(ax, mesh)
+    return collection
 
 
 def _fit_3d_limits(ax, mesh):
