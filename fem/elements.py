@@ -6,10 +6,12 @@ gradients and a measure. It holds no per-element data, so there is exactly one
 `LinearTetrahedralElement` in a program rather than one per tet.
 
 The per-element data lives in `ElementGeometry`, which holds it for the whole mesh
-at once: a single `(n_elements, N, spatial_dim)` array of `grad_phi` and a single
-`(n_elements,)` array of measures. That shape is what lets `fem.forms` compute
-every element matrix in one vectorized pass instead of a Python loop -- assembly
-was the dominant cost of a 3D solve when this was a loop over per-element objects.
+at once: an `(n_elements, n_qp, N, spatial_dim)` array of `grad_phi` -- one shape
+gradient per element and quadrature point -- with the matching `(n_elements, n_qp)`
+quadrature weights. That shape is what lets `fem.forms` compute every element matrix
+in one vectorized pass instead of a Python loop -- assembly was the dominant cost of
+a 3D solve when this was a loop over per-element objects. A linear element's gradient
+is constant across the points, so P1 is the single-point (`n_qp == 1`) special case.
 
 Two quantities are easy to confuse and are kept distinct throughout:
 `reference_dim` is the dimension of the element itself (2 for a triangle), while
@@ -18,11 +20,11 @@ boundary facets of a 3D mesh -- a triangle in 3D -- which is why the Jacobian
 below is not assumed square.
 """
 from dataclasses import dataclass
-from math import factorial
 from typing import ClassVar
 
 import numpy as np
 
+from fem.quadrature import QuadratureRule, quadrature_rule
 from fem.typing import ElementVertices, FloatArray, Matrix
 
 
@@ -62,14 +64,30 @@ class LinearElement(Element):
         return np.vstack([-np.ones(cls.N - 1), np.eye(cls.N - 1)])
 
     @classmethod
-    def geometry(cls, element_vertices: ElementVertices) -> 'ElementGeometry':
-        '''Batched geometry for `(n_elements, N, spatial_dim)` node coordinates.'''
+    def geometry(
+        cls, element_vertices: ElementVertices, rule: QuadratureRule | None = None,
+    ) -> 'ElementGeometry':
+        '''Batched quadrature-aware geometry for `(n_elements, N, spatial_dim)` coords.
+
+        `rule` defaults to the cheapest rule that integrates this element's own
+        stiffness exactly -- a single point for a linear simplex, whose gradients
+        are constant. A caller integrating a higher-degree form (a consistent mass
+        matrix, a variable coefficient, a higher-order field) passes a rule of the
+        degree it needs.
+
+        The geometry map is affine -- straight-sided simplices -- so the Jacobian
+        is constant per element and only the reference shape gradients differ
+        between quadrature points. P1 falls out as the single-point case: one point,
+        one constant gradient, and `weight_detJ` summing to the closed-form measure.
+        '''
         X = np.asarray(element_vertices, dtype=np.float64)
         if X.ndim != 3 or X.shape[1] != cls.N:
             raise ValueError(
                 f'{cls.__name__}.geometry expects (n_elements, {cls.N}, spatial_dim) '
                 f'coordinates, got shape {X.shape}'
             )
+        rule = rule if rule is not None else cls.quadrature(1)
+
         # Columns of J are the edge vectors from node 0, so J maps the reference
         # simplex onto the element: (n_elements, spatial_dim, N-1).
         J = np.swapaxes(X[:, 1:] - X[:, :1], 1, 2)
@@ -91,12 +109,23 @@ class LinearElement(Element):
             gram = np.swapaxes(J, 1, 2) @ J
             scale = np.sqrt(np.abs(np.linalg.det(gram)))
 
+        dshape = cls.shape_gradients(rule.points)   # (n_qp, N, reference_dim)
+        shape = cls.shape_values(rule.points)       # (n_qp, N)
         return ElementGeometry(
             element_type=cls,
-            # (N, N-1) @ (n_elements, N-1, spatial_dim) -> (n_elements, N, spatial_dim)
-            grad_phi=cls._dshape() @ J_inv,
-            # The reference simplex has measure 1/d!, and J scales it by `scale`.
-            volumes=scale / factorial(reference_dim),
+            rule=rule,
+            shape=shape,
+            # (n_qp, N, r) @ (n_el, r, s) -> (n_el, n_qp, N, s): the reference shape
+            # gradients mapped through each element's inverse Jacobian.
+            grad_phi=np.einsum('qnr,ers->eqns', dshape, J_inv),
+            # (n_el, n_qp): the reference weight at each point times the element's
+            # measure scale. The reference weights sum to 1/d!, so this sums over
+            # points to `scale / d!` -- the closed-form element volume.
+            weight_detJ=scale[:, None] * rule.weights[None, :],
+            # (n_el, n_qp, spatial): where each quadrature point lands in space,
+            # interpolated through the shape functions -- for a form or load that
+            # samples a coefficient or source there.
+            points=np.einsum('qn,ens->eqs', shape, X),
         )
 
     @classmethod
@@ -109,6 +138,35 @@ class LinearElement(Element):
         component; that is `MassForm`'s job.
         '''
         return (np.ones((cls.N, cls.N)) + np.eye(cls.N)) / (cls.N * (cls.N + 1))
+
+    @classmethod
+    def shape_values(cls, points: FloatArray) -> FloatArray:
+        '''(n_points, N) shape functions evaluated at reference `points` (n_points, N-1).
+
+        Barycentric: phi_0 = 1 - sum(xi) and phi_i = xi_i, so the first column is
+        the node-0 hat and the rest are the reference coordinates themselves. Nodal
+        (1 at its own node, 0 at the others), which is what makes a DOF the value at
+        its node.
+        '''
+        P = np.atleast_2d(np.asarray(points, dtype=float))
+        first = 1.0 - P.sum(axis=1, keepdims=True)
+        return np.concatenate([first, P], axis=1)
+
+    @classmethod
+    def shape_gradients(cls, points: FloatArray) -> FloatArray:
+        '''(n_points, N, N-1) reference-coordinate shape gradients.
+
+        Constant for a linear element -- the same `_dshape` at every point -- so
+        this broadcasts it over the requested points. `geometry` maps these through
+        the inverse Jacobian to get physical gradients.
+        '''
+        n_points = len(np.atleast_2d(np.asarray(points, dtype=float)))
+        return np.broadcast_to(cls._dshape(), (n_points, cls.N, cls.N - 1))
+
+    @classmethod
+    def quadrature(cls, min_degree: int) -> QuadratureRule:
+        '''The cheapest rule on this element's reference simplex exact to `min_degree`.'''
+        return quadrature_rule(cls.reference_dim(), min_degree)
 
 
 class LinearLineElement(LinearElement):
@@ -132,24 +190,43 @@ class LinearTetrahedralElement(LinearElement):
 
 @dataclass(frozen=True)
 class ElementGeometry:
-    '''Shape-function gradients and measures for every element of one mesh.
+    '''Shape values, shape-function gradients, and quadrature weights for one mesh.
 
-    The batched counterpart of what used to be a list of per-element objects.
+    The batched, quadrature-aware geometry every form integrates against. `grad_phi`
+    carries a gradient per (element, quadrature point); a linear element's is
+    constant across the points, so P1 assembly is the single-point special case --
+    which is why one assembly path serves P1 and higher orders alike.
+
     Immutable, and cached on the `FunctionSpace` that built it: it is valid only
     while the mesh underneath it is not mutated, the same contract the space's
     operators have.
     '''
     element_type: type[LinearElement]
-    # (n_elements, N, spatial_dim) -- gradient of each shape function, constant
-    # over the element for P1. The last axis is the *spatial* dimension, so for an
-    # embedded facet it is wider than the element's own reference_dim.
+    rule: QuadratureRule
+    # (n_qp, N) -- shape functions at the quadrature points, for mass and load
+    # integrals; the gradients alone are not enough once the integrand samples the
+    # field's value rather than only its slope.
+    shape: FloatArray
+    # (n_elements, n_qp, N, spatial_dim) -- gradient of each shape function at each
+    # quadrature point. The last axis is the *spatial* dimension, so for an embedded
+    # facet it is wider than the element's own reference_dim.
     grad_phi: FloatArray
-    # (n_elements,) element measure -- length, area, or volume.
-    volumes: FloatArray
+    # (n_elements, n_qp) -- the quadrature weight times |det J| at each point; the
+    # coefficient every integrand is summed against. Replaces the old scalar
+    # `volumes`, which is now these summed over the points.
+    weight_detJ: FloatArray
+    # (n_elements, n_qp, spatial_dim) -- physical coordinates of the quadrature
+    # points. Empty of meaning for a constant-coefficient form, which never samples
+    # anything; carried so a variable coefficient or source can be evaluated there.
+    points: FloatArray
 
     @property
     def n_elements(self) -> int:
-        return len(self.volumes)
+        return self.grad_phi.shape[0]
+
+    @property
+    def n_qp(self) -> int:
+        return self.grad_phi.shape[1]
 
     @property
     def reference_dim(self) -> int:
@@ -160,15 +237,22 @@ class ElementGeometry:
         return self.grad_phi.shape[-1]
 
     @property
+    def volumes(self) -> FloatArray:
+        '''(n_elements,) element measure -- the quadrature weights summed per element.'''
+        return self.weight_detJ.sum(axis=1)
+
+    @property
     def total_volume(self) -> float:
         return float(self.volumes.sum())
 
     def gradients(self, u_elements: FloatArray) -> FloatArray:
-        '''Gradient of a field over every element, from its per-element nodal values.
+        '''Field gradient at every quadrature point, from per-element nodal values.
 
         `u_elements` is `(n_elements, N)` for a scalar field or
-        `(n_elements, N, n_components)` for a vector one; the result carries the
-        spatial axis in the same position `calculate_gradient` used to put it.
+        `(n_elements, N, n_components)` for a vector one; the result carries a
+        leading (element, quadrature point) pair, then the spatial axis in the same
+        position `calculate_gradient` used to put it. Constant across the points for
+        P1, so a P1 caller reads any point and gets the element's one value.
         '''
-        return np.einsum('eni,en...->ei...', self.grad_phi, u_elements)
+        return np.einsum('eqni,en...->eqi...', self.grad_phi, u_elements)
 
