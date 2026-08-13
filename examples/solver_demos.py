@@ -209,9 +209,10 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
     )
 
 def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
-    """Show what sampling the load at the quadrature points buys. An oscillatory source
-    integrated as its nodal interpolant undershoots a LinearForm that reads it at the
-    interior points -- clearest where the source swings within an element."""
+    """Show what sampling the load at the quadrature points buys. Both solves use the same
+    P1 elements; they differ only in how the source f becomes the right-hand side -- read
+    at the vertices, or at the interior quadrature points. The vertex shortcut undershoots
+    wherever f swings within an element."""
     k = LOAD_MMS_FREQUENCY
 
     # Setup: the load and the solution it drives, on a fine mesh so these are the ideal
@@ -224,33 +225,43 @@ def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
                title='The load: source f')
     setup.plot(fine, u_fine, mode='surface', idx=(0, 1), title='The solution: u')
 
-    # Comparison: the two loads over the refinement sequence, and a 1D slice through a row
-    # of bumps on one coarse mesh where the gap between them is plain.
+    # Convergence over the sequence, plus one coarse mesh reused for the slice and the
+    # error fields, so the 1D cut is literally a row through the 2D error.
     loads = load_comparison_convergence(resolutions)
     steps = np.array([lc.h for lc in loads])
     nodal = ConvergenceStudy(steps, np.array([lc.nodal_error for lc in loads]))
     sampled = ConvergenceStudy(steps, np.array([lc.sampled_error for lc in loads]))
-
     cut_lc = solve_load_comparison(15)
+
     n = cut_lc.n
     xs = np.linspace(0, 1, n)
     j = int(np.argmin(np.abs(xs - 1 / (2 * k))))   # a row through the bump peaks
     row = slice(j * n, (j + 1) * n)
     xf = np.linspace(0, 1, 400)
     u_line = np.sin(k * np.pi * xf) * np.sin(k * np.pi * xs[j])
+    nodal_err = np.abs(cut_lc.nodal - cut_lc.exact)
+    sampled_err = np.abs(cut_lc.sampled - cut_lc.exact)
+    emax = float(max(nodal_err.max(), sampled_err.max()))
 
-    comp = Plotter(1, 2, title='Reading the source at the vertices vs the quadrature points')
+    comp = Plotter(2, 2, title='One P1 problem, two ways to build the load')
     cut = comp.chart_ax(idx=(0, 0), xlabel='x', ylabel='u')
     cut.plot(xf, u_line, '-', color='0.45', label='exact u')
-    cut.plot(xs, cut_lc.nodal[row], 'o-', color='tab:red', ms=4, label='nodal load')
-    cut.plot(xs, cut_lc.sampled[row], 's-', color='tab:blue', ms=4, label='sampled load')
-    cut.set_title(f'Slice at y={xs[j]:.2g}: the nodal load undershoots the peaks')
+    cut.plot(xs, cut_lc.nodal[row], 'o-', color='tab:red', ms=4,
+             label='nodal load (f at vertices)')
+    cut.plot(xs, cut_lc.sampled[row], 's-', color='tab:blue', ms=4,
+             label='sampled load (f at quad. pts)')
+    cut.set_title(f'Solution on a slice at y={xs[j]:.2g} (both P1)')
 
     conv = comp.chart_ax(idx=(0, 1), xlabel='h', ylabel='L2 error')
     _plot_study(conv, nodal, 'nodal load', 'tab:red', 2, 'h')
     _plot_study(conv, sampled, 'sampled load', 'tab:blue', 2, 'h')
-    conv.set_title('Both order 2; sampling wins the constant')
+    conv.set_title('L2 error: both order 2, sampling wins the constant')
     _tidy_log_axis(conv, steps)
+
+    comp.plot(cut_lc.mesh, nodal_err, mode='colored', idx=(1, 0), clim=(0, emax),
+              label='|u_h - u|', title=f'Error with nodal load (h={cut_lc.h:.2g})')
+    comp.plot(cut_lc.mesh, sampled_err, mode='colored', idx=(1, 1), clim=(0, emax),
+              label='|u_h - u|', title='Error with sampled load')
 
     coarse = loads[0]
     rows = [f'coarsest mesh (h={coarse.h:.3g}):',
@@ -259,11 +270,14 @@ def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
             f'  the nodal shortcut is {coarse.nodal_error / coarse.sampled_error:.1f}x worse']
     return DemoResult(
         [Figure(comp,
-                'Left: a horizontal slice through a row of bumps. The smooth curve is the '
-                'exact solution; the nodal load, reading the source only at the vertices, '
-                'undershoots each peak, while the LinearForm that samples the source at the '
-                'interior quadrature points tracks it. Right: both loads converge at order '
-                '2, but sampling keeps a smaller error at every resolution.',
+                'Both solves use the same P1 (linear) elements -- neither is higher order. '
+                'They differ only in how the source f becomes the load: the nodal load reads '
+                'f at the vertices only (integrating its linear interpolant), the sampled '
+                'load reads f at the interior quadrature points. Top-left: on a slice '
+                'through a row of bumps, the exact solution (grey) against the two P1 '
+                'solutions -- the nodal load undershoots each peak. Top-right: both converge '
+                'at order 2, the sampled load about 3x lower. Bottom: the absolute error '
+                'over the mesh for each, at the same colour scale.',
                 'comparison'),
          Figure(setup,
                 'The manufactured problem: -div(grad u) = f on the unit square, zero on the '
