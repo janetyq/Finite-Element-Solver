@@ -28,10 +28,12 @@ from fem.typing import FloatArray
 class QuadratureRule:
     '''Reference-simplex sample points, their weights, and the degree they integrate.
 
-    `points` is `(n_points, reference_dim)` in reference coordinates; `weights` is
-    `(n_points,)` and sums to the reference measure `1/d!`. A rule of degree `p`
-    integrates every polynomial of total degree <= p over the reference simplex
-    exactly.
+    `points` is `(n_points, reference_dim)` in the reference simplex's own
+    coordinates: each coordinate is the barycentric weight on one corner, with
+    corner 0 taking the remaining `1 - sum`, so `(1/3, 1/3)` is the triangle's
+    centroid. `weights` is `(n_points,)` and sums to the reference measure `1/d!` --
+    the measure the constant 1 integrates to. A rule of degree `p` integrates every
+    polynomial of total degree <= p over the reference simplex exactly.
     '''
     points: FloatArray
     weights: FloatArray
@@ -42,7 +44,9 @@ class QuadratureRule:
         return len(self.weights)
 
 
-# Reference rules, cheapest first per dimension. Each constant is certified by
+# Key is the simplex dimension (1 line, 2 triangle, 3 tet); value is that simplex's
+# rules ordered cheapest -- lowest degree, fewest points -- first, so `quadrature_rule`
+# returns the first entry meeting the requested degree. Each constant is certified by
 # tests/test_quadrature.py (monomial exactness up to `degree`, and weights summing
 # to the reference measure), so a mistyped entry fails there rather than silently
 # biasing every integral. Higher-degree rules are added when a form or element
