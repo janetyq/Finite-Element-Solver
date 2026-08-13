@@ -28,6 +28,7 @@ from functools import cached_property
 import numpy as np
 
 from fem.elements import (
+    Element,
     ElementGeometry,
     LinearElement,
     LinearLineElement,
@@ -45,6 +46,7 @@ from fem.typing import (
     IntArray,
     SparseMatrix,
     VertexField,
+    Vertices,
 )
 
 from scipy.sparse import csr_array
@@ -148,13 +150,68 @@ class _ScatterPlan:
         return csr_array((data, self.indices, self.indptr), shape=self.shape)
 
 
+@dataclass(frozen=True)
+class NodeSet:
+    '''The node geometry boundary-condition resolution resolves against.
+
+    `ResolvedBC` is built by evaluating geometric regions over node coordinates and
+    intersecting with the boundary. For P1 the mesh's own vertices are the nodes, so
+    the mesh serves directly; for P2 the space builds one of these whose `vertices`
+    include the edge-midpoint nodes and whose `boundary` facets carry them, so a
+    condition written against coordinates pins the edge DOFs exactly as it pins the
+    vertex ones -- the resolver needs no change. Duck-types `Mesh` for the three
+    attributes `BoundaryConditions.resolve` reads.
+    '''
+    vertices: Vertices          # (n_nodes, spatial) all node coordinates
+    boundary: Elements          # (n_boundary_facets, facet_N) boundary facets as node indices
+    boundary_idxs: IntArray     # unique boundary node indices
+    spatial_dim: int
+
+
+def p2_connectivity(mesh: Mesh) -> tuple[Elements, Vertices, Elements]:
+    '''Build the P2 node set for `mesh`: (element_nodes, node_coords, boundary_nodes).
+
+    Nodes are the mesh vertices (indices unchanged) followed by one node per edge,
+    placed at the edge midpoint -- node `n_vertices + i` for `mesh.edges[i]`. An
+    element's six nodes are its three corners then its three edge nodes, ordered so
+    the edge opposite corner k comes k-th, matching `QuadraticTriangleElement`'s hats.
+    A boundary facet gains its own edge's node as a third entry.
+    '''
+    n_vertices = len(mesh.vertices)
+    edge_index = {(int(a), int(b)): i for i, (a, b) in enumerate(mesh.edges)}
+
+    def edge_node(a: int, b: int) -> int:
+        return n_vertices + edge_index[(a, b) if a < b else (b, a)]
+
+    elements = np.asarray(mesh.elements)
+    element_nodes = np.empty((len(elements), 6), dtype=int)
+    element_nodes[:, :3] = elements
+    for e, (a, b, c) in enumerate(elements):
+        element_nodes[e, 3] = edge_node(b, c)   # opposite corner 0
+        element_nodes[e, 4] = edge_node(a, c)   # opposite corner 1
+        element_nodes[e, 5] = edge_node(a, b)   # opposite corner 2
+
+    edge_midpoints = mesh.vertices[mesh.edges].mean(axis=1)
+    node_coords = np.vstack([mesh.vertices, edge_midpoints])
+
+    boundary = np.asarray(mesh.boundary)
+    boundary_nodes = np.empty((len(boundary), 3), dtype=int)
+    boundary_nodes[:, :2] = boundary
+    for i, (a, b) in enumerate(boundary):
+        boundary_nodes[i, 2] = edge_node(a, b)
+
+    return element_nodes, node_coords, boundary_nodes
+
+
 class FunctionSpace:
-    '''P1 finite element space over `mesh`, with `n_components` DOFs per node.'''
+    '''A finite element space over `mesh`: an element, its node numbering, and
+    `n_components` DOFs per node. P1 numbers DOFs on the mesh vertices; P2 adds a
+    node per edge, so the node set is vertices then edge midpoints.'''
 
     def __init__(
         self,
         mesh: Mesh,
-        element_type: type[LinearElement] | None = None,
+        element_type: type[Element] | None = None,
         n_components: int = 1,
     ) -> None:
         element_type = element_type if element_type is not None else element_type_for(mesh)
@@ -191,9 +248,52 @@ class FunctionSpace:
         '''Dimension of the space the nodes live in. Distinct from n_components.'''
         return self.mesh.spatial_dim
 
+    @cached_property
+    def _connectivity(self) -> tuple[Elements, Vertices, Elements]:
+        '''(element_nodes, node_coords, boundary_nodes) for this space's element.
+
+        For P1 the mesh's own arrays -- nodes are vertices; for P2 the enlarged set
+        with an edge-midpoint node per edge. Everything below reads DOF numbering
+        through here rather than off the mesh, so the mesh stays pure geometry.
+        '''
+        if self.element_type.SHAPE_DEGREE == 1:
+            return self.mesh.elements, self.mesh.vertices, self.mesh.boundary
+        return p2_connectivity(self.mesh)
+
+    @property
+    def element_nodes(self) -> Elements:
+        '''(n_elements, N) global node index of each element's local nodes.'''
+        return self._connectivity[0]
+
+    @property
+    def node_coords(self) -> Vertices:
+        '''(n_nodes, spatial) coordinates of every node the DOFs live on.'''
+        return self._connectivity[1]
+
+    @property
+    def boundary_nodes(self) -> Elements:
+        '''(n_boundary_facets, boundary_N) global node index of each facet's nodes.'''
+        return self._connectivity[2]
+
+    @property
+    def n_nodes(self) -> int:
+        return len(self.node_coords)
+
+    @cached_property
+    def nodes(self) -> Mesh | NodeSet:
+        '''The node geometry BC resolution resolves against (see `NodeSet`).'''
+        if self.element_type.SHAPE_DEGREE == 1:
+            return self.mesh
+        return NodeSet(
+            vertices=self.node_coords,
+            boundary=self.boundary_nodes,
+            boundary_idxs=np.unique(self.boundary_nodes),
+            spatial_dim=self.spatial_dim,
+        )
+
     @property
     def n_dofs(self) -> int:
-        return len(self.mesh.vertices) * self.n_components
+        return self.n_nodes * self.n_components
 
     def dof_indices(self, element: IntArray | Sequence[int]) -> DofIndices:
         '''Global DOF indices for one element's nodes.'''
@@ -212,19 +312,20 @@ class FunctionSpace:
         rule = self.element_type.quadrature(min_degree)
         cached = self._geometry_cache.get(rule.degree)
         if cached is None:
-            cached = self.element_type.geometry(self.mesh.vertices[self.mesh.elements], rule)
+            cached = self.element_type.geometry(self.node_coords[self.element_nodes], rule)
             self._geometry_cache[rule.degree] = cached
         return cached
 
     @property
     def geometry(self) -> ElementGeometry:
-        '''Batched geometry at the default rule -- a single point for a linear element.'''
-        return self.geometry_at(1)
+        '''Batched geometry at the element's default rule -- a single point for P1,
+        three for the degree-2 integrand of a P2 stiffness.'''
+        return self.geometry_at(self.element_type.default_quadrature_degree())
 
     @cached_property
     def boundary_geometry(self) -> ElementGeometry:
         '''The same, for the boundary facets -- embedded elements, so a wider grad_phi.'''
-        return self.boundary_type.geometry(self.mesh.vertices[self.mesh.boundary])
+        return self.boundary_type.geometry(self.node_coords[self.boundary_nodes])
 
     @property
     def element_volumes(self) -> FloatArray:
@@ -264,7 +365,7 @@ class FunctionSpace:
         Taken at the first quadrature point; constant per element for P1, which is
         why it is an element field.
         '''
-        return self.geometry.gradients(u[self.mesh.elements])[:, 0]
+        return self.geometry.gradients(u[self.element_nodes])[:, 0]
 
     # -- projections between element and nodal fields -----------------------
 
@@ -286,20 +387,20 @@ class FunctionSpace:
         measures, which the space owns and the mesh does not.
         '''
         values = np.asarray(values, dtype=float)
-        if len(values) != len(self.mesh.elements):
+        if len(values) != len(self.element_nodes):
             raise ValueError(
-                f'expected one value per element ({len(self.mesh.elements)}), '
+                f'expected one value per element ({len(self.element_nodes)}), '
                 f'got {len(values)}'
             )
-        nodes = self.mesh.elements
+        nodes = self.element_nodes
         weights = self.element_volumes
         flat = nodes.ravel()
         weighted = np.repeat(values * weights, nodes.shape[1])
         totals = np.repeat(weights, nodes.shape[1])
 
-        sums = np.bincount(flat, weights=weighted, minlength=len(self.mesh.vertices))
-        norms = np.bincount(flat, weights=totals, minlength=len(self.mesh.vertices))
-        # Every meshed vertex belongs to at least one element; an unreferenced one
+        sums = np.bincount(flat, weights=weighted, minlength=self.n_nodes)
+        norms = np.bincount(flat, weights=totals, minlength=self.n_nodes)
+        # Every referenced node belongs to at least one element; an unreferenced one
         # would divide by zero, so it keeps 0 instead.
         return sums / np.where(norms > 0, norms, 1.0)
 
@@ -344,7 +445,7 @@ class FunctionSpace:
         '''
         geometry = self.geometry_at(form.quadrature_degree)
         vectors = form.element_vectors(geometry)
-        dofs = dof_indices(self.mesh.elements, self.n_components)
+        dofs = dof_indices(self.element_nodes, self.n_components)
         b = np.zeros(self.n_dofs)
         np.add.at(b, dofs, vectors)
         return b
@@ -361,21 +462,21 @@ class FunctionSpace:
 
     def total_energy(self, form: EnergyForm, u: DofVector) -> float:
         '''Sum an EnergyForm's element energies at state `u`: the scalar Pi(u).'''
-        u_elements = u.reshape(-1, self.n_components)[self.mesh.elements]
+        u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
         return float(form.element_energies(self.geometry, u_elements).sum())
 
     def assemble_residual(self, form: EnergyForm, u: DofVector) -> DofVector:
         '''Scatter element residuals at `u` into grad Pi(u), shape (n_dofs,).'''
-        u_elements = u.reshape(-1, self.n_components)[self.mesh.elements]
+        u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
         residuals = form.element_residuals(self.geometry, u_elements)
-        dofs = dof_indices(self.mesh.elements, self.n_components)
+        dofs = dof_indices(self.element_nodes, self.n_components)
         r = np.zeros(self.n_dofs)
-        np.add.at(r, dofs, residuals.reshape(len(self.mesh.elements), -1))
+        np.add.at(r, dofs, residuals.reshape(len(self.element_nodes), -1))
         return r
 
     def assemble_tangent(self, form: EnergyForm, u: DofVector) -> SparseMatrix:
         '''Scatter element tangents at `u` into grad^2 Pi(u), shape (n_dofs, n_dofs).'''
-        u_elements = u.reshape(-1, self.n_components)[self.mesh.elements]
+        u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
         k = self.element_type.N * self.n_components
         tangents = form.element_tangents(self.geometry, u_elements).reshape(-1, k, k)
         return self._assemble(tangents)
@@ -401,11 +502,11 @@ class FunctionSpace:
 
     @cached_property
     def _volume_scatter(self) -> _ScatterPlan:
-        return self._scatter_plan(self.mesh.elements)
+        return self._scatter_plan(self.element_nodes)
 
     @cached_property
     def _boundary_scatter(self) -> _ScatterPlan:
-        return self._scatter_plan(self.mesh.boundary)
+        return self._scatter_plan(self.boundary_nodes)
 
     def _assemble(
         self,

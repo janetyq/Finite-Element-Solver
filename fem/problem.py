@@ -66,7 +66,9 @@ class Source:
     field: FieldValue = None
 
     def vector(self, space: FunctionSpace) -> DofVector:
-        values = evaluate_field(self.field, space.mesh.vertices, space.n_components)
+        # Sampled at the space's nodes, not the mesh vertices: a P2 space carries
+        # edge-midpoint nodes the mesh does not, and the mass matrix is sized to them.
+        values = evaluate_field(self.field, space.node_coords, space.n_components)
         return np.asarray(space.mass_matrix @ values.flatten()).flatten()
 
 
@@ -92,7 +94,7 @@ class LinearProblem:
         self.space = space
         self.operator = operator
         bc = bc if bc is not None else BoundaryConditions()
-        self._resolved = bc.resolve(space.mesh, space.n_components)
+        self._resolved = bc.resolve(space.nodes, space.n_components)
 
         # A Robin condition contributes to both sides: κ∫_∂Ω_R u·v on the operator
         # and ∫_∂Ω_R g·v on the load, each the region-restricted boundary mass. The
@@ -193,7 +195,7 @@ class EnergyProblem:
             )
         self.space = space
         self.operator = operator
-        self._resolved = bc.resolve(space.mesh, space.n_components)
+        self._resolved = bc.resolve(space.nodes, space.n_components)
         if self._resolved.robin:
             raise NotImplementedError(
                 'EnergyProblem does not support Robin conditions: the energy path has '

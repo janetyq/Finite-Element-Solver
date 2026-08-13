@@ -54,11 +54,15 @@ class QuadratureRule:
 _RULES: dict[int, list[QuadratureRule]] = {
     1: [  # reference line [0, 1], measure 1
         QuadratureRule(np.array([[0.5]]), np.array([1.0]), degree=1),
-        # 2-point Gauss-Legendre mapped to [0, 1]: exact to degree 3, for the P2
-        # boundary line's mass and traction integrals.
+        # 2-point Gauss-Legendre mapped to [0, 1]: exact to degree 3.
         QuadratureRule(
             np.array([[0.5 - 0.5 / np.sqrt(3.0)], [0.5 + 0.5 / np.sqrt(3.0)]]),
             np.array([0.5, 0.5]), degree=3),
+        # 3-point Gauss-Legendre mapped to [0, 1]: exact to degree 5, for the P2
+        # boundary line's mass and traction integrals (phi_i phi_j is degree 4).
+        QuadratureRule(
+            np.array([[0.5 - 0.5 * np.sqrt(3 / 5)], [0.5], [0.5 + 0.5 * np.sqrt(3 / 5)]]),
+            np.array([5 / 18, 8 / 18, 5 / 18]), degree=5),
     ],
     2: [  # reference triangle, measure 1/2
         QuadratureRule(np.array([[1 / 3, 1 / 3]]), np.array([0.5]), degree=1),
@@ -67,6 +71,23 @@ _RULES: dict[int, list[QuadratureRule]] = {
         QuadratureRule(
             np.array([[1 / 6, 1 / 6], [2 / 3, 1 / 6], [1 / 6, 2 / 3]]),
             np.full(3, 1 / 6), degree=2),
+        # Dunavant six-point rule, exact to degree 4 -- the P2 mass rule (phi_i phi_j
+        # is degree 4) and the higher-degree load. Two three-point orbits; the
+        # barycentric weights sum to 1 and are halved to the reference measure 1/2.
+        QuadratureRule(
+            np.array([
+                [0.44594849091596489, 0.44594849091596489],
+                [0.10810301816807022, 0.44594849091596489],
+                [0.44594849091596489, 0.10810301816807022],
+                [0.09157621350977074, 0.09157621350977074],
+                [0.81684757298045851, 0.09157621350977074],
+                [0.09157621350977074, 0.81684757298045851],
+            ]),
+            np.array([
+                0.11169079483900573, 0.11169079483900573, 0.11169079483900573,
+                0.05497587182766094, 0.05497587182766094, 0.05497587182766094,
+            ]),
+            degree=4),
     ],
     3: [  # reference tetrahedron, measure 1/6
         QuadratureRule(np.array([[1 / 4, 1 / 4, 1 / 4]]), np.array([1 / 6]), degree=1),
