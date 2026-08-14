@@ -109,6 +109,32 @@ def test_with_operator_reapplies_the_robin_boundary_term(make_unit_square):
     assert np.abs(derived.tangent().toarray() - bare).max() > 1e-6
 
 
+def test_traction_load_has_the_exact_resultant(make_unit_square):
+    """A uniform traction on one edge assembles to a load whose total is the traction
+    times the loaded length. Integrating each Neumann region over its own facets is what
+    makes this exact -- the unmasked global boundary mass it replaces let a corner node's
+    hat reach onto the neighbouring edges, pushing the resultant above the applied load."""
+    mesh = make_unit_square(10)
+    space = FunctionSpace(mesh, n_components=1)
+    bc = BoundaryConditions()
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), 2.0)   # flux 2 on the right edge, length 1
+    load = LinearProblem(space, LaplacianForm(), None, bc).load
+    np.testing.assert_allclose(load.sum(), 2.0, atol=1e-12)
+
+
+def test_traction_stays_on_its_own_edge(make_unit_square):
+    """The masked traction integrates over its region's facets only, so no load lands on
+    a node off the loaded edge -- previously a shared corner spread it onto the
+    neighbours, loading vertices the caller never named."""
+    mesh = make_unit_square(10)
+    space = FunctionSpace(mesh, n_components=1)
+    bc = BoundaryConditions()
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), 2.0)
+    load = LinearProblem(space, LaplacianForm(), None, bc).load
+    off_edge = mesh.vertices[:, 0] < 1.0 - 1e-9
+    np.testing.assert_allclose(load[off_edge], 0.0, atol=1e-12)
+
+
 def test_derived_problem_does_not_answer_with_the_parents_operator(make_unit_square):
     """The dangerous ordering for a lazily assembled tangent: the parent has already
     assembled its own, so the copy `with_operator` makes starts out holding it. A

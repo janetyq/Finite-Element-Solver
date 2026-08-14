@@ -51,14 +51,32 @@ def test_geometric_region_never_selects_interior_vertices(make_unit_square):
     assert set(fixed) <= set(int(i) for i in mesh.boundary_idxs)
 
 
-def test_dirichlet_neumann_overlap_is_rejected(make_unit_square):
-    """A vertex fixed by Dirichlet silently ignores its Neumann load; flag it."""
+def test_dirichlet_neumann_same_component_is_rejected(make_unit_square):
+    """A DOF fixed by Dirichlet silently ignores a traction on that same component, so
+    pinning and loading the *same* component is the ambiguity to flag."""
     mesh = make_unit_square(8)
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0)
-    bc.add(BCType.NEUMANN, on_plane(0, 0.0), 0)
-    with pytest.raises(ValueError):
-        bc.resolve(mesh, n_components=1)
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])   # pin both components
+    bc.add(BCType.NEUMANN, on_plane(0, 0.0), [3.0, 0])   # ...and load x, which is pinned
+    with pytest.raises(ValueError, match='same'):
+        bc.resolve(mesh, n_components=2)
+
+
+def test_dirichlet_neumann_different_components_is_allowed(make_unit_square):
+    """Pinning one component while a traction drives a *different* one at the same
+    vertex is a well-posed roller carrying a tangential load -- a buckling column's
+    transversely-supported, axially-loaded end -- and must resolve, not raise."""
+    mesh = make_unit_square(8)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [None, 0])  # u_y pinned, u_x free
+    bc.add(BCType.NEUMANN, on_plane(0, 0.0), [3.0, 0])     # x-traction on the free component
+    resolved = bc.resolve(mesh, n_components=2)
+
+    # The y-DOFs are fixed; the x-DOFs stay free and carry the traction load.
+    left = np.flatnonzero(np.isclose(mesh.vertices[:, 0], 0.0))
+    assert set(2 * left + 1) <= set(resolved.fixed_idxs)      # u_y fixed
+    assert set(2 * left) <= set(resolved.free_idxs)           # u_x free
+    assert np.any(resolved.neumann_load[left, 0] != 0)
 
 
 def test_conflicting_dirichlet_values_are_rejected(make_unit_square):
