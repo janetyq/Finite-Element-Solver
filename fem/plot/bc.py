@@ -10,6 +10,7 @@ import warnings
 import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap
+from matplotlib.patches import Polygon
 from matplotlib.tri import Triangulation
 
 from fem.plot.helpers import plot_boundary
@@ -247,3 +248,158 @@ def plot_bc(ax, mesh, bc):
         # narrow panel runs off both sides of it.
         ax.legend(loc='upper center', bbox_to_anchor=(0.5, -(0.06 + 0.10/aspect)),
                   ncol=2, frameon=False, fontsize='small')
+
+
+# -- support/load glyphs overlaid on a deformed shape ---------------------------------
+#
+# `plot_bc` above draws a standalone conditions panel -- filled body, per-vertex dots,
+# a legend of values. `overlay_supports` draws the *other* view: only the drafting
+# symbols (a clamp's hatched wall, a pin's triangles, a load's arrows), laid over a
+# panel that already shows a shape, so a buckled mode can be read for its end conditions
+# without a legend. The two are complementary, and the buckling demo shows both.
+
+GLYPH_COLOR = 'black'
+GLYPH_ZORDER = 6
+
+
+def _dirichlet_kind(values):
+    """Classify a Dirichlet region: 'pin' (a component left free), 'driven' (every
+    component fixed, some to a nonzero value -- an imposed displacement), or 'clamp'
+    (every component fixed to zero)."""
+    if values.size == 0 or np.isnan(values).any():
+        return 'pin'
+    return 'driven' if np.any(np.abs(values) > 1e-12) else 'clamp'
+
+
+def _edge_geometry(pts):
+    """The segment a region's boundary vertices lie on, and its outward unit normal.
+
+    Returns `(p0, p1, normal)` with `p0 -> p1` spanning the edge along the axis it
+    varies most in, and `normal` the perpendicular pointing away from the region's own
+    centre of the domain -- which for an end edge of a column is straight out of the end.
+    """
+    center = pts.mean(axis=0)
+    extent = np.ptp(pts, axis=0)
+    along = int(np.argmax(extent))
+    normal_axis = 1 - along
+    lo, hi = pts.min(axis=0), pts.max(axis=0)
+    p0, p1 = center.copy(), center.copy()
+    p0[along], p1[along] = lo[along], hi[along]
+    normal = np.zeros(2)
+    # Point out of the domain: away from the domain centroid is unknown from one edge, so
+    # use the axis the edge sits at an extreme of. A caller passes the outward reference.
+    normal[normal_axis] = 1.0
+    return p0, p1, normal
+
+
+def _outward(normal, edge_center, domain_center):
+    """Flip `normal` to point away from `domain_center` (out of the body)."""
+    normal = normal.copy()
+    axis = int(np.argmax(np.abs(normal)))
+    if edge_center[axis] < domain_center[axis]:
+        normal[axis] *= -1.0
+    return normal
+
+
+def _draw_wall(ax, p0, p1, normal, unit):
+    """A hatched wall along the edge: a built-in (clamped) end."""
+    thickness = 0.55 * unit
+    ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color=GLYPH_COLOR, lw=2.0,
+            solid_capstyle='round', zorder=GLYPH_ZORDER)
+    band = np.array([p0, p1, p1 + normal * thickness, p0 + normal * thickness])
+    ax.add_patch(Polygon(band, closed=True, facecolor='none', edgecolor=GLYPH_COLOR,
+                         hatch='////', lw=0.0, zorder=GLYPH_ZORDER))
+
+
+def _draw_pin_run(ax, p0, p1, normal, unit):
+    """A row of triangles along the edge, on a ground line: a pin/roller support -- held
+    transversely but free to rotate (and, on a roller, to slide along the edge)."""
+    tri = 0.5 * unit
+    tangent = np.array([-normal[1], normal[0]])
+    ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color=GLYPH_COLOR, lw=1.5,
+            solid_capstyle='round', zorder=GLYPH_ZORDER)
+    edge_len = float(np.linalg.norm(p1 - p0))
+    n_tri = int(np.clip(round(edge_len / tri), 2, 4))
+    for t in np.linspace(0.18, 0.82, n_tri):
+        apex = p0 + t * (p1 - p0)
+        base = apex + normal * tri
+        poly = np.array([apex, base + tangent * 0.5 * tri, base - tangent * 0.5 * tri])
+        ax.add_patch(Polygon(poly, closed=True, facecolor='white', edgecolor=GLYPH_COLOR,
+                             lw=1.1, zorder=GLYPH_ZORDER))
+    g0, g1 = p0 + normal * tri, p1 + normal * tri
+    ax.plot([g0[0], g1[0]], [g0[1], g1[1]], color=GLYPH_COLOR, lw=1.0, zorder=GLYPH_ZORDER)
+
+
+def _draw_anchor(ax, point):
+    """A small dot at one anchored vertex -- the single point that ties off a pinned
+    column's rigid axial slide. A dot, not a support symbol: it is numerical scaffolding,
+    not a wall or roller the reader should weigh against the ones on the ends."""
+    ax.plot(point[0], point[1], marker='o', markersize=4, markerfacecolor='white',
+            markeredgecolor=GLYPH_COLOR, markeredgewidth=1.0, zorder=GLYPH_ZORDER + 1)
+
+
+def _draw_load(ax, p0, p1, direction, length):
+    """A few arrows along the edge, heads on it, pointing the traction's way -- an applied
+    force (on a free edge) or the push of an imposed displacement (off a wall)."""
+    magnitude = float(np.linalg.norm(direction[:2]))
+    if magnitude == 0.0:
+        return
+    unit_dir = np.asarray(direction[:2], dtype=float) / magnitude
+    heads = [p0 + t * (p1 - p0) for t in np.linspace(0.25, 0.75, 3)]
+    xs = [h[0] for h in heads]
+    ys = [h[1] for h in heads]
+    ax.quiver(xs, ys, [unit_dir[0] * length] * 3, [unit_dir[1] * length] * 3,
+              angles='xy', scale_units='xy', scale=1.0, color=GLYPH_COLOR, width=0.006,
+              headwidth=4, headlength=5, headaxislength=4.5, pivot='tip', zorder=GLYPH_ZORDER)
+
+
+def overlay_supports(ax, mesh, bc, coords=None):
+    """Overlay support and load glyphs on a panel already showing `mesh`'s shape.
+
+    Reads the conditions off the *undeformed* `mesh` (region selection is by position, and
+    a compressed end no longer sits where `on_plane` put it), then draws each at `coords`
+    if given -- the deformed vertex positions, so a load follows the material point it acts
+    on while a support, whose point does not move, stays put. Adds only the symbols, no
+    legend; `plot_bc` is the panel that spells the values out.
+    """
+    from fem.boundary import BCType
+
+    place = mesh.vertices if coords is None else np.asarray(coords)
+    span = place[:, :2].max(axis=0) - place[:, :2].min(axis=0)
+    domain_center = (place[:, :2].max(axis=0) + place[:, :2].min(axis=0)) / 2
+    # Sized off the long dimension (the column's length), which barely moves, rather than
+    # the slender one -- a mode's transverse bow swells the short extent by several times,
+    # and glyphs sized to it would shrink and grow from panel to panel.
+    reference = float(np.max(span))
+    unit = 0.055 * reference       # support-glyph size
+    load_len = 0.07 * reference    # load-arrow length
+
+    for bc_type, idxs, values in bc.entries(mesh):
+        if len(idxs) == 0:
+            continue
+        pts = place[idxs][:, :2]
+
+        if bc_type is BCType.DIRICHLET:
+            kind = _dirichlet_kind(values)
+            if len(idxs) == 1:
+                _draw_anchor(ax, pts[0])
+                continue
+            p0, p1, normal = _edge_geometry(pts)
+            normal = _outward(normal, pts.mean(axis=0), domain_center)
+            if kind == 'pin':
+                _draw_pin_run(ax, p0, p1, normal, unit)
+            else:
+                _draw_wall(ax, p0, p1, normal, unit)
+                if kind == 'driven':
+                    _draw_load(ax, p0, p1, np.nanmean(values[:, :2], axis=0), load_len)
+        else:
+            p0, p1, _ = _edge_geometry(pts)
+            _draw_load(ax, p0, p1, np.nanmean(values[:, :2], axis=0), load_len)
+
+    # The glyphs jut past the domain (a wall outboard, an arrow's tail beyond the edge);
+    # widen the view so they are not clipped to stubs at the panel's edge.
+    pad = 1.3 * max(unit, load_len)
+    x0, x1 = ax.get_xlim()
+    y0, y1 = ax.get_ylim()
+    ax.set_xlim(x0 - pad, x1 + pad)
+    ax.set_ylim(y0 - 0.2 * pad, y1 + 0.2 * pad)

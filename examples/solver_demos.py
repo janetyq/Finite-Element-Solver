@@ -865,7 +865,11 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                   sweep_lengths=(16.0, 20.0, 28.0, 40.0)):
     """Find the loads at which a slender column buckles and the shapes it buckles into,
     then check them against Euler three ways: the mode shapes of a pinned column, the
-    effective-length factors of four end conditions, and the 1/L^2 slenderness law."""
+    effective-length factors of four end conditions, and the 1/L^2 slenderness law.
+
+    Euler's column formula (Leonhard Euler, 1744) is the exact critical load of an ideal
+    slender elastic column, P_cr = pi^2 E* I / (K L)^2, and plays the role the manufactured
+    solution does for the steady solvers: the analytic answer the computed one is held to."""
     # Buckling is an eigenproblem, not a K u = b solve: a reference load puts the column
     # under a prestress, and BucklingSolver assembles the geometric stiffness K_g from it
     # and solves K phi = -lambda K_g phi. The load factor lambda multiplies the reference
@@ -942,24 +946,30 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     pinned_solution, pinned_loads = solve_buckling(mesh, pinned(length), length)
     modes = Plotter(n_modes, 1, title='Buckling modes of a pinned-pinned column',
                     panel_aspect=6.0)
+    pinned_bc = pinned(length)
     for i in range(n_modes):
         shape, colour = buckled(pinned_solution, i, length)
         modes.plot(shape, colour, mode='colored', idx=(i, 0), cmap='coolwarm',
                    label='sideways deflection',
                    title=f'Mode {i+1}: P_cr = {pinned_loads[i]:.3g}  '
                          f'({i+1} half-wave{"s" if i else ""})')
+        # The pin/load glyphs, on the deformed shape so the load rides the moving end.
+        modes.overlay_supports(mesh, pinned_bc, idx=(i, 0), coords=shape.vertices)
 
     # -- 2. Effective length: the same column, four ways to hold its ends ---------------
     measured, factor_plots = {}, Plotter(len(ends), 1, panel_aspect=6.0,
                                          title='End conditions set the effective length')
     for row, (name, make_bc, K_ideal) in enumerate(ends):
-        solution, loads = solve_buckling(mesh, make_bc(length), length, modes=1)
+        end_bc = make_bc(length)
+        solution, loads = solve_buckling(mesh, end_bc, length, modes=1)
         K_measured = np.pi / length * np.sqrt(E_star * moment / loads[0])
         measured[name] = (K_measured, K_ideal, loads[0])
         shape, colour = buckled(solution, 0, length)
         factor_plots.plot(shape, colour, mode='colored', idx=(row, 0), cmap='coolwarm',
                           title=f'{name.splitlines()[0]}:  K = {K_measured:.2f}  '
                                 f'(Euler {K_ideal:g}),  P_cr = {loads[0]:.3g}')
+        # Each end's supports drawn on it: a wall clamps, triangles pin, arrows load.
+        factor_plots.overlay_supports(mesh, end_bc, idx=(row, 0), coords=shape.vertices)
 
     # -- 3. Euler's laws: the 1/L^2 slenderness curve and the effective-length factors ---
     sweep = [(L, solve_buckling(column(L, height, max(32, int(2 * L)), n_across),
@@ -994,7 +1004,9 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
 
     ratios = '   '.join(f'{n.splitlines()[0]}/pinned {measured[n][2] / measured["Pinned-pinned"][2]:.2f}'
                         for n, _, _ in ends if n != 'Pinned-pinned')
-    text = ('effective-length factor K (measured vs Euler):\n'
+    text = ('Euler (1744): an ideal slender column buckles at P_cr = pi^2 E* I / (K L)^2.\n'
+            'This demo reproduces it three ways -- mode shapes, end conditions, slenderness.\n\n'
+            'effective-length factor K (measured vs Euler):\n'
             + '\n'.join(f'  {n.splitlines()[0]:<14} {measured[n][0]:.3f}  (Euler {measured[n][1]:g})'
                         for n, _, _ in ends)
             + f'\nslenderness law    P_cr ~ L^{slope:.2f}   (Euler exponent -2)\n'
@@ -1002,26 +1014,36 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
 
     return DemoResult([
         Figure(modes,
-               'A pinned column buckles into half-sine waves, and the higher modes -- '
-               'reached only if the lower ones are braced against -- add a half-wave each, '
-               'at loads rising as (n)^2. This is the buckling analogue of vibration modes: '
-               'the same K phi = -lambda K_g phi eigenproblem, the mode shapes an eigenvector '
-               'apiece and the load factors the eigenvalues.',
+               'A pinned column buckles into half-sine waves; the glyphs mark the ends -- '
+               'triangles a pin (held sideways, free to rotate), arrows the compressive '
+               'load. Mode 1, one half-wave at the lowest load, is the shape a real column '
+               'actually takes. The higher modes add a half-wave each and cost n^2 as much '
+               '(mode 2 is ~4x mode 1), and are reached only if the lower ones are '
+               'prevented -- a brace at mid-span, a node of mode 2 but not of mode 1, is '
+               'what buys the jump. Read the shape and the load, not the direction or the '
+               'size: a mode is an eigenvector, so its sign is arbitrary -- the column bows '
+               'either way, and the blue/red split is that free sign -- and its amplitude '
+               'is unset, scaled here only to be visible. It is the buckling analogue of '
+               'vibration modes: one K phi = -lambda K_g phi eigenproblem, the shapes its '
+               'eigenvectors and the load factors its eigenvalues.',
                'modes', thumbnail=True),
         Figure(factor_plots,
-               'The same slender column, its ends held four ways, buckles at loads spanning '
-               '16x. Clamping an end against rotation shortens the effective length K*L the '
-               'column buckles over -- from 2L free-standing down to L/2 with both ends fixed '
-               '-- and the load goes as 1/K^2. The measured K sits within a few percent of '
-               'Euler\'s 2, 1, 1/2 and ~0.7; the small excess is a real continuum effect, a '
+               'The same slender column, its ends held four ways -- a hatched wall clamps an '
+               'end against rotation, triangles pin it (free to rotate), arrows are the load '
+               '-- buckles at loads spanning 16x. Clamping shortens the effective length K*L '
+               'the column buckles over -- from 2L free-standing down to L/2 with both ends '
+               'fixed -- and the load goes as 1/K^2. The measured K sits within a few percent '
+               'of Euler\'s 2, 1, 1/2 and ~0.7; the small excess is a real continuum effect, a '
                'clamp in a solid adding a little Saint-Venant stiffening an ideal beam has none of.',
                'end_conditions'),
         Figure(laws,
-               'Left: sweeping the length of a pinned column, the critical load falls as '
-               '1/L^2 (a slope of -2 on log-log) and lands on Euler\'s pi^2 E* I / L^2 -- with '
-               'E* = E/(1-nu^2), the plane-strain modulus, since a 2D solve is plane strain. '
-               'Right: the effective-length factor read back from each end condition\'s '
-               'buckling load, against the textbook values.',
+               'Euler\'s column formula (1744) is the exact buckling load of an ideal slender '
+               'elastic column, P_cr = pi^2 E* I / (K L)^2 -- the analytic truth this whole '
+               'demo checks against. Left: sweeping the length of a pinned column, the critical '
+               'load falls as 1/L^2 (a slope of -2 on log-log) and lands on it, with '
+               'E* = E/(1-nu^2) the plane-strain modulus a 2D solve sees. Right: the '
+               'effective-length factor K read back from each end condition\'s buckling load, '
+               'against the textbook values.',
                'laws'),
         Figure(conditions,
                'A pinned-pinned column: both ends held across their width (u_y = 0) so they '
