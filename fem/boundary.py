@@ -77,6 +77,20 @@ class BCType(Enum):
 
 
 @dataclass(frozen=True)
+class NeumannContribution:
+    '''One resolved Neumann condition: a traction ∫_∂Ω_R g·v over a region's facets.
+
+    `facet_mask` marks the boundary facets in the region; a `MaskedMassForm` over them
+    integrates `traction` (the nodal field g) across those facets alone -- the same
+    region-restricted integral a Robin condition uses. Masking is what keeps a traction
+    from spreading onto a neighbouring edge through a shared corner node, which the
+    unmasked boundary mass it replaces did, inflating the applied resultant.
+    '''
+    facet_mask: BoolArray       # one entry per boundary facet
+    traction: VertexField       # (n_vertices, n_components), nonzero on the region nodes
+
+
+@dataclass(frozen=True)
 class RobinContribution:
     '''One resolved Robin condition (∂u/∂n + κu = g on a region).
 
@@ -108,6 +122,10 @@ class ResolvedBC:
     dirichlet_vertices: VertexIndices
     neumann_vertices: VertexIndices
     robin: tuple[RobinContribution, ...] = ()   # boundary terms for the operator + load
+    # One masked traction integral per Neumann condition; the assembled load is built from
+    # these so each region stays on its own facets. `neumann_load` above is the same data
+    # as a global nodal field, kept only for the error estimator (which reads g nodally).
+    neumann: tuple[NeumannContribution, ...] = ()
 
 
 class BoundaryConditions:
@@ -228,6 +246,7 @@ class BoundaryConditions:
         n = len(nodes.vertices)
         dirichlet: dict[int, FloatArray] = {}
         neumann = np.zeros((n, n_components))
+        neumann_contributions: list[NeumannContribution] = []
         robin: list[RobinContribution] = []
         dirichlet_vertices, neumann_vertices = [], []
 
@@ -258,6 +277,13 @@ class BoundaryConditions:
             else:
                 values = evaluate_field(value, nodes.vertices[idxs], n_components)
                 neumann[idxs] += values
+                # Per-condition facet mask, so the traction integrates over this region's
+                # facets alone (as Robin does) and a corner node cannot carry it onto a
+                # neighbour. The global `neumann` field above is for the error estimator.
+                traction = np.zeros((n, n_components))
+                traction[idxs] = values
+                facet_mask = np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
+                neumann_contributions.append(NeumannContribution(facet_mask, traction))
                 neumann_vertices.extend(int(i) for i in idxs)
 
         for region, kappa, g_field in self.robin_conditions:
@@ -272,17 +298,19 @@ class BoundaryConditions:
         dirichlet_vertices = np.unique(dirichlet_vertices).astype(int)
         neumann_vertices = np.unique(neumann_vertices).astype(int)
 
-        # A fixed node ignores its traction, so the pairing is ambiguous either way.
-        # Whole-vertex, not per-component: a roller that pins one component and
-        # leaves the other genuinely natural (no Neumann condition on it at all)
-        # passes this fine. A vertex that mixes a Dirichlet component with an
-        # explicit Neumann one on a *different* component -- pin the normal, drive
-        # the tangential with a traction -- would still be rejected here; nothing
-        # currently needs that finer a mix, so it stays out of scope.
-        overlap = np.intersect1d(dirichlet_vertices, neumann_vertices)
-        if len(overlap):
+        # A fixed DOF ignores any traction on it, so the ambiguity to reject is per
+        # (vertex, component): a component that is *both* pinned and loaded. Pinning one
+        # component while a traction drives a different one -- a roller carrying a
+        # tangential load -- is well-posed and allowed; the fixed component is eliminated
+        # by `DiscreteSystem`, dropping its traction, and the free ones keep theirs.
+        conflicts = [
+            int(v) for v, values in dirichlet.items()
+            if np.any(~np.isnan(values) & (neumann[v] != 0.0))
+        ]
+        if conflicts:
             raise ValueError(
-                f'vertices carry both Dirichlet and Neumann conditions: {sorted(overlap)}'
+                'vertices carry a Dirichlet and a Neumann condition on the same '
+                f'component: {sorted(conflicts)}'
             )
 
         # Per (vertex, component): a NaN entry is a component a condition left free
@@ -311,4 +339,5 @@ class BoundaryConditions:
             dirichlet_vertices=dirichlet_vertices,
             neumann_vertices=neumann_vertices,
             robin=tuple(robin),
+            neumann=tuple(neumann_contributions),
         )
