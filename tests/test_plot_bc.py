@@ -7,8 +7,10 @@ tells a reader which mark is which, so a mark drawn without one is not much bett
 a mark not drawn at all.
 """
 import matplotlib.pyplot as plt
+import numpy as np
 import pytest
 
+from matplotlib.colors import to_rgba
 from matplotlib.patches import Polygon
 from matplotlib.quiver import Quiver
 
@@ -215,6 +217,45 @@ def test_a_single_anchor_point_overlays_as_a_dot_not_a_support(mesh):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, 0.5)), [0, 0])
     fig, ax = _overlay(mesh, bc)
+    assert not _walls(ax)
+    assert not _triangles(ax)
+    plt.close(fig)
+
+
+# -- the unification's two laws: colour is the type, shape is the role ------------------
+
+
+def test_colour_encodes_the_weak_form_type(mesh):
+    """First law: colour is the weak-form type -- Dirichlet red, Neumann blue -- so the
+    panel and the overlay speak one language rather than two."""
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])   # clamp -> red wall
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])   # traction -> blue arrows
+    fig, ax = _overlay(mesh, bc)
+
+    walls = _walls(ax)
+    assert walls
+    assert all(np.allclose(wall.get_edgecolor(), to_rgba('red')) for wall in walls)
+
+    arrows = [c for c in ax.collections if isinstance(c, Quiver)]
+    assert arrows
+    assert all(np.allclose(arrow.get_facecolor()[0], to_rgba('tab:blue')) for arrow in arrows)
+    plt.close(fig)
+
+
+def test_shape_is_the_role_only_where_the_components_allow(mesh):
+    """Second law: shape is the mechanical role, as specific as the field permits. A vector
+    clamp on an edge is a wall; the same edge in a scalar field -- which has no clamp or
+    roller -- stays a row of dots, no drafting glyph."""
+    vector = BoundaryConditions()
+    vector.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    fig, ax = _overlay(mesh, vector)
+    assert _walls(ax)
+    plt.close(fig)
+
+    scalar = BoundaryConditions()
+    scalar.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)
+    fig, ax = _overlay(mesh, scalar)
     assert not _walls(ax)
     assert not _triangles(ax)
     plt.close(fig)

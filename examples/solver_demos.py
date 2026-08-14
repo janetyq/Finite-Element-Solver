@@ -1015,22 +1015,24 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     return DemoResult([
         Figure(modes,
                'A pinned column buckles into half-sine waves; the glyphs mark the ends -- '
-               'triangles a pin (held sideways, free to rotate), arrows the compressive '
-               'load. Mode 1, one half-wave at the lowest load, is the shape a real column '
-               'actually takes. The higher modes add a half-wave each and cost n^2 as much '
-               '(mode 2 is ~4x mode 1), and are reached only if the lower ones are '
-               'prevented -- a brace at mid-span, a node of mode 2 but not of mode 1, is '
-               'what buys the jump. Read the shape and the load, not the direction or the '
-               'size: a mode is an eigenvector, so its sign is arbitrary -- the column bows '
-               'either way, and the blue/red split is that free sign -- and its amplitude '
-               'is unset, scaled here only to be visible. It is the buckling analogue of '
-               'vibration modes: one K phi = -lambda K_g phi eigenproblem, the shapes its '
-               'eigenvectors and the load factors its eigenvalues.',
+               'red triangles a pin (held sideways, free to rotate), a blue arrow the '
+               'compressive load (red holds the column, blue pushes on it). Mode 1, one '
+               'half-wave at the lowest load, is the shape a real column actually takes. '
+               'The higher modes add a half-wave each and cost n^2 as much (mode 2 is ~4x '
+               'mode 1), and are reached only if the lower ones are prevented -- a brace at '
+               'mid-span, a node of mode 2 but not of mode 1, is what buys the jump. Read '
+               'the shape and the load, not the direction or the size: a mode is an '
+               'eigenvector, so its sign is arbitrary -- the column bows either way, and the '
+               'coolwarm shading is that free sign -- and its amplitude is unset, scaled '
+               'here only to be visible. It is the buckling analogue of vibration modes: '
+               'one K phi = -lambda K_g phi eigenproblem, the shapes its eigenvectors and '
+               'the load factors its eigenvalues.',
                'modes', thumbnail=True),
         Figure(factor_plots,
-               'The same slender column, its ends held four ways -- a hatched wall clamps an '
-               'end against rotation, triangles pin it (free to rotate), arrows are the load '
-               '-- buckles at loads spanning 16x. Clamping shortens the effective length K*L '
+               'The same slender column, its ends held four ways -- a red hatched wall clamps '
+               'an end against rotation, red triangles pin it (free to rotate), blue arrows '
+               'are the load -- buckles at loads spanning 16x. Clamping shortens the effective '
+               'length K*L '
                'the column buckles over -- from 2L free-standing down to L/2 with both ends '
                'fixed -- and the load goes as 1/K^2. The measured K sits within a few percent '
                'of Euler\'s 2, 1, 1/2 and ~0.7; the small excess is a real continuum effect, a '
