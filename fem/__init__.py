@@ -67,9 +67,11 @@ from fem.solution import (
     Solution,
     FieldSolution,
     ElasticSolution,
+    BucklingSolution,
     TransientSolution,
     WaveSolution,
 )
+from fem.buckling import BucklingSolver
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
 from fem.adaptivity import AdaptiveRefinement
@@ -122,8 +124,10 @@ __all__ = [
     "Solution",
     "FieldSolution",
     "ElasticSolution",
+    "BucklingSolution",
     "TransientSolution",
     "WaveSolution",
+    "BucklingSolver",
     "EnergySolver",
     "TopologyOptimizer",
     "AdaptiveRefinement",

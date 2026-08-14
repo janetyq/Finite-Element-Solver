@@ -154,6 +154,16 @@ recovers anything. Each item below is an implementation of a seam that already e
   with no line search or trust region, so convergence currently depends on the seed being close
   enough.
 
+- 💡 **Nonlinear post-buckling, the sequel to `BucklingSolver`.** Linearised buckling now finds the
+  critical load and the mode shape (`fem/buckling.py`), but not what the structure *does* past the
+  bifurcation -- the load-deflection path once it has bowed. That is a geometrically nonlinear
+  (St-Venant–Kirchhoff) solve seeded with a small imperfection in the buckling mode, and it needs
+  exactly the globalized Newton above *plus* arc-length (Riks) control: the tangent goes indefinite
+  and the load-displacement curve turns back on itself at the limit point, where load-controlled and
+  displacement-controlled Newton both stall. The pieces line up -- `EnergySolver` for the energy,
+  the buckling mode for the imperfection shape, a globalized tangent for the indefinite region -- so
+  this is additive once arc-length joins the `SolveStrategy` family.
+
 **Features**
 - 💡 The README's roadmap (thermal expansion, transport, fluid mechanics, nonlinear
   hyperelasticity via the existing `EnergySolver`/`Energies` machinery) all fit the current

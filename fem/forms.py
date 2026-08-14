@@ -70,6 +70,30 @@ def strain_displacement(grad_phi: FloatArray) -> FloatArray:
     )
 
 
+def gradient_displacement(grad_phi: FloatArray) -> FloatArray:
+    '''Gradient-displacement matrices G: nodal DOFs -> displacement-gradient vector.
+
+    The sibling of `strain_displacement`. Where B produces the *symmetric* strain
+    a material law contracts against, G produces the *full* displacement gradient
+    `du_c/dx_i` -- the operand the geometric (initial-stress) stiffness contracts a
+    prestress against, since buckling is driven by the rotation part of the gradient
+    that the symmetric strain discards.
+
+    Operates on the trailing `(n_nodes, dim)` axes and preserves any leading batch
+    axes, returning those axes followed by `(dim*dim, n_nodes*dim)`. The gradient
+    vector is ordered component-major -- row `c*dim + i` is `d u_c / d x_i` -- and
+    DOFs are interleaved per node, so column `dim*n + e` is node n's component e.
+    That pairing is what makes the block-diagonal prestress `I ⊗ σ` in
+    `GeometricStiffnessForm` line up with it.
+    '''
+    *batch, n_nodes, dim = grad_phi.shape
+    G = np.zeros((*batch, dim * dim, n_nodes * dim))
+    for c in range(dim):       # displacement component
+        for i in range(dim):   # spatial direction
+            G[..., c * dim + i, c::dim] = grad_phi[..., i]
+    return G
+
+
 def voigt_to_tensor(voigt: FloatArray, shear_factor: float = 1.0) -> FloatArray:
     '''Unpack `(n_elements, n_strains)` Voigt vectors into `(n_elements, d, d)` tensors.
 
@@ -330,6 +354,49 @@ class LinearElasticForm:
         # lift above leaves this equal to the in-plane Voigt dot product it replaces.
         compliance = np.einsum('eij,eij,e->e', stress, strain, geometry.volumes)
         return ElasticFields(strain, stress, compliance)
+
+
+@dataclass(frozen=True)
+class GeometricStiffnessForm:
+    '''Geometric (initial-stress) stiffness ∫ Gᵀ Σ₀ G, from a per-element prestress.
+
+    The one operator whose material `C` is not a fixed constitutive law but the
+    *stress the structure is already carrying*: `G = gradient_displacement` (the
+    full gradient, not the symmetric strain `B`) and `Σ₀ = I ⊗ σ₀` block-diagonalises
+    the prestress, so the quadratic form is `Σ_c (∇u_c)ᵀ σ₀ (∇u_c)`. It is the term
+    that stiffens a structure in tension and softens it in compression -- to the
+    point of buckling, where `K + λ K_g` loses positive-definiteness.
+
+    This is exactly `term1` of the St-Venant–Kirchhoff consistent tangent
+    (`EnergyForm.element_tangents`): there the prestress is the second Piola–Kirchhoff
+    stress `dW/dS` at the current state, contracted through the constant nonlinear
+    kernel `d²S/dF²`. Here the prestress is supplied -- recovered once from a reference
+    linear solve -- so the geometric stiffness can be assembled about the undeformed
+    configuration for a *linearised* buckling eigenproblem, without a Newton solve.
+
+    `prestress` is the `(n_elements, d, d)` Cauchy stress in the spatial dimension of
+    the mesh (the in-plane 2x2 block for a 2D solve); `σ_zz` does not enter, having no
+    in-plane displacement gradient to couple to.
+    '''
+    prestress: FloatArray   # (n_elements, d, d) prestress from the reference solve
+
+    def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        d = geometry.spatial_dim
+        sigma = np.asarray(self.prestress, dtype=float)
+        if sigma.shape != (geometry.n_elements, d, d):
+            raise ValueError(
+                f'prestress must be ({geometry.n_elements}, {d}, {d}) for this mesh, '
+                f'got shape {sigma.shape}'
+            )
+        # G maps element DOFs to the displacement-gradient vector; Σ₀ = I_d ⊗ σ₀ puts
+        # the prestress on each component's diagonal block. Same Gᵀ C G contraction
+        # as LinearElasticForm, with the prestress standing in for the material.
+        G = gradient_displacement(geometry.grad_phi)     # (n_el, n_qp, d*d, N*d)
+        Sigma = np.zeros((geometry.n_elements, d * d, d * d))
+        for c in range(d):
+            Sigma[:, c * d:(c + 1) * d, c * d:(c + 1) * d] = sigma
+        return np.einsum(
+            'eqpk,epr,eqrl,eq->ekl', G, Sigma, G, geometry.weight_detJ, optimize=True)
 
 
 @dataclass(frozen=True)

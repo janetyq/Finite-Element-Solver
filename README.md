@@ -197,6 +197,23 @@ The resulting deformed mesh shows the beam bending under the forces with a max s
 
 Note: This example shows extreme displacement, in reality, the object would no longer be in the linear elastic regime and the solver would not be accurate.
 
+## Buckling Analysis
+
+A slender column under compression does not fail by crushing -- it snaps sideways into a
+bent shape once the load crosses a critical value. `BucklingSolver` finds that value and
+the shapes it buckles into by *linearised (eigenvalue) buckling*: a reference load sets up
+a prestress, the geometric stiffness `K_g` assembled from it competes with the elastic
+stiffness `K`, and the generalized eigenproblem `K φ = -λ K_g φ` gives the critical load
+factors `λ` and the buckling modes `φ`.
+
+The `buckling` demo validates this against Euler's column theory three ways: a pinned
+column buckles into half-sine waves at loads rising as `n²`; the four classic end
+conditions recover their effective-length factors (`K = 2` cantilever, `1` pinned-pinned,
+`0.5` fixed-fixed, `~0.7` fixed-pinned) to within a couple of percent; and the critical
+load falls as `1/L²`, landing on `π²E*I/L²`. The geometric stiffness is the same
+initial-stress term that makes the St-Venant-Kirchhoff energy geometrically nonlinear, so
+buckling is the linearisation of the ellipticity loss that model shows under compression.
+
 ## Adaptive Refinement
 
 The solver can also perform adaptive mesh refinement to increase the accuracy of the solution. It works by taking a per-element error estimate and refining the elements with the largest error, maintaining triangle quality with regular (red-green) refinement.
@@ -239,6 +256,8 @@ The iterations are also recorded as a video — [`images/topopt.mp4`](images/top
    elasticity
  - Derived fields: Cauchy stress and strain tensors, von Mises, principal stresses,
    compliance
+ - Stability: linearised (eigenvalue) buckling -- a geometric-stiffness matrix and a
+   sparse generalized eigensolve for critical loads and mode shapes
  - Optimization: Newton-Raphson, optimality criteria (SIMP topology optimization)
  - Mesh algorithms: Delaunay triangulation, Ruppert's algorithm (line segments ->
    triangle mesh), red-green refinement
