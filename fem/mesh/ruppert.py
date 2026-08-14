@@ -33,13 +33,9 @@ SAFE_INPUT_ANGLE = 60.0
 ENCROACHMENT_TOLERANCE = 1e-12
 
 # Twice the area over the longest edge squared -- a scale-free flatness measure, ~1 for
-# a well-shaped triangle -- below which a triangle counts as collinear to floating-point
-# precision. Splitting a segment drops its midpoint exactly on the line through its
-# endpoints, and qhull can fan those three near-collinear points into a sliver of area
-# ~1e-14. Such a sliver has no usable circumcenter -- it lands ~1e12 away and wrecks the
-# next incremental insertion -- and is a numerical artifact rather than a triangle
-# refinement can improve, so it is never counted as bad. Real triangles, however skinny,
-# stay above ~1e-3 here, six orders clear of the bound.
+# a well-shaped triangle and ~1e-14 for one whose corners lie on a line. Below this a
+# triangle counts as collinear to floating-point precision; real triangles, however
+# skinny, stay above ~1e-3. See `_is_degenerate`.
 DEGENERACY_TOLERANCE = 1e-9
 
 # Vertex indices are packed three-to-an-integer to give a triangle a name that
@@ -232,27 +228,24 @@ class RuppertsAlgorithm:
         # less sharp, but it can be made smaller.
         if self.max_area is not None:
             bad |= self.get_triangle_areas(simplices) > self.max_area
-        # A triangle collinear to floating-point precision has no circumcenter to
-        # refine towards, so it is never bad however small its angle -- see
-        # `_is_degenerate`.
+        # A degenerate sliver has no usable circumcenter, so it is never bad
+        # however small its angle -- see `_is_degenerate`.
         bad &= ~self._is_degenerate(simplices)
         return bad
 
     def _is_degenerate(self, simplices):
         '''Triangles whose corners are collinear to floating-point precision.
 
-        Scored scale-free as twice the area over the longest edge squared, against
-        `DEGENERACY_TOLERANCE`: a segment split lands a midpoint exactly on the line
-        through the segment's endpoints, and qhull can fan that triple into a
-        zero-area sliver whose circumcenter is meaningless. No real triangle,
-        however skinny, comes close to the bound, so this excludes only the artifact.
+        A segment split lands a midpoint exactly on the line through the segment's
+        endpoints, and qhull can fan that triple into a zero-area sliver. Its
+        circumcenter lands ~1e12 away, wrecking the next incremental insertion, so
+        such a sliver must be neither refined nor returned as an element.
         '''
         corners = self.vertices[simplices]
         edges = corners - corners[:, [1, 2, 0]]
         longest_sq = np.sum(edges**2, axis=-1).max(axis=-1)
-        # Compared multiplied through rather than as a ratio, so a triangle whose
-        # corners coincide (longest_sq == 0) reports degenerate instead of dividing
-        # by zero.
+        # Multiplied through rather than divided, so coincident corners
+        # (longest_sq == 0) report degenerate instead of dividing by zero.
         return 2 * self.get_triangle_areas(simplices) <= DEGENERACY_TOLERANCE * longest_sq
 
     def get_bad_triangles(self):
@@ -416,13 +409,10 @@ class RuppertsAlgorithm:
         therefore a hole without anyone having to declare it.
         '''
         labels = self.get_regions(segment_mask)
-        # One triangle speaks for its whole region, so its centroid must be a
-        # point the even-odd ray cast can trust: safely interior, never on a
-        # segment. A well-shaped triangle's centroid always is, but a degenerate
-        # one's sits on the segment its collinear corners straddle, so pick a
-        # non-degenerate representative wherever the region has one. A region that
-        # is all degenerate covers no area and drops out of the mesh, so how its
-        # label falls does not matter.
+        # A region's representative centroid must be one the even-odd ray cast can
+        # trust: a degenerate triangle's sits on the segment its collinear corners
+        # straddle, so prefer a non-degenerate representative. An all-degenerate
+        # region covers no area and drops out of the mesh, so its label is moot.
         degenerate = self._is_degenerate(self.triangulation.simplices)
         order = np.lexsort((np.arange(len(labels)), degenerate))
         representatives = order[np.unique(labels[order], return_index=True)[1]]
@@ -433,10 +423,8 @@ class RuppertsAlgorithm:
     def _enclosed_mesh(self):
         '''The enclosed triangles as a Mesh, renumbered onto the vertices it uses.'''
         simplices = self.triangulation.simplices
-        # A triangle collinear to floating-point precision covers no area and is a
-        # qhull artifact along a segment, not an element; drop it however the
-        # even-odd rule labels its region (its centroid sits on the segment, where
-        # that test is unreliable anyway).
+        # A degenerate sliver covers no area and is a qhull artifact along a
+        # segment, not an element; drop it whatever its region's label.
         kept = ~self.get_exterior_triangles() & ~self._is_degenerate(simplices)
         elements = simplices[kept]
         if len(elements) == 0:

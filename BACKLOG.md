@@ -31,13 +31,8 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 
 ## 1. Bugs & Correctness
 
-*(No open correctness bugs. The qhull precision error on tight outlines like
-`cloud.svg` is fixed: a segment split lands a midpoint exactly on the line through its
-endpoints, and qhull would fan that collinear triple into a zero-area sliver whose
-circumcenter is ~1e12 away — inserting it crashed the next incremental step. Such
-slivers are now recognised as degenerate (`RuppertsAlgorithm._is_degenerate`), so they
-are never refined and never returned as elements. Adaptive refinement is fully
-closed-loop with the residual error estimator — see the `refinement` demo.)*
+*(No open correctness bugs. Adaptive refinement is fully closed-loop with the
+residual error estimator — see the `refinement` demo.)*
 
 ---
 

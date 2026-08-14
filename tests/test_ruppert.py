@@ -29,12 +29,10 @@ SLAB_OUTLINE = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 0.5], [0.0, 0.5]])
 # A plate comfortably around the L-shape, sharing no vertex with it.
 PLATE_OUTLINE = np.array([[-3.0, -3.0], [5.0, -3.0], [5.0, 5.0], [-3.0, 5.0]])
 
-# `files/cloud.svg` simplified at tolerance 0.02, the outline from the backlog's
-# qhull-precision report. Its tight curvature makes qhull fan a segment split's
-# collinear triple (endpoint, midpoint, endpoint) into a zero-area sliver, whose
-# circumcenter lands ~1e12 away; inserting that used to crash the next
-# incremental step. Regular shapes do not reproduce it -- these exact coordinates
-# do -- so it is pinned here rather than generated.
+# `files/cloud.svg` simplified at tolerance 0.02, from the backlog's qhull-precision
+# report. Its tight curvature makes qhull fan a segment split's collinear triple into a
+# zero-area sliver that used to crash refinement. Regular shapes do not reproduce it, so
+# the exact coordinates are pinned here rather than generated.
 CLOUD_OUTLINE = np.array([
     [3.0000, 786.3507], [3.2753, 784.6595], [4.5816, 782.5672], [6.6932, 781.2728],
     [8.4000, 781.0000], [17.9224, 781.2296], [20.1318, 782.8436], [21.0000, 785.5031],
@@ -624,12 +622,11 @@ def test_a_collinear_sliver_is_never_treated_as_a_bad_triangle():
 
 
 def test_a_tight_outline_meshes_without_a_qhull_precision_error():
-    """Regression for the backlog's qhull-precision bug. `CLOUD_OUTLINE` under an
-    area cap is tight enough that qhull fans a segment split into a zero-area
-    sliver, whose circumcenter (~1e12 away) used to raise QhullError partway
-    through refinement. The mesh must come back, honour the angle bound with no
-    collinear element dragging an angle to zero, and fill exactly what the outline
-    encloses -- so that discarding the sliver drops no real region."""
+    """Regression for the backlog's qhull-precision bug: `CLOUD_OUTLINE` under an
+    area cap used to raise QhullError partway through refinement. The mesh must come
+    back, honour the angle bound (no collinear element dragging an angle to zero),
+    and fill exactly what the outline encloses, so discarding the sliver drops no
+    real region."""
     pslg = PSLG(CLOUD_OUTLINE.copy())
     algo = RuppertsAlgorithm(pslg, min_angle=30, max_area=0.005 * pslg.area())
 
