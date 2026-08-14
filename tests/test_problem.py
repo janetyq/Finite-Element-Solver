@@ -110,10 +110,9 @@ def test_with_operator_reapplies_the_robin_boundary_term(make_unit_square):
 
 
 def test_traction_load_has_the_exact_resultant(make_unit_square):
-    """A uniform traction on one edge assembles to a load whose total is the traction
-    times the loaded length. Integrating each Neumann region over its own facets is what
-    makes this exact -- the unmasked global boundary mass it replaces let a corner node's
-    hat reach onto the neighbouring edges, pushing the resultant above the applied load."""
+    """A uniform edge traction assembles to a load totalling traction x loaded-length.
+    Masking each Neumann region to its own facets is what makes this exact; the unmasked
+    boundary mass it replaces leaked onto the neighbours and inflated the resultant."""
     mesh = make_unit_square(10)
     space = FunctionSpace(mesh, n_components=1)
     bc = BoundaryConditions()
@@ -123,9 +122,8 @@ def test_traction_load_has_the_exact_resultant(make_unit_square):
 
 
 def test_traction_stays_on_its_own_edge(make_unit_square):
-    """The masked traction integrates over its region's facets only, so no load lands on
-    a node off the loaded edge -- previously a shared corner spread it onto the
-    neighbours, loading vertices the caller never named."""
+    """The masked traction integrates over its region's facets only, so no load lands on a
+    node off the loaded edge -- a shared corner used to spread it onto the neighbours."""
     mesh = make_unit_square(10)
     space = FunctionSpace(mesh, n_components=1)
     bc = BoundaryConditions()

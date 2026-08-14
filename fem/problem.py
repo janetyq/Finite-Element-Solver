@@ -53,11 +53,11 @@ class Problem(Protocol):
 
 # -- load terms: the linear form L(v), assembled as a vector --------------------
 #
-# The volume source is "a mass form over the domain, used as a load operator": the
-# volume mass matrix applied to the nodal source is the exact integral of the source's
-# P1 interpolant. The boundary tractions are the same idea over the facets, but built
-# per Neumann region (see `LinearProblem` below and `boundary.NeumannContribution`)
-# rather than through one global boundary mass, so a traction stays on its own edge.
+# The volume source is a mass form over the domain used as a load: the mass matrix times
+# the nodal source is the exact integral of its P1 interpolant. Boundary tractions are the
+# same idea over the facets, but built per Neumann region (see `LinearProblem` and
+# `boundary.NeumannContribution`) rather than one global boundary mass, so a traction
+# stays on its own edge.
 
 
 @dataclass(frozen=True)
@@ -99,10 +99,9 @@ class LinearProblem:
             self._robin_operator = term if self._robin_operator is None else self._robin_operator + term
             robin_load = robin_load + np.asarray(boundary_mass @ robin.g.flatten()).flatten()
 
-        # Each Neumann condition is a traction integrated over its own region's facets --
-        # the same region-restricted boundary mass a Robin load uses -- so a traction on
-        # one edge stays on that edge rather than spreading onto a neighbouring one through
-        # their shared corner node, which an unmasked global boundary mass would do.
+        # Each Neumann traction is integrated over its own region's facets (as the Robin
+        # load is), so it stays on that edge instead of spreading onto a neighbour through
+        # a shared corner -- which an unmasked global boundary mass would do.
         traction_load = np.zeros(space.n_dofs)
         for neumann in self._resolved.neumann:
             boundary_mass = space.assemble(
@@ -110,10 +109,10 @@ class LinearProblem:
             traction_load = traction_load + np.asarray(
                 boundary_mass @ neumann.traction.flatten()).flatten()
 
-        # The load folds those traction terms in, so callers pass only the volume source;
-        # the BC resolution supplies the rest. The source is either a field -- integrated
-        # as its P1 interpolant via the cached mass matrix -- or a LinearForm sampled at
-        # the quadrature points, for a source that varies within an element.
+        # Callers pass only the volume source; the BC resolution supplies the traction
+        # terms above. The source is a field -- integrated as its P1 interpolant via the
+        # cached mass matrix -- or a LinearForm sampled at the quadrature points, for a
+        # source that varies within an element.
         if isinstance(source, LinearForm):
             volume_load = space.assemble_load(source)
         else:

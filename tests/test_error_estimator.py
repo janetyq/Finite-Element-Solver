@@ -235,15 +235,13 @@ def test_elastic_error_estimator_neumann_matching_traction_is_quiet():
     shouldn't flag a boundary as erroneous when the prescribed data and the
     solution agree.
 
-    `g` is nodal, so a Neumann value also reaches the *neighbouring* free
-    edges through their shared corner vertex: `error_estimate` averages the
-    two endpoints' nodal `g` from `resolved.neumann_load`, which carries the
-    traction as a nodal field. Declaring top's traction therefore also lifts
-    `g` on right and left away from zero at the shared corner, changing their
-    residuals too; this is that corner-sharing worked through by hand rather
-    than assumed away. (The assembled *load* no longer spreads this way -- it
-    integrates each traction over its own region's facets -- but the estimator
-    reads the nodal `g` directly, where the corner is still shared.)
+    `g` is nodal, so a Neumann value also reaches the *neighbouring* free edges
+    through their shared corner: `error_estimate` averages the two endpoints'
+    nodal `g` from `resolved.neumann_load`. Declaring top's traction therefore
+    lifts `g` on right and left at the shared corner, changing their residuals
+    too -- corner-sharing worked through by hand rather than assumed away. (The
+    assembled *load* no longer spreads this way; the estimator reads nodal `g`,
+    where the corner is still shared.)
     """
     mesh = _unit_square_two_triangles()
     bc = BoundaryConditions()

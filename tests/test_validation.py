@@ -63,9 +63,8 @@ def test_dirichlet_neumann_same_component_is_rejected(make_unit_square):
 
 
 def test_dirichlet_neumann_different_components_is_allowed(make_unit_square):
-    """Pinning one component while a traction drives a *different* one at the same
-    vertex is a well-posed roller carrying a tangential load -- a buckling column's
-    transversely-supported, axially-loaded end -- and must resolve, not raise."""
+    """Pinning one component while a traction drives a *different* one -- a roller carrying
+    a tangential load -- is well-posed and must resolve, not raise."""
     mesh = make_unit_square(8)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [None, 0])  # u_y pinned, u_x free

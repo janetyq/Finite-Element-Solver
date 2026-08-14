@@ -80,14 +80,11 @@ class BCType(Enum):
 class NeumannContribution:
     '''One resolved Neumann condition: a traction ∫_∂Ω_R g·v over a region's facets.
 
-    `facet_mask` marks which of the mesh's boundary facets lie in the region, so a
-    `MaskedMassForm` over them integrates the traction across *those* facets alone --
-    the same region-restricted boundary integral a Robin condition uses. Masking to the
-    region's own facets is what keeps a traction on one edge from spreading onto a
-    neighbouring edge through their shared corner node, which the unmasked boundary-mass
-    load it replaces did: the corner's hat function reaches onto facets outside the
-    region, so the applied resultant came out larger than the traction times the loaded
-    length. `traction` is the nodal field, nonzero on the region's nodes.
+    `facet_mask` marks the boundary facets in the region; a `MaskedMassForm` over them
+    integrates `traction` (the nodal field g) across those facets alone -- the same
+    region-restricted integral a Robin condition uses. Masking is what keeps a traction
+    from spreading onto a neighbouring edge through a shared corner node, which the
+    unmasked boundary mass it replaces did, inflating the applied resultant.
     '''
     facet_mask: BoolArray       # one entry per boundary facet
     traction: VertexField       # (n_vertices, n_components), nonzero on the region nodes
@@ -125,10 +122,9 @@ class ResolvedBC:
     dirichlet_vertices: VertexIndices
     neumann_vertices: VertexIndices
     robin: tuple[RobinContribution, ...] = ()   # boundary terms for the operator + load
-    # Region-restricted traction integrals, one per Neumann condition. The `neumann_load`
-    # field above is the same data as a global nodal field, kept for the error estimator,
-    # which reads the nodal traction g; the assembled load is built from these instead, so
-    # each region's traction stays on its own facets (see `NeumannContribution`).
+    # One masked traction integral per Neumann condition; the assembled load is built from
+    # these so each region stays on its own facets. `neumann_load` above is the same data
+    # as a global nodal field, kept only for the error estimator (which reads g nodally).
     neumann: tuple[NeumannContribution, ...] = ()
 
 
@@ -281,10 +277,9 @@ class BoundaryConditions:
             else:
                 values = evaluate_field(value, nodes.vertices[idxs], n_components)
                 neumann[idxs] += values
-                # Per-condition, with its own facet mask, so the traction integrates over
-                # this region's facets alone -- the same masking a Robin condition uses,
-                # and what stops a corner node from carrying the load onto a neighbouring
-                # edge. The global `neumann` field above is kept for the error estimator.
+                # Per-condition facet mask, so the traction integrates over this region's
+                # facets alone (as Robin does) and a corner node cannot carry it onto a
+                # neighbour. The global `neumann` field above is for the error estimator.
                 traction = np.zeros((n, n_components))
                 traction[idxs] = values
                 facet_mask = np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
@@ -303,14 +298,11 @@ class BoundaryConditions:
         dirichlet_vertices = np.unique(dirichlet_vertices).astype(int)
         neumann_vertices = np.unique(neumann_vertices).astype(int)
 
-        # A fixed DOF ignores any traction on it, so the ambiguity to reject is
-        # per (vertex, component): pinning a component *and* loading that same
-        # component. Pinning one component while a traction drives a *different* one at
-        # the same vertex is well-posed -- a roller carrying a tangential load, which a
-        # transversely-supported, axially-loaded end (a buckling column, say) needs on
-        # the very edge it is supported -- so it is allowed. A component fixed at a vertex
-        # is eliminated by `DiscreteSystem`, which drops its traction with it; the free
-        # components keep theirs.
+        # A fixed DOF ignores any traction on it, so the ambiguity to reject is per
+        # (vertex, component): a component that is *both* pinned and loaded. Pinning one
+        # component while a traction drives a different one -- a roller carrying a
+        # tangential load -- is well-posed and allowed; the fixed component is eliminated
+        # by `DiscreteSystem`, dropping its traction, and the free ones keep theirs.
         conflicts = [
             int(v) for v, values in dirichlet.items()
             if np.any(~np.isnan(values) & (neumann[v] != 0.0))
