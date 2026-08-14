@@ -33,7 +33,7 @@ from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.regions import evaluate_field
 from fem.space import FunctionSpace
-from fem.typing import Constraints, DofVector, FieldValue, FloatArray, Operator
+from fem.typing import Constraints, DofVector, FieldValue, Operator
 
 
 class Problem(Protocol):
@@ -53,11 +53,11 @@ class Problem(Protocol):
 
 # -- load terms: the linear form L(v), assembled as a vector --------------------
 #
-# Both are "a mass form over a domain, used as a load operator": the volume mass
-# matrix applied to the nodal source is the exact integral of the source's P1
-# interpolant, and the boundary mass matrix does the same over the facets. They
-# sum, which is the composition the old assemble_everything did inline as
-# `M @ f + M_b @ neumann`.
+# The volume source is a mass form over the domain used as a load: the mass matrix times
+# the nodal source is the exact integral of its P1 interpolant. Boundary tractions are the
+# same idea over the facets, but built per Neumann region (see `LinearProblem` and
+# `boundary.NeumannContribution`) rather than one global boundary mass, so a traction
+# stays on its own edge.
 
 
 @dataclass(frozen=True)
@@ -70,15 +70,6 @@ class Source:
         # edge-midpoint nodes the mesh does not, and the mass matrix is sized to them.
         values = evaluate_field(self.field, space.node_coords, space.n_components)
         return np.asarray(space.mass_matrix @ values.flatten()).flatten()
-
-
-@dataclass(frozen=True)
-class Traction:
-    '''Boundary load L(v) = ∫ g·v over the facets, from nodal traction values.'''
-    nodal: FloatArray
-
-    def vector(self, space: FunctionSpace) -> DofVector:
-        return np.asarray(space.boundary_mass_matrix @ np.asarray(self.nodal).flatten()).flatten()
 
 
 class LinearProblem:
@@ -108,20 +99,25 @@ class LinearProblem:
             self._robin_operator = term if self._robin_operator is None else self._robin_operator + term
             robin_load = robin_load + np.asarray(boundary_mass @ robin.g.flatten()).flatten()
 
-        # The load folds the Neumann contribution in as a boundary traction term,
-        # so callers pass only the volume source; the BC resolution supplies the
-        # rest. The source is either a field -- integrated as its P1 interpolant via
-        # the cached mass matrix -- or a LinearForm sampled at the quadrature points,
-        # for a source that varies within an element.
+        # Each Neumann traction is integrated over its own region's facets (as the Robin
+        # load is), so it stays on that edge instead of spreading onto a neighbour through
+        # a shared corner -- which an unmasked global boundary mass would do.
+        traction_load = np.zeros(space.n_dofs)
+        for neumann in self._resolved.neumann:
+            boundary_mass = space.assemble(
+                MaskedMassForm(space.n_components, neumann.facet_mask), boundary=True)
+            traction_load = traction_load + np.asarray(
+                boundary_mass @ neumann.traction.flatten()).flatten()
+
+        # Callers pass only the volume source; the BC resolution supplies the traction
+        # terms above. The source is a field -- integrated as its P1 interpolant via the
+        # cached mass matrix -- or a LinearForm sampled at the quadrature points, for a
+        # source that varies within an element.
         if isinstance(source, LinearForm):
             volume_load = space.assemble_load(source)
         else:
             volume_load = Source(source).vector(space)
-        self._b = (
-            volume_load
-            + Traction(self._resolved.neumann_load).vector(space)
-            + robin_load
-        )
+        self._b = volume_load + traction_load + robin_load
         # Assembled on first use, not here. Stating a problem is cheap; assembling
         # its operator is the expensive half, and a problem can be built without
         # ever being solved -- a topology optimization iteration derives its own
