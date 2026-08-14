@@ -29,6 +29,20 @@ SLAB_OUTLINE = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 0.5], [0.0, 0.5]])
 # A plate comfortably around the L-shape, sharing no vertex with it.
 PLATE_OUTLINE = np.array([[-3.0, -3.0], [5.0, -3.0], [5.0, 5.0], [-3.0, 5.0]])
 
+# `files/cloud.svg` simplified at tolerance 0.02, the outline from the backlog's
+# qhull-precision report. Its tight curvature makes qhull fan a segment split's
+# collinear triple (endpoint, midpoint, endpoint) into a zero-area sliver, whose
+# circumcenter lands ~1e12 away; inserting that used to crash the next
+# incremental step. Regular shapes do not reproduce it -- these exact coordinates
+# do -- so it is pinned here rather than generated.
+CLOUD_OUTLINE = np.array([
+    [3.0000, 786.3507], [3.2753, 784.6595], [4.5816, 782.5672], [6.6932, 781.2728],
+    [8.4000, 781.0000], [17.9224, 781.2296], [20.1318, 782.8436], [21.0000, 785.5031],
+    [20.5073, 787.5956], [18.3000, 789.7500], [17.1148, 792.8627], [15.1901, 794.4193],
+    [13.5696, 794.9320], [11.3332, 794.8293], [9.5355, 794.0051], [7.5000, 791.5000],
+    [4.2375, 789.6797], [3.0531, 787.0782],
+])
+
 # The L-shape needs no angle refinement at any bound the algorithm can hold, so
 # tests that need refinement to have actually happened drive it with an area cap.
 REFINING_AREA = 0.05
@@ -583,3 +597,45 @@ def test_degenerate_triangle_has_a_zero_angle():
     collinear = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
 
     assert calculate_triangle_min_angle(collinear) == pytest.approx(0.0)
+
+
+def test_a_collinear_sliver_is_never_treated_as_a_bad_triangle():
+    """Splitting a segment drops its midpoint exactly on the line through its
+    endpoints, and qhull can fan that collinear triple into a zero-area sliver.
+    A sliver has no circumcenter to refine towards -- it lands ~1e12 away -- so it
+    is excluded from the bad set however far below the bound its zero angle sits,
+    while a genuinely skinny triangle is still refined as before."""
+    algo = RuppertsAlgorithm(PSLG(SQUARE_OUTLINE.copy()), min_angle=30)
+    start, end = np.array([0.0, 0.0]), np.array([2.0, 1.0])
+    extra = np.array([
+        start, end, 0.5 * (start + end),          # a segment and its split midpoint
+        [0.0, 0.0], [2.0, 0.0], [1.0, 0.05],      # a thin but non-degenerate triangle
+    ])
+    base = len(algo.vertices)
+    algo.vertices = np.vstack([algo.vertices, extra])
+
+    collinear = np.array([[base, base + 1, base + 2]])
+    assert algo._is_degenerate(collinear)[0]
+    assert not algo._fails_a_bound(collinear)[0], 'a zero-area sliver must not be refined'
+
+    skinny = np.array([[base + 3, base + 4, base + 5]])
+    assert not algo._is_degenerate(skinny)[0]
+    assert algo._fails_a_bound(skinny)[0], 'a real skinny triangle still fails the bound'
+
+
+def test_a_tight_outline_meshes_without_a_qhull_precision_error():
+    """Regression for the backlog's qhull-precision bug. `CLOUD_OUTLINE` under an
+    area cap is tight enough that qhull fans a segment split into a zero-area
+    sliver, whose circumcenter (~1e12 away) used to raise QhullError partway
+    through refinement. The mesh must come back, honour the angle bound with no
+    collinear element dragging an angle to zero, and fill exactly what the outline
+    encloses -- so that discarding the sliver drops no real region."""
+    pslg = PSLG(CLOUD_OUTLINE.copy())
+    algo = RuppertsAlgorithm(pslg, min_angle=30, max_area=0.005 * pslg.area())
+
+    mesh = algo.refine()  # used to raise scipy.spatial.QhullError
+
+    assert _min_angles(mesh).min() >= 30
+    vertices = np.asarray(mesh.vertices)
+    filled = sum(calculate_polygon_area(vertices[element]) for element in mesh.elements)
+    assert filled == pytest.approx(pslg.area())

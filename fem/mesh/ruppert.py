@@ -32,6 +32,16 @@ SAFE_INPUT_ANGLE = 60.0
 # (which would split it forever).
 ENCROACHMENT_TOLERANCE = 1e-12
 
+# Twice the area over the longest edge squared -- a scale-free flatness measure, ~1 for
+# a well-shaped triangle -- below which a triangle counts as collinear to floating-point
+# precision. Splitting a segment drops its midpoint exactly on the line through its
+# endpoints, and qhull can fan those three near-collinear points into a sliver of area
+# ~1e-14. Such a sliver has no usable circumcenter -- it lands ~1e12 away and wrecks the
+# next incremental insertion -- and is a numerical artifact rather than a triangle
+# refinement can improve, so it is never counted as bad. Real triangles, however skinny,
+# stay above ~1e-3 here, six orders clear of the bound.
+DEGENERACY_TOLERANCE = 1e-9
+
 # Vertex indices are packed three-to-an-integer to give a triangle a name that
 # survives an insertion; see `_triangle_keys`. Three indices below this bound
 # stay inside a signed 64-bit integer, and a mesh of a million vertices is far
@@ -222,7 +232,28 @@ class RuppertsAlgorithm:
         # less sharp, but it can be made smaller.
         if self.max_area is not None:
             bad |= self.get_triangle_areas(simplices) > self.max_area
+        # A triangle collinear to floating-point precision has no circumcenter to
+        # refine towards, so it is never bad however small its angle -- see
+        # `_is_degenerate`.
+        bad &= ~self._is_degenerate(simplices)
         return bad
+
+    def _is_degenerate(self, simplices):
+        '''Triangles whose corners are collinear to floating-point precision.
+
+        Scored scale-free as twice the area over the longest edge squared, against
+        `DEGENERACY_TOLERANCE`: a segment split lands a midpoint exactly on the line
+        through the segment's endpoints, and qhull can fan that triple into a
+        zero-area sliver whose circumcenter is meaningless. No real triangle,
+        however skinny, comes close to the bound, so this excludes only the artifact.
+        '''
+        corners = self.vertices[simplices]
+        edges = corners - corners[:, [1, 2, 0]]
+        longest_sq = np.sum(edges**2, axis=-1).max(axis=-1)
+        # Compared multiplied through rather than as a ratio, so a triangle whose
+        # corners coincide (longest_sq == 0) reports degenerate instead of dividing
+        # by zero.
+        return 2 * self.get_triangle_areas(simplices) <= DEGENERACY_TOLERANCE * longest_sq
 
     def get_bad_triangles(self):
         '''Interior triangles that violate the angle bound or area cap, in index order.
@@ -385,16 +416,29 @@ class RuppertsAlgorithm:
         therefore a hole without anyone having to declare it.
         '''
         labels = self.get_regions(segment_mask)
-        # A centroid is safely interior to its own triangle, and segments are
-        # edges here, so it can never land ambiguously on top of one.
-        representatives = np.unique(labels, return_index=True)[1]
+        # One triangle speaks for its whole region, so its centroid must be a
+        # point the even-odd ray cast can trust: safely interior, never on a
+        # segment. A well-shaped triangle's centroid always is, but a degenerate
+        # one's sits on the segment its collinear corners straddle, so pick a
+        # non-degenerate representative wherever the region has one. A region that
+        # is all degenerate covers no area and drops out of the mesh, so how its
+        # label falls does not matter.
+        degenerate = self._is_degenerate(self.triangulation.simplices)
+        order = np.lexsort((np.arange(len(labels)), degenerate))
+        representatives = order[np.unique(labels[order], return_index=True)[1]]
         corners = self.vertices[self.triangulation.simplices[representatives]]
         outside = self._crossing_counts(corners.mean(axis=1)) % 2 == 0
         return outside[labels]
 
     def _enclosed_mesh(self):
         '''The enclosed triangles as a Mesh, renumbered onto the vertices it uses.'''
-        elements = self.triangulation.simplices[~self.get_exterior_triangles()]
+        simplices = self.triangulation.simplices
+        # A triangle collinear to floating-point precision covers no area and is a
+        # qhull artifact along a segment, not an element; drop it however the
+        # even-odd rule labels its region (its centroid sits on the segment, where
+        # that test is unreliable anyway).
+        kept = ~self.get_exterior_triangles() & ~self._is_degenerate(simplices)
+        elements = simplices[kept]
         if len(elements) == 0:
             raise ValueError(
                 'the PSLG encloses no region: every triangle can be reached from '
