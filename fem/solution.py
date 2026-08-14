@@ -111,6 +111,42 @@ class ElasticSolution(FieldSolution):
 
 
 @dataclass(frozen=True, eq=False)
+class BucklingSolution(Solution):
+    '''Linearised buckling result: critical load factors and their mode shapes.
+
+    `load_factors[i]` is λ_i, the multiplier on the *reference load* at which the
+    structure buckles into `modes[i]` -- the eigenvalues of `K φ = -λ K_g φ`, in
+    ascending order, so `load_factors[0]` is the critical (lowest) one and its mode
+    is the shape the structure buckles into first. A mode is a shape, not a
+    displacement: its amplitude is arbitrary (the eigenproblem is homogeneous), so
+    only its form and the factor scaling the reference load are physical.
+    '''
+    load_factors: FloatArray   # (n_modes,) ascending λ
+    modes: FloatArray          # (n_modes, n_dofs) mode-shape displacement vectors
+
+    @property
+    def critical_load_factor(self) -> float:
+        '''The lowest buckling factor λ_1 -- the one a real structure reaches first.'''
+        return float(self.load_factors[0])
+
+    def mode_mesh(self, i: int, scale: float = 1.0) -> 'Mesh':
+        '''The mesh displaced by `scale` times buckling mode `i`, for drawing it.
+
+        The amplitude is meaningless on its own, so `scale` is a display choice: a
+        caller picks it to make the shape legible against the structure's size.
+
+        A P2 mode carries edge-midpoint DOFs the mesh has no vertices for, so only the
+        leading vertex DOFs move the geometry -- the mode draws as its P1 restriction,
+        the same simplification the rest of the plot layer makes for P2 fields.
+        '''
+        mesh = self.mesh.copy()
+        n_vertices = len(mesh.vertices)
+        displacement = self.modes[i].reshape(-1, self.n_components)[:n_vertices]
+        mesh.vertices = mesh.vertices + scale * displacement
+        return mesh
+
+
+@dataclass(frozen=True, eq=False)
 class TransientSolution(Solution):
     '''A time series: the times t and the field u at each step.'''
     t: FloatArray

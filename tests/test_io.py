@@ -13,7 +13,9 @@ from fem.io import load_mesh, save_mesh, save_solution
 from fem.mesh.mesh import Mesh
 from fem.numerics import bump_function
 from fem.problem import heat
-from fem.solution import ElasticSolution, FieldSolution, Solution, TransientSolution
+from fem.solution import (
+    BucklingSolution, ElasticSolution, FieldSolution, Solution, TransientSolution,
+)
 
 
 def test_mesh_json_round_trip(make_unit_square, tmp_path):
@@ -89,6 +91,29 @@ def test_loading_a_pre_tensor_elastic_solution_fails_loudly(make_unit_square):
             np.zeros(n_el),
             np.zeros(n_el),
         )
+
+
+def test_buckling_solution_round_trip(make_unit_square, tmp_path):
+    """Load factors and mode vectors (a 2-D array) survive the npz round-trip, and
+    mode_mesh still deforms the geometry afterwards."""
+    mesh = make_unit_square(6)
+    n_dofs = len(mesh.vertices) * 2
+    rng = np.random.default_rng(1)
+    solution = BucklingSolution(
+        mesh, 2,
+        np.array([1.5, 4.0, 9.0]),          # load factors
+        rng.random((3, n_dofs)),            # mode shapes
+    )
+    path = tmp_path / "buckling.npz"
+
+    solution.save(path)
+    loaded = Solution.load(path)
+
+    assert type(loaded) is BucklingSolution
+    assert np.allclose(loaded.load_factors, solution.load_factors)
+    assert np.allclose(loaded.modes, solution.modes)
+    assert loaded.critical_load_factor == pytest.approx(1.5)
+    assert loaded.mode_mesh(0).vertices.shape == mesh.vertices.shape
 
 
 def test_transient_solution_round_trip_after_solve(make_unit_square, tmp_path):

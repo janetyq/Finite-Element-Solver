@@ -29,9 +29,10 @@ from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
+from fem.buckling import BucklingSolver
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import beam, plate_with_hole_pslg, square
+from domains import beam, column, plate_with_hole_pslg, square
 
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
@@ -860,6 +861,178 @@ def demo_topology_optimization(mesh, iters=40):
                'conditions', setup=True),
     ])
 
+def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
+                  sweep_lengths=(16.0, 20.0, 28.0, 40.0)):
+    """Find the loads at which a slender column buckles and the shapes it buckles into,
+    then check them against Euler three ways: the mode shapes of a pinned column, the
+    effective-length factors of four end conditions, and the 1/L^2 slenderness law."""
+    # Buckling is an eigenproblem, not a K u = b solve: a reference load puts the column
+    # under a prestress, and BucklingSolver assembles the geometric stiffness K_g from it
+    # and solves K phi = -lambda K_g phi. The load factor lambda multiplies the reference
+    # load to reach the buckling load. Quadratic (P2) elements throughout -- the
+    # constant-strain triangle locks in bending and would need a mesh refined hard through
+    # the thickness to reach Euler, where P2 matches it on this coarse one.
+    E, nu = 200.0, 0.3
+    E_star = E / (1 - nu**2)     # plane-strain effective modulus, the one bending sees
+    moment = height**3 / 12      # second moment of area of the rectangular section
+    n_across += n_across % 2      # a vertex on the neutral axis, for the pinned anchor
+    equation = LinearElastic(E, nu)
+
+    def solve_buckling(mesh, bc, span, modes=n_modes):
+        solver = BucklingSolver(mesh, equation, bc, n_modes=modes,
+                                element_type=QuadraticTriangleElement)
+        solution = solver.solve()
+        # The load factor multiplies the reference load; the physical buckling load is
+        # that factor times the actual axial force the column carries, read at mid-span
+        # where it is uniform and clear of the end disturbances.
+        centroids = mesh.vertices[mesh.elements].mean(axis=1)
+        dx = span / (len(np.unique(mesh.vertices[:, 0])) - 1)
+        midspan = np.abs(centroids[:, 0] - span / 2) < dx
+        axial = -float(np.mean(solver.reference.stress[midspan, 0, 0])) * height
+        return solution, solution.load_factors * axial
+
+    # The four classic end conditions. What sets an end's effective-length factor is
+    # whether it can rotate, and in a continuum that is the axial DOF: a traction-loaded
+    # edge (u_x free) rotates -- a pin or a free end -- while an imposed uniform axial
+    # displacement (u_x fixed) cannot -- a clamp. u_y = 0 along a whole edge holds the end
+    # transversely without touching its rotation, which is a pin rather than a point load.
+    def cantilever(span):   # fixed-free, K = 2
+        bc = BoundaryConditions()
+        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+        bc.add(BCType.NEUMANN, on_plane(0, span), [-1.0, 0])
+        return bc
+
+    def pinned(span):       # pinned-pinned, K = 1
+        bc = BoundaryConditions()
+        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [None, 0])
+        bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, height / 2)), [0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(0, span), [None, 0])
+        bc.add(BCType.NEUMANN, on_plane(0, span), [-1.0, 0])
+        return bc
+
+    def fixed(span):        # fixed-fixed, K = 1/2
+        bc = BoundaryConditions()
+        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(0, span), [-0.02 * span, 0])
+        return bc
+
+    def fixed_pinned(span):  # fixed-pinned, K ~ 0.7
+        bc = BoundaryConditions()
+        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(0, span), [None, 0])
+        bc.add(BCType.NEUMANN, on_plane(0, span), [-1.0, 0])
+        return bc
+
+    ends = [('Cantilever\n(fixed-free)', cantilever, 2.0),
+            ('Pinned-pinned', pinned, 1.0),
+            ('Fixed-fixed', fixed, 0.5),
+            ('Fixed-pinned', fixed_pinned, 0.699)]
+
+    mesh = column(length, height, n_length, n_across)
+
+    def buckled(solution, i, span):
+        """The mesh deformed by mode `i`, scaled so its bow is a fixed fraction of span,
+        and the signed transverse displacement to colour it by."""
+        n_v = len(mesh.vertices)
+        transverse = solution.modes[i].reshape(-1, 2)[:n_v, 1]
+        scale = 0.14 * span / np.abs(transverse).max()
+        return solution.mode_mesh(i, scale), scale * transverse
+
+    # -- 1. Mode shapes of a pinned column: the buckling analogue of vibration modes ----
+    pinned_solution, pinned_loads = solve_buckling(mesh, pinned(length), length)
+    modes = Plotter(n_modes, 1, title='Buckling modes of a pinned-pinned column',
+                    panel_aspect=6.0)
+    for i in range(n_modes):
+        shape, colour = buckled(pinned_solution, i, length)
+        modes.plot(shape, colour, mode='colored', idx=(i, 0), cmap='coolwarm',
+                   label='sideways deflection',
+                   title=f'Mode {i+1}: P_cr = {pinned_loads[i]:.3g}  '
+                         f'({i+1} half-wave{"s" if i else ""})')
+
+    # -- 2. Effective length: the same column, four ways to hold its ends ---------------
+    measured, factor_plots = {}, Plotter(len(ends), 1, panel_aspect=6.0,
+                                         title='End conditions set the effective length')
+    for row, (name, make_bc, K_ideal) in enumerate(ends):
+        solution, loads = solve_buckling(mesh, make_bc(length), length, modes=1)
+        K_measured = np.pi / length * np.sqrt(E_star * moment / loads[0])
+        measured[name] = (K_measured, K_ideal, loads[0])
+        shape, colour = buckled(solution, 0, length)
+        factor_plots.plot(shape, colour, mode='colored', idx=(row, 0), cmap='coolwarm',
+                          title=f'{name.splitlines()[0]}:  K = {K_measured:.2f}  '
+                                f'(Euler {K_ideal:g}),  P_cr = {loads[0]:.3g}')
+
+    # -- 3. Euler's laws: the 1/L^2 slenderness curve and the effective-length factors ---
+    sweep = [(L, solve_buckling(column(L, height, max(32, int(2 * L)), n_across),
+                                pinned(L), L, modes=1)[1][0]) for L in sweep_lengths]
+    sweep_L = np.array([L for L, _ in sweep])
+    sweep_P = np.array([P for _, P in sweep])
+    slope = np.polyfit(np.log(sweep_L), np.log(sweep_P), 1)[0]
+
+    laws = Plotter(1, 2, title="Against Euler's column theory")
+    curve = laws.chart_ax(idx=(0, 0), xlabel='length L', ylabel='critical load P_cr')
+    curve.loglog(sweep_L, sweep_P, 'o', color='tab:blue', label=f'computed (slope {slope:.2f})')
+    dense_L = np.linspace(sweep_L.min(), sweep_L.max(), 100)
+    curve.loglog(dense_L, np.pi**2 * E_star * moment / dense_L**2, '-', color='tab:red',
+                 alpha=0.6, label='Euler  pi^2 E* I / L^2')
+    curve.set_title('Pinned column: P_cr goes as 1/L^2')
+    curve.grid(True, which='both', alpha=0.3)
+
+    names = [n.splitlines()[0] for n, _, _ in ends]
+    K_meas = [measured[n][0] for n, _, _ in ends]
+    K_ideal = [measured[n][1] for n, _, _ in ends]
+    bars = laws.chart_ax(idx=(0, 1), xlabel='', ylabel='effective-length factor K')
+    x = np.arange(len(names))
+    bars.bar(x - 0.2, K_ideal, 0.4, color='tab:red', alpha=0.6, label='Euler')
+    bars.bar(x + 0.2, K_meas, 0.4, color='tab:blue', label='computed')
+    bars.set_xticks(x, names, rotation=20, ha='right', fontsize='small')
+    bars.set_title('Effective-length factor by end condition')
+    bars.grid(True, axis='y', alpha=0.3)
+
+    # -- 4. How the pinned column is posed ----------------------------------------------
+    conditions = Plotter(panel_aspect=10.0)
+    conditions.plot(mesh, mode='bc', bc=pinned(length))
+
+    ratios = '   '.join(f'{n.splitlines()[0]}/pinned {measured[n][2] / measured["Pinned-pinned"][2]:.2f}'
+                        for n, _, _ in ends if n != 'Pinned-pinned')
+    text = ('effective-length factor K (measured vs Euler):\n'
+            + '\n'.join(f'  {n.splitlines()[0]:<14} {measured[n][0]:.3f}  (Euler {measured[n][1]:g})'
+                        for n, _, _ in ends)
+            + f'\nslenderness law    P_cr ~ L^{slope:.2f}   (Euler exponent -2)\n'
+            + f'buckling-load ratios (Euler 0.25 : 4 : 2.05):  {ratios}')
+
+    return DemoResult([
+        Figure(modes,
+               'A pinned column buckles into half-sine waves, and the higher modes -- '
+               'reached only if the lower ones are braced against -- add a half-wave each, '
+               'at loads rising as (n)^2. This is the buckling analogue of vibration modes: '
+               'the same K phi = -lambda K_g phi eigenproblem, the mode shapes an eigenvector '
+               'apiece and the load factors the eigenvalues.',
+               'modes', thumbnail=True),
+        Figure(factor_plots,
+               'The same slender column, its ends held four ways, buckles at loads spanning '
+               '16x. Clamping an end against rotation shortens the effective length K*L the '
+               'column buckles over -- from 2L free-standing down to L/2 with both ends fixed '
+               '-- and the load goes as 1/K^2. The measured K sits within a few percent of '
+               'Euler\'s 2, 1, 1/2 and ~0.7; the small excess is a real continuum effect, a '
+               'clamp in a solid adding a little Saint-Venant stiffening an ideal beam has none of.',
+               'end_conditions'),
+        Figure(laws,
+               'Left: sweeping the length of a pinned column, the critical load falls as '
+               '1/L^2 (a slope of -2 on log-log) and lands on Euler\'s pi^2 E* I / L^2 -- with '
+               'E* = E/(1-nu^2), the plane-strain modulus, since a 2D solve is plane strain. '
+               'Right: the effective-length factor read back from each end condition\'s '
+               'buckling load, against the textbook values.',
+               'laws'),
+        Figure(conditions,
+               'A pinned-pinned column: both ends held across their width (u_y = 0) so they '
+               'stay in line but can still rotate, one point anchoring the axial slide, and a '
+               'compressive traction on the right. The transverse support and the axial load '
+               'share the loaded edge -- a roller carrying a tangential traction -- which the '
+               'buckling column is the case that first needs.',
+               'conditions', setup=True),
+    ], text=text)
+
+
 def demo_heat_3d(steps=20, n=17):
     """Animate transient heat diffusion on a 3D tetrahedral box, drawn as its boundary surface."""
     # Same box and resolution convention as `elastic_3d`.
@@ -913,6 +1086,12 @@ DEMOS = [
     # Builds its own box: the only 3D domain, and the tet count is what sets the
     # cost, so the smoke run takes a coarser one.
     Demo('elastic_3d', demo_elastic_3d, section=SOLIDS, smoke_kwargs={'n': 5}),
+    # Builds its own columns -- several lengths for the slenderness sweep, plus the four
+    # end conditions -- so it takes no domain. The smoke run shrinks the mesh and the
+    # sweep, which together are all of its cost (each case is a small eigensolve).
+    Demo('buckling', demo_buckling, section=SOLIDS,
+         smoke_kwargs={'n_length': 12, 'n_across': 4, 'n_modes': 2,
+                       'sweep_lengths': (12.0, 18.0)}),
     # 2:1, because the aspect ratio is what makes SIMP produce the truss it is known
     # for. The resolution is now set by what the *filter* needs rather than by what 40
     # iterations cost: `smoothing_radius` is a fixed physical length, so refining

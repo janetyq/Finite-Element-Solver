@@ -258,6 +258,21 @@ SPD by construction. `Solver` forwards a backend to its steady solve and attache
 near-kernel (§3). `pyamg` is a base dependency rather than an extra — it needs only numpy/scipy,
 and the iterative path is the core scaling story, not a niche feature.
 
+### `BucklingSolver` — the first solve that is not `Ax = b`
+
+Linearised buckling is the one solve that steps outside the `DiscreteSystem` engine, and it
+does so because an eigenproblem is a different question, not a different matrix. `K φ = -λ K_g φ`
+has no right-hand side to back-substitute, so the factor-once-solve-many atom every other
+strategy sits on does not apply; the free-DOF reduction the engine would do is done inline here
+instead, and the pencil handed to `scipy.sparse.linalg.eigsh`. Everything upstream is reused
+unchanged: the reference (pre-buckling) state comes from an ordinary `Solver`, the geometric
+stiffness is a `Form` (`GeometricStiffnessForm`) scattered by the same `FunctionSpace.assemble`,
+and the prestress that parameterises it is the recovered stress a linear elastic solve already
+produces. The one physics primitive that is new — the geometric stiffness — is exactly `term1`
+of the St-Venant–Kirchhoff tangent (`EnergyForm.element_tangents`), so the nonlinear machinery
+already carried its kernel; buckling is the linearisation of the ellipticity loss that tangent
+models under compression.
+
 ### Time integration — a strategy per ODE order
 
 The domain has **two ODE orders** — heat is first (`M u̇ + K u = b`), wave is second
