@@ -32,6 +32,12 @@ SAFE_INPUT_ANGLE = 60.0
 # (which would split it forever).
 ENCROACHMENT_TOLERANCE = 1e-12
 
+# Twice the area over the longest edge squared -- a scale-free flatness measure, ~1 for
+# a well-shaped triangle and ~1e-14 for one whose corners lie on a line. Below this a
+# triangle counts as collinear to floating-point precision; real triangles, however
+# skinny, stay above ~1e-3. See `_is_degenerate`.
+DEGENERACY_TOLERANCE = 1e-9
+
 # Vertex indices are packed three-to-an-integer to give a triangle a name that
 # survives an insertion; see `_triangle_keys`. Three indices below this bound
 # stay inside a signed 64-bit integer, and a mesh of a million vertices is far
@@ -222,7 +228,25 @@ class RuppertsAlgorithm:
         # less sharp, but it can be made smaller.
         if self.max_area is not None:
             bad |= self.get_triangle_areas(simplices) > self.max_area
+        # A degenerate sliver has no usable circumcenter, so it is never bad
+        # however small its angle -- see `_is_degenerate`.
+        bad &= ~self._is_degenerate(simplices)
         return bad
+
+    def _is_degenerate(self, simplices):
+        '''Triangles whose corners are collinear to floating-point precision.
+
+        A segment split lands a midpoint exactly on the line through the segment's
+        endpoints, and qhull can fan that triple into a zero-area sliver. Its
+        circumcenter lands ~1e12 away, wrecking the next incremental insertion, so
+        such a sliver must be neither refined nor returned as an element.
+        '''
+        corners = self.vertices[simplices]
+        edges = corners - corners[:, [1, 2, 0]]
+        longest_sq = np.sum(edges**2, axis=-1).max(axis=-1)
+        # Multiplied through rather than divided, so coincident corners
+        # (longest_sq == 0) report degenerate instead of dividing by zero.
+        return 2 * self.get_triangle_areas(simplices) <= DEGENERACY_TOLERANCE * longest_sq
 
     def get_bad_triangles(self):
         '''Interior triangles that violate the angle bound or area cap, in index order.
@@ -385,16 +409,24 @@ class RuppertsAlgorithm:
         therefore a hole without anyone having to declare it.
         '''
         labels = self.get_regions(segment_mask)
-        # A centroid is safely interior to its own triangle, and segments are
-        # edges here, so it can never land ambiguously on top of one.
-        representatives = np.unique(labels, return_index=True)[1]
+        # A region's representative centroid must be one the even-odd ray cast can
+        # trust: a degenerate triangle's sits on the segment its collinear corners
+        # straddle, so prefer a non-degenerate representative. An all-degenerate
+        # region covers no area and drops out of the mesh, so its label is moot.
+        degenerate = self._is_degenerate(self.triangulation.simplices)
+        order = np.lexsort((np.arange(len(labels)), degenerate))
+        representatives = order[np.unique(labels[order], return_index=True)[1]]
         corners = self.vertices[self.triangulation.simplices[representatives]]
         outside = self._crossing_counts(corners.mean(axis=1)) % 2 == 0
         return outside[labels]
 
     def _enclosed_mesh(self):
         '''The enclosed triangles as a Mesh, renumbered onto the vertices it uses.'''
-        elements = self.triangulation.simplices[~self.get_exterior_triangles()]
+        simplices = self.triangulation.simplices
+        # A degenerate sliver covers no area and is a qhull artifact along a
+        # segment, not an element; drop it whatever its region's label.
+        kept = ~self.get_exterior_triangles() & ~self._is_degenerate(simplices)
+        elements = simplices[kept]
         if len(elements) == 0:
             raise ValueError(
                 'the PSLG encloses no region: every triangle can be reached from '
