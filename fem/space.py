@@ -150,6 +150,53 @@ class _ScatterPlan:
         return csr_array((data, self.indices, self.indptr), shape=self.shape)
 
 
+@dataclass(frozen=True, eq=False)
+class _VectorScatterPlan:
+    '''Where the entries of a batch of element vectors land in the global vector.
+
+    The vector counterpart of `_ScatterPlan`, and the reason both are objects: a
+    load or residual vector sums its element entries into the DOFs their nodes own,
+    exactly as an element matrix sums into (row, col) slots. A vector scatter needs
+    none of the CSR structure the matrix one builds, though -- a weighted `bincount`
+    into the destination DOFs is the whole operation -- so this holds only the flat
+    destination map and does that sum.
+
+    Resolved once per element set and reused, which is what a Newton loop
+    reassembling the residual each iteration wants: it was a per-call `np.add.at`,
+    whose unbuffered scatter is several times slower than the `bincount` here.
+    '''
+    n_entries: int          # element-vector entries this plan expects
+    destination: IntArray   # global DOF each entry sums into, one per entry
+    n_dofs: int
+
+    @classmethod
+    def build(cls, dofs: DofIndices, n_dofs: int) -> '_VectorScatterPlan':
+        '''Resolve an `(n_elements, k)` DOF map into a flat vector scatter.'''
+        destination = np.asarray(dofs).ravel()
+        return cls(n_entries=len(destination), destination=destination, n_dofs=n_dofs)
+
+    def scatter(self, element_vectors: FloatArray) -> DofVector:
+        '''Sum `element_vectors` into the global vector this plan was built for.
+
+        Entries are matched to destinations in row-major order, the same pairing
+        `np.add.at(b, dofs, element_vectors)` made, so the result is identical.
+        '''
+        if element_vectors.size != self.n_entries:
+            raise ValueError(
+                f'expected element vectors covering {self.n_entries} entries, got '
+                f'{element_vectors.size} (shape {element_vectors.shape})'
+            )
+        # bincount with float weights returns float64 at run time; the annotation
+        # (which does not narrow on `weights`) needs telling, and asarray is a
+        # no-op on the array it already is.
+        summed = np.bincount(
+            self.destination,
+            weights=np.asarray(element_vectors).ravel(),
+            minlength=self.n_dofs,
+        )
+        return np.asarray(summed, dtype=np.float64)
+
+
 @dataclass(frozen=True)
 class NodeSet:
     '''The node geometry boundary-condition resolution resolves against.
@@ -445,10 +492,7 @@ class FunctionSpace:
         '''
         geometry = self.geometry_at(form.quadrature_degree)
         vectors = form.element_vectors(geometry)
-        dofs = dof_indices(self.element_nodes, self.n_components)
-        b = np.zeros(self.n_dofs)
-        np.add.at(b, dofs, vectors)
-        return b
+        return self._volume_vector_scatter.scatter(vectors)
 
     # -- nonlinear assembly -------------------------------------------------
     #
@@ -469,10 +513,9 @@ class FunctionSpace:
         '''Scatter element residuals at `u` into grad Pi(u), shape (n_dofs,).'''
         u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
         residuals = form.element_residuals(self.geometry, u_elements)
-        dofs = dof_indices(self.element_nodes, self.n_components)
-        r = np.zeros(self.n_dofs)
-        np.add.at(r, dofs, residuals.reshape(len(self.element_nodes), -1))
-        return r
+        return self._volume_vector_scatter.scatter(
+            residuals.reshape(len(self.element_nodes), -1)
+        )
 
     def assemble_tangent(self, form: EnergyForm, u: DofVector) -> SparseMatrix:
         '''Scatter element tangents at `u` into grad^2 Pi(u), shape (n_dofs, n_dofs).'''
@@ -503,6 +546,18 @@ class FunctionSpace:
     @cached_property
     def _volume_scatter(self) -> _ScatterPlan:
         return self._scatter_plan(self.element_nodes)
+
+    @cached_property
+    def _volume_vector_scatter(self) -> _VectorScatterPlan:
+        '''The vector scatter over the volume elements: load and residual assembly.
+
+        Both `assemble_load` and `assemble_residual` sum an element vector into the
+        same volume-element DOFs, so they share one plan -- built once, reused every
+        Newton iteration.
+        '''
+        return _VectorScatterPlan.build(
+            self.dof_indices(self.element_nodes), self.n_dofs
+        )
 
     @cached_property
     def _boundary_scatter(self) -> _ScatterPlan:
