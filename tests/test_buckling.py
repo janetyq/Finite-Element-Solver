@@ -182,7 +182,8 @@ def test_green_lagrange_equation_is_rejected():
 def test_no_compression_means_no_buckling():
     """Buckling needs compression. With no load there is no prestress, K_g vanishes, and
     K + λ K_g stays positive-definite for every λ -- so the solver reports no buckling
-    mode rather than handing the eigensolver a degenerate, all-zero pencil.
+    mode rather than handing the eigensolver an all-zero `K_g`, whose eigenproblem is
+    trivial (every μ is 0, so no finite buckling factor).
 
     This is the guard's clean, decidable case. A member in overall *tension* is not one:
     a clamped end develops local corner compression, so the discrete structure always has
