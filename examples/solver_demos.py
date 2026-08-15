@@ -949,7 +949,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     pinned_bc = pinned(length)
     for i in range(n_modes):
         shape, colour = buckled(pinned_solution, i, length)
-        modes.plot(shape, colour, mode='colored', idx=(i, 0),
+        modes.plot(shape, colour, mode='colored', idx=(i, 0), cmap='coolwarm',
                    label='sideways deflection',
                    title=f'Mode {i+1}: P_cr = {pinned_loads[i]:.3g}  '
                          f'({i+1} half-wave{"s" if i else ""})')
@@ -965,7 +965,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
         K_measured = np.pi / length * np.sqrt(E_star * moment / loads[0])
         measured[name] = (K_measured, K_ideal, loads[0])
         shape, colour = buckled(solution, 0, length)
-        factor_plots.plot(shape, colour, mode='colored', idx=(row, 0),
+        factor_plots.plot(shape, colour, mode='colored', idx=(row, 0), cmap='coolwarm',
                           title=f'{name.splitlines()[0]}:  K = {K_measured:.2f}  '
                                 f'(Euler {K_ideal:g}),  P_cr = {loads[0]:.3g}')
         # Each end's supports drawn on it: a wall clamps, triangles pin, arrows load.

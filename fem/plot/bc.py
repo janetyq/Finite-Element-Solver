@@ -7,10 +7,13 @@ One vocabulary, two views. A condition is drawn with two independent axes of mea
   and the unwritten *natural* condition grey. This is universal: every PDE has essential
   and natural boundaries, whatever the field.
 * **shape is the mechanical role**, as specific as the components allow. A vector
-  (elasticity) Dirichlet edge becomes a drafting symbol -- a hatched wall for a clamp,
-  triangles for a pin/roller, an arrow off a wall for an imposed displacement -- while a
-  scalar field, which has no such roles, keeps dots and runs. Neumann is arrows (a vector
-  traction) or a run (a scalar flux); Robin is a run.
+  (elasticity) Dirichlet edge becomes a drafting symbol -- a hatched wall for a clamp, a
+  row of triangles *on a ground line* for a roller (held one way, free to rotate and to
+  slide the other), a lone triangle with no ground line for a pin (held at that point, but
+  a single point can resist no rotation, so unlike a wall it doesn't clamp the end), an
+  arrow off a wall/pin for an imposed displacement -- while a scalar field, which has none
+  of these mechanical roles, keeps dots and runs. Neumann is arrows (a vector traction) or
+  a run (a scalar flux); Robin is a run.
 
 `plot_bc` renders the standalone conditions panel every solver demo carries -- a filled
 body, the marks, and a legend of values. `overlay_supports` renders the *same marks* over
@@ -108,7 +111,7 @@ class _Mark:
     """One condition, ready to draw: its colour (weak-form type), its shape (mechanical
     role), and the vertices, values, and covered facets it applies to."""
     color: str
-    shape: str          # 'dot' | 'run' | 'arrow' | 'wall' | 'roller' | 'imposed'
+    shape: str          # 'dot' | 'run' | 'arrow' | 'wall' | 'roller' | 'pin' | 'imposed'
     idxs: np.ndarray
     values: np.ndarray
     covered: np.ndarray
@@ -128,12 +131,17 @@ def _covered_facets(mesh, idxs):
 
 
 def _dirichlet_shape(values, is_edge):
-    """The drafting shape a Dirichlet region takes. A scalar field or a pointwise pin has
-    no mechanical role to draw, so it stays a dot; a vector edge becomes the symbol its
-    components imply -- a roller (some component free), an imposed displacement (all fixed,
-    some nonzero), or a clamp (all fixed to zero)."""
-    if values.shape[1] < 2 or not is_edge:
+    """The drafting shape a Dirichlet region takes. A scalar field has no mechanical role
+    to draw, so it stays a dot regardless of shape. A vector field's region becomes the
+    symbol its geometry and components imply: a single point is a pin (it has no extent to
+    resist rotation with, so it can never be a clamp, whatever its components); an edge is
+    a roller (some component free -- it can still rotate, and slide the free way), an
+    imposed displacement (every component fixed, some nonzero), or a clamp (every
+    component fixed to zero)."""
+    if values.shape[1] < 2:
         return 'dot'
+    if not is_edge:
+        return 'pin'
     if np.isnan(values).any():
         return 'roller'
     if np.any(np.abs(values) > 1e-12):
@@ -237,13 +245,38 @@ def _fill_domain(ax, mesh):
                  cmap=ListedColormap([DOMAIN_FILL]), rasterized=True)
 
 
-def _draw_dots(ax, mesh, pts, values, color, label):
-    """Dots at each vertex -- the pointwise / scalar Dirichlet mark -- plus arrows where a
-    vector is pinned somewhere other than zero, which is a displacement being imposed."""
+def _draw_dots(ax, pts, color, label):
+    """Dots at each vertex -- the scalar Dirichlet mark. A scalar field (temperature, a
+    potential) has no mechanical role to draw as a shape, so this is the only mark it
+    ever takes."""
     ax.plot(pts[:, 0], pts[:, 1], 'o', color=color, markersize=4, label=label,
             zorder=GLYPH_ZORDER)
-    if values.shape[1] >= 2 and np.any(np.nan_to_num(values)):
-        _draw_arrows(ax, mesh, pts, values, color, None)
+
+
+def _point_outward(point, domain_center):
+    """The direction from the domain's center to `point`, so a point mark can be oriented
+    the same way an edge mark is oriented off its normal. Falls back to +y on the
+    degenerate case of a point sitting exactly at the center."""
+    direction = np.asarray(point[:2], dtype=float) - domain_center
+    norm = float(np.linalg.norm(direction))
+    return direction / norm if norm > 1e-12 else np.array([0.0, 1.0])
+
+
+def _draw_pin(ax, point, normal, unit, color, label):
+    """A lone hatched triangle at a point: a pin. Hatched like a wall -- translation is
+    fixed there, the same statement a wall makes -- but a single point has no extent to
+    resist rotation with, so unlike a wall it does not clamp the end. The hatching (not a
+    ground line) is what tells it apart from a roller when the two sit on the same edge,
+    which they typically do: a roller by itself can still slide as a rigid body, and a
+    pin is usually what a spec adds at one of its points to stop that."""
+    tri = 0.6 * unit
+    tangent = np.array([-normal[1], normal[0]])
+    apex = np.asarray(point[:2], dtype=float)
+    base = apex + normal * tri
+    poly = np.array([apex, base + tangent * 0.5 * tri, base - tangent * 0.5 * tri])
+    ax.add_patch(Polygon(poly, closed=True, facecolor='none', edgecolor=color,
+                         hatch='////', lw=1.1, zorder=GLYPH_ZORDER))
+    _legend_proxy(ax, color, '^', label)
 
 
 def _draw_run(ax, mesh, covered, color, label, linewidth=3.0, linestyle='solid'):
@@ -286,9 +319,9 @@ def _draw_wall(ax, p0, p1, normal, unit, color, label):
     _legend_proxy(ax, color, 's', label)
 
 
-def _draw_pin_run(ax, p0, p1, normal, unit, color, label):
-    """A row of triangles on a ground line: a pin/roller support -- held transversely but
-    free to rotate (and, on a roller, to slide along the edge)."""
+def _draw_roller(ax, p0, p1, normal, unit, color, label):
+    """A row of triangles on a ground line: a roller -- held one way, free to rotate and to
+    slide the other. The ground line is what tells it apart from a pin's lone triangle."""
     tri = 0.5 * unit
     tangent = np.array([-normal[1], normal[0]])
     ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color=color, lw=1.5, solid_capstyle='round',
@@ -333,8 +366,13 @@ def _draw_marks(ax, mesh, coords, marks, *, with_labels):
         pts = coords[mark.idxs][:, :2]
 
         if mark.shape == 'dot':
-            _draw_dots(ax, mesh, pts, mark.values, mark.color, label)
-            juts = juts or _has_arrow(mark.values)
+            _draw_dots(ax, pts, mark.color, label)
+        elif mark.shape == 'pin':
+            normal = _point_outward(pts[0], domain_center)
+            _draw_pin(ax, pts[0], normal, unit, mark.color, label)
+            if _has_arrow(mark.values):
+                _draw_arrows(ax, mesh, pts, mark.values, mark.color, None)
+            juts = True
         elif mark.shape == 'run':
             _draw_run(ax, mesh, mark.covered, mark.color, label)
         elif mark.shape == 'arrow':
@@ -344,7 +382,7 @@ def _draw_marks(ax, mesh, coords, marks, *, with_labels):
             p0, p1, normal = _edge_geometry(pts)
             normal = _outward(normal, pts.mean(axis=0), domain_center)
             if mark.shape == 'roller':
-                _draw_pin_run(ax, p0, p1, normal, unit, mark.color, label)
+                _draw_roller(ax, p0, p1, normal, unit, mark.color, label)
             else:
                 _draw_wall(ax, p0, p1, normal, unit, mark.color, label)
                 if mark.shape == 'imposed':
