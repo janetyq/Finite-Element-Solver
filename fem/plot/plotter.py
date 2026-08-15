@@ -27,7 +27,7 @@ from fem.plot.helpers import (
     plot_refinement,
     plot_solid,
 )
-from fem.plot.bc import plot_bc
+from fem.plot.bc import overlay_supports, plot_bc
 
 
 class PlotMode(Enum):
@@ -187,6 +187,20 @@ class Plotter:
         if empty:
             ax.axis('off')
         return artist
+
+    def overlay_supports(
+        self,
+        mesh: 'Mesh',
+        bc: 'BoundaryConditions',
+        idx: tuple[int, int] = (0, 0),
+        coords: FloatArray | None = None,
+    ) -> None:
+        """Overlay support/load glyphs on the panel at `idx` (see `fem.plot.bc`).
+
+        `coords` places them at deformed vertex positions -- for a buckled shape, so a
+        load follows the material -- while the conditions are still read off `mesh`.
+        """
+        overlay_supports(self.axs[idx], mesh, bc, coords=coords)
 
     def plot_highlights(
         self,
