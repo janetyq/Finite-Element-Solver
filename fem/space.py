@@ -90,17 +90,13 @@ def element_type_for(mesh: Mesh) -> type[LinearElement]:
 
 @dataclass(frozen=True, eq=False)
 class _ScatterPlan:
-    '''Where the entries of a batch of element matrices land in the global matrix.
+    '''Where a batch of element matrices lands in the global matrix.
 
-    Assembly sums every element-matrix entry into the global slot its (row, col)
-    names, so entries from elements sharing a node land together. Which slots exist
-    and which entries share one is fixed by the connectivity, not by the form or
-    the geometry -- so it is resolved once, here, and each assembly is then a
-    weighted `bincount` into a CSR matrix whose index arrays are already built.
-
-    That matters for a driver that assembles the same elements repeatedly: a
-    topology optimization iteration rescales the element matrices and reassembles,
-    and would otherwise re-sort the same COO triplets into CSR every time.
+    Assembly sums each entry into the global (row, col) slot its DOFs name, so
+    elements sharing a node land together. That mapping is fixed by the connectivity,
+    not the form or geometry, so it is resolved once here; each assembly is then a
+    weighted `bincount` into a CSR matrix whose index arrays are already built --
+    which is what lets a topology iteration reassemble without re-sorting into CSR.
     '''
     n_entries: int      # element-matrix entries this plan expects
     order: IntArray     # sorts those entries by destination slot
@@ -148,6 +144,46 @@ class _ScatterPlan:
             minlength=len(self.indices),
         )
         return csr_array((data, self.indices, self.indptr), shape=self.shape)
+
+
+@dataclass(frozen=True, eq=False)
+class _VectorScatterPlan:
+    '''Where a batch of element vectors lands in the global vector -- the vector
+    counterpart of `_ScatterPlan`, without the CSR structure.
+
+    A load or residual sums its entries into the DOFs its nodes own; with a plain
+    array as the target (not a sparse matrix), the whole scatter is one weighted
+    `bincount`, so this holds just the flat destination map. Resolved once and
+    reused -- what a Newton loop reassembling the residual each iteration wants,
+    in place of a per-call `np.add.at` whose unbuffered scatter is several times
+    slower.
+    '''
+    n_entries: int          # element-vector entries this plan expects
+    destination: IntArray   # global DOF each entry sums into, one per entry
+    n_dofs: int
+
+    @classmethod
+    def build(cls, dofs: DofIndices, n_dofs: int) -> '_VectorScatterPlan':
+        '''Resolve an `(n_elements, k)` DOF map into a flat vector scatter.'''
+        destination = np.asarray(dofs).ravel()
+        return cls(n_entries=len(destination), destination=destination, n_dofs=n_dofs)
+
+    def scatter(self, element_vectors: FloatArray) -> DofVector:
+        '''Sum `element_vectors` into the global vector, matching entries to
+        destinations in row-major order -- the same pairing `np.add.at` made.'''
+        if element_vectors.size != self.n_entries:
+            raise ValueError(
+                f'expected element vectors covering {self.n_entries} entries, got '
+                f'{element_vectors.size} (shape {element_vectors.shape})'
+            )
+        # bincount with float weights is float64, but its annotation doesn't say
+        # so; the asarray tells the type checker and copies nothing.
+        summed = np.bincount(
+            self.destination,
+            weights=np.asarray(element_vectors).ravel(),
+            minlength=self.n_dofs,
+        )
+        return np.asarray(summed, dtype=np.float64)
 
 
 @dataclass(frozen=True)
@@ -445,10 +481,7 @@ class FunctionSpace:
         '''
         geometry = self.geometry_at(form.quadrature_degree)
         vectors = form.element_vectors(geometry)
-        dofs = dof_indices(self.element_nodes, self.n_components)
-        b = np.zeros(self.n_dofs)
-        np.add.at(b, dofs, vectors)
-        return b
+        return self._volume_vector_scatter.scatter(vectors)
 
     # -- nonlinear assembly -------------------------------------------------
     #
@@ -469,10 +502,9 @@ class FunctionSpace:
         '''Scatter element residuals at `u` into grad Pi(u), shape (n_dofs,).'''
         u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
         residuals = form.element_residuals(self.geometry, u_elements)
-        dofs = dof_indices(self.element_nodes, self.n_components)
-        r = np.zeros(self.n_dofs)
-        np.add.at(r, dofs, residuals.reshape(len(self.element_nodes), -1))
-        return r
+        return self._volume_vector_scatter.scatter(
+            residuals.reshape(len(self.element_nodes), -1)
+        )
 
     def assemble_tangent(self, form: EnergyForm, u: DofVector) -> SparseMatrix:
         '''Scatter element tangents at `u` into grad^2 Pi(u), shape (n_dofs, n_dofs).'''
@@ -503,6 +535,15 @@ class FunctionSpace:
     @cached_property
     def _volume_scatter(self) -> _ScatterPlan:
         return self._scatter_plan(self.element_nodes)
+
+    @cached_property
+    def _volume_vector_scatter(self) -> _VectorScatterPlan:
+        '''The shared load/residual scatter: `assemble_load` and `assemble_residual`
+        both sum an element vector into the same volume-element DOFs, so one plan
+        serves both.'''
+        return _VectorScatterPlan.build(
+            self.dof_indices(self.element_nodes), self.n_dofs
+        )
 
     @cached_property
     def _boundary_scatter(self) -> _ScatterPlan:
