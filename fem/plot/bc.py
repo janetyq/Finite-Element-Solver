@@ -15,13 +15,14 @@ One vocabulary, two views. A condition is drawn with two independent axes of mea
 body, the marks, and a legend of values. `overlay_supports` renders the *same marks* over
 a result already on the axes (a buckled mode, say), so an end condition can be read off
 the shape without a legend. Both go through one classifier (`_classify`) and one set of
-glyph drawers, so the two views cannot drift into different languages.
+glyph drawers, so the two views cannot drift into different languages. (An overlay is
+drawn over a result whose colormap is chosen to avoid red and blue, so the type colours
+stay legible without any outline of their own.)
 """
 import warnings
 from dataclasses import dataclass
 
 import numpy as np
-from matplotlib import patheffects
 from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Polygon
@@ -51,14 +52,6 @@ BC_ARROW_LENGTH = 0.10
 # The drafting glyphs (wall, triangles) sized as a fraction of the domain's long extent.
 DRAFTING_SIZE = 0.055
 GLYPH_ZORDER = 6
-
-
-def _halo(base_lw):
-    """A white stroke under a mark, so a coloured glyph stays legible over a coloured
-    field. Used by the overlay, whose background is the result's own colormap -- a red
-    mark on the red end of coolwarm would otherwise vanish. The panel, on a flat grey
-    body, needs none."""
-    return [patheffects.withStroke(linewidth=base_lw + 2.0, foreground='white')]
 
 
 # -- formatting a condition's value for the legend ------------------------------------
@@ -245,29 +238,27 @@ def _fill_domain(ax, mesh):
                  cmap=ListedColormap([DOMAIN_FILL]), rasterized=True)
 
 
-def _draw_dots(ax, mesh, pts, values, color, label, halo):
+def _draw_dots(ax, mesh, pts, values, color, label):
     """Dots at each vertex -- the pointwise / scalar Dirichlet mark -- plus arrows where a
     vector is pinned somewhere other than zero, which is a displacement being imposed."""
-    pe = _halo(1.0) if halo else None
     ax.plot(pts[:, 0], pts[:, 1], 'o', color=color, markersize=4, label=label,
-            zorder=GLYPH_ZORDER, path_effects=pe)
+            zorder=GLYPH_ZORDER)
     if values.shape[1] >= 2 and np.any(np.nan_to_num(values)):
-        _draw_arrows(ax, mesh, pts, values, color, None, halo)
+        _draw_arrows(ax, mesh, pts, values, color, None)
 
 
-def _draw_run(ax, mesh, covered, color, label, halo=False, linewidth=3.0, linestyle='solid'):
+def _draw_run(ax, mesh, covered, color, label, linewidth=3.0, linestyle='solid'):
     """The covered boundary facets as a run: a scalar flux, a Robin edge, or the natural
     boundary."""
     if not covered.any():
         return
-    pe = _halo(linewidth) if halo else None
     segments = mesh.vertices[np.asarray(mesh.boundary)[covered]]
     ax.add_collection(LineCollection(segments, colors=color, linewidths=linewidth,
-                                     linestyles=linestyle, zorder=GLYPH_ZORDER, path_effects=pe))
+                                     linestyles=linestyle, zorder=GLYPH_ZORDER))
     ax.plot([], [], color=color, linewidth=linewidth, linestyle=linestyle, label=label)
 
 
-def _draw_arrows(ax, mesh, points, values, color, label, halo):
+def _draw_arrows(ax, mesh, points, values, color, label):
     """`values` as fixed-length arrows at a sample of `points`, pointing the way the
     traction (or imposed displacement) acts."""
     keep = _spread_along(points, MAX_BC_ARROWS)
@@ -277,36 +268,32 @@ def _draw_arrows(ax, mesh, points, values, color, label, halo):
 
     span = mesh.vertices.max(axis=0) - mesh.vertices.min(axis=0)
     length = BC_ARROW_LENGTH * float(np.max(span[:2]))
-    pe = _halo(1.0) if halo else None
     # Heads set explicitly: quiver sizes them off the shaft width, which is a fraction of
     # the axes width, so on a long flat panel the default is a barely visible point.
     ax.quiver(points[keep, 0], points[keep, 1], hat[:, 0], hat[:, 1], color=color,
               angles='xy', scale_units='xy', scale=1/length, width=0.008,
-              headwidth=4, headlength=5, headaxislength=4.5, zorder=GLYPH_ZORDER, path_effects=pe)
+              headwidth=4, headlength=5, headaxislength=4.5, zorder=GLYPH_ZORDER)
     _legend_proxy(ax, color, '>', label)
 
 
-def _draw_wall(ax, p0, p1, normal, unit, color, label, halo):
+def _draw_wall(ax, p0, p1, normal, unit, color, label):
     """A hatched wall along the edge: a built-in (clamped) end."""
     thickness = 0.55 * unit
-    pe = _halo(2.0) if halo else None
     ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color=color, lw=2.0, solid_capstyle='round',
-            zorder=GLYPH_ZORDER, path_effects=pe)
+            zorder=GLYPH_ZORDER)
     band = np.array([p0, p1, p1 + normal * thickness, p0 + normal * thickness])
     ax.add_patch(Polygon(band, closed=True, facecolor='none', edgecolor=color,
                          hatch='////', lw=0.0, zorder=GLYPH_ZORDER))
     _legend_proxy(ax, color, 's', label)
 
 
-def _draw_pin_run(ax, p0, p1, normal, unit, color, label, halo):
+def _draw_pin_run(ax, p0, p1, normal, unit, color, label):
     """A row of triangles on a ground line: a pin/roller support -- held transversely but
     free to rotate (and, on a roller, to slide along the edge)."""
     tri = 0.5 * unit
     tangent = np.array([-normal[1], normal[0]])
-    line_pe = _halo(1.5) if halo else None
-    patch_pe = _halo(1.1) if halo else None
     ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color=color, lw=1.5, solid_capstyle='round',
-            zorder=GLYPH_ZORDER, path_effects=line_pe)
+            zorder=GLYPH_ZORDER)
     edge_len = float(np.linalg.norm(p1 - p0))
     n_tri = int(np.clip(round(edge_len / tri), 2, 4))
     for t in np.linspace(0.18, 0.82, n_tri):
@@ -314,10 +301,9 @@ def _draw_pin_run(ax, p0, p1, normal, unit, color, label, halo):
         base = apex + normal * tri
         poly = np.array([apex, base + tangent * 0.5 * tri, base - tangent * 0.5 * tri])
         ax.add_patch(Polygon(poly, closed=True, facecolor='white', edgecolor=color,
-                             lw=1.1, zorder=GLYPH_ZORDER, path_effects=patch_pe))
+                             lw=1.1, zorder=GLYPH_ZORDER))
     g0, g1 = p0 + normal * tri, p1 + normal * tri
-    ax.plot([g0[0], g1[0]], [g0[1], g1[1]], color=color, lw=1.0, zorder=GLYPH_ZORDER,
-            path_effects=_halo(1.0) if halo else None)
+    ax.plot([g0[0], g1[0]], [g0[1], g1[1]], color=color, lw=1.0, zorder=GLYPH_ZORDER)
     _legend_proxy(ax, color, '^', label)
 
 
@@ -329,7 +315,7 @@ def _has_arrow(values):
     return values.shape[1] >= 2 and bool(np.any(np.nan_to_num(values)))
 
 
-def _draw_marks(ax, mesh, coords, marks, *, with_labels, halo):
+def _draw_marks(ax, mesh, coords, marks, *, with_labels):
     """Draw each mark at `coords` (mesh vertices for the panel, deformed positions for an
     overlay). Widens the view where a glyph juts past the body -- a wall outboard, an
     arrow beyond the edge -- so it is not clipped to a stub."""
@@ -348,22 +334,22 @@ def _draw_marks(ax, mesh, coords, marks, *, with_labels, halo):
         pts = coords[mark.idxs][:, :2]
 
         if mark.shape == 'dot':
-            _draw_dots(ax, mesh, pts, mark.values, mark.color, label, halo)
+            _draw_dots(ax, mesh, pts, mark.values, mark.color, label)
             juts = juts or _has_arrow(mark.values)
         elif mark.shape == 'run':
-            _draw_run(ax, mesh, mark.covered, mark.color, label, halo)
+            _draw_run(ax, mesh, mark.covered, mark.color, label)
         elif mark.shape == 'arrow':
-            _draw_arrows(ax, mesh, pts, mark.values, mark.color, label, halo)
+            _draw_arrows(ax, mesh, pts, mark.values, mark.color, label)
             juts = True
         else:  # wall / imposed / roller
             p0, p1, normal = _edge_geometry(pts)
             normal = _outward(normal, pts.mean(axis=0), domain_center)
             if mark.shape == 'roller':
-                _draw_pin_run(ax, p0, p1, normal, unit, mark.color, label, halo)
+                _draw_pin_run(ax, p0, p1, normal, unit, mark.color, label)
             else:
-                _draw_wall(ax, p0, p1, normal, unit, mark.color, label, halo)
+                _draw_wall(ax, p0, p1, normal, unit, mark.color, label)
                 if mark.shape == 'imposed':
-                    _draw_arrows(ax, mesh, pts, mark.values, mark.color, None, halo)
+                    _draw_arrows(ax, mesh, pts, mark.values, mark.color, None)
             juts = True
 
     if juts:
@@ -391,7 +377,7 @@ def plot_bc(ax, mesh, bc):
     plot_boundary(ax, mesh)
 
     marks, components = _classify(bc, mesh)
-    _draw_marks(ax, mesh, mesh.vertices, marks, with_labels=True, halo=False)
+    _draw_marks(ax, mesh, mesh.vertices, marks, with_labels=True)
 
     constrained = np.zeros(len(np.asarray(mesh.boundary)), dtype=bool)
     for mark in marks:
@@ -422,9 +408,9 @@ def overlay_supports(ax, mesh, bc, coords=None):
     *undeformed* `mesh` (region selection is by position, and a compressed end no longer
     sits where `on_plane` put it), then drawn at `coords` if given -- the deformed vertex
     positions, so a load follows the material point it acts on while a support, whose
-    point does not move, stays put. A white halo keeps the coloured marks legible over the
-    result's own colormap.
+    point does not move, stays put. The result underneath is drawn in a colormap that
+    avoids red and blue, so the type colours read without an outline of their own.
     """
     place = mesh.vertices if coords is None else np.asarray(coords)
     marks, _ = _classify(bc, mesh)
-    _draw_marks(ax, mesh, place, marks, with_labels=False, halo=True)
+    _draw_marks(ax, mesh, place, marks, with_labels=False)
