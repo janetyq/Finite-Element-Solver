@@ -7,6 +7,7 @@ import pytest
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.equations import LinearElastic, Poisson
+from fem.estimators import residual_estimator
 from fem.mesh.mesh import Mesh
 from fem.regions import everywhere, on_plane
 from fem.solution import ElasticSolution
@@ -21,7 +22,7 @@ def test_error_estimator_returns_correct_shape(make_unit_square):
     solver = Solver(mesh, Poisson(source=1.0), bc)
     solver.solve()
 
-    eta = solver.equation.error_estimate(solver)
+    eta = residual_estimator(solver.equation).estimate(solver)
 
     assert len(eta) == len(mesh.elements)
     assert np.all(np.isfinite(eta))
@@ -36,7 +37,7 @@ def test_error_estimator_linear_solution_small_jumps(make_unit_square):
     solver = Solver(mesh, Poisson(source=None), bc)
     solver.solve()
 
-    eta = solver.equation.error_estimate(solver)
+    eta = residual_estimator(solver.equation).estimate(solver)
 
     # Linear u = x has constant gradient, so jumps are numerical only
     assert np.all(eta < 1e-10)
@@ -57,7 +58,7 @@ def test_error_estimator_concentrates_near_peak(make_unit_square):
     solver = Solver(mesh, Poisson(source=peaked_source), bc)
     solver.solve()
 
-    eta = solver.equation.error_estimate(solver)
+    eta = residual_estimator(solver.equation).estimate(solver)
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     center_dist = np.linalg.norm(centroids - 0.5, axis=1)
 
@@ -74,7 +75,7 @@ def test_error_estimator_requires_solved_system(make_unit_square):
     solver = Solver(mesh, Poisson(source=1.0), bc)
 
     with pytest.raises(ValueError, match='requires a solved system'):
-        solver.equation.error_estimate(solver)
+        residual_estimator(solver.equation).estimate(solver)
 
 
 def test_adaptive_refinement_with_error_estimator(make_unit_square):
@@ -88,7 +89,7 @@ def test_adaptive_refinement_with_error_estimator(make_unit_square):
     n_before = len(mesh.elements)
     AdaptiveRefinement(
         solver,
-        equation.error_estimate,
+        residual_estimator(equation),
         max_triangles=300,
         max_iters=5,
     ).run()
@@ -161,7 +162,7 @@ def test_elastic_error_estimator_returns_correct_shape(make_unit_square):
     solver = Solver(mesh, equation, bc)
     solver.solve()
 
-    eta = equation.error_estimate(solver)
+    eta = residual_estimator(equation).estimate(solver)
 
     assert len(eta) == len(mesh.elements)
     assert np.all(np.isfinite(eta))
@@ -177,7 +178,7 @@ def test_elastic_error_estimator_requires_solved_system(make_unit_square):
     solver = Solver(mesh, equation, bc)
 
     with pytest.raises(ValueError, match='requires a solved system'):
-        equation.error_estimate(solver)
+        residual_estimator(equation).estimate(solver)
 
 
 def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):
@@ -193,7 +194,7 @@ def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):
     solver = Solver(mesh, equation, bc)
     solver.solve()
 
-    eta = equation.error_estimate(solver)
+    eta = residual_estimator(equation).estimate(solver)
 
     assert np.all(eta < 1e-8)
 
@@ -217,7 +218,7 @@ def test_elastic_error_estimator_boundary_term_matches_hand_derivation():
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
     _inject_constant_stress(solver, Sxx, Syy, Sxy)
 
-    eta = equation.error_estimate(solver)
+    eta = residual_estimator(equation).estimate(solver)
 
     h_K = np.sqrt(2.0)
     right_residual = Sxx**2 + Sxy**2          # element 0: bottom (skip) + right
@@ -253,7 +254,7 @@ def test_elastic_error_estimator_neumann_matching_traction_is_quiet():
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
     _inject_constant_stress(solver, Sxx, Syy, Sxy)
 
-    eta = equation.error_estimate(solver)
+    eta = residual_estimator(equation).estimate(solver)
 
     h_K = np.sqrt(2.0)
     # top's g=[0.5, 1.0] is shared by nodes 2 and 3; right (1,2) and left (0,3)
@@ -285,7 +286,7 @@ def test_elastic_error_estimator_roller_edge_only_tests_its_free_component():
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
     _inject_constant_stress(solver, Sxx, Syy, Sxy)
 
-    eta = equation.error_estimate(solver)
+    eta = residual_estimator(equation).estimate(solver)
 
     h_K = np.sqrt(2.0)
     # bottom's outward normal is (0, -1), so sigma.n = (-Sxy, -Syy); only the
@@ -319,7 +320,7 @@ def test_adaptive_refinement_elasticity_runs_end_to_end(make_unit_square):
 
     n_before = len(mesh.elements)
     solution = AdaptiveRefinement(
-        solver, equation.error_estimate, max_triangles=n_before + 200, max_iters=5,
+        solver, residual_estimator(equation), max_triangles=n_before + 200, max_iters=5,
     ).run()
 
     final = solver.mesh
