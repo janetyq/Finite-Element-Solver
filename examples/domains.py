@@ -43,10 +43,12 @@ def column(length: float = 24.0, height: float = 1.0,
     Unlike `beam`, the through-thickness count is set independently of the aspect ratio
     rather than following it. A buckling mode is bending, which the elements have to
     resolve across the height; an isotropic-triangle slice of a long column would leave
-    only two or three of them there, far too few for the mode to curve. `n_across` is
-    forced even so a vertex lands on the neutral axis, where a pinned end is anchored.
+    only two or three of them there, far too few for the mode to curve. `n_across` points
+    evenly spaced across the height land on the neutral axis only when `n_across` is odd
+    (an even number of intervals, one landing dead-center); `n_across` is forced odd so a
+    pinned end has a vertex there to anchor.
     """
-    n_across += n_across % 2
+    n_across += 1 - n_across % 2
     return create_rect_mesh(corners=[[0.0, 0.0], [length, height]],
                             resolution=(n_length, n_across))
 

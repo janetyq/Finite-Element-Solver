@@ -7,12 +7,17 @@ tells a reader which mark is which, so a mark drawn without one is not much bett
 a mark not drawn at all.
 """
 import matplotlib.pyplot as plt
+import numpy as np
 import pytest
+
+from matplotlib.colors import to_rgba
+from matplotlib.patches import Polygon
+from matplotlib.quiver import Quiver
 
 from fem.boundary import BCType, BoundaryConditions
 from fem.mesh.ruppert import create_rect_mesh
-from fem.plot.bc import plot_bc
-from fem.regions import everywhere, on_plane
+from fem.plot.bc import overlay_supports, plot_bc
+from fem.regions import everywhere, intersect, on_plane
 
 
 @pytest.fixture
@@ -137,3 +142,120 @@ def test_a_roller_reads_as_free_rather_than_nan(mesh):
     assert 'Dirichlet: u = (0, free)' in labels
     assert not any('nan' in label for label in labels)
     assert not any(isinstance(c, Quiver) for c in ax.collections)
+
+
+# -- overlay_supports: the drafting glyphs laid over a (buckled) shape ------------------
+#
+# `plot_bc` draws the labelled conditions panel; `overlay_supports` draws only the
+# symbols, for reading an end condition off a deformed shape. These check that each
+# condition reaches the axes as the right *kind* of mark -- a clamp as a hatched wall, a
+# pin as triangles, a load as arrows -- since that shape is the whole message, there
+# being no legend to name it.
+
+
+def _overlay(mesh, bc):
+    fig, ax = plt.subplots()
+    overlay_supports(ax, mesh, bc)
+    return fig, ax
+
+
+def _has_arrows(ax):
+    return any(isinstance(c, Quiver) for c in ax.collections)
+
+
+def _walls(ax):
+    return [p for p in ax.patches if isinstance(p, Polygon) and p.get_hatch()]
+
+
+def _triangles(ax):
+    return [p for p in ax.patches if isinstance(p, Polygon) and not p.get_hatch()]
+
+
+def test_a_clamp_overlays_as_a_hatched_wall(mesh):
+    """A fully-fixed edge is a built-in end: a hatched wall, and no load arrow."""
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    fig, ax = _overlay(mesh, bc)
+    assert _walls(ax)
+    assert not _has_arrows(ax)
+    plt.close(fig)
+
+
+def test_a_pin_overlays_as_triangles_not_a_wall(mesh):
+    """A roller edge (a component left free) is a pin: support triangles, no wall."""
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [None, 0])
+    fig, ax = _overlay(mesh, bc)
+    assert _triangles(ax)
+    assert not _walls(ax)
+    assert not _has_arrows(ax)
+    plt.close(fig)
+
+
+def test_a_traction_overlays_as_load_arrows(mesh):
+    bc = BoundaryConditions()
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [-1.0, 0])
+    fig, ax = _overlay(mesh, bc)
+    assert _has_arrows(ax)
+    plt.close(fig)
+
+
+def test_a_driven_end_overlays_as_a_wall_and_an_arrow(mesh):
+    """An imposed nonzero displacement both clamps and pushes: a wall with a load arrow,
+    which is what tells it apart from a plain clamp."""
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [-0.3, 0])
+    fig, ax = _overlay(mesh, bc)
+    assert _walls(ax)
+    assert _has_arrows(ax)
+    plt.close(fig)
+
+
+def test_a_single_anchor_point_overlays_as_a_dot_not_a_support(mesh):
+    """The lone point that ties off a pinned column's axial slide is scaffolding, so it is
+    a small marker -- not a wall or triangles competing with the supports on the ends."""
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, 0.5)), [0, 0])
+    fig, ax = _overlay(mesh, bc)
+    assert not _walls(ax)
+    assert not _triangles(ax)
+    plt.close(fig)
+
+
+# -- the unification's two laws: colour is the type, shape is the role ------------------
+
+
+def test_colour_encodes_the_weak_form_type(mesh):
+    """First law: colour is the weak-form type -- Dirichlet blue (held), Neumann red
+    (applied) -- so the panel and the overlay speak one language rather than two."""
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])   # clamp -> blue wall
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])   # traction -> red arrows
+    fig, ax = _overlay(mesh, bc)
+
+    walls = _walls(ax)
+    assert walls
+    assert all(np.allclose(wall.get_edgecolor(), to_rgba('tab:blue')) for wall in walls)
+
+    arrows = [c for c in ax.collections if isinstance(c, Quiver)]
+    assert arrows
+    assert all(np.allclose(arrow.get_facecolor()[0], to_rgba('red')) for arrow in arrows)
+    plt.close(fig)
+
+
+def test_shape_is_the_role_only_where_the_components_allow(mesh):
+    """Second law: shape is the mechanical role, as specific as the field permits. A vector
+    clamp on an edge is a wall; the same edge in a scalar field -- which has no clamp or
+    roller -- stays a row of dots, no drafting glyph."""
+    vector = BoundaryConditions()
+    vector.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    fig, ax = _overlay(mesh, vector)
+    assert _walls(ax)
+    plt.close(fig)
+
+    scalar = BoundaryConditions()
+    scalar.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)
+    fig, ax = _overlay(mesh, scalar)
+    assert not _walls(ax)
+    assert not _triangles(ax)
+    plt.close(fig)
