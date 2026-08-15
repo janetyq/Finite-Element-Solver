@@ -17,16 +17,18 @@ The method is three steps, and only the middle one is new to the package:
    critical load factor: the reference load times `λ_1` is the buckling load, and `φ_1`
    is the shape it buckles into.
 
-This is the package's first solve that is not `A x = b`: `DiscreteSystem` factors a
-matrix and back-substitutes right-hand sides, which an eigenproblem has none of, so the
-free-DOF reduction is done here and handed to `scipy.sparse.linalg.eigsh`. Everything
-else -- the reference solve, the assembly, the stress recovery -- is the existing
-linear machinery reused unchanged.
+Every other solver here answers `A x = b`: one matrix, one right-hand side, solved for `x`
+by `DiscreteSystem` (which removes the fixed Dirichlet DOFs and factors the matrix once).
+Buckling asks a different question -- `K φ = -λ K_g φ`, *which* load factors λ and shapes φ
+satisfy it -- and an eigenproblem has no right-hand side. So removing the fixed DOFs and
+calling `scipy.sparse.linalg.eigsh` is `EigenSolve`'s job (the eigenproblem's counterpart to
+`LinearSolve`). `BucklingSolver` just assembles `K` and `K_g`, passes them to `EigenSolve`,
+and turns the returned eigenvalues into load factors; the reference solve, the assembly, and
+the stress recovery are existing machinery reused unchanged.
 """
 import logging
 
 import numpy as np
-from scipy.sparse.linalg import ArpackNoConvergence, eigsh
 
 from fem.boundary import BoundaryConditions
 from fem.elements import Element
@@ -35,8 +37,9 @@ from fem.forms import GeometricStiffnessForm, LinearElasticForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.solution import BucklingSolution, ElasticSolution
+from fem.solve import EigenSolve
 from fem.solver import Solver
-from fem.typing import DofIndices, FloatArray, Operator
+from fem.typing import FloatArray
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +119,9 @@ class BucklingSolver:
         # Buckling needs compression somewhere: if every principal stress of the prestress
         # is non-negative, K_g is positive-semidefinite and K + λ K_g stays SPD for all
         # λ > 0, so nothing buckles. A rigorous, cheap guard for the clean cases -- an
-        # unstressed structure or one in pure tension -- that also keeps a degenerate
-        # pencil away from `eigsh`. It does not catch a member in *overall* tension whose
+        # unstressed structure or one in pure tension -- that also spares `eigsh` a
+        # trivial eigenproblem (`K_g = 0` forces every μ to 0, so no finite buckling
+        # factor). It does not catch a member in *overall* tension whose
         # clamped end develops local corner compression: that discretely does have a
         # (huge, spurious) mode, and there is no threshold-free way to rule it out here.
         principal = np.linalg.eigvalsh(prestress)     # (n_el, d), ascending per element
@@ -133,60 +137,22 @@ class BucklingSolver:
 
         resolved = self.boundary_conditions.resolve(space.nodes, space.n_components)
         logger.info('Buckling: solving the eigenproblem K phi = -lambda K_g phi...')
-        factors, mode_free = self._eigensolve(K, K_g, resolved.free_idxs)
-
-        # The buckling modes satisfy the homogeneous essential conditions -- a clamped
-        # node cannot move in the mode either -- so the fixed DOFs stay zero and only
-        # the free block is filled in.
-        modes = np.zeros((len(factors), space.n_dofs))
-        modes[:, resolved.free_idxs] = mode_free.T
+        # -K_g φ = μ K φ with K the PD side; μ = 1/λ, so the largest μ ('LA') are the
+        # smallest load factors, reached directly without shift-invert.
+        eigensolve = EigenSolve(self.n_modes, which='LA')
+        mu, modes = eigensolve.solve(-K_g, K, resolved.free_idxs, space.n_dofs)
+        factors, modes = self._buckling_factors(mu, modes)
         return BucklingSolution(self.mesh, space.n_components, factors, modes)
 
-    def _eigensolve(
-        self, K: Operator, K_g: Operator, free: DofIndices,
+    @staticmethod
+    def _buckling_factors(
+        mu: FloatArray, modes: FloatArray,
     ) -> tuple[FloatArray, FloatArray]:
-        '''The lowest buckling factors and their free-DOF mode vectors.
+        '''Raw eigenvalues `μ = 1/λ` to ascending, positive-only load factors.
 
-        Reduces both operators to the free-free block (the fixed DOFs are zero in every
-        mode) and solves the symmetric-definite pencil `-K_g φ = μ K φ` with `K` as the
-        positive-definite "mass" matrix. `μ = 1/λ`, so the algebraically largest μ are
-        the smallest load factors -- and `which='LA'` finds those directly, without the
-        shift-invert a smallest-λ request would need. Only positive μ are buckling
-        modes: a negative μ is a direction the reference load stiffens (tension) rather
-        than softens, and cannot buckle.
+        Only positive μ buckle -- a negative μ is a direction the load stiffens, not
+        softens. Modes ride along with their factors to stay aligned.
         '''
-        Kff = K[np.ix_(free, free)]
-        Kgff = K_g[np.ix_(free, free)]
-        n_free = Kff.shape[0]
-
-        # eigsh finds interior-of-spectrum pairs by Lanczos, which needs a subspace
-        # comfortably larger than the number of modes requested; cap the request so a
-        # small structure (or a smoke-test mesh) asks for fewer rather than failing.
-        k = min(self.n_modes, n_free - 2)
-        if k < 1:
-            raise ValueError(
-                f'too few free DOFs ({n_free}) to extract a buckling mode; '
-                'the structure is over-constrained or the mesh is trivially small'
-            )
-
-        # Symmetrise against round-off: assembly is symmetric by construction, but eigsh
-        # assumes exact symmetry and a stray 1e-16 asymmetry perturbs 'LA'.
-        A = -0.5 * (Kgff + Kgff.T)
-        M = 0.5 * (Kff + Kff.T)
-        try:
-            mu, vecs = eigsh(A.tocsc(), k=k, M=M.tocsc(), which='LA')
-        except ArpackNoConvergence as failure:
-            # Keep the modes that did converge: a coarse mesh resolves the first few cleanly
-            # while the higher ones, which it represents poorly, can stall. Reporting the
-            # lower modes is what a caller wants -- they are the ones that buckle first --
-            # so only a total failure (nothing converged) is unrecoverable.
-            mu, vecs = failure.eigenvalues, failure.eigenvectors
-            if mu.size == 0:
-                raise ValueError(
-                    'the buckling eigensolver did not converge to any mode; the mesh may '
-                    'be too coarse for the modes requested, or the structure ill-posed'
-                ) from failure
-
         tol = 1e-8 * float(np.max(np.abs(mu)))
         positive = mu > tol
         if not positive.any():
@@ -196,6 +162,6 @@ class BucklingSolver:
             )
 
         factors = 1.0 / mu[positive]
-        vecs = vecs[:, positive]
+        modes = modes[positive]
         order = np.argsort(factors)
-        return factors[order], vecs[:, order]
+        return factors[order], modes[order]
