@@ -226,20 +226,20 @@ def test_a_single_anchor_point_overlays_as_a_dot_not_a_support(mesh):
 
 
 def test_colour_encodes_the_weak_form_type(mesh):
-    """First law: colour is the weak-form type -- Dirichlet red, Neumann blue -- so the
-    panel and the overlay speak one language rather than two."""
+    """First law: colour is the weak-form type -- Dirichlet blue (held), Neumann red
+    (applied) -- so the panel and the overlay speak one language rather than two."""
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])   # clamp -> red wall
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])   # traction -> blue arrows
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])   # clamp -> blue wall
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])   # traction -> red arrows
     fig, ax = _overlay(mesh, bc)
 
     walls = _walls(ax)
     assert walls
-    assert all(np.allclose(wall.get_edgecolor(), to_rgba('red')) for wall in walls)
+    assert all(np.allclose(wall.get_edgecolor(), to_rgba('tab:blue')) for wall in walls)
 
     arrows = [c for c in ax.collections if isinstance(c, Quiver)]
     assert arrows
-    assert all(np.allclose(arrow.get_facecolor()[0], to_rgba('tab:blue')) for arrow in arrows)
+    assert all(np.allclose(arrow.get_facecolor()[0], to_rgba('red')) for arrow in arrows)
     plt.close(fig)
 
 

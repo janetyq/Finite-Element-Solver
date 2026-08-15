@@ -2,9 +2,10 @@
 
 One vocabulary, two views. A condition is drawn with two independent axes of meaning:
 
-* **colour is the weak-form type** -- Dirichlet red, Neumann blue, Robin orange, and the
-  unwritten *natural* condition grey. This is universal: every PDE has essential and
-  natural boundaries, whatever the field.
+* **colour is the weak-form type** -- Dirichlet blue (the boundary held at a value),
+  Neumann red (the boundary carrying an applied flux), Robin orange (a blend of both),
+  and the unwritten *natural* condition grey. This is universal: every PDE has essential
+  and natural boundaries, whatever the field.
 * **shape is the mechanical role**, as specific as the components allow. A vector
   (elasticity) Dirichlet edge becomes a drafting symbol -- a hatched wall for a clamp,
   triangles for a pin/roller, an arrow off a wall for an imposed displacement -- while a
@@ -15,9 +16,7 @@ One vocabulary, two views. A condition is drawn with two independent axes of mea
 body, the marks, and a legend of values. `overlay_supports` renders the *same marks* over
 a result already on the axes (a buckled mode, say), so an end condition can be read off
 the shape without a legend. Both go through one classifier (`_classify`) and one set of
-glyph drawers, so the two views cannot drift into different languages. (An overlay is
-drawn over a result whose colormap is chosen to avoid red and blue, so the type colours
-stay legible without any outline of their own.)
+glyph drawers, so the two views cannot drift into different languages.
 """
 import warnings
 from dataclasses import dataclass
@@ -34,7 +33,7 @@ from fem.plot.helpers import plot_boundary
 # One colour per condition type, held across the shapes a condition can take -- so a
 # Neumann flux reads as the same thing whether it came out as arrows or as a run of
 # boundary. Grey is for the condition nobody wrote, and is meant to recede.
-BC_COLORS = {'dirichlet': 'red', 'neumann': 'tab:blue', 'robin': 'tab:orange'}
+BC_COLORS = {'dirichlet': 'tab:blue', 'neumann': 'red', 'robin': 'tab:orange'}
 FREE_COLOR = '0.6'
 
 # The domain drawn as a body rather than left as white space. Without it the panel is an
@@ -408,8 +407,7 @@ def overlay_supports(ax, mesh, bc, coords=None):
     *undeformed* `mesh` (region selection is by position, and a compressed end no longer
     sits where `on_plane` put it), then drawn at `coords` if given -- the deformed vertex
     positions, so a load follows the material point it acts on while a support, whose
-    point does not move, stays put. The result underneath is drawn in a colormap that
-    avoids red and blue, so the type colours read without an outline of their own.
+    point does not move, stays put.
     """
     place = mesh.vertices if coords is None else np.asarray(coords)
     marks, _ = _classify(bc, mesh)
