@@ -90,17 +90,13 @@ def element_type_for(mesh: Mesh) -> type[LinearElement]:
 
 @dataclass(frozen=True, eq=False)
 class _ScatterPlan:
-    '''Where the entries of a batch of element matrices land in the global matrix.
+    '''Where a batch of element matrices lands in the global matrix.
 
-    Assembly sums every element-matrix entry into the global slot its (row, col)
-    names, so entries from elements sharing a node land together. Which slots exist
-    and which entries share one is fixed by the connectivity, not by the form or
-    the geometry -- so it is resolved once, here, and each assembly is then a
-    weighted `bincount` into a CSR matrix whose index arrays are already built.
-
-    That matters for a driver that assembles the same elements repeatedly: a
-    topology optimization iteration rescales the element matrices and reassembles,
-    and would otherwise re-sort the same COO triplets into CSR every time.
+    Assembly sums each entry into the global (row, col) slot its DOFs name, so
+    elements sharing a node land together. That mapping is fixed by the connectivity,
+    not the form or geometry, so it is resolved once here; each assembly is then a
+    weighted `bincount` into a CSR matrix whose index arrays are already built --
+    which is what lets a topology iteration reassemble without re-sorting into CSR.
     '''
     n_entries: int      # element-matrix entries this plan expects
     order: IntArray     # sorts those entries by destination slot
@@ -152,18 +148,15 @@ class _ScatterPlan:
 
 @dataclass(frozen=True, eq=False)
 class _VectorScatterPlan:
-    '''Where the entries of a batch of element vectors land in the global vector.
+    '''Where a batch of element vectors lands in the global vector -- the vector
+    counterpart of `_ScatterPlan`, without the CSR structure.
 
-    The vector counterpart of `_ScatterPlan`, and the reason both are objects: a
-    load or residual vector sums its element entries into the DOFs their nodes own,
-    exactly as an element matrix sums into (row, col) slots. A vector scatter needs
-    none of the CSR structure the matrix one builds, though -- a weighted `bincount`
-    into the destination DOFs is the whole operation -- so this holds only the flat
-    destination map and does that sum.
-
-    Resolved once per element set and reused, which is what a Newton loop
-    reassembling the residual each iteration wants: it was a per-call `np.add.at`,
-    whose unbuffered scatter is several times slower than the `bincount` here.
+    A load or residual sums its entries into the DOFs its nodes own; with a plain
+    array as the target (not a sparse matrix), the whole scatter is one weighted
+    `bincount`, so this holds just the flat destination map. Resolved once and
+    reused -- what a Newton loop reassembling the residual each iteration wants,
+    in place of a per-call `np.add.at` whose unbuffered scatter is several times
+    slower.
     '''
     n_entries: int          # element-vector entries this plan expects
     destination: IntArray   # global DOF each entry sums into, one per entry
@@ -176,19 +169,15 @@ class _VectorScatterPlan:
         return cls(n_entries=len(destination), destination=destination, n_dofs=n_dofs)
 
     def scatter(self, element_vectors: FloatArray) -> DofVector:
-        '''Sum `element_vectors` into the global vector this plan was built for.
-
-        Entries are matched to destinations in row-major order, the same pairing
-        `np.add.at(b, dofs, element_vectors)` made, so the result is identical.
-        '''
+        '''Sum `element_vectors` into the global vector, matching entries to
+        destinations in row-major order -- the same pairing `np.add.at` made.'''
         if element_vectors.size != self.n_entries:
             raise ValueError(
                 f'expected element vectors covering {self.n_entries} entries, got '
                 f'{element_vectors.size} (shape {element_vectors.shape})'
             )
-        # bincount with float weights returns float64 at run time; the annotation
-        # (which does not narrow on `weights`) needs telling, and asarray is a
-        # no-op on the array it already is.
+        # bincount with float weights is float64, but its annotation doesn't say
+        # so; the asarray tells the type checker and copies nothing.
         summed = np.bincount(
             self.destination,
             weights=np.asarray(element_vectors).ravel(),
@@ -549,12 +538,9 @@ class FunctionSpace:
 
     @cached_property
     def _volume_vector_scatter(self) -> _VectorScatterPlan:
-        '''The vector scatter over the volume elements: load and residual assembly.
-
-        Both `assemble_load` and `assemble_residual` sum an element vector into the
-        same volume-element DOFs, so they share one plan -- built once, reused every
-        Newton iteration.
-        '''
+        '''The shared load/residual scatter: `assemble_load` and `assemble_residual`
+        both sum an element vector into the same volume-element DOFs, so one plan
+        serves both.'''
         return _VectorScatterPlan.build(
             self.dof_indices(self.element_nodes), self.n_dofs
         )
