@@ -1066,9 +1066,9 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
     its own outline, and check them against beam theory: the fork is tuned to concert A
     by the cantilever-tine formula, and its voice is read back against the 1/L^2 law.
 
-    Modal analysis is load-free -- unlike buckling, no reference solve enters. The natural
+    Modal analysis is load-free: unlike buckling, no reference solve enters. The natural
     frequencies solve `K phi = omega^2 M phi` (elastic stiffness against consistent mass)
-    and are a property of the structure alone -- its shape, material, and supports -- the
+    and are a property of the structure alone (its shape, material, and supports), the
     way a bell's pitch is the bell's and not the striker's."""
     # Real SI steel, so the frequencies come out in Hz a musician would recognise: this is
     # the one demo that names a pitch, and the abstract E=200 the others use would not land
@@ -1083,7 +1083,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         return BETA1_SQ / (2*np.pi) * (thickness / length**2) * np.sqrt(E_STAR / (12*RHO))
 
     def clamp():
-        """Grounded at the stem base -- the fork's node, held without damping the voice."""
+        """Grounded at the stem base: the fork's node, held without damping the voice."""
         bc = BoundaryConditions()
         bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
         return bc
@@ -1104,7 +1104,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
     def voice_index(mesh, solution):
         """The acoustic mode: the lowest whose two tine tips swing in opposite directions.
 
-        A clamped fork's low modes come in pairs -- the tips moving together (a rocking
+        A clamped fork's low modes come in pairs: the tips moving together (a rocking
         that shakes the stem, damped the moment the fork is held there) or oppositely.
         The oppositely-moving one keeps the stem still and rings; it is the lowest with
         the tip transverse motions of opposite sign.
@@ -1149,7 +1149,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         hide_x_ticks(modes, (0, i))
     modes.fig.supxlabel(
         'Colour: sideways (transverse) displacement of the mode. Its sign and amplitude '
-        'are arbitrary -- the pattern of motion is what is physical.', fontsize='small')
+        'are arbitrary; the pattern of motion is what is physical.', fontsize='small')
 
     # -- 2. The voice, flexing: the mode as motion rather than a frozen shape -----------
     transverse = solution.modes[voice].reshape(-1, 2)[:n_v, 0]
@@ -1165,10 +1165,10 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
                          titles=['']*n_frames)
     # Say plainly what the animation is: not a dynamics simulation, but the mode's own
     # exact solution evaluated frame by frame. A standing-wave mode separates into a fixed
-    # shape times cos(omega t), so no time-stepping is needed -- and none is done here.
+    # shape times cos(omega t), so no time-stepping is needed, and none is done here.
     swing.fig.supxlabel(
         "Not a time-stepped simulation: this is the mode's exact\n"
-        'motion phi cos(omega t) -- one undamped, idealized mode\n'
+        'motion phi cos(omega t), one undamped, idealized mode\n'
         'at exaggerated amplitude. Only the shape and frequency\n'
         'are physical, not the size; a real fork mixes modes and\n'
         'rings down.', fontsize='small')
@@ -1228,7 +1228,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         Figure(modes,
                'The fork rings in these shapes, each at its own pitch. The low modes come '
                'in pairs: the tips swing together (a rocking that shakes the stem, damped '
-               'the moment the fork is held there) or oppositely -- and the oppositely '
+               'the moment the fork is held there) or oppositely, and the oppositely '
                'moving one, which leaves the stem still, is "the voice" the fork is made '
                'for. A mode is an eigenvector, so its sign is free (the shading is that '
                'free sign, red one way and blue the other) and its amplitude unset, scaled '
@@ -1248,15 +1248,15 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
                'falling as 1/L^2. Sweeping the tine length, the computed fork tracks that '
                'slope and sits a little below the ideal-tine line, because a real fork\'s '
                'base yields where beam theory assumes a rigid clamp. Right: this fork\'s '
-               'first modes -- the voice (red) lands near concert A, a few percent under '
+               'first modes: the voice (red) lands near concert A, a few percent under '
                'the ideal tine for the same base-compliance reason.',
                'law'),
         Figure(built,
-               'The fork is one non-convex outline -- stem, base, two tines with a slot -- '
+               'The fork is one non-convex outline (stem, base, two tines with a slot) '
                'meshed by Ruppert\'s algorithm, with no structured grid. It is held only at '
                'the stem base: that Dirichlet clamp grounds the structure (a free body has '
                'rigid-body modes the shift-invert eigensolve cannot factor through) and is '
-               'exactly where a fork is held -- the one place that does not damp the voice, '
+               'exactly where a fork is held: the one place that does not damp the voice, '
                'since the stem barely moves in it.',
                'built', setup=True),
     ], text=text)

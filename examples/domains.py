@@ -87,7 +87,7 @@ def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,
     Dimensions are in metres, sized so a steel fork's fundamental lands near concert A
     (see `demo_modal`): each tine is a clamped-free beam of length `tine_length` and
     thickness `tine_thickness`, and beam theory sets the tone from those two and the
-    material. Centred on x = 0, with the stem base on y = 0 -- the line a modal solve
+    material. Centred on x = 0, with the stem base on y = 0: the line a modal solve
     clamps, the node a real fork is held at.
     """
     half_outer = gap / 2 + tine_thickness       # tine outer edge, |x| at the tips

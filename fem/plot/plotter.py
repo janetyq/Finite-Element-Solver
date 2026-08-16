@@ -233,8 +233,8 @@ class Plotter:
     ) -> None:
         """Animate `values` over the panel at `idx`.
 
-        `meshes` supplies one mesh per frame when the *geometry* moves -- a vibration
-        mode flexing, say -- rather than a field changing over fixed geometry. The
+        `meshes` supplies one mesh per frame when the geometry moves (a vibration
+        mode flexing, say) rather than a field changing over fixed geometry. The
         colours still come from `values`, but a moving mesh cannot be recoloured in
         place, so each frame redraws within bounds fixed across the series (so the shape
         flexes in view instead of the axes rescaling to follow it). Leave it `None` for

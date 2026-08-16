@@ -151,7 +151,7 @@ class ModalSolution(Solution):
     '''Free-vibration result: natural frequencies and their mode shapes.
 
     `angular_frequencies[i]` is omega_i (rad/s), ascending, and `modes[i]` the shape the
-    structure oscillates in at that frequency -- the eigenpairs of `K phi = omega^2 M phi`.
+    structure oscillates in at that frequency: the eigenpairs of `K phi = omega^2 M phi`.
     Like a buckling mode, a mode shape has arbitrary amplitude (the eigenproblem is
     homogeneous): only its form and its frequency are physical, and any real free
     vibration is a superposition of the modes, weighted by how the structure was set
@@ -176,7 +176,7 @@ class ModalSolution(Solution):
 
         The amplitude is arbitrary, so `scale` is a display choice a caller picks to make
         the shape legible. A P2 mode carries edge-midpoint DOFs the mesh has no vertices
-        for, so only the leading vertex DOFs move the geometry -- the mode draws as its P1
+        for, so only the leading vertex DOFs move the geometry: the mode draws as its P1
         restriction, the same simplification the rest of the plot layer makes for P2.
         '''
         mesh = self.mesh.copy()
