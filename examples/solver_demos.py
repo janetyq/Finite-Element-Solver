@@ -462,13 +462,8 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
                 f'A plate pulled from the right, with the hole left traction-free. The '
                 f'stress crowds into the material either side of the hole and relaxes '
                 f'to the applied value within about a diameter, peaking at {peak:.1f}x '
-                f'the applied stress. Kirsch gives 3x, for a hole in an infinite '
-                f'plate. This one is three hole-diameters tall, so the hole removes '
-                f'enough section to push the peak above that limit, and the excess '
-                f'shrinks as the hole does. A textbook constant is a limit, not a '
-                f'target, and one digit is all this measurement supports, since the '
-                f'peak is sampled at element centroids near the steepest gradient in '
-                f'the field.',
+                f'the applied stress, just above the classic Kirsch factor of 3x that '
+                f'holds for a hole in an infinite plate.',
                 'stress', thumbnail=True)],
         text=(f'outline points           {len(pslg.vertices)}  '
               f'(rectangle + polygonalised rim)\n'
@@ -892,41 +887,43 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
         # that factor times the actual axial force the column carries, read at mid-span
         # where it is uniform and clear of the end disturbances.
         centroids = mesh.vertices[mesh.elements].mean(axis=1)
-        dx = span / (len(np.unique(mesh.vertices[:, 0])) - 1)
-        midspan = np.abs(centroids[:, 0] - span / 2) < dx
-        axial = -float(np.mean(solver.reference.stress[midspan, 0, 0])) * height
+        dy = span / (len(np.unique(mesh.vertices[:, 1])) - 1)
+        midspan = np.abs(centroids[:, 1] - span / 2) < dy
+        axial = -float(np.mean(solver.reference.stress[midspan, 1, 1])) * height
         return solution, solution.load_factors * axial
 
     # The four classic end conditions. What sets an end's effective-length factor is
     # whether it can rotate, and in a continuum that is the axial DOF: a traction-loaded
-    # edge (u_x free) rotates (a pin or a free end) while an imposed uniform axial
-    # displacement (u_x fixed) cannot (a clamp). u_y = 0 along a whole edge holds the end
+    # edge (u_y free) rotates (a pin or a free end) while an imposed uniform axial
+    # displacement (u_y fixed) cannot (a clamp). u_x = 0 along a whole edge holds the end
     # transversely without touching its rotation, which is a pin rather than a point load.
+    # The column stands along y, so the ends are at y = 0 and y = span and the load pushes
+    # down the axis in -y.
     def cantilever(span):   # fixed-free, K = 2
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-        bc.add(BCType.NEUMANN, on_plane(0, span), [-1.0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
+        bc.add(BCType.NEUMANN, on_plane(1, span), [0, -1.0])
         return bc
 
     def pinned(span):       # pinned-pinned, K = 1
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [None, 0])
-        bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, height / 2)), [0, 0])
-        bc.add(BCType.DIRICHLET, on_plane(0, span), [None, 0])
-        bc.add(BCType.NEUMANN, on_plane(0, span), [-1.0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, None])
+        bc.add(BCType.DIRICHLET, intersect(on_plane(1, 0.0), on_plane(0, height / 2)), [0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, span), [0, None])
+        bc.add(BCType.NEUMANN, on_plane(1, span), [0, -1.0])
         return bc
 
     def fixed(span):        # fixed-fixed, K = 1/2
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-        bc.add(BCType.DIRICHLET, on_plane(0, span), [-0.02 * span, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, span), [0, -0.02 * span])
         return bc
 
     def fixed_pinned(span):  # fixed-pinned, K ~ 0.7
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-        bc.add(BCType.DIRICHLET, on_plane(0, span), [None, 0])
-        bc.add(BCType.NEUMANN, on_plane(0, span), [-1.0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, span), [0, None])
+        bc.add(BCType.NEUMANN, on_plane(1, span), [0, -1.0])
         return bc
 
     ends = [('Cantilever\n(fixed-free)', cantilever, 2.0),
@@ -940,38 +937,45 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
         """The mesh deformed by mode `i`, scaled so its bow is a fixed fraction of span,
         and the signed transverse displacement to colour it by."""
         n_v = len(mesh.vertices)
-        transverse = solution.modes[i].reshape(-1, 2)[:n_v, 1]
+        transverse = solution.modes[i].reshape(-1, 2)[:n_v, 0]
         scale = 0.14 * span / np.abs(transverse).max()
         return solution.mode_mesh(i, scale), scale * transverse
 
     # -- 1. Mode shapes of a pinned column: the buckling analogue of vibration modes ----
+    # Upright columns in a row, so the half-waves of successive modes sit side by side, with
+    # one glyph-and-colour key below all of them (fig.supxlabel) rather than per panel.
     pinned_solution, pinned_loads = solve_buckling(mesh, pinned(length), length)
-    modes = Plotter(n_modes, 1, title='Buckling modes of a pinned-pinned column',
-                    panel_aspect=6.0)
     pinned_bc = pinned(length)
+    modes = Plotter(1, n_modes, figsize=(2.4 * n_modes, 6.6), axis_labels=False,
+                    title='Buckling modes of a pinned-pinned column')
     for i in range(n_modes):
         shape, colour = buckled(pinned_solution, i, length)
-        modes.plot(shape, colour, mode='colored', idx=(i, 0), cmap='coolwarm',
-                   label='sideways deflection',
-                   title=f'Mode {i+1}: P_cr = {pinned_loads[i]:.3g}  '
+        modes.plot(shape, colour, mode='colored', idx=(0, i), cmap='coolwarm', colorbar=False,
+                   title=f'Mode {i+1}: P_cr = {pinned_loads[i]:.3g}\n'
                          f'({i+1} half-wave{"s" if i else ""})')
         # The pin/load glyphs, on the deformed shape so the load rides the moving end.
-        modes.overlay_supports(mesh, pinned_bc, idx=(i, 0), coords=shape.vertices)
+        modes.overlay_supports(mesh, pinned_bc, idx=(0, i), coords=shape.vertices)
+    modes.fig.supxlabel(
+        'Blue triangles: the pinned ends, held sideways but free to rotate. Red arrow: the '
+        'compressive load. Colour: sideways deflection, whose sign and amplitude are '
+        'arbitrary, so read the shape and the load, not the colour direction or size.',
+        fontsize='small')
 
     # -- 2. Effective length: the same column, four ways to hold its ends ---------------
-    measured, factor_plots = {}, Plotter(len(ends), 1, panel_aspect=6.0,
-                                         title='End conditions set the effective length')
-    for row, (name, make_bc, K_ideal) in enumerate(ends):
+    measured = {}
+    factor_plots = Plotter(1, len(ends), figsize=(2.4 * len(ends), 6.6), axis_labels=False,
+                           title='End conditions set the effective length')
+    for col, (name, make_bc, K_ideal) in enumerate(ends):
         end_bc = make_bc(length)
         solution, loads = solve_buckling(mesh, end_bc, length, modes=1)
         K_measured = np.pi / length * np.sqrt(E_star * moment / loads[0])
         measured[name] = (K_measured, K_ideal, loads[0])
         shape, colour = buckled(solution, 0, length)
-        factor_plots.plot(shape, colour, mode='colored', idx=(row, 0), cmap='coolwarm',
-                          title=f'{name.splitlines()[0]}:  K = {K_measured:.2f}  '
-                                f'(Euler {K_ideal:g}),  P_cr = {loads[0]:.3g}')
+        factor_plots.plot(shape, colour, mode='colored', idx=(0, col), cmap='coolwarm', colorbar=False,
+                          title=f'{name.splitlines()[0]}\nK = {K_measured:.2f} (Euler {K_ideal:g})\n'
+                                f'P_cr = {loads[0]:.3g}')
         # Each end's supports drawn on it: a wall clamps, triangles pin, arrows load.
-        factor_plots.overlay_supports(mesh, end_bc, idx=(row, 0), coords=shape.vertices)
+        factor_plots.overlay_supports(mesh, end_bc, idx=(0, col), coords=shape.vertices)
 
     # -- 3. Euler's laws: the 1/L^2 slenderness curve and the effective-length factors ---
     sweep = [(L, solve_buckling(column(L, height, max(32, int(2 * L)), n_across),
@@ -1001,7 +1005,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     bars.grid(True, axis='y', alpha=0.3)
 
     # -- 4. How the pinned column is posed ----------------------------------------------
-    conditions = Plotter(panel_aspect=10.0)
+    conditions = Plotter(panel_aspect=0.7)   # tall and narrow, matching the upright column
     conditions.plot(mesh, mode='bc', bc=pinned(length))
 
     ratios = '   '.join(f'{n.splitlines()[0]}/pinned {measured[n][2] / measured["Pinned-pinned"][2]:.2f}'
@@ -1016,19 +1020,13 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
 
     return DemoResult([
         Figure(modes,
-               'A pinned column buckles into half-sine waves; the glyphs mark the ends: '
-               'blue triangles a pin (held sideways, free to rotate), a red arrow the '
-               'compressive load (blue holds the column, red pushes on it). Mode 1, one '
-               'half-wave at the lowest load, is the shape a real column actually takes. '
-               'The higher modes add a half-wave each and cost n^2 as much (mode 2 is ~4x '
-               'mode 1), and are reached only if the lower ones are prevented: a brace at '
-               'mid-span, a node of mode 2 but not of mode 1, buys the jump. Read '
-               'the shape and the load, not the direction or the size: a mode is an '
-               'eigenvector, so its sign is arbitrary (the column bows either way, and the '
-               'shading is that free sign) and its amplitude is unset, scaled '
-               'here only to be visible. It is the buckling analogue of vibration modes: '
-               'one K phi = -lambda K_g phi eigenproblem, the shapes its eigenvectors and '
-               'the load factors its eigenvalues.',
+               'A pinned column buckles into half-sine waves. Mode 1 is a single half-wave '
+               'at the lowest load, the shape a real column takes. Each higher mode adds a '
+               'half-wave and costs n^2 as much (mode 2 is ~4x mode 1), and is reached only '
+               'if the lower ones are braced out: a support at mid-span, a node of mode 2 '
+               'but not mode 1, buys the jump to it. This is the buckling analogue of '
+               'vibration modes, one K phi = -lambda K_g phi eigenproblem: the shapes are '
+               'its eigenvectors and the load factors its eigenvalues.',
                'modes', thumbnail=True),
         Figure(factor_plots,
                'The same slender column, its ends held four ways (a blue hatched wall clamps '

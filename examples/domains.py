@@ -38,19 +38,22 @@ def beam(length: float = 4.0, height: float = 1.0, n: int = 80) -> Mesh:
 
 def column(length: float = 24.0, height: float = 1.0,
            n_length: int = 48, n_across: int = 6) -> Mesh:
-    """A slender column, meshed for a buckling solve.
+    """A slender column standing upright, meshed for a buckling solve.
+
+    Length runs along y (ends at y = 0 and y = length) so the mode shapes draw as columns
+    stand, with `height` the thin cross-dimension along x.
 
     Unlike `beam`, the through-thickness count is set independently of the aspect ratio
     rather than following it. A buckling mode is bending, which the elements have to
-    resolve across the height; an isotropic-triangle slice of a long column would leave
-    only two or three of them there, far too few for the mode to curve. `n_across` points
-    evenly spaced across the height land on the neutral axis only when `n_across` is odd
-    (an even number of intervals, one landing dead-center); `n_across` is forced odd so a
-    pinned end has a vertex there to anchor.
+    resolve across the thin dimension; an isotropic-triangle slice of a long column would
+    leave only two or three of them there, far too few for the mode to curve. `n_across`
+    points evenly spaced across the thickness land on the neutral axis only when `n_across`
+    is odd (an even number of intervals, one landing dead-center); `n_across` is forced odd
+    so a pinned end has a vertex there to anchor.
     """
     n_across += 1 - n_across % 2
-    return create_rect_mesh(corners=[[0.0, 0.0], [length, height]],
-                            resolution=(n_length, n_across))
+    return create_rect_mesh(corners=[[0.0, 0.0], [height, length]],
+                            resolution=(n_across, n_length))
 
 
 def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float = 0.3,

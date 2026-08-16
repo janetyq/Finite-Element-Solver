@@ -19,11 +19,12 @@ class ColorbarInfo:
 
     `bar` is kept, not just the mapping it was built from, because the bar owns an
     axes of its own, and that axes has to be resized to match the panel once the
-    layout is settled (`Plotter._fit_colorbars`).
+    layout is settled (`Plotter._fit_colorbars`). It is `None` when the colouring is
+    drawn without a bar (`colorbar=False`).
     """
     cmap: Colormap
     norm: Normalize
-    bar: Colorbar
+    bar: Colorbar | None
 
 
 def plot_mesh(ax, mesh, color='black', linewidth=0.2):
@@ -47,7 +48,7 @@ def plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode='vertices')
                 first = False
 
 
-def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False):
+def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False, colorbar=True):
     cmap = matplotlib.colormaps[cmap_name]
     if log_scale:
         vmin = max(vlim[0], 1e-10)  # floor to avoid log(0)
@@ -55,19 +56,23 @@ def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False):
     else:
         norm = Normalize(vmin=vlim[0], vmax=vlim[1])
 
-    # Create a scalar mappable for the colorbar
+    # `colorbar=False` keeps the mapping but draws no bar, for a colouring whose scale is
+    # arbitrary or qualitative (a mode shape, where only the pattern is physical).
+    if not colorbar:
+        return ColorbarInfo(cmap, norm, None)
+
     sm = cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])  # Dummy data for colorbar
-
     cbar = plt.colorbar(sm, ax=ax)
     if label is not None:
         cbar.set_label(label)
     return ColorbarInfo(cmap, norm, cbar)
 
 
-def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridis', log_scale=False):
+def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridis', log_scale=False,
+                 colorbar=True):
     if cbar_info is None:
-        cbar_info = setup_colorbar(ax, (min(values), max(values)), label, cmap_name, log_scale)
+        cbar_info = setup_colorbar(ax, (min(values), max(values)), label, cmap_name, log_scale, colorbar)
 
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
     # The collection is returned so an animation can recolour it in place across frames

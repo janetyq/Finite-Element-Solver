@@ -121,12 +121,14 @@ class Plotter:
         clim: tuple[float, float] | None = None,
         cmap: str | None = None,
         log_scale: bool = False,
+        colorbar: bool = True,
     ) -> Any:
         """Draw `values` on `mesh` into the subplot at `idx`.
 
         `label` names the quantity on the colorbar (colored mode); a colorbar is built
         once per subplot, so it is read on the call that first draws there and ignored
-        by later ones redrawing the same axes.
+        by later ones redrawing the same axes. `colorbar=False` colours by value but
+        draws no bar, for a qualitative or arbitrary-amplitude field (a mode shape).
 
         `clim` fixes the colour range instead of taking it from `values`, which is what
         lets a grid of panels be compared. Each panel otherwise renormalizes to its own
@@ -158,9 +160,10 @@ class Plotter:
         elif mode is PlotMode.COLORED:
             cmap_name = cmap if cmap is not None else 'viridis'
             if clim is not None and idx not in self.cbar_infos:
-                self.cbar_infos[idx] = setup_colorbar(ax, clim, label, cmap_name, log_scale)
+                self.cbar_infos[idx] = setup_colorbar(ax, clim, label, cmap_name, log_scale, colorbar)
             cbar_info, artist = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
-                                             label=label, cmap_name=cmap_name, log_scale=log_scale)
+                                             label=label, cmap_name=cmap_name, log_scale=log_scale,
+                                             colorbar=colorbar)
             self.cbar_infos[idx] = cbar_info
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
@@ -371,6 +374,8 @@ class Plotter:
             self._layout_frozen = True
 
         for idx, info in self.cbar_infos.items():
+            if info.bar is None:   # colour drawn without a bar (colorbar=False)
+                continue
             ax: Any = self.axs[idx]
             panel = ax.get_position()
             bar = info.bar.ax.get_position()
