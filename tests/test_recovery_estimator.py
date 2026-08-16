@@ -27,7 +27,7 @@ from fem.convergence import (
 from fem.equations import LinearElastic, Poisson
 from fem.estimators import recovery_estimator
 from fem.materials import Enu_to_Lame
-from fem.mesh.ruppert import create_rect_mesh
+from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere
 from fem.solver import Solver
 

@@ -176,12 +176,12 @@ def test_energy_gradient_and_hessian_are_consistent_by_finite_difference(make_un
 
     These are the assembled quantities Newton uses: the potential energy Pi(u) summed
     over the mesh, with its global gradient and Hessian. The density they are built
-    from is checked separately, by StVenantKirchhoff.check_gradients. Between the two
-    lies the element assembly, which evaluates the density per element and sums each
-    contribution into the global arrays by DOF. A mistake there (a wrong scatter, or a
-    transposed element matrix) leaves the density correct while making the assembled
-    gradient and Hessian inconsistent with the assembled energy. The density check
-    cannot see that; this test can.
+    from is exercised by the other tests in this module and the MMS convergence suite.
+    Between the two lies the element assembly, which evaluates the density per element
+    and sums each contribution into the global arrays by DOF. A mistake there (a wrong
+    scatter, or a transposed element matrix) leaves the density correct while making the
+    assembled gradient and Hessian inconsistent with the assembled energy. A density-level
+    check cannot see that; this test can.
 
     St-VK (not small strain) is needed for a meaningful slope: its energy is quartic in
     u, so the error is a clean O(eps^2), whereas a quadratic small-strain energy makes

@@ -504,8 +504,9 @@ Legend: 🟡 design / maintainability · 🟢 small
 
 ### Dead paths and unused code
 
-(`fem/numerics.py`'s callerless `class color` and `timer` decorator were deleted, and
-`bump_function` — its one live helper here, seeding the transient demos — was vectorized.)
+(`fem/numerics.py` is now just `bump_function` and the `central_difference_order` check. Its
+callerless `class color`, `timer` decorator, and `check_gradient`/`check_hessian` plotting tools
+were deleted, `bump_function` was vectorized, and the SIMP smoothing matrix moved to `topology.py`.)
 
 (`fem/quadrature.py` was the standout here — rules shaped `(func, polygon_vertices)` with no
 callers. It is now the real reference-element layer, `QuadratureRule` + Gauss rules per simplex,
@@ -530,8 +531,8 @@ use. It arrived with the quadrature layer, exactly where this note said it belon
 **🟢 `import fem` re-exports the plot layer.** `fem/__init__.py` re-exports `Plotter` and
 `PlotMode` as public API — a deliberate core → plot edge, worth revisiting only if the package
 should be importable without a plotting backend installed. (The other core → plot path,
-`numerics` importing `matplotlib` at module scope, is closed: those imports are local to the
-`check_gradient` / `check_hessian` dev tools.) `pyamg` raises the same question from the other
+`numerics` importing `matplotlib`, is closed: the `check_gradient` / `check_hessian` dev tools
+that pulled it in have been removed.) `pyamg` raises the same question from the other
 end: `fem.backends` imports it at module scope, so `import fem` always pulls it in. A
 minimal-import goal would want both edges lazy.
 
