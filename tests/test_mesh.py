@@ -35,6 +35,20 @@ def test_interior_edge_maps_to_both_its_elements():
     assert mesh.edge_to_elements[(0, 1)] == [0]
 
 
+def test_edge_elements_pairs_each_edge_with_its_elements():
+    """The batched form: each edge in `edges` gets both its elements, with -1 in
+    the second slot of a boundary edge. Consistent with `edge_to_elements`."""
+    mesh = _two_triangle_square()
+    by_edge = {tuple(e): ee for e, ee in zip(mesh.edges, mesh.edge_elements)}
+
+    assert sorted(by_edge[(0, 2)]) == [0, 1]           # shared diagonal: two elements
+    assert by_edge[(0, 1)][1] == -1                    # boundary side: one element
+    assert by_edge[(0, 1)][0] == 0
+    for edge, ee in by_edge.items():
+        both = ee[ee >= 0].tolist()
+        assert sorted(both) == sorted(mesh.edge_to_elements[edge])
+
+
 def test_element_neighbours_are_those_sharing_an_edge():
     mesh = _two_triangle_square()
     assert mesh.element_neighbours == [[1], [0]]

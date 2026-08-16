@@ -295,12 +295,13 @@ class RedGreenRefiner:
             self._tri_index_map[len(elements) - 1] = tri_idx
         elements_arr = np.array(elements)
 
-        used_idxs = sorted(set(elements_arr.ravel()))
-        index_mapping = {old: new for new, old in enumerate(used_idxs)}
-
+        used_idxs = np.unique(elements_arr)
         vertices = self._vertices[used_idxs]
-        remapped_elements = np.vectorize(index_mapping.get)(elements_arr)
-        remapped_boundary = np.vectorize(index_mapping.get)(np.array(self._boundary))
+        # Compaction: each old vertex index maps to its position in the sorted
+        # used set, which searchsorted returns directly. Boundary facets are edges
+        # of the emitted elements, so every boundary index is in used_idxs.
+        remapped_elements = np.searchsorted(used_idxs, elements_arr)
+        remapped_boundary = np.searchsorted(used_idxs, np.array(self._boundary))
 
         self._source_mesh = self._source_mesh.with_topology(
             vertices, remapped_elements, remapped_boundary,
