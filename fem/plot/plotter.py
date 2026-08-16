@@ -365,7 +365,10 @@ class Plotter:
         off. Later calls (a frame sequence makes one per frame) reapply the same
         boxes, which `ax.clear()` would otherwise lose.
         """
-        if not self.cbar_infos:
+        # Nothing to reposition when no panel drew a bar (an all-`colorbar=False` figure
+        # still records mappings here). Skip the layout freeze too, so constrained layout
+        # keeps managing the figure and reserves room for a suptitle or supxlabel.
+        if not any(info.bar is not None for info in self.cbar_infos.values()):
             return
 
         if not self._layout_frozen:

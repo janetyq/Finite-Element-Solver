@@ -941,6 +941,18 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
         scale = 0.14 * span / np.abs(transverse).max()
         return solution.mode_mesh(i, scale), scale * transverse
 
+    def share_limits(plotter, n_panels):
+        """Give the columns in a row one shared view: the union of the limits each panel
+        set for its own bow and glyphs, so they share a scale and their titles line up."""
+        axes = [plotter.get_ax((0, c)) for c in range(n_panels)]
+        xlo = min(a.get_xlim()[0] for a in axes)
+        xhi = max(a.get_xlim()[1] for a in axes)
+        ylo = min(a.get_ylim()[0] for a in axes)
+        yhi = max(a.get_ylim()[1] for a in axes)
+        for a in axes:
+            a.set_xlim(xlo, xhi)
+            a.set_ylim(ylo, yhi)
+
     # -- 1. Mode shapes of a pinned column: the buckling analogue of vibration modes ----
     # Upright columns in a row, so the half-waves of successive modes sit side by side, with
     # one glyph-and-colour key below all of them (fig.supxlabel) rather than per panel.
@@ -955,10 +967,11 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                          f'({i+1} half-wave{"s" if i else ""})')
         # The pin/load glyphs, on the deformed shape so the load rides the moving end.
         modes.overlay_supports(mesh, pinned_bc, idx=(0, i), coords=shape.vertices)
+    share_limits(modes, n_modes)
     modes.fig.supxlabel(
-        'Blue triangles: the pinned ends, held sideways but free to rotate. Red arrow: the '
-        'compressive load. Colour: sideways deflection, whose sign and amplitude are '
-        'arbitrary, so read the shape and the load, not the colour direction or size.',
+        'Blue triangles: the pinned ends, held sideways but free to rotate.\n'
+        'Red arrow: the compressive load.\n'
+        'Colour: sideways deflection; its sign and amplitude are arbitrary.',
         fontsize='small')
 
     # -- 2. Effective length: the same column, four ways to hold its ends ---------------
@@ -976,6 +989,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                                 f'P_cr = {loads[0]:.3g}')
         # Each end's supports drawn on it: a wall clamps, triangles pin, arrows load.
         factor_plots.overlay_supports(mesh, end_bc, idx=(0, col), coords=shape.vertices)
+    share_limits(factor_plots, len(ends))
 
     # -- 3. Euler's laws: the 1/L^2 slenderness curve and the effective-length factors ---
     sweep = [(L, solve_buckling(column(L, height, max(32, int(2 * L)), n_across),
