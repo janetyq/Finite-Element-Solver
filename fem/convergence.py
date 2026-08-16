@@ -18,12 +18,13 @@ The manufactured problem is Poisson's on the unit square:
 Used by `tests/test_convergence.py`, which asserts the rate on every commit, and by
 the `convergence` demo, which draws it.
 """
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
 
 from fem.boundary import BCType, BoundaryConditions
-from fem.elements import QuadraticTriangleElement
+from fem.elements import ElementGeometry, QuadraticTriangleElement
 from fem.equations import LinearElastic, Poisson
 from fem.forms import DiffusionForm, LaplacianForm, LinearElasticForm, LinearForm
 from fem.integrators import ThetaMethod
@@ -45,6 +46,22 @@ def exact_solution(vertices: Vertices) -> VertexField:
     return np.sin(np.pi * x) * np.sin(np.pi * y)
 
 
+def exact_gradient(points: FloatArray) -> FloatArray:
+    """`grad u` of the manufactured solution, sampled at `points`.
+
+    Broadcasts over any leading axes: `points` shaped `(..., 2)` gives `(..., 2)`,
+    so it takes either the `(n_vertices, 2)` nodes or the `(n_elements, n_qp, 2)`
+    quadrature points the H1 error integrates over. The closed-form gradient is what
+    makes the H1 error independent of the assembled stiffness (see `h1_seminorm_error`).
+    """
+    x, y = points[..., 0], points[..., 1]
+    return np.stack(
+        [np.pi * np.cos(np.pi * x) * np.sin(np.pi * y),
+         np.pi * np.sin(np.pi * x) * np.cos(np.pi * y)],
+        axis=-1,
+    )
+
+
 def source_term(point: FloatArray) -> list[float]:
     """`f = -laplacian(u)`, the forcing that makes `exact_solution` the answer."""
     return [2 * np.pi**2 * np.sin(np.pi * point[0]) * np.sin(np.pi * point[1])]
@@ -55,8 +72,50 @@ def l2_norm(space: FunctionSpace, values: VertexField) -> float:
 
     Not the Euclidean norm of the same numbers -- that has no mesh in it, so it drifts
     with resolution and cannot be compared across a refinement sequence.
+
+    This measures the distance to the *interpolant* of a reference field (it reads
+    the reference only at the nodes). For the honest continuous error against a
+    closed-form field, integrated at the quadrature points, see `quadrature_l2`.
     """
     return float(np.sqrt(values @ space.mass_matrix @ values))
+
+
+def quadrature_l2(geometry: ElementGeometry, diff: FloatArray) -> float:
+    """The L2 norm of a per-quadrature-point field: `sqrt(int |diff|^2 dx)`.
+
+    `diff` carries a leading `(n_elements, n_qp)` pair and any number of trailing
+    component axes -- a scalar `(n_el, n_qp)`, a gradient `(n_el, n_qp, d)`, or a
+    stress tensor `(n_el, n_qp, d, d)`. Every trailing axis is summed (the Frobenius
+    norm for a tensor), then integrated against the geometry's `weight_detJ`.
+
+    Unlike `l2_norm` this samples the field at the interior quadrature points rather
+    than reading a nodal interpolant, so with an analytic reference it is the true
+    continuous error -- the shared kernel of the H1 seminorm and stress errors.
+    """
+    per_point = np.sum((diff * diff).reshape(diff.shape[0], diff.shape[1], -1), axis=2)
+    return float(np.sqrt(np.sum(per_point * geometry.weight_detJ)))
+
+
+def h1_seminorm_error(
+    space: FunctionSpace, u: VertexField, exact_gradient: Callable[[FloatArray], FloatArray],
+    degree: int = 2,
+) -> float:
+    """The H1 seminorm error `||grad(u_h) - grad(u_exact)||_L2`.
+
+    The gradient error, and for P1 the O(h) quantity -- one order below the O(h^2)
+    L2 error -- that is the sharper probe of the stiffness matrix. It is computed by
+    quadrature against the *analytic* `exact_gradient`, so unlike `sqrt(e^T K e)` it
+    never reuses the assembled `K` it is meant to test: a wrong `grad_phi` shows up
+    here directly rather than being measured in its own distorted norm.
+
+    Uses `geometry.gradients` at every quadrature point rather than the P1 shortcut
+    `space.gradient`, so it is correct for the quadratic space too, where the
+    gradient varies within an element.
+    """
+    geometry = space.geometry_at(degree)
+    grad_h = geometry.gradients(u[space.element_nodes])   # (n_el, n_qp, spatial_dim)
+    diff = exact_gradient(geometry.points) - grad_h
+    return quadrature_l2(geometry, diff)
 
 
 @dataclass
@@ -67,6 +126,7 @@ class MMSSolve:
     u: VertexField             # what the solver computed
     exact: VertexField         # the manufactured solution at the same nodes
     l2_error: float            # ||u - exact||_L2 -- the number a study plots
+    h1_error: float | None = None  # ||grad(u - exact)||_L2, where a closed-form gradient exists
 
     @property
     def pointwise_error(self) -> VertexField:
@@ -133,6 +193,7 @@ def solve_poisson_mms(n: int) -> MMSSolve:
         u=u,
         exact=exact,
         l2_error=l2_norm(solver.space, u - exact),
+        h1_error=h1_seminorm_error(solver.space, u, exact_gradient),
     )
 
 
