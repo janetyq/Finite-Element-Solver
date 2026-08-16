@@ -1,16 +1,16 @@
 """Density-based (SIMP) topology optimization, as a driver over the solve core.
 
 The optimizer owns a solve strategy and derives a fresh `Problem` each iteration
-from the current density -- it never mutates a shared one. The density scales the
+from the current density; it never mutates a shared one. The density scales the
 modulus, `E(rho) = rho^p E_0`, and hence scales the element stiffness by the same
 factor; the compliance and its sensitivity drive an optimality-criterion update of
-the density. What the density does not touch -- the constraints, the load, and the
-element stiffness of the undiluted material -- is built once and reused.
+the density. What the density does not touch (the constraints, the load, and the
+element stiffness of the undiluted material) is built once and reused.
 
 The objective is an injected object (`MinCompliance`, `TargetCompliance`) rather
 than a string resolved through a `_select_*` dispatch, and the optimization method
-(the OC update) is a method here. That replaces the plugin-shaped machinery -- an
-ignored args bag, an objective value that was never evaluated -- with the one
+(the OC update) is a method here. That replaces the plugin-shaped machinery (an
+ignored args bag, an objective value that was never evaluated) with the one
 quantity that is actually used: the sensitivity.
 """
 import logging
@@ -130,7 +130,7 @@ class TopologyOptimizer:
         # rather than re-contracting B^T D B over the mesh.
         #
         # `_problem` carries the constraints and the load, which the density does not
-        # reach -- an iteration derives its own from this one with `with_operator`.
+        # reach; an iteration derives its own from this one with `with_operator`.
         self._solid_stiffness: FloatArray = LinearElasticForm(
             LinearElasticMaterial(self.base_E, self.nu)
         ).element_matrices(self.space.geometry)
@@ -145,8 +145,8 @@ class TopologyOptimizer:
     def dilution(self) -> ElementField:
         '''The SIMP factor rho^p for the current density.
 
-        Stated once because it applies twice over: to the modulus, and -- since the
-        element stiffness is linear in the modulus -- to the element stiffness by the
+        Stated once because it applies twice over: to the modulus, and (since the
+        element stiffness is linear in the modulus) to the element stiffness by the
         same factor. Two spellings of rho^p could drift into descending different
         gradients, exactly as two literal 3s once could.
         '''
@@ -168,7 +168,7 @@ class TopologyOptimizer:
     def _solve(self) -> ElasticSolution:
         '''Solve the elastic problem at the current density and recover compliance.
 
-        A fresh problem each call, derived from the iteration-invariant one -- the
+        A fresh problem each call, derived from the iteration-invariant one: the
         density scales the modulus, so there is no shared state to mutate. The
         numerical path (LinearProblem -> LinearSolve -> derived_fields) is the same
         one the Solver facade runs, over the optimizer's cached space, constraints,
@@ -223,7 +223,7 @@ class TopologyOptimizer:
             von_mises_series.append(solution.von_mises)
             compliance_series.append(solution.compliance)
 
-            # Log and, if the caller wants it, hand off to their own visualization --
+            # Log and, if the caller wants it, hand off to their own visualization;
             # this class has no business knowing how (or whether) to plot itself.
             self._log_iteration(i, solution)
             if on_iteration is not None:

@@ -1,9 +1,9 @@
 """Render every registered demo into a static gallery: one page per demo, plus an index.
 
-A page carries what the demo produced -- figures, printed text, files -- and the source
+A page carries what the demo produced (figures, printed text, files) and the source
 that produced it, so the gallery reads as documentation rather than as a picture book.
 
-Everything is written as plain files with relative links -- no CDN, no embedded data --
+Everything is written as plain files with relative links (no CDN, no embedded data),
 so the output directory works the same opened from disk or served over HTTP.
 
 Animated figures become a directory of frames plus a small player, rather than one
@@ -31,7 +31,7 @@ from demo_registry import Demo, DemoResult
 IMAGES = 'img'
 
 # Frames written per animated figure. Rasterizing frames is the largest single cost of
-# a gallery build -- the heat demo solves in 0.4s and spends 24s drawing its run -- and
+# a gallery build (the heat demo solves in 0.4s and spends 24s drawing its run), and
 # the player steps at 120ms, so twenty images is a two-second loop. The solve keeps
 # every step it took; this is only how much of it becomes PNGs.
 FRAMES_PER_PLAYER = 20
@@ -47,7 +47,7 @@ SECTIONS: list[str] = [
     'Accuracy & performance',
 ]
 
-# A demo naming no section, or one not listed above, still appears -- under this
+# A demo naming no section, or one not listed above, still appears, under this
 # heading, rather than being dropped by a grouping that did not know about it.
 OTHER_SECTION = 'Other demos'
 
@@ -133,7 +133,7 @@ def run_demo(demo: Demo, out_dir: Path) -> Entry:
         work_dir = Path(work)
         os.chdir(work_dir)
         try:
-            # No overrides -- not the arguments, and not the domain: the gallery shows
+            # No overrides, not the arguments and not the domain: the gallery shows
             # what `cli.py run <name>` shows.
             args = [demo.domain()] if demo.domain is not None else []
             result = demo.func(*args)
@@ -171,7 +171,7 @@ a { color: inherit; }
 .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
         text-decoration: none; display: flex; flex-direction: column; }
 /* `contain`, not `cover`: these figures are wide, and cropping one to a 4:3 tile
-   showed a fifth of a single panel -- `robin` is four panels across 2000x500. */
+   showed a fifth of a single panel; `robin` is four panels across 2000x500. */
 .card img, .card .thumb-text, .card .thumb-note, .card .thumb-empty {
   width: 100%; aspect-ratio: 4/3; background: #fff; display: block; }
 .card img { object-fit: contain; }
@@ -186,7 +186,7 @@ a { color: inherit; }
 figure { margin: 0 0 2.5rem; }
 /* Bounded in both directions, not stretched to the column. Every figure is written at
    the same dpi, so `width: 100%` blew a single square panel up to three times the
-   height of a three-panel strip -- and past its own resolution, so it was soft as well
+   height of a three-panel strip, and past its own resolution, so it was soft as well
    as huge. */
 figure img { display: block; margin: 0 auto; width: auto; height: auto;
              max-width: 100%; max-height: 30rem;
@@ -401,12 +401,12 @@ def build_gallery(registry: dict[str, Demo], out_dir: Path,
 
     By default every demo is rendered: `out_dir` is rebuilt from scratch and an
     `index.html` linking all of them is written. Pass `only` to render just those demos'
-    pages in place -- `out_dir` and its other pages are kept, and the index is left
+    pages in place: `out_dir` and its other pages are kept, and the index is left
     untouched, because rebuilding it faithfully would mean re-running every demo to
     recover its card. It is the quick single-page rebuild; a full run refreshes the index.
 
-    The demos are independent -- each renders its own figures under demo-prefixed names
-    -- so they run across `workers` processes, bounding the build by the slowest single
+    The demos are independent (each renders its own figures under demo-prefixed names),
+    so they run across `workers` processes, bounding the build by the slowest single
     demo rather than the sum. `workers` defaults to the machine's CPU count; `workers=1`
     runs them in this process, which is what the generator's own tests use.
     """

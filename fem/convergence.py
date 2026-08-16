@@ -1,10 +1,10 @@
 """The Method of Manufactured Solutions: check the discretization against an answer
-that is known exactly. It runs backwards from an ordinary solve -- the exact solution
-u is *chosen* first and the forcing f (and boundary data) derived from it, so the
-answer is known before the solver runs, and the solver never sees it.
+that is known exactly. It runs backwards from an ordinary solve: the exact solution
+u is chosen first and the forcing f (and boundary data) derived from it, so the answer
+is known before the solver runs, and the solver never sees it.
 
-Nothing here validates a *model*. The manufactured solution is picked for convenience
-rather than for physics -- what it establishes is that the assembly, the boundary
+Nothing here validates a model. The manufactured solution is picked for convenience
+rather than for physics. What it establishes is that the assembly, the boundary
 handling and the solve together reproduce a known field, and that the gap between them
 closes at the rate the theory predicts. For P1 elements that rate is O(h^2) in L2, and
 an implementation with a subtly wrong element matrix typically still converges, just at
@@ -51,8 +51,8 @@ def exact_gradient(points: FloatArray) -> FloatArray:
 
     Broadcasts over any leading axes: `points` shaped `(..., 2)` gives `(..., 2)`,
     so it takes either the `(n_vertices, 2)` nodes or the `(n_elements, n_qp, 2)`
-    quadrature points the H1 error integrates over. The closed-form gradient is what
-    makes the H1 error independent of the assembled stiffness (see `h1_seminorm_error`).
+    quadrature points the H1 error integrates over. The closed-form gradient makes the
+    H1 error independent of the assembled stiffness (see `h1_seminorm_error`).
     """
     x, y = points[..., 0], points[..., 1]
     return np.stack(
@@ -70,12 +70,12 @@ def source_term(point: FloatArray) -> list[float]:
 def l2_norm(space: FunctionSpace, values: VertexField) -> float:
     """The discrete L2 norm of a nodal field: `sqrt(v^T M v)` with `M` the mass matrix.
 
-    Not the Euclidean norm of the same numbers -- that has no mesh in it, so it drifts
+    Not the Euclidean norm of the same numbers, which has no mesh in it, so it drifts
     with resolution and cannot be compared across a refinement sequence.
 
-    This measures the distance to the *interpolant* of a reference field (it reads
-    the reference only at the nodes). For the honest continuous error against a
-    closed-form field, integrated at the quadrature points, see `quadrature_l2`.
+    This measures the distance to the interpolant of a reference field (it reads the
+    reference only at the nodes). For the honest continuous error against a closed-form
+    field, integrated at the quadrature points, see `quadrature_l2`.
     """
     return float(np.sqrt(values @ space.mass_matrix @ values))
 
@@ -84,13 +84,13 @@ def quadrature_l2(geometry: ElementGeometry, diff: FloatArray) -> float:
     """The L2 norm of a per-quadrature-point field: `sqrt(int |diff|^2 dx)`.
 
     `diff` carries a leading `(n_elements, n_qp)` pair and any number of trailing
-    component axes -- a scalar `(n_el, n_qp)`, a gradient `(n_el, n_qp, d)`, or a
-    stress tensor `(n_el, n_qp, d, d)`. Every trailing axis is summed (the Frobenius
-    norm for a tensor), then integrated against the geometry's `weight_detJ`.
+    component axes: a scalar `(n_el, n_qp)`, a gradient `(n_el, n_qp, d)`, or a stress
+    tensor `(n_el, n_qp, d, d)`. Every trailing axis is summed (the Frobenius norm for
+    a tensor), then integrated against the geometry's `weight_detJ`.
 
     Unlike `l2_norm` this samples the field at the interior quadrature points rather
     than reading a nodal interpolant, so with an analytic reference it is the true
-    continuous error -- the shared kernel of the H1 seminorm and stress errors.
+    continuous error, the shared kernel of the H1 seminorm and stress errors.
     """
     per_point = np.sum((diff * diff).reshape(diff.shape[0], diff.shape[1], -1), axis=2)
     return float(np.sqrt(np.sum(per_point * geometry.weight_detJ)))
@@ -102,15 +102,15 @@ def h1_seminorm_error(
 ) -> float:
     """The H1 seminorm error `||grad(u_h) - grad(u_exact)||_L2`.
 
-    The gradient error, and for P1 the O(h) quantity -- one order below the O(h^2)
-    L2 error -- that is the sharper probe of the stiffness matrix. It is computed by
-    quadrature against the *analytic* `exact_gradient`, so unlike `sqrt(e^T K e)` it
-    never reuses the assembled `K` it is meant to test: a wrong `grad_phi` shows up
-    here directly rather than being measured in its own distorted norm.
+    The gradient error. For P1 it is O(h), one order below the O(h^2) L2 error, and
+    the sharper probe of the stiffness matrix. It is computed by quadrature against
+    the analytic `exact_gradient`, so unlike `sqrt(e^T K e)` it never reuses the
+    assembled `K` it is meant to test: a wrong `grad_phi` shows up here directly
+    rather than being measured in its own distorted norm.
 
     Uses `geometry.gradients` at every quadrature point rather than the P1 shortcut
-    `space.gradient`, so it is correct for the quadratic space too, where the
-    gradient varies within an element.
+    `space.gradient`, so it is correct for the quadratic space too, where the gradient
+    varies within an element.
     """
     geometry = space.geometry_at(degree)
     grad_h = geometry.gradients(u[space.element_nodes])   # (n_el, n_qp, spatial_dim)
@@ -125,7 +125,7 @@ class MMSSolve:
     mesh: Mesh
     u: VertexField             # what the solver computed
     exact: VertexField         # the manufactured solution at the same nodes
-    l2_error: float            # ||u - exact||_L2 -- the number a study plots
+    l2_error: float            # ||u - exact||_L2, the number a study plots
     h1_error: float | None = None  # ||grad(u - exact)||_L2, where a closed-form gradient exists
 
     @property
@@ -139,10 +139,9 @@ class MMSSolve:
 class ConvergenceStudy:
     """A refinement sequence: the parameter refined, and the error at each value.
 
-    `step` is whichever discretization parameter is being taken to zero -- the mesh
-    size `h` for a spatial study, the time step `dt` for a temporal one. The
-    arithmetic is the same either way, which is why one type serves both; what
-    differs is only what the axis is called.
+    `step` is whichever discretization parameter is being taken to zero: the mesh
+    size `h` for a spatial study, the time step `dt` for a temporal one. The arithmetic
+    is the same either way, so one type serves both; only the axis name differs.
 
     Ordered coarsest first, so the last entry is the most refined.
     """
@@ -166,9 +165,9 @@ class ConvergenceStudy:
     def fitted_order(self) -> float:
         """One order for the whole sequence: the slope of log(error) against log(step).
 
-        Steadier than any single pair, which is what makes it the figure's headline
-        number, but it averages away a rate that degrades under refinement -- the
-        per-pair `orders` are what would show that.
+        Steadier than any single pair, so it is the figure's headline number, but it
+        averages away a rate that degrades under refinement; the per-pair `orders`
+        would show that.
         """
         return float(np.polyfit(np.log(self.step), np.log(self.error), 1)[0])
 
@@ -208,7 +207,7 @@ def poisson_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 #
 #     u = (sin(pi x) sin(pi y), 0)
 #
-# but the off-diagonal shear terms of sigma make *both* components of the forcing
+# but the off-diagonal shear terms of sigma make both components of the forcing
 # non-zero, so this exercises the coupled vector path rather than a scalar solve
 # wearing two components. Asserted in tests/test_convergence_elasticity.py, which
 # also covers the 3D case.
@@ -278,7 +277,7 @@ def elastic_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 
 
 def variable_coefficient(point: FloatArray) -> float:
-    """kappa(x, y) = 1 + x + y -- smooth and positive on the unit square."""
+    """kappa(x, y) = 1 + x + y: smooth and positive on the unit square."""
     return 1.0 + point[0] + point[1]
 
 
@@ -300,7 +299,7 @@ def solve_variable_coefficient_mms(n: int) -> MMSSolve:
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     # f is fed as a LinearForm so it too is sampled at the quadrature points. A plain
-    # field source would instead integrate f's nodal interpolant -- also convergent, but
+    # field source would instead integrate f's nodal interpolant (also convergent), but
     # LinearForm is the load half of what the quadrature layer added.
     problem = LinearProblem(
         space,
@@ -329,8 +328,8 @@ def variable_coefficient_convergence(resolutions: tuple[int, ...]) -> list[MMSSo
 #
 # The same manufactured u = sin(pi x) sin(pi y), solved on the quadratic space. The
 # only differences from solve_poisson_mms are the element type and that the exact
-# solution and the error norm are sampled at *all* the P2 nodes -- corners and edge
-# midpoints -- since the extra DOFs live there. The payoff is the rate: P2 is O(h^3)
+# solution and the error norm are sampled at all the P2 nodes (corners and edge
+# midpoints) since the extra DOFs live there. The payoff is the rate: P2 is O(h^3)
 # in L2 where P1 is O(h^2), which is what test_convergence_p2.py asserts and what
 # Fact B (the edge-node DOFs) was built to deliver.
 
@@ -443,7 +442,7 @@ class LoadComparison:
 def solve_load_comparison(n: int, quadrature_degree: int = 4) -> LoadComparison:
     """Solve -laplacian(u) = f on an `n` x `n` grid two ways.
 
-    The same P1 space and operator both times; only the load differs -- a plain field
+    The same P1 space and operator both times; only the load differs: a plain field
     source (integrated as its nodal interpolant) against a LinearForm that samples the
     source at the quadrature points.
     """
@@ -477,10 +476,10 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
                       n: int = 11) -> ConvergenceStudy:
     """Temporal convergence of `ThetaMethod` at `theta`, over `T` on an `n` x `n` grid.
 
-    Measured against the exact solution of the *semi-discrete* system `M u' = -K u`,
-    which is `expm(-t M^-1 K) u0` -- not against the continuous PDE. That is what
-    isolates the integrator: no spatial discretization error enters, so the observed
-    order is purely temporal and the mesh can stay coarse.
+    Measured against the exact solution of the semi-discrete system `M u' = -K u`,
+    which is `expm(-t M^-1 K) u0`, not against the continuous PDE. That isolates the
+    integrator: no spatial discretization error enters, so the observed order is
+    purely temporal and the mesh can stay coarse.
 
     theta = 1 is backward Euler and first order; theta = 1/2 is Crank-Nicolson,
     the default, and second.

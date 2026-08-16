@@ -1,6 +1,6 @@
 """The modal facade: mesh + equation -> natural frequencies and mode shapes.
 
-Free (undamped) vibration -- the finite-element analogue of a beam's natural tones.
+Free (undamped) vibration: the finite-element analogue of a beam's natural tones.
 Where `BucklingSolver` asks how far a load can be scaled before the structure snaps
 sideways, `ModalSolver` asks the load-free question: what shapes does the structure
 oscillate in when displaced and released, and at what frequencies?
@@ -12,16 +12,16 @@ turns it into the generalized symmetric eigenproblem
 
 with `K` the elastic stiffness and `M` the consistent mass matrix. The eigenvalues are
 the squared natural angular frequencies and the eigenvectors the mode shapes. No applied
-load enters -- unlike buckling, whose `K_g` comes from a reference solve -- so the result
+load enters (unlike buckling, whose `K_g` comes from a reference solve), so the result
 is a property of the structure alone (its stiffness, mass, and supports), the way a
 bell's pitch is a property of the bell and not of how hard it is struck.
 
 The lowest frequencies are the ones that matter (a forcing near them resonates), so the
-eigensolve uses shift-invert about `sigma = 0` through `EigenSolve` -- the standard way
+eigensolve uses shift-invert about `sigma = 0` through `EigenSolve`, the standard way
 to pull the smallest eigenvalues of a large sparse pencil, factoring `K` on the free
 block once. `MassForm` integrates the unit-density mass, so a scalar `density` scales it
 to physical units; the frequencies then go as `sqrt(E / density)`, the material
-dependence a modal analysis turns on (the mode *shapes*, by contrast, are set by geometry
+dependence a modal analysis turns on (the mode shapes, by contrast, are set by geometry
 and supports, unchanged by a uniform scaling of stiffness or mass).
 """
 import logging
@@ -47,7 +47,7 @@ class ModalSolver:
 
     Holds a mesh, a `LinearElastic` equation, and a boundary-condition spec whose
     Dirichlet supports ground the structure (a cantilever's clamp). No load is needed or
-    read -- the modes are load-free. `density` is the mass density scaling the unit-
+    read; the modes are load-free. `density` is the mass density scaling the unit-
     density consistent mass matrix, and so sets the physical frequency units.
 
     Small-strain only, like buckling: the modes are computed about the undeformed,
@@ -98,8 +98,8 @@ class ModalSolver:
 
     def solve(self) -> ModalSolution:
         '''Solve the modal eigenproblem and return its frequencies and mode shapes.'''
-        # Only the discretization is needed, not a solved state -- modal analysis reads no
-        # prestress, unlike buckling -- so the Solver is built for its space and not run.
+        # Only the discretization is needed, not a solved state: modal analysis reads no
+        # prestress, unlike buckling, so the Solver is built for its space and not run.
         space = Solver(self.mesh, self.equation, self.boundary_conditions,
                        element_type=self.element_type).space
 
@@ -109,8 +109,8 @@ class ModalSolver:
 
         resolved = self.boundary_conditions.resolve(space.nodes, space.n_components)
         logger.info('Modal: solving the eigenproblem K phi = omega^2 M phi...')
-        # Shift-invert about zero returns the smallest omega^2 -- the lowest frequencies,
-        # the ones a forcing resonates with -- factoring K on the free block once.
+        # Shift-invert about zero returns the smallest omega^2 (the lowest frequencies,
+        # the ones a forcing resonates with) factoring K on the free block once.
         eigensolve = EigenSolve(self.n_modes, sigma=0.0, which='LM')
         omega_squared, modes = eigensolve.solve(K, M, resolved.free_idxs, space.n_dofs)
 

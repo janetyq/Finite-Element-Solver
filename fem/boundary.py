@@ -1,14 +1,14 @@
 """Boundary conditions, specified against geometry and resolved against a mesh.
 
-The split here is the whole design. A `BoundaryConditions` is a *specification*:
+The split here is the whole design. A `BoundaryConditions` is a specification:
 mesh-independent and discretization-independent, describing what the user means ("the left edge
 is pinned"). A `ResolvedBC` is what a solver needs: concrete DOF indices and load
 vectors for one particular mesh and one particular number of DOFs per node.
 
-Keeping the specification is what lets a condition survive remeshing -- resolve
-it again against the new mesh -- and keeping the resolution immutable and
-per-component-count is what stops one shared BC object from silently reconfiguring itself
-when handed to a solver for a different equation.
+Keeping the specification lets a condition survive remeshing (resolve it again
+against the new mesh), and keeping the resolution immutable and per-component-count
+stops one shared BC object from silently reconfiguring itself when handed to a
+solver for a different equation.
 """
 import logging
 from dataclasses import dataclass
@@ -40,7 +40,7 @@ class NodeGeometry(Protocol):
 
     `Mesh` satisfies it directly (its nodes are the vertices), and so does the
     `NodeSet` a P2 `FunctionSpace` builds (whose nodes include the edge midpoints),
-    which is what lets one resolver pin vertex and edge DOFs alike. The members are
+    which lets one resolver pin vertex and edge DOFs alike. The members are
     read-only properties so both a plain-attribute `Mesh` and a frozen `NodeSet`
     satisfy it.
     '''
@@ -53,7 +53,7 @@ class NodeGeometry(Protocol):
 
 
 def _evaluate_dirichlet_value(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
-    '''Like `evaluate_field`, but a component may be `None` -- left as `NaN`, meaning
+    '''Like `evaluate_field`, but a component may be `None`, left as `NaN`, meaning
     "this DOF stays free" rather than "pinned to this value". Dirichlet-specific: a
     free component is only meaningful for an essential condition, never a load.
     '''
@@ -69,7 +69,7 @@ def _evaluate_dirichlet_value(value: FieldValue, points: Vertices, n_components:
 class BCType(Enum):
     DIRICHLET = "dirichlet"
     NEUMANN = "neumann"
-    # Robin (∂u/∂n + κu = g) contributes to *both* sides, unlike the other two: a
+    # Robin (∂u/∂n + κu = g) contributes to both sides, unlike the other two: a
     # boundary term κ∫u·v to the operator and ∫g·v to the load. Its value is the
     # pair (kappa, g); `resolve` turns it into a RobinContribution that LinearProblem
     # assembles through a MaskedMassForm over the region's boundary facets.
@@ -81,9 +81,9 @@ class NeumannContribution:
     '''One resolved Neumann condition: a traction ∫_∂Ω_R g·v over a region's facets.
 
     `facet_mask` marks the boundary facets in the region; a `MaskedMassForm` over them
-    integrates `traction` (the nodal field g) across those facets alone -- the same
-    region-restricted integral a Robin condition uses. Masking is what keeps a traction
-    from spreading onto a neighbouring edge through a shared corner node, which the
+    integrates `traction` (the nodal field g) across those facets alone, the same
+    region-restricted integral a Robin condition uses. Masking keeps a traction from
+    spreading onto a neighbouring edge through a shared corner node, which the
     unmasked boundary mass it replaces did, inflating the applied resultant.
     '''
     facet_mask: BoolArray       # one entry per boundary facet
@@ -94,12 +94,12 @@ class NeumannContribution:
 class RobinContribution:
     '''One resolved Robin condition (∂u/∂n + κu = g on a region).
 
-    It contributes to *both* sides of the system: the boundary term κ∫_∂Ω_R u·v to
+    It contributes to both sides of the system: the boundary term κ∫_∂Ω_R u·v to
     the operator and ∫_∂Ω_R g·v to the load. `facet_mask` marks which of the mesh's
     boundary facets lie in the region, so a `MaskedMassForm` over them assembles the
     region-restricted boundary integral; `kappa` scales the operator term and `g`
     (nonzero on the Robin nodes) drives the load. The assembly itself waits for a
-    FunctionSpace, so this carries only the data, keyed to the mesh -- the same
+    FunctionSpace, so this carries only the data, keyed to the mesh, the same
     spec-then-resolve split the rest of the BC layer uses.
     '''
     facet_mask: BoolArray       # one entry per boundary facet
@@ -141,7 +141,7 @@ class BoundaryConditions:
     def _check_region(self, region: Region) -> None:
         if not callable(region):
             raise TypeError(
-                'region must be a callable over point coordinates -- pass a helper '
+                'region must be a callable over point coordinates; pass a helper '
                 'from fem.regions (e.g. on_plane(0, 0.0)), or at_indices([...]) for '
                 f'specific nodes. Got {type(region).__name__}.'
             )
@@ -155,12 +155,12 @@ class BoundaryConditions:
         `add_robin`, which also takes the coefficient.
 
         For DIRICHLET on a vector field, a component may be `None` to leave it
-        free rather than pinned -- `[0, None]` pins x and leaves y natural, a
+        free rather than pinned: `[0, None]` pins x and leaves y natural, a
         roller rather than a clamp. A vertex may pick up its remaining component
         from a second, overlapping `add` call (e.g. one point elsewhere pinning y
         to remove the last rigid-body mode); the two merge rather than conflict as
         long as they agree on any component both specify. Meaningless for
-        NEUMANN/Robin -- a load has no "free" component -- so `None` there raises.
+        NEUMANN/Robin (a load has no "free" component), so `None` there raises.
         '''
         bc_type = BCType(bc_type)  # accepts BCType or its value; unknown raises ValueError
         if bc_type is BCType.ROBIN:
@@ -208,7 +208,7 @@ class BoundaryConditions:
         if is_mesh_bound(region):
             # Naming a node explicitly is a claim about that node, so silently
             # dropping an interior one would hide a mistake. Describing a region
-            # is a filter, where the intersection *is* the intent.
+            # is a filter, where the intersection is the intent.
             interior = np.setdiff1d(selected, boundary)
             if len(interior):
                 raise ValueError(
@@ -220,14 +220,14 @@ class BoundaryConditions:
     def entries(self, nodes: NodeGeometry) -> list[tuple[BCType, VertexIndices, FloatArray]]:
         '''[(bc_type, node_idxs, values), ...] resolved against `nodes`.
 
-        Region resolution only -- no DOF numbering, so this needs no `n_components` and is
+        Region resolution only, no DOF numbering, so this needs no `n_components` and is
         what inspection and plotting use.
         '''
         def resolved_values(idxs, value):
             # Display only, so this stays permissive rather than dispatching on
             # bc_type the way resolve() does: a Dirichlet component may
             # legitimately be None/free, and a stray None elsewhere is a user
-            # mistake worth *seeing* here (as a literal NaN) rather than one
+            # mistake worth seeing here (as a literal NaN) rather than one
             # this inspection path hides by raising before resolve() can.
             return _coerce_components(value, nodes.vertices[idxs], 1) if len(idxs) \
                 else np.zeros((0, 1))
@@ -257,11 +257,11 @@ class BoundaryConditions:
                 values = _evaluate_dirichlet_value(value, nodes.vertices[idxs], n_components)
                 for v_idx, v in zip(idxs, values):
                     # Overlapping regions are normal (a corner belongs to two
-                    # edges, or -- for a roller -- an edge and the one point
+                    # edges, or, for a roller, an edge and the one point
                     # that pins its other component); a component that both
                     # conditions specify but disagree on is a real conflict,
                     # and last-write-wins would bury it. A component either
-                    # side leaves free (NaN) never conflicts -- the other
+                    # side leaves free (NaN) never conflicts; the other
                     # side's value (fixed or itself free) wins.
                     if v_idx in dirichlet:
                         existing = dirichlet[v_idx]
@@ -290,7 +290,7 @@ class BoundaryConditions:
             idxs = self.select(nodes, region)
             g = np.zeros((n, n_components))
             g[idxs] = evaluate_field(g_field, nodes.vertices[idxs], n_components)
-            # A boundary facet is in the region iff all its nodes are -- the
+            # A boundary facet is in the region iff all its nodes are: the
             # all-nodes rule that keeps the boundary integral crisp.
             facet_mask = np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
             robin.append(RobinContribution(facet_mask, kappa, g))
@@ -299,9 +299,9 @@ class BoundaryConditions:
         neumann_vertices = np.unique(neumann_vertices).astype(int)
 
         # A fixed DOF ignores any traction on it, so the ambiguity to reject is per
-        # (vertex, component): a component that is *both* pinned and loaded. Pinning one
-        # component while a traction drives a different one -- a roller carrying a
-        # tangential load -- is well-posed and allowed; the fixed component is eliminated
+        # (vertex, component): a component that is both pinned and loaded. Pinning one
+        # component while a traction drives a different one (a roller carrying a
+        # tangential load) is well-posed and allowed; the fixed component is eliminated
         # by `DiscreteSystem`, dropping its traction, and the free ones keep theirs.
         conflicts = [
             int(v) for v, values in dirichlet.items()
@@ -314,7 +314,7 @@ class BoundaryConditions:
             )
 
         # Per (vertex, component): a NaN entry is a component a condition left free
-        # (a roller's tangential direction, say), so it contributes no fixed DOF --
+        # (a roller's tangential direction, say), so it contributes no fixed DOF;
         # free_idxs, being the complement over the whole DOF range, picks it up
         # without needing to know that is why.
         fixed_idxs = np.array(

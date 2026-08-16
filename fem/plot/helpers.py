@@ -18,12 +18,13 @@ class ColorbarInfo:
     """One panel's colour mapping, and the bar drawn beside it.
 
     `bar` is kept, not just the mapping it was built from, because the bar owns an
-    axes of its own -- and that axes has to be resized to match the panel once the
-    layout is settled (`Plotter._fit_colorbars`).
+    axes of its own, and that axes has to be resized to match the panel once the
+    layout is settled (`Plotter._fit_colorbars`). It is `None` when the colouring is
+    drawn without a bar (`colorbar=False`).
     """
     cmap: Colormap
     norm: Normalize
-    bar: Colorbar
+    bar: Colorbar | None
 
 
 def plot_mesh(ax, mesh, color='black', linewidth=0.2):
@@ -47,7 +48,7 @@ def plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode='vertices')
                 first = False
 
 
-def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False):
+def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False, colorbar=True):
     cmap = matplotlib.colormaps[cmap_name]
     if log_scale:
         vmin = max(vlim[0], 1e-10)  # floor to avoid log(0)
@@ -55,19 +56,23 @@ def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False):
     else:
         norm = Normalize(vmin=vlim[0], vmax=vlim[1])
 
-    # Create a scalar mappable for the colorbar
+    # `colorbar=False` keeps the mapping but draws no bar, for a colouring whose scale is
+    # arbitrary or qualitative (a mode shape, where only the pattern is physical).
+    if not colorbar:
+        return ColorbarInfo(cmap, norm, None)
+
     sm = cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])  # Dummy data for colorbar
-
     cbar = plt.colorbar(sm, ax=ax)
     if label is not None:
         cbar.set_label(label)
     return ColorbarInfo(cmap, norm, cbar)
 
 
-def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridis', log_scale=False):
+def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridis', log_scale=False,
+                 colorbar=True):
     if cbar_info is None:
-        cbar_info = setup_colorbar(ax, (min(values), max(values)), label, cmap_name, log_scale)
+        cbar_info = setup_colorbar(ax, (min(values), max(values)), label, cmap_name, log_scale, colorbar)
 
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
     # The collection is returned so an animation can recolour it in place across frames
@@ -126,7 +131,7 @@ def plot_surface(ax, mesh, values, clim=None):
     elif values.shape == (len(mesh.elements),):
         # A surface plot interpolates between nodes, so an element-constant field
         # has to be projected first. The projection is volume-weighted and lives
-        # on the space, which is cheap to build -- nothing assembles until asked.
+        # on the space, which is cheap to build; nothing assembles until asked.
         from fem.space import FunctionSpace
         values = FunctionSpace(mesh).element_to_vertex(values)
     else:
@@ -141,7 +146,7 @@ def plot_surface(ax, mesh, values, clim=None):
 def plot_solid(ax, mesh, values, cbar_info=None):
     """Draw a 3D mesh as its boundary surface, coloured by `values`.
 
-    Only the boundary facets are drawn -- the interior of a solid is not visible, and
+    Only the boundary facets are drawn: the interior of a solid is not visible, and
     a tet mesh has several times more elements than surface triangles.
 
     `values=None` draws the surface plain, for showing a mesh rather than a field
@@ -168,7 +173,7 @@ def plot_solid(ax, mesh, values, cbar_info=None):
 
 def _fit_3d_limits(ax, mesh):
     """Frame a 3D mesh: `add_collection3d` does not autoscale, so the limits come from
-    the mesh. Ticks are thinned too -- a thin direction seen in projection puts six
+    the mesh. Ticks are thinned too: a thin direction seen in projection puts six
     labels in the space of two."""
     lower, upper = mesh.vertices.min(axis=0), mesh.vertices.max(axis=0)
     ax.set_xlim(lower[0], upper[0])
@@ -178,7 +183,7 @@ def _fit_3d_limits(ax, mesh):
 
 
 # Arrows a quiver panel draws, at most. A vector field is read from the pattern the
-# arrows make, and past this many they overlap into a grey mat that hides it -- so this
+# arrows make, and past this many they overlap into a grey mat that hides it, so this
 # is a property of the picture, not of the mesh, and holds as the mesh is refined.
 MAX_ARROWS = 700
 

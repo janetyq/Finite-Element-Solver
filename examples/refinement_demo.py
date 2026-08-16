@@ -88,7 +88,7 @@ def demo_refinement(_mesh):
                title=f'Error η (max: {refined_max:.3f}, ‖η‖: {refined_norm:.2f})',
                idx=(0, 2), clim=error_clim, cmap='YlOrRd', log_scale=True)
 
-    # Show what red-green splitting does to an element — the mechanism beneath
+    # Show what red-green splitting does to an element: the mechanism beneath
     vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
     elements = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]])
     boundary = [[0, 1], [1, 2], [2, 3], [3, 0]]

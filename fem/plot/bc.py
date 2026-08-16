@@ -2,21 +2,21 @@
 
 One vocabulary, two views. A condition is drawn with two independent axes of meaning:
 
-* **colour is the weak-form type** -- Dirichlet blue (the boundary held at a value),
+* **colour is the weak-form type**: Dirichlet blue (the boundary held at a value),
   Neumann red (the boundary carrying an applied flux), Robin orange (a blend of both),
-  and the unwritten *natural* condition grey. This is universal: every PDE has essential
+  and the unwritten natural condition grey. This is universal: every PDE has essential
   and natural boundaries, whatever the field.
 * **shape is the mechanical role**, as specific as the components allow. A vector
-  (elasticity) Dirichlet edge becomes a drafting symbol -- a hatched wall for a clamp, a
-  row of triangles *on a ground line* for a roller (held one way, free to rotate and to
+  (elasticity) Dirichlet edge becomes a drafting symbol: a hatched wall for a clamp, a
+  row of triangles on a ground line for a roller (held one way, free to rotate and to
   slide the other), a lone triangle with no ground line for a pin (held at that point, but
-  a single point can resist no rotation, so unlike a wall it doesn't clamp the end), an
-  arrow off a wall/pin for an imposed displacement -- while a scalar field, which has none
+  a single point can resist no rotation, so unlike a wall it doesn't clamp the end), and
+  an arrow off a wall/pin for an imposed displacement. A scalar field, which has none
   of these mechanical roles, keeps dots and runs. Neumann is arrows (a vector traction) or
   a run (a scalar flux); Robin is a run.
 
-`plot_bc` renders the standalone conditions panel every solver demo carries -- a filled
-body, the marks, and a legend of values. `overlay_supports` renders the *same marks* over
+`plot_bc` renders the standalone conditions panel every solver demo carries: a filled
+body, the marks, and a legend of values. `overlay_supports` renders the same marks over
 a result already on the axes (a buckled mode, say), so an end condition can be read off
 the shape without a legend. Both go through one classifier (`_classify`) and one set of
 glyph drawers, so the two views cannot drift into different languages.
@@ -33,7 +33,7 @@ from matplotlib.tri import Triangulation
 from fem.plot.helpers import plot_boundary
 
 
-# One colour per condition type, held across the shapes a condition can take -- so a
+# One colour per condition type, held across the shapes a condition can take, so a
 # Neumann flux reads as the same thing whether it came out as arrows or as a run of
 # boundary. Grey is for the condition nobody wrote, and is meant to recede.
 BC_COLORS = {'dirichlet': 'tab:blue', 'neumann': 'red', 'robin': 'tab:orange'}
@@ -82,8 +82,8 @@ def _format_values(values):
         return _format_vector(values[0])
     # nanmin/nanmax warn on a component that is NaN at every vertex (a free
     # component spanning a callable value that varies in its pinned
-    # component) -- expected here, and `_format_component` already turns the
-    # resulting NaN back into 'free'.
+    # component), which is expected here, and `_format_component` already turns
+    # the resulting NaN back into 'free'.
     with np.errstate(invalid='ignore'), warnings.catch_warnings():
         warnings.simplefilter('ignore', RuntimeWarning)
         return (f'{_format_vector(np.nanmin(values, axis=0))} to '
@@ -122,7 +122,7 @@ def _covered_facets(mesh, idxs):
     """Which boundary facets have every vertex in `idxs`.
 
     A region covers the run of boundary it encloses, while a single named vertex covers
-    no facet at all -- which is what keeps a pointwise condition looking pointwise.
+    no facet at all, which keeps a pointwise condition looking pointwise.
     """
     facets = np.asarray(mesh.boundary)
     if len(facets) == 0 or len(idxs) == 0:
@@ -135,7 +135,7 @@ def _dirichlet_shape(values, is_edge):
     to draw, so it stays a dot regardless of shape. A vector field's region becomes the
     symbol its geometry and components imply: a single point is a pin (it has no extent to
     resist rotation with, so it can never be a clamp, whatever its components); an edge is
-    a roller (some component free -- it can still rotate, and slide the free way), an
+    a roller (some component free, so it can still rotate and slide the free way), an
     imposed displacement (every component fixed, some nonzero), or a clamp (every
     component fixed to zero)."""
     if values.shape[1] < 2:
@@ -246,7 +246,7 @@ def _fill_domain(ax, mesh):
 
 
 def _draw_dots(ax, pts, color, label):
-    """Dots at each vertex -- the scalar Dirichlet mark. A scalar field (temperature, a
+    """Dots at each vertex: the scalar Dirichlet mark. A scalar field (temperature, a
     potential) has no mechanical role to draw as a shape, so this is the only mark it
     ever takes."""
     ax.plot(pts[:, 0], pts[:, 1], 'o', color=color, markersize=4, label=label,
@@ -263,8 +263,8 @@ def _point_outward(point, domain_center):
 
 
 def _draw_pin(ax, point, normal, unit, color, label):
-    """A lone hatched triangle at a point: a pin. Hatched like a wall -- translation is
-    fixed there, the same statement a wall makes -- but a single point has no extent to
+    """A lone hatched triangle at a point: a pin. Hatched like a wall (translation is
+    fixed there, the same statement a wall makes), but a single point has no extent to
     resist rotation with, so unlike a wall it does not clamp the end. The hatching (not a
     ground line) is what tells it apart from a roller when the two sit on the same edge,
     which they typically do: a roller by itself can still slide as a rigid body, and a
@@ -320,8 +320,8 @@ def _draw_wall(ax, p0, p1, normal, unit, color, label):
 
 
 def _draw_roller(ax, p0, p1, normal, unit, color, label):
-    """A row of triangles on a ground line: a roller -- held one way, free to rotate and to
-    slide the other. The ground line is what tells it apart from a pin's lone triangle."""
+    """A row of triangles on a ground line: a roller, held one way, free to rotate and to
+    slide the other. The ground line tells it apart from a pin's lone triangle."""
     tri = 0.5 * unit
     tangent = np.array([-normal[1], normal[0]])
     ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color=color, lw=1.5, solid_capstyle='round',
@@ -349,8 +349,8 @@ def _has_arrow(values):
 
 def _draw_marks(ax, mesh, coords, marks, *, with_labels):
     """Draw each mark at `coords` (mesh vertices for the panel, deformed positions for an
-    overlay). Widens the view where a glyph juts past the body -- a wall outboard, an
-    arrow beyond the edge -- so it is not clipped to a stub."""
+    overlay). Widens the view where a glyph juts past the body (a wall outboard, an
+    arrow beyond the edge) so it is not clipped to a stub."""
     coords = np.asarray(coords)
     place = coords[:, :2]
     lo, hi = place.min(axis=0), place.max(axis=0)
@@ -403,7 +403,7 @@ def plot_bc(ax, mesh, bc):
     of red dots. Colour is the weak-form type, shape the mechanical role (see the module
     docstring); the legend under the panel pairs each with the value it is set to.
 
-    Whatever is left over carries the *natural* condition -- traction-free, insulated,
+    Whatever is left over carries the natural condition: traction-free, insulated,
     whichever name the equation gives it. That is not the absence of a boundary
     condition: the weak form drops the boundary integral there, which is precisely the
     statement that the flux through that edge is zero. So it is drawn like the rest.
@@ -420,7 +420,7 @@ def plot_bc(ax, mesh, bc):
     for mark in marks:
         constrained |= mark.covered
     # "Natural", not "free": free is the elasticity word, and on a heat problem it reads
-    # as "nothing here" when the statement is the opposite -- du/dn = 0 is an insulated
+    # as "nothing here" when the statement is the opposite: du/dn = 0 is an insulated
     # edge. Each demo gives the physical name.
     natural = 'Natural: t = 0' if components >= 2 else 'Natural: du/dn = 0'
     _draw_run(ax, mesh, ~constrained, FREE_COLOR, natural, linewidth=2.5, linestyle='--')
@@ -442,8 +442,8 @@ def overlay_supports(ax, mesh, bc, coords=None):
 
     The same marks `plot_bc` draws, minus the filled body and the legend, so an end
     condition can be read off a result at a glance. Conditions are read off the
-    *undeformed* `mesh` (region selection is by position, and a compressed end no longer
-    sits where `on_plane` put it), then drawn at `coords` if given -- the deformed vertex
+    undeformed `mesh` (region selection is by position, and a compressed end no longer
+    sits where `on_plane` put it), then drawn at `coords` if given: the deformed vertex
     positions, so a load follows the material point it acts on while a support, whose
     point does not move, stays put.
     """

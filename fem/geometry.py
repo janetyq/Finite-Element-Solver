@@ -13,7 +13,7 @@ def calculate_polygon_area(polygon):
         return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
     if polygon.shape[1] == 3 and len(polygon) == 3:
         # Half the cross-product magnitude. Needed for the triangular boundary
-        # facets of a tet mesh, so this gates every 3D path -- not only the
+        # facets of a tet mesh, so this gates every 3D path, not only the
         # surface-mesh case.
         a, b = polygon[1] - polygon[0], polygon[2] - polygon[0]
         return 0.5 * float(np.linalg.norm(np.cross(a, b)))
@@ -49,7 +49,7 @@ def calculate_circumcenter(triangle_points):
 
     Takes a single `(3, 2)` triangle or a stacked `(..., 3, 2)` array. Solved
     against the first vertex as origin, which keeps the accuracy of a very
-    flat triangle -- the shape mesh refinement asks about most -- rather than
+    flat triangle (the shape mesh refinement asks about most) rather than
     intersecting bisectors by slope, where a near-horizontal edge loses most of
     the available precision.
     '''
@@ -113,7 +113,7 @@ def calculate_triangle_angles(triangle):
     a, b, c = sides[..., 0], sides[..., 1], sides[..., 2]
     # Law of cosines. Clipped because a degenerate triangle can put the ratio a
     # hair outside [-1, 1], and a NaN angle would silently compare false against
-    # any bound -- exactly the sliver a refinement loop must not accept as good.
+    # any bound, exactly the sliver a refinement loop must not accept as good.
     cosines = np.stack([
         (b**2 + c**2 - a**2) / (2 * b * c),
         (c**2 + a**2 - b**2) / (2 * c * a),
@@ -131,8 +131,8 @@ def calculate_triangle_min_angle(triangle):
 def get_boundary_from_vertices_elements(elements):
     '''Boundary facets of a linear simplex mesh, as sorted vertex-index lists.
 
-    A facet is the codimension-1 face of an element -- an edge of a triangle, a
-    face of a tet -- and it lies on the boundary exactly when it belongs to one
+    A facet is the codimension-1 face of an element (an edge of a triangle, a
+    face of a tet), and it lies on the boundary exactly when it belongs to one
     element instead of two. Counting occurrences in a single pass is O(elements);
     the facets are unoriented, which is all the boundary mass matrix needs.
     '''

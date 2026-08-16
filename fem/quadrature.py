@@ -2,12 +2,12 @@
 
 A rule estimates an integral over an element by sampling the integrand at a few
 reference points and summing weighted values. `degree` is the highest total
-polynomial degree the rule integrates exactly -- the property assembly selects a
+polynomial degree the rule integrates exactly: the property assembly selects a
 rule by, and the property `tests/test_quadrature.py` certifies against the closed
 form for a monomial over a simplex.
 
 Weights sum to the reference simplex measure `1/d!`, so a physical integral is
-`sum_q weight_q * f(x_q) * |det J|` -- the same `/factorial(reference_dim)`
+`sum_q weight_q * f(x_q) * |det J|`, the same `/factorial(reference_dim)`
 convention `LinearElement.geometry` already scales its element measures by. The
 points are in the element's own reference coordinates: the simplex with node 0 at
 the origin and the remaining nodes at the unit basis vectors, matching the frame
@@ -31,7 +31,7 @@ class QuadratureRule:
     `points` is `(n_points, reference_dim)` in the reference simplex's own
     coordinates: each coordinate is the barycentric weight on one corner, with
     corner 0 taking the remaining `1 - sum`, so `(1/3, 1/3)` is the triangle's
-    centroid. `weights` is `(n_points,)` and sums to the reference measure `1/d!` --
+    centroid. `weights` is `(n_points,)` and sums to the reference measure `1/d!`,
     the measure the constant 1 integrates to. A rule of degree `p` integrates every
     polynomial of total degree <= p over the reference simplex exactly.
     '''
@@ -45,12 +45,12 @@ class QuadratureRule:
 
 
 # Key is the simplex dimension (1 line, 2 triangle, 3 tet); value is that simplex's
-# rules ordered cheapest -- lowest degree, fewest points -- first, so `quadrature_rule`
+# rules ordered cheapest (lowest degree, fewest points) first, so `quadrature_rule`
 # returns the first entry meeting the requested degree. Each constant is certified by
 # tests/test_quadrature.py (monomial exactness up to `degree`, and weights summing
 # to the reference measure), so a mistyped entry fails there rather than silently
 # biasing every integral. Higher-degree rules are added when a form or element
-# first needs one -- the linear-simplex stiffness needs only degree 1.
+# first needs one; the linear-simplex stiffness needs only degree 1.
 _RULES: dict[int, list[QuadratureRule]] = {
     1: [  # reference line [0, 1], measure 1
         QuadratureRule(np.array([[0.5]]), np.array([1.0]), degree=1),
@@ -66,12 +66,12 @@ _RULES: dict[int, list[QuadratureRule]] = {
     ],
     2: [  # reference triangle, measure 1/2
         QuadratureRule(np.array([[1 / 3, 1 / 3]]), np.array([0.5]), degree=1),
-        # Strang three-point interior rule, exact to degree 2 -- the P1 mass and P2
+        # Strang three-point interior rule, exact to degree 2: the P1 mass and P2
         # stiffness rule.
         QuadratureRule(
             np.array([[1 / 6, 1 / 6], [2 / 3, 1 / 6], [1 / 6, 2 / 3]]),
             np.full(3, 1 / 6), degree=2),
-        # Dunavant six-point rule, exact to degree 4 -- the P2 mass rule (phi_i phi_j
+        # Dunavant six-point rule, exact to degree 4: the P2 mass rule (phi_i phi_j
         # is degree 4) and the higher-degree load. Two three-point orbits; the
         # barycentric weights sum to 1 and are halved to the reference measure 1/2.
         QuadratureRule(

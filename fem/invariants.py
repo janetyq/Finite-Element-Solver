@@ -7,7 +7,7 @@ axes point, so a scalar that changes when the frame turns describes the
 bookkeeping, not the state.
 
 Everything here takes full `(n_elements, d, d)` tensors, never the Voigt vectors
-assembly packs -- a norm or eigenvalue of the packed form is not the tensor's
+assembly packs; a norm or eigenvalue of the packed form is not the tensor's
 (see `fem.forms.voigt_to_tensor`). `tests/test_invariants.py` checks invariance
 by rotating the input.
 """
@@ -33,8 +33,8 @@ def deviatoric(tensor: FloatArray) -> FloatArray:
     '''The trace-free part A - tr(A)/d * I, batched.
 
     Splits a tensor into the volume change it describes (the trace) and the shape
-    change (what is left). Metal plasticity depends on the second alone, which is
-    what von Mises measures.
+    change (what is left). Metal plasticity depends on the second alone, which von
+    Mises measures.
     '''
     d = tensor.shape[-1]
     return tensor - (trace(tensor) / d)[:, None, None] * np.eye(d)
@@ -50,7 +50,7 @@ def von_mises(stress: FloatArray) -> ElementField:
 
     The scalar a yield criterion compares against a material's tensile strength,
     and the usual thing to colour a stress plot by. Built from the deviator, so
-    it ignores hydrostatic pressure -- a body under uniform compression is not
+    it ignores hydrostatic pressure: a body under uniform compression is not
     yielding, however large the pressure.
 
     Takes the **full 3x3 tensor**. A 2D solve must supply the out-of-plane
@@ -63,7 +63,7 @@ def von_mises(stress: FloatArray) -> ElementField:
 
 
 def principal(tensor: FloatArray) -> FloatArray:
-    '''Principal values, ascending, batched -- `(n_elements, d)`.
+    '''Principal values, ascending, batched: `(n_elements, d)`.
 
     The eigenvalues of the tensor: the normal components in the frame where the
     shear terms vanish. `eigvalsh` assumes symmetry, which stress and strain both
