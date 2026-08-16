@@ -240,34 +240,39 @@ class ResidualEstimator:
         jump_term = np.zeros(n_elements)
         boundary_term = np.zeros(n_elements)
 
-        for edge, adjacent in mesh.edge_to_elements.items():
-            v0, v1 = edge
-            edge_vec = mesh.vertices[v1] - mesh.vertices[v0]
+        vertices = mesh.vertices
+        edges = mesh.edges                    # (E, 2) sorted vertex pairs
+        edge_elements = mesh.edge_elements    # (E, 2), -1 in slot 1 on a boundary edge
+        is_interior = edge_elements[:, 1] >= 0
+
+        # Interior edges, all at once: the flux is continuous in the true
+        # solution but jumps between the piecewise-constant discrete neighbours.
+        pairs = edges[is_interior]
+        e0, e1 = edge_elements[is_interior, 0], edge_elements[is_interior, 1]
+        edge_vecs = vertices[pairs[:, 1]] - vertices[pairs[:, 0]]              # (Ei, 2)
+        edge_lens = np.linalg.norm(edge_vecs, axis=1)                         # (Ei,)
+        normals = np.stack([-edge_vecs[:, 1], edge_vecs[:, 0]], axis=1) / edge_lens[:, None]
+        jumps = np.einsum('ekd,ed->ek', flux[e0] - flux[e1], normals)         # (Ei, k)
+        contribution = edge_lens * np.sum(jumps**2, axis=1)                   # (Ei,)
+        np.add.at(jump_term, e0, (h_K[e0] / 2) * contribution / 2)
+        np.add.at(jump_term, e1, (h_K[e1] / 2) * contribution / 2)
+
+        # Boundary edges are comparatively few and the flux's boundary residual
+        # is a per-edge physics hook, so these stay a Python loop.
+        for edge_idx in np.nonzero(~is_interior)[0]:
+            v0, v1 = int(edges[edge_idx, 0]), int(edges[edge_idx, 1])
+            e_bnd = int(edge_elements[edge_idx, 0])
+            edge_vec = vertices[v1] - vertices[v0]
             edge_len = float(np.linalg.norm(edge_vec))
             normal = _rotate90(edge_vec) / edge_len
-
-            if len(adjacent) == 2:
-                # Interior edge: the flux is continuous in the true solution but
-                # jumps between the piecewise-constant discrete neighbours.
-                e0, e1 = adjacent
-                t0 = flux[e0] @ normal
-                t1 = flux[e1] @ normal
-                jump2 = float(np.sum((t0 - t1)**2))
-                edge_contribution = edge_len * jump2
-                jump_term[e0] += (h_K[e0] / 2) * edge_contribution / 2
-                jump_term[e1] += (h_K[e1] / 2) * edge_contribution / 2
-                continue
-
-            # Boundary edge: orient the normal out of the domain (g is directional,
-            # unlike the interior jump where either sign cancels), then delegate the
-            # residual to the flux, zero for a scalar problem.
-            (e0,) = adjacent
-            centroid = mesh.vertices[mesh.elements[e0]].mean(axis=0)
-            midpoint = 0.5 * (mesh.vertices[v0] + mesh.vertices[v1])
+            # Orient the normal out of the domain: g is directional, unlike the
+            # interior jump where either sign cancels.
+            centroid = vertices[mesh.elements[e_bnd]].mean(axis=0)
+            midpoint = 0.5 * (vertices[v0] + vertices[v1])
             if np.dot(midpoint - centroid, normal) < 0:
                 normal = -normal
-            residual2 = self.flux.boundary_residual(ctx, flux, int(v0), int(v1), e0, normal)
-            boundary_term[e0] += h_K[e0] * edge_len * residual2
+            residual2 = self.flux.boundary_residual(ctx, flux, v0, v1, e_bnd, normal)
+            boundary_term[e_bnd] += h_K[e_bnd] * edge_len * residual2
 
         eta_squared = interior + jump_term + boundary_term
         return np.sqrt(np.maximum(eta_squared, 0.0))
