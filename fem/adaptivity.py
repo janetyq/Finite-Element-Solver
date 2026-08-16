@@ -1,12 +1,12 @@
 """Adaptive mesh refinement: a driver that refines where the error is largest.
 
-The outer loop that re-solves on progressively finer meshes, sitting *above* the
-solver it drives rather than inside it -- the same shape as TopologyOptimizer,
+The outer loop that re-solves on progressively finer meshes, sitting above the
+solver it drives rather than inside it: the same shape as TopologyOptimizer,
 where the old version was a method on the thing it drove. It owns a solver, reads
 an error estimate each round, refines the marked elements, and advances the solver
 onto the new mesh via `remesh` (which rebuilds the space from the mesh-independent
-spec). Holding the solver is what lets the driver call `check_remeshable` on the BC
-spec up front -- a bare problem-factory would hide it.
+spec). Holding the solver lets the driver call `check_remeshable` on the BC spec
+up front, which a bare problem-factory would hide.
 
 The solver is a `RefinableSolver`, so this drives the linear and nonlinear facades
 alike.
@@ -64,7 +64,7 @@ class AdaptiveRefinement:
         refine_fraction: float = 0.9,
     ) -> None:
         self.solver = solver
-        # The estimator maps the solver to a per-element error -- an `ErrorEstimator`
+        # The estimator maps the solver to a per-element error: an `ErrorEstimator`
         # object (residual/recovery) or a bare callable for a one-off stand-in. Either
         # way it takes the solver rather than a stored array because the estimate must
         # be recomputed every round: once elements are split, the previous array is
@@ -83,8 +83,8 @@ class AdaptiveRefinement:
         '''
         self.solver.boundary_conditions.check_remeshable()
 
-        # RedGreenRefiner is stateful -- it tracks the current mesh and returns the
-        # refined one -- so it is built once and kept in step with the solver's mesh.
+        # RedGreenRefiner is stateful (it tracks the current mesh and returns the
+        # refined one), so it is built once and kept in step with the solver's mesh.
         refiner = RedGreenRefiner(self.solver.mesh)
         solution = self.solver.solve()  # solve the initial mesh; the estimator may read solver.solution
         for _ in range(self.max_iters):

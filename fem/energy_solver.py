@@ -7,7 +7,7 @@ problem is an `EnergyProblem` and the strategy is `NewtonSolve`, because the
 tangent depends on the state.
 
 Nothing index-keyed lives on the solver. The DOF partition belongs to the
-`EnergyProblem` built for the current mesh, which is what lets `remesh` rebuild
+`EnergyProblem` built for the current mesh, which lets `remesh` rebuild
 everything from the mesh-independent specification rather than carrying stale
 indices across a refinement.
 """
@@ -43,7 +43,7 @@ class EnergySolver:
             )
         # This solver minimizes the internal elastic energy and never builds a
         # load vector, so a source term would be accepted and then quietly
-        # ignored -- the answer would just be the unforced one.
+        # ignored: the answer would just be the unforced one.
         if equation.source is not None:
             raise NotImplementedError(
                 'EnergySolver does not support a source term yet: it minimizes the '
@@ -86,7 +86,7 @@ class EnergySolver:
         return EnergyProblem(self.space, self.form, self.boundary_conditions)
 
     # energy / gradient / hessian are the raw, unconstrained quantities: the total
-    # energy Pi(u), its gradient (nonzero at fixed DOFs -- the reaction forces),
+    # energy Pi(u), its gradient (nonzero at fixed DOFs, the reaction forces),
     # and its Hessian. The Dirichlet constraint is applied by the DiscreteSystem
     # inside NewtonSolve, not baked into these.
     def energy(self, u: DofVector) -> float:

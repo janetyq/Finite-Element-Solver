@@ -8,14 +8,14 @@ that knows the on-disk formats:
   mesh geometry and ``n_components`` needed to rebuild the object.
 
 Solutions deliberately avoid ``pickle``. Pickle executes arbitrary code on load
-and is fragile across refactors, since it stores the class path -- moving or
+and is fragile across refactors, since it stores the class path: moving or
 renaming a class breaks every file previously written. The npz path reads plain
 numeric arrays and reconstructs a known mesh class by name, so loading a file
 can never run code from it. ``np.load`` is called with the default
 ``allow_pickle=False``, which enforces that.
 
 Value arrays must be numeric and non-ragged (lists of equal-length arrays, such
-as a per-timestep ``u`` series, are fine -- they stack). A ragged value fails at
+as a per-timestep ``u`` series, are fine; they stack). A ragged value fails at
 save time rather than silently becoming a pickled object array.
 
 Solutions are typed dataclasses (:mod:`fem.solution`), so the archive stores the
@@ -103,7 +103,7 @@ def save_solution(solution, path='solution.npz'):
         value = np.asarray(getattr(solution, f.name))
         if value.dtype == object:
             # A ragged field (e.g. unequal-length time steps) can only be stored as
-            # an object array, which means pickle -- refuse it rather than degrade.
+            # an object array, which means pickle; refuse it rather than degrade.
             raise ValueError(
                 f'solution field {f.name!r} is ragged and cannot be saved without pickle'
             )
@@ -119,8 +119,8 @@ def load_solution(path='solution.npz'):
     import fem.solution as solution_module
 
     with np.load(path) as data:
-        # A Solution is defined over geometry alone -- it reads vertices and
-        # elements and nothing else -- so whichever mesh class was stored is
+        # A Solution is defined over geometry alone (it reads vertices and
+        # elements and nothing else), so whichever mesh class was stored is
         # enough. Element geometry and operators belong to a FunctionSpace,
         # which a solve builds for itself.
         mesh = _mesh_from_arrays(data)

@@ -1,7 +1,7 @@
 """The `Problem`: the assembly-ready statement a solve strategy consumes.
 
 A `Problem` is to a composition of physics what `ResolvedBC` is to a
-`BoundaryConditions` -- the resolved, immutable view of a specification, built for
+`BoundaryConditions`: the resolved, immutable view of a specification, built for
 one mesh. It answers the four questions a solver needs and nothing more:
 `constraints` (which DOFs are fixed), `load` (the right-hand side), `tangent(u)`,
 and `residual(u)`. Above it the world is PDE-rich; below it, `DiscreteSystem` sees
@@ -11,10 +11,10 @@ solve strategy never learns which PDE it is solving.
 `LinearProblem` and `EnergyProblem` share that protocol, mirroring the `Form` /
 `EnergyForm` split: the linear one is the special case whose tangent does not
 depend on the state. Both own their constraints (resolved from the BC spec once,
-here) -- which is what takes the re-resolve-after-remesh dance out of the solver:
+here), which takes the re-resolve-after-remesh dance out of the solver:
 a driver that remeshes just builds a new `Problem`.
 
-Named PDEs survive as *factory functions* (`poisson`, `linear_elastic`, ...), not
+Named PDEs survive as factory functions (`poisson`, `linear_elastic`, ...), not
 dispatch classes: composing a typed operator with a typed load is what "solving
 Poisson" means, so there is no PDE type to switch on.
 """
@@ -101,7 +101,7 @@ class LinearProblem:
 
         # Each Neumann traction is integrated over its own region's facets (as the Robin
         # load is), so it stays on that edge instead of spreading onto a neighbour through
-        # a shared corner -- which an unmasked global boundary mass would do.
+        # a shared corner, which an unmasked global boundary mass would do.
         traction_load = np.zeros(space.n_dofs)
         for neumann in self._resolved.neumann:
             boundary_mass = space.assemble(
@@ -110,8 +110,8 @@ class LinearProblem:
                 boundary_mass @ neumann.traction.flatten()).flatten()
 
         # Callers pass only the volume source; the BC resolution supplies the traction
-        # terms above. The source is a field -- integrated as its P1 interpolant via the
-        # cached mass matrix -- or a LinearForm sampled at the quadrature points, for a
+        # terms above. The source is a field (integrated as its P1 interpolant via the
+        # cached mass matrix) or a LinearForm sampled at the quadrature points, for a
         # source that varies within an element.
         if isinstance(source, LinearForm):
             volume_load = space.assemble_load(source)
@@ -120,7 +120,7 @@ class LinearProblem:
         self._b = volume_load + traction_load + robin_load
         # Assembled on first use, not here. Stating a problem is cheap; assembling
         # its operator is the expensive half, and a problem can be built without
-        # ever being solved -- a topology optimization iteration derives its own
+        # ever being solved: a topology optimization iteration derives its own
         # operator from a template whose own operator is never assembled.
         self._A: Operator | None = None
 
@@ -133,8 +133,8 @@ class LinearProblem:
 
         Only the operator is reassembled. Which DOFs are constrained and what the
         load is follow from the boundary conditions and the source, neither of which
-        the operator enters, so a driver re-solving under a rebuilt operator --
-        a topology optimization iteration rescaling the stiffness -- keeps them
+        the operator enters, so a driver re-solving under a rebuilt operator
+        (a topology optimization iteration rescaling the stiffness) keeps them
         rather than resolving the BCs and reassembling the load per solve.
 
         A new problem rather than a mutation: the two share the constraints and load
@@ -143,8 +143,8 @@ class LinearProblem:
         derived = copy.copy(self)
         derived.operator = operator
         # The copy carries this problem's assembled operator, which is precisely what
-        # the derived one must not answer with. Dropping it is what makes the new
-        # operator take effect; keeping it would hand back the old stiffness silently.
+        # the derived one must not answer with. Dropping it makes the new operator
+        # take effect; keeping it would hand back the old stiffness silently.
         derived._A = None
         return derived
 
@@ -172,7 +172,7 @@ class EnergyProblem:
     '''∇Π(u) = 0: a nonlinear operator whose tangent depends on the state.
 
     The residual is the energy gradient and the tangent its Hessian, both from an
-    `EnergyForm`. No external work term yet -- the load is zero, so a source is
+    `EnergyForm`. No external work term yet: the load is zero, so a source is
     refused rather than silently dropped (as `EnergySolver` always has).
     '''
 
@@ -266,8 +266,8 @@ def linear_elastic(
 def heat(mesh: Mesh, source: FieldValue = None, bc: BoundaryConditions | None = None) -> LinearProblem:
     '''Transient heat: the same Laplacian operator Poisson uses, to be time-stepped.
 
-    A heat problem is not a distinct operator -- it is Poisson's, integrated in
-    time -- so this is `poisson` under another name, paired with a `ThetaMethod`.
+    A heat problem is not a distinct operator: it is Poisson's, integrated in
+    time, so this is `poisson` under another name, paired with a `ThetaMethod`.
     '''
     space = FunctionSpace(mesh, n_components=1)
     return LinearProblem(space, LaplacianForm(), source, bc)

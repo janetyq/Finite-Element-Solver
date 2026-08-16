@@ -1,8 +1,8 @@
 """Time integrators: a scheme applied to a semi-discrete `Problem`.
 
-The domain has two ODE orders -- heat is first (M u' + K u = b), wave is second
-(M u'' + K u = b) -- so there is one integrator family per order rather than one
-first-order interface for both. Each forms a *constant* effective operator from the
+The domain has two ODE orders: heat is first (M u' + K u = b), wave is second
+(M u'' + K u = b), so there is one integrator family per order rather than one
+first-order interface for both. Each forms a constant effective operator from the
 problem's mass and stiffness, factors it once through `DiscreteSystem`, and steps
 by updating only the right-hand side. `dt` and the step count live here, not on the
 equation; initial conditions come in through `run`.
@@ -71,7 +71,7 @@ class NewmarkMethod:
     a linear undamped system, energy-conserving. It solves for the acceleration
     against the SPD operator M + β dt² K, an N-sized system factored once. Constant
     Dirichlet displacement means zero velocity and acceleration at the fixed nodes,
-    so those DOFs are pinned to zero in the acceleration solve -- the ordinary
+    so those DOFs are pinned to zero in the acceleration solve: the ordinary
     constraint, no lifting into a 2N block.
     '''
 

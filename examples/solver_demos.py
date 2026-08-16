@@ -80,7 +80,7 @@ def demo_poisson_equation(mesh):
                'fields'),
         Figure(conditions,
                'Pinned at every boundary node, so no part of this boundary is left to '
-               'the natural condition -- which is what makes the solution vanish all '
+               'the natural condition, which makes the solution vanish all '
                'the way round.',
                'conditions', setup=True),
     ])
@@ -100,7 +100,7 @@ def _tidy_log_axis(ax, steps):
     """Label the axis with the steps actually used.
 
     These sequences span well under a decade, where a log axis falls back to minor
-    ticks like 2x10^-2 -- which run into each other.
+    ticks like 2x10^-2, which run into each other.
     """
     ax.grid(True, which='both', alpha=0.3)
     # Plain decimals below a thousandth run to more digits than they are worth.
@@ -117,7 +117,7 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
     # Every other figure here is checked by eye; these are the claims that survive
     # being looked at properly, and they are the two the discretization makes:
     #
-    #   in space  P1 elements are O(h^2) -- halve h, quarter the error -- for a scalar
+    #   in space  P1 elements are O(h^2) (halve h, quarter the error) for a scalar
     #             unknown and for a coupled vector one alike;
     #   in time   the theta method's order is theta's to choose: 1 at backward Euler,
     #             2 at Crank-Nicolson, which is the default.
@@ -158,12 +158,12 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
         rows.append(f'{name:<22}{study.fitted_order:>9.2f}{expected:>11}')
     return DemoResult(
         [Figure(plotter,
-                'Left: the Poisson error is smooth and one-signed -- zero on the boundary '
+                'Left: the Poisson error is smooth and one-signed: zero on the boundary '
                 'where the solution is pinned exactly, deepest at the centre where the '
                 'piecewise-linear space has the most to miss. Middle: halving h quarters '
                 'that error, for a scalar unknown and for a coupled vector one alike. '
                 'Right: the same measurement against the time step instead, where the '
-                'order is not a property of the elements but a choice -- backward Euler '
+                'order is not a property of the elements but a choice: backward Euler '
                 'buys first order, Crank-Nicolson second, for the same cost per step.')],
         text='\n'.join(rows),
     )
@@ -203,7 +203,7 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
     return DemoResult(
         [Figure(plotter,
                 'Left: on the same meshes, halving h quarters the P1 error (order 2) but '
-                'divides the P2 error by eight (order 3) -- the steeper line is the whole '
+                'divides the P2 error by eight (order 3): the steeper line is the whole '
                 'point of a higher-order element. Right: the same errors against the '
                 'number of unknowns. P2 spends more DOFs per element, yet reaches a given '
                 'accuracy well to the left of P1, so it is the cheaper choice where the '
@@ -213,7 +213,7 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
 
 def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
     """Show what sampling the load at the quadrature points buys. Both solves use the same
-    P1 elements; they differ only in how the source f becomes the right-hand side -- read
+    P1 elements; they differ only in how the source f becomes the right-hand side: read
     at the vertices, or at the interior quadrature points. The vertex shortcut undershoots
     wherever f swings within an element."""
     k = LOAD_MMS_FREQUENCY
@@ -273,18 +273,18 @@ def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
             f'  the nodal shortcut is {coarse.nodal_error / coarse.sampled_error:.1f}x worse']
     return DemoResult(
         [Figure(comp,
-                'Both solves use the same P1 (linear) elements -- neither is higher order. '
+                'Both solves use the same P1 (linear) elements; neither is higher order. '
                 'They differ only in how the source f becomes the load: the nodal load reads '
                 'f at the vertices only (integrating its linear interpolant), the sampled '
                 'load reads f at the interior quadrature points. Top-left: on a slice '
                 'through a row of bumps, the exact solution (grey) against the two P1 '
-                'solutions -- the nodal load undershoots each peak. Top-right: both converge '
+                'solutions: the nodal load undershoots each peak. Top-right: both converge '
                 'at order 2, the sampled load about 3x lower. Bottom: the absolute error '
                 'over the mesh for each, at the same colour scale.',
                 'comparison'),
          Figure(setup,
                 'The manufactured problem: -div(grad u) = f on the unit square, zero on the '
-                'boundary. The load is the source f (left) -- an oscillating field of '
+                'boundary. The load is the source f (left), an oscillating field of '
                 'sources and sinks; the solution u (right) is what it drives, a grid of '
                 'bumps pinned to zero all around. Both solves in the comparison target this '
                 'u and differ only in how f is sampled to build the load.',
@@ -306,7 +306,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # A domain with a hole in it has no structured triangulation, so this is a generated
     # mesh going straight into the solver. Nothing downstream of the meshing knows that:
     # the conditions are written against coordinates rather than vertex numbers, so they
-    # resolve against whatever triangulation arrives -- including the one adaptive
+    # resolve against whatever triangulation arrives, including the one adaptive
     # refinement (below) rebuilds several times over.
     #
     # The circle needs many more segments than its default here specifically because
@@ -319,11 +319,11 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # ahead of the triangulation rather than the other way around.
     pslg = plate_with_hole_pslg(length, height, radius, segments=circle_segments)
     pslg.validate()
-    # Deliberately coarse: the angle bound constrains element *shape* and says nothing
+    # Deliberately coarse: the angle bound constrains element shape and says nothing
     # about size, and this area cap is generous rather than tight, because resolving
     # the rim is adaptive refinement's job below, not this uniform pass's. The rim still
     # grades finer than the interior even here, since the polygonalised rim is built
-    # from short input segments and Ruppert's honours them -- adaptive refinement starts
+    # from short input segments and Ruppert's honours them; adaptive refinement starts
     # from that head start rather than from scratch.
     rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=max_area_fraction * pslg.area())
@@ -342,8 +342,8 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # -- the Poisson contraction a real clamp would resist. That resistance is itself a
     # local disturbance with nothing to do with the hole, and it used to compete with
     # the hole for the adaptive-refinement estimator's attention (see below). A roller
-    # cannot be built from one `add` alone -- pinning y anywhere along the edge would
-    # resist the same contraction a clamp does -- so a second condition pins y at just
+    # cannot be built from one `add` alone: pinning y anywhere along the edge would
+    # resist the same contraction a clamp does, so a second condition pins y at just
     # the one corner point the two conditions share, removing the last rigid-body mode
     # without adding back what the roller exists to avoid.
     bc = BoundaryConditions()
@@ -354,12 +354,12 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # Adaptive refinement, driven by this same equation's residual estimator
     # (residual_estimator, from fem.estimators), replaces the uniform mesh above with one built
     # by repeatedly re-solving and splitting wherever the estimator finds the most
-    # error -- everything the rest of this demo plots and measures is read off the
-    # *result* of this loop, not off the coarse mesh it started from.
+    # error: everything the rest of this demo plots and measures is read off the
+    # result of this loop, not off the coarse mesh it started from.
     #
     # Thirty-four rounds from a starting mesh this coarse spend a real share of their
     # budget bringing the whole plate up to a baseline before they can behave like
-    # they are chasing the hole specifically -- a finer starting mesh reaches that
+    # they are chasing the hole specifically; a finer starting mesh reaches that
     # point in far fewer rounds (see BACKLOG.md), but starting coarse and letting
     # this loop do more of the work is the trade made here. The ceiling on pushing
     # this further isn't the budget, it's the circle above: past roughly this many
@@ -378,24 +378,24 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     # A vertical strip through the hole's centre: the line the concentration decays
     # along, from the rim out to the far field. The geometry is known here rather than
-    # measured back off the mesh, which is what building the domain in the demo buys.
+    # measured back off the mesh, which building the domain in the demo buys.
     strip = np.abs(centroids[:, 0] - length/2) < 0.4*radius
     order = np.argsort(centroids[strip, 1])
     y_strip, ratio_strip = centroids[strip, 1][order], (sigma_xx[strip] / traction)[order]
     peak = ratio_strip.max()
 
-    # Kirsch's factor of 3 is the *infinite*-plate limit, and this plate is finite, so
-    # the measured peak sits above it -- the hole removes section, which raises the
+    # Kirsch's factor of 3 is the infinite-plate limit, and this plate is finite, so
+    # the measured peak sits above it: the hole removes section, which raises the
     # stress the remaining material carries. Sampled at three hole/height ratios (0.20,
     # 0.15, 0.12) it reads 3.24, 3.16, 3.12: falling toward 3 as the hole shrinks, and
-    # cleanly enough to say so -- adaptive sampling reads the peak from elements the
+    # cleanly enough to say so: adaptive sampling reads the peak from elements the
     # estimator put exactly where the gradient is steepest, rather than from whichever
     # elements a uniform cap happened to land nearby.
     #
     # Even so, only one digit of that is worth quoting. Refining further does not
     # settle it much closer than this: 3.23, 3.24, 3.24, 3.24 over 3600, 4249, 5209 and
-    # 5614 elements. That is tighter than a uniform mesh manages at any single size --
-    # the point of putting the resolution where the gradient is steepest -- but reading
+    # 5614 elements. That is tighter than a uniform mesh manages at any single size
+    # (the point of putting the resolution where the gradient is steepest), but reading
     # the true rim value would still mean extrapolating to the boundary rather than
     # sampling near it.
 
@@ -435,38 +435,38 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # Ruppert's own quality guarantee does not survive: `min_angle` bounds what
     # RuppertsAlgorithm builds, but red-green refinement bisects existing triangles
     # rather than re-triangulating for shape, so it is not a Delaunay construction and
-    # carries no angle guarantee of its own. Worth reporting rather than hiding --
+    # carries no angle guarantee of its own. Worth reporting rather than hiding:
     # `tests/test_refinement_conformity.py` covers that the mesh stays conforming
     # through this, not that it stays well-shaped.
     worst_angle = calculate_triangle_min_angle(
         np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
-    # rupperts.boundary_loops describes the *initial* triangulation's boundary facets,
-    # not the refined mesh's -- adaptive refinement does not carry it forward (see
+    # rupperts.boundary_loops describes the initial triangulation's boundary facets,
+    # not the refined mesh's; adaptive refinement does not carry it forward (see
     # BACKLOG.md), so this counts the rim facets Ruppert's produced, before refinement
     # added more of its own.
     rim_facets = int(np.sum(rupperts.boundary_loops == 1))
     return DemoResult(
         [Figure(built,
                 f'Left: the mesh after adaptive refinement, with the outline it started '
-                f'from in blue -- {n_initial} triangles from a deliberately coarse '
+                f'from in blue: {n_initial} triangles from a deliberately coarse '
                 f'uniform pass, grown to {len(mesh.elements)} by putting the rest where '
                 f'the residual estimator found the most error. Right: where the '
                 f'conditions went. The rim and the long edges carry none, which is not '
                 f'an omission but the natural condition of the weak form: an edge '
                 f'nothing is said about is traction-free. Every one of these is written '
-                f'against coordinates rather than vertex numbers, which is what lets '
-                f'them be placed on a mesh no one laid out by hand -- including the one '
+                f'against coordinates rather than vertex numbers, which lets '
+                f'them be placed on a mesh no one laid out by hand, including the one '
                 f'adaptive refinement rebuilds several times over.',
                 'built'),
          Figure(plotter,
                 f'A plate pulled from the right, with the hole left traction-free. The '
                 f'stress crowds into the material either side of the hole and relaxes '
                 f'to the applied value within about a diameter, peaking at {peak:.1f}x '
-                f'the applied stress. Kirsch gives 3x -- for a hole in an *infinite* '
+                f'the applied stress. Kirsch gives 3x, for a hole in an infinite '
                 f'plate. This one is three hole-diameters tall, so the hole removes '
                 f'enough section to push the peak above that limit, and the excess '
                 f'shrinks as the hole does. A textbook constant is a limit, not a '
-                f'target -- and one digit is all this measurement supports, since the '
+                f'target, and one digit is all this measurement supports, since the '
                 f'peak is sampled at element centroids near the steepest gradient in '
                 f'the field.',
                 'stress', thumbnail=True)],
@@ -487,7 +487,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
 
 def demo_elastic_3d(n=17):
     """Bend a 3D cantilever beam of tetrahedra, drawn as its boundary surface."""
-    # The package solves in 3D throughout -- the same assembly, the same element
+    # The package solves in 3D throughout: the same assembly, the same element
     # hierarchy, `Solver` reading the element type off the connectivity. `heat_3d` draws
     # the same way, through `plot_solid` (`fem/plot/helpers.py`).
     mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
@@ -515,7 +515,7 @@ def demo_elastic_3d(n=17):
         [Figure(plotter,
                 'The same clamp-and-load as the 2D cantilever, one dimension up: a '
                 'tetrahedral mesh, a three-component displacement, and stress recovered '
-                'the same way. Only the boundary surface is drawn -- the inside of a '
+                'the same way. Only the boundary surface is drawn: the inside of a '
                 'solid is not visible, and there are several times more tets than '
                 'surface triangles.')],
         text=(f'tetrahedra          {len(mesh.elements)}\n'

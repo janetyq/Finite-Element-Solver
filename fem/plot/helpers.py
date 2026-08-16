@@ -18,7 +18,7 @@ class ColorbarInfo:
     """One panel's colour mapping, and the bar drawn beside it.
 
     `bar` is kept, not just the mapping it was built from, because the bar owns an
-    axes of its own -- and that axes has to be resized to match the panel once the
+    axes of its own, and that axes has to be resized to match the panel once the
     layout is settled (`Plotter._fit_colorbars`).
     """
     cmap: Colormap
@@ -126,7 +126,7 @@ def plot_surface(ax, mesh, values, clim=None):
     elif values.shape == (len(mesh.elements),):
         # A surface plot interpolates between nodes, so an element-constant field
         # has to be projected first. The projection is volume-weighted and lives
-        # on the space, which is cheap to build -- nothing assembles until asked.
+        # on the space, which is cheap to build; nothing assembles until asked.
         from fem.space import FunctionSpace
         values = FunctionSpace(mesh).element_to_vertex(values)
     else:
@@ -141,7 +141,7 @@ def plot_surface(ax, mesh, values, clim=None):
 def plot_solid(ax, mesh, values, cbar_info=None):
     """Draw a 3D mesh as its boundary surface, coloured by `values`.
 
-    Only the boundary facets are drawn -- the interior of a solid is not visible, and
+    Only the boundary facets are drawn: the interior of a solid is not visible, and
     a tet mesh has several times more elements than surface triangles.
 
     `values=None` draws the surface plain, for showing a mesh rather than a field
@@ -168,7 +168,7 @@ def plot_solid(ax, mesh, values, cbar_info=None):
 
 def _fit_3d_limits(ax, mesh):
     """Frame a 3D mesh: `add_collection3d` does not autoscale, so the limits come from
-    the mesh. Ticks are thinned too -- a thin direction seen in projection puts six
+    the mesh. Ticks are thinned too: a thin direction seen in projection puts six
     labels in the space of two."""
     lower, upper = mesh.vertices.min(axis=0), mesh.vertices.max(axis=0)
     ax.set_xlim(lower[0], upper[0])
@@ -178,7 +178,7 @@ def _fit_3d_limits(ax, mesh):
 
 
 # Arrows a quiver panel draws, at most. A vector field is read from the pattern the
-# arrows make, and past this many they overlap into a grey mat that hides it -- so this
+# arrows make, and past this many they overlap into a grey mat that hides it, so this
 # is a property of the picture, not of the mesh, and holds as the mesh is refined.
 MAX_ARROWS = 700
 

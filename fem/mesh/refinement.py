@@ -1,11 +1,11 @@
 """Red-green triangle refinement.
 
 The session object (`RedGreenRefiner`) owns a parent/child tree that tracks how
-each triangle was produced.  This tree is what allows green-closure rollback:
-when a green child is later marked for refinement, its parent can be recovered
-and re-refined red, preserving mesh quality across successive rounds.
+each triangle was produced. This tree allows green-closure rollback: when a green
+child is later marked for refinement, its parent can be recovered and re-refined
+red, preserving mesh quality across successive rounds.
 
-The tree is private state -- callers see only ``refine(idxs) -> Mesh``.
+The tree is private state; callers see only ``refine(idxs) -> Mesh``.
 """
 from __future__ import annotations
 
@@ -65,11 +65,11 @@ class RedGreenRefiner:
     """Persistent red-green refinement session over a triangle mesh.
 
     Wraps a mesh and maintains an internal hierarchy so that successive calls
-    to `refine` can roll back green closures when needed.  The working arrays
-    are private copies -- the input mesh is never mutated.
+    to `refine` can roll back green closures when needed. The working arrays
+    are private copies; the input mesh is never mutated.
 
     Internal arrays (vertices, triangles, boundary) grow monotonically and are
-    never compacted.  Dead triangles are tombstoned via `_Status.GONE`, not
+    never compacted. Dead triangles are tombstoned via `_Status.GONE`, not
     removed, so every index structure stays valid across rounds.
     """
 

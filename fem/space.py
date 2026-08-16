@@ -1,25 +1,24 @@
 """The discrete function space: a mesh plus a choice of element and component count.
 
-In FEM notation a problem reads "find u in V_h such that a(u, v) = L(v) for all
-v in V_h". The package has an object for the domain (`Mesh`) and objects for the
-physics (`Equation`, the assembly routines), but no object for V_h.
+A problem in FEM reads "find u in V_h such that a(u, v) = L(v) for all v in V_h".
+The package has an object for the domain (`Mesh`) and objects for the physics
+(`Equation`, the assembly routines). `FunctionSpace` is the object for V_h.
 
-`FunctionSpace` is that object. It **has** a mesh rather than being one: a
-discretization is not a kind of geometry, it is a pairing of geometry with an
-element choice and a component count. Two spaces can therefore share one domain
--- P1 and P2, scalar and vector -- over a single copy of the geometry.
+It has a mesh rather than being one: a discretization is a pairing of geometry with
+an element choice and a component count, not a kind of geometry. So two spaces can
+share one domain (P1 and P2, scalar and vector) over a single copy of it.
 
-P1 is the piecewise-linear space: one DOF per vertex, linear over each element
-and continuous across element boundaries. P2 adds edge-midpoint nodes for
-quadratic interpolation. Only P1 is implemented here.
+P1 is the piecewise-linear space: one DOF per vertex, linear over each element and
+continuous across element boundaries. P2 adds edge-midpoint nodes for quadratic
+interpolation. Only P1 is implemented here.
 
-`n_components` is taken as an explicit low-level argument rather than an
-`Equation`, so a mixed formulation can build spaces the equation taxonomy has no
-name for. Deriving it from `Equation.field` happens one layer up, in the solver.
+`n_components` is an explicit argument rather than an `Equation`, so a mixed
+formulation can build spaces the equation taxonomy has no name for. Deriving it from
+`Equation.field` happens one layer up, in the solver.
 
-Immutability is assumed, not enforced: the cached operators are only valid while
-the mesh is not mutated underneath them. Build a new space instead of editing one
--- the same contract `ResolvedBC` has with `BoundaryConditions`.
+Immutability is assumed, not enforced: the cached operators are valid only while the
+mesh is not mutated underneath them. Build a new space instead of editing one, the
+same contract `ResolvedBC` has with `BoundaryConditions`.
 """
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -59,7 +58,7 @@ def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndi
     [n_components*n0, n_components*n0+1, ..., n_components*n1, n_components*n1+1, ...].
 
     Batched over the leading axis, so an `(n_elements, N)` connectivity array
-    gives `(n_elements, N*n_components)` -- one row of DOF slots per element.
+    gives `(n_elements, N*n_components)`, one row of DOF slots per element.
     '''
     element = np.asarray(element)
     interleaved = n_components * element[..., None] + np.arange(n_components)
@@ -76,9 +75,8 @@ _SIMPLEX_ELEMENTS: dict[int, type[LinearElement]] = {
 def element_type_for(mesh: Mesh) -> type[LinearElement]:
     '''The linear element matching the mesh's node count.
 
-    Unambiguous rather than a guess: `Mesh` rejects anything but linear simplices,
-    so a 3-node element *is* a triangle and a 4-node element *is* a tet. Callers
-    therefore no longer have to restate what the connectivity already says.
+    `Mesh` rejects anything but linear simplices, so a 3-node element is a triangle
+    and a 4-node element is a tet. The node count alone fixes the type.
     '''
     n_nodes = mesh.elements.shape[1]
     if n_nodes not in _SIMPLEX_ELEMENTS:
@@ -94,9 +92,9 @@ class _ScatterPlan:
 
     Assembly sums each entry into the global (row, col) slot its DOFs name, so
     elements sharing a node land together. That mapping is fixed by the connectivity,
-    not the form or geometry, so it is resolved once here; each assembly is then a
-    weighted `bincount` into a CSR matrix whose index arrays are already built --
-    which is what lets a topology iteration reassemble without re-sorting into CSR.
+    not the form or geometry, so it is resolved once here. Each assembly is then a
+    weighted `bincount` into a CSR matrix whose index arrays are already built, so a
+    topology iteration can reassemble without re-sorting into CSR.
     '''
     n_entries: int      # element-matrix entries this plan expects
     order: IntArray     # sorts those entries by destination slot
@@ -148,15 +146,14 @@ class _ScatterPlan:
 
 @dataclass(frozen=True, eq=False)
 class _VectorScatterPlan:
-    '''Where a batch of element vectors lands in the global vector -- the vector
-    counterpart of `_ScatterPlan`, without the CSR structure.
+    '''Where a batch of element vectors lands in the global vector.
 
-    A load or residual sums its entries into the DOFs its nodes own; with a plain
-    array as the target (not a sparse matrix), the whole scatter is one weighted
-    `bincount`, so this holds just the flat destination map. Resolved once and
-    reused -- what a Newton loop reassembling the residual each iteration wants,
-    in place of a per-call `np.add.at` whose unbuffered scatter is several times
-    slower.
+    The vector counterpart of `_ScatterPlan`, without the CSR structure. A load or
+    residual sums its entries into the DOFs its nodes own; with a plain array as the
+    target (not a sparse matrix), the whole scatter is one weighted `bincount`, so
+    this holds just the flat destination map. Resolved once and reused: a Newton loop
+    reassembling the residual each iteration avoids a per-call `np.add.at`, whose
+    unbuffered scatter is several times slower.
     '''
     n_entries: int          # element-vector entries this plan expects
     destination: IntArray   # global DOF each entry sums into, one per entry
@@ -170,7 +167,7 @@ class _VectorScatterPlan:
 
     def scatter(self, element_vectors: FloatArray) -> DofVector:
         '''Sum `element_vectors` into the global vector, matching entries to
-        destinations in row-major order -- the same pairing `np.add.at` made.'''
+        destinations in row-major order, the pairing `np.add.at` made.'''
         if element_vectors.size != self.n_entries:
             raise ValueError(
                 f'expected element vectors covering {self.n_entries} entries, got '
@@ -192,10 +189,10 @@ class NodeSet:
 
     `ResolvedBC` is built by evaluating geometric regions over node coordinates and
     intersecting with the boundary. For P1 the mesh's own vertices are the nodes, so
-    the mesh serves directly; for P2 the space builds one of these whose `vertices`
+    the mesh serves directly. For P2 the space builds one of these whose `vertices`
     include the edge-midpoint nodes and whose `boundary` facets carry them, so a
     condition written against coordinates pins the edge DOFs exactly as it pins the
-    vertex ones -- the resolver needs no change. Duck-types `Mesh` for the three
+    vertex ones, with no change to the resolver. Duck-types `Mesh` for the three
     attributes `BoundaryConditions.resolve` reads.
     '''
     vertices: Vertices          # (n_nodes, spatial) all node coordinates
@@ -208,7 +205,7 @@ def p2_connectivity(mesh: Mesh) -> tuple[Elements, Vertices, Elements]:
     '''Build the P2 node set for `mesh`: (element_nodes, node_coords, boundary_nodes).
 
     Nodes are the mesh vertices (indices unchanged) followed by one node per edge,
-    placed at the edge midpoint -- node `n_vertices + i` for `mesh.edges[i]`. An
+    placed at the edge midpoint: node `n_vertices + i` for `mesh.edges[i]`. An
     element's six nodes are its three corners then its three edge nodes, ordered so
     the edge opposite corner k comes k-th, matching `QuadraticTriangleElement`'s hats.
     A boundary facet gains its own edge's node as a third entry.
@@ -252,7 +249,7 @@ class FunctionSpace:
     ) -> None:
         element_type = element_type if element_type is not None else element_type_for(mesh)
         if element_type.SUB_TYPE is None:
-            # Only reachable for line elements, whose facets would be points --
+            # Only reachable for line elements, whose facets would be points,
             # the 1D path the SUB_TYPE TODO tracks. Raising here beats a
             # "NoneType is not callable" from the boundary comprehension.
             raise NotImplementedError(
@@ -288,7 +285,7 @@ class FunctionSpace:
     def _connectivity(self) -> tuple[Elements, Vertices, Elements]:
         '''(element_nodes, node_coords, boundary_nodes) for this space's element.
 
-        For P1 the mesh's own arrays -- nodes are vertices; for P2 the enlarged set
+        For P1 the mesh's own arrays (nodes are vertices); for P2 the enlarged set
         with an edge-midpoint node per edge. Everything below reads DOF numbering
         through here rather than off the mesh, so the mesh stays pure geometry.
         '''
@@ -354,24 +351,24 @@ class FunctionSpace:
 
     @property
     def geometry(self) -> ElementGeometry:
-        '''Batched geometry at the element's default rule -- a single point for P1,
+        '''Batched geometry at the element's default rule: a single point for P1,
         three for the degree-2 integrand of a P2 stiffness.'''
         return self.geometry_at(self.element_type.default_quadrature_degree())
 
     @cached_property
     def boundary_geometry(self) -> ElementGeometry:
-        '''The same, for the boundary facets -- embedded elements, so a wider grad_phi.'''
+        '''The same, for the boundary facets: embedded elements, so a wider grad_phi.'''
         return self.boundary_type.geometry(self.node_coords[self.boundary_nodes])
 
     @property
     def element_volumes(self) -> FloatArray:
-        '''(n_elements,) element measure -- length, area, or volume.'''
+        '''(n_elements,) element measure: length, area, or volume.'''
         return self.geometry.volumes
 
     def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
         '''Gradient of a field over one element, from its nodal values.
 
-        At the first quadrature point -- constant over the element for P1.
+        At the first quadrature point, constant over the element for P1.
         '''
         return self.geometry.grad_phi[e_idx, 0].T @ u_element
 
@@ -385,9 +382,9 @@ class FunctionSpace:
         '''Integral of a nodal field over the domain.
 
         `M @ u` sums to exactly the integral of a P1 field, so no separate
-        quadrature is needed. Nodal fields only -- the old mesh-level version
-        guessed between nodal and per-element data by comparing lengths, which
-        picks wrong whenever n_elements == n_vertices.
+        quadrature is needed. Nodal fields only: the old mesh-level version guessed
+        between nodal and per-element data by comparing lengths, which picks wrong
+        whenever n_elements == n_vertices.
         '''
         return float((self.mass_matrix @ u).sum())
 
@@ -409,24 +406,23 @@ class FunctionSpace:
         '''Project a per-element field onto the nodes, weighted by element volume.
 
         A P1 solve produces element-constant derived quantities (stress, an error
-        estimate, a density) while plotting and nodal output want a value per
-        vertex, so something has to combine the values of the elements meeting at
-        a node.
+        estimate, a density), while plotting and nodal output want a value per vertex.
+        So the values of the elements meeting at a node have to be combined.
 
         Takes a per-element scalar `(n_elements,)` or a per-element array
-        `(n_elements, *component_shape)` -- a flux tensor, say -- and returns the
+        `(n_elements, *component_shape)`, such as a flux tensor, and returns the
         matching `(n_nodes,)` or `(n_nodes, *component_shape)`, recovering each
-        component independently. The array form is what the recovery error
-        estimator smooths a discontinuous flux with.
+        component independently. The array form is what the recovery error estimator
+        smooths a discontinuous flux with.
 
-        Weighted by volume rather than counted evenly: on a graded mesh a sliver
-        and the large element beside it are not equally good evidence about the
-        field near their shared node, and an unweighted mean gives them the same
-        say. On a uniform mesh the two agree exactly.
+        Weighted by volume rather than counted evenly: on a graded mesh a sliver and
+        the large element beside it are not equally good evidence about the field near
+        their shared node, and an unweighted mean gives them the same say. On a uniform
+        mesh the two agree exactly.
 
-        This lives on the space rather than on `Mesh` because it is a
-        discretization operation, not a geometric one -- it needs the element
-        measures, which the space owns and the mesh does not.
+        This lives on the space rather than on `Mesh` because it is a discretization
+        operation, not a geometric one: it needs the element measures, which the space
+        owns and the mesh does not.
         '''
         values = np.asarray(values, dtype=float)
         if len(values) != len(self.element_nodes):
@@ -472,7 +468,7 @@ class FunctionSpace:
 
         The space owns the loop; the form owns the integrand, so the space stays
         free of any physics. `boundary=True` integrates over the boundary facets
-        instead of the volume elements -- the same scatter, a different mesh of
+        instead of the volume elements: the same scatter over a different mesh of
         elements. A form may request a higher-degree rule via a `quadrature_degree`
         attribute (a variable coefficient needs interior points a constant one does
         not); without it, the default single-point volume geometry is used. Not
@@ -490,7 +486,7 @@ class FunctionSpace:
         '''Scatter a `LinearForm`'s element vectors into the global load vector.
 
         The vector counterpart of `assemble`: element load vectors summed into the
-        DOFs their nodes own -- the same scatter `assemble_residual` runs for the
+        DOFs their nodes own, the same scatter `assemble_residual` runs for the
         nonlinear residual. This is the general load path; `problem.Source` is the
         mass-matrix special case that suffices when the source is given at the nodes.
         '''
@@ -535,13 +531,13 @@ class FunctionSpace:
 
         Depends only on connectivity and `n_components`, never on the form or the
         geometry, so it is computed once per element set and reused by every
-        operator assembled over it -- mass, stiffness, and each topology
-        optimization iteration's rebuilt stiffness alike.
+        operator assembled over it: mass, stiffness, and each topology optimization
+        iteration's rebuilt stiffness alike.
         '''
         # (n_elements, k): each element's global DOF positions, interleaved per node.
         dofs = self.dof_indices(elements)
         k = dofs.shape[1]
-        # Row index varies down the block, column index across it -- the vectorized
+        # Row index varies down the block, column index across it: the vectorized
         # form of the (k, k) index grid, one block per element.
         rows = np.repeat(dofs, k, axis=1).ravel()
         cols = np.tile(dofs, (1, k)).ravel()

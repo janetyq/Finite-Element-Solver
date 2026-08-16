@@ -92,7 +92,7 @@ def demo_mesh(demo: Demo, mesh_file: str | None) -> list[Mesh]:
     '''The mesh arguments to call `demo` with: its own domain, or `--mesh` instead.
 
     Passing `--mesh` to a demo that takes none is a mistake worth naming rather than
-    silently ignoring -- it means the caller expected a different demo to be listening.
+    silently ignoring: it means the caller expected a different demo to be listening.
     '''
     if demo.domain is None:
         if mesh_file is not None:

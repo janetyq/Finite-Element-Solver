@@ -3,8 +3,8 @@
 Linearised (eigenvalue) buckling, the finite-element analogue of Euler's column
 formula. Where `Solver` answers "what shape does this load hold the structure in?",
 `BucklingSolver` answers "how far can this load be scaled before the structure snaps
-sideways into a different shape?" -- the load factor λ and the shape (mode) it buckles
-into.
+sideways into a different shape?" It reports the load factor λ and the shape (mode)
+it buckles into.
 
 The method is three steps, and only the middle one is new to the package:
 
@@ -19,8 +19,8 @@ The method is three steps, and only the middle one is new to the package:
 
 Every other solver here answers `A x = b`: one matrix, one right-hand side, solved for `x`
 by `DiscreteSystem` (which removes the fixed Dirichlet DOFs and factors the matrix once).
-Buckling asks a different question -- `K φ = -λ K_g φ`, *which* load factors λ and shapes φ
-satisfy it -- and an eigenproblem has no right-hand side. So removing the fixed DOFs and
+Buckling asks a different question (`K φ = -λ K_g φ`, which load factors λ and shapes φ
+satisfy it), and an eigenproblem has no right-hand side. So removing the fixed DOFs and
 calling `scipy.sparse.linalg.eigsh` is `EigenSolve`'s job (the eigenproblem's counterpart to
 `LinearSolve`). `BucklingSolver` just assembles `K` and `K_g`, passes them to `EigenSolve`,
 and turns the returned eigenvalues into load factors; the reference solve, the assembly, and
@@ -47,16 +47,16 @@ logger = logging.getLogger(__name__)
 class BucklingSolver:
     '''Linearised buckling: the load factors and mode shapes of a compressed structure.
 
-    Holds the same three things a steady solve does -- a mesh, a `LinearElastic`
-    equation, and a boundary-condition spec -- where the conditions also encode the
-    *reference load* whose buckling multiplier is sought (a compressive traction on an
+    Holds the same three things a steady solve does (a mesh, a `LinearElastic`
+    equation, and a boundary-condition spec), where the conditions also encode the
+    reference load whose buckling multiplier is sought (a compressive traction on an
     end, say). The load factors it reports are dimensionless multipliers of that load,
     so the caller multiplies by the reference load's magnitude to get the buckling load
     in physical units.
 
     Small-strain only: linearised buckling is built on the constant elastic stiffness
     and a prestress from one linear solve, so a Green-Lagrange equation (whose stiffness
-    is not constant) is rejected -- that is the nonlinear post-buckling path, which needs
+    is not constant) is rejected. That is the nonlinear post-buckling path, which needs
     an arc-length Newton solve the package does not have yet.
     '''
 
@@ -90,7 +90,7 @@ class BucklingSolver:
         self.n_modes = n_modes
         # The element order, `None` meaning the linear element for the mesh. Bending
         # dominates a buckling mode, and the linear (constant-strain) triangle locks in
-        # bending -- it converges to Euler only on a mesh refined through the thickness.
+        # bending; it converges to Euler only on a mesh refined through the thickness.
         # `QuadraticTriangleElement` (P2) reaches the same accuracy on a far coarser mesh.
         self.element_type = element_type
         # The reference (pre-buckling) solve, kept like `Solver.solution` so a caller
@@ -118,10 +118,10 @@ class BucklingSolver:
 
         # Buckling needs compression somewhere: if every principal stress of the prestress
         # is non-negative, K_g is positive-semidefinite and K + λ K_g stays SPD for all
-        # λ > 0, so nothing buckles. A rigorous, cheap guard for the clean cases -- an
-        # unstressed structure or one in pure tension -- that also spares `eigsh` a
+        # λ > 0, so nothing buckles. A rigorous, cheap guard for the clean cases (an
+        # unstressed structure or one in pure tension) that also spares `eigsh` a
         # trivial eigenproblem (`K_g = 0` forces every μ to 0, so no finite buckling
-        # factor). It does not catch a member in *overall* tension whose
+        # factor). It does not catch a member in overall tension whose
         # clamped end develops local corner compression: that discretely does have a
         # (huge, spurious) mode, and there is no threshold-free way to rule it out here.
         principal = np.linalg.eigvalsh(prestress)     # (n_el, d), ascending per element
@@ -150,7 +150,7 @@ class BucklingSolver:
     ) -> tuple[FloatArray, FloatArray]:
         '''Raw eigenvalues `μ = 1/λ` to ascending, positive-only load factors.
 
-        Only positive μ buckle -- a negative μ is a direction the load stiffens, not
+        Only positive μ buckle: a negative μ is a direction the load stiffens, not
         softens. Modes ride along with their factors to stay aligned.
         '''
         tol = 1e-8 * float(np.max(np.abs(mu)))

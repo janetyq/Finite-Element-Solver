@@ -67,7 +67,7 @@ class Plotter:
             # `panel_aspect` is the width:height of what each panel draws. The axes are
             # equal-aspect, so a 4:1 beam in a square cell is a thin strip with the rest
             # of the cell empty; sizing the figure by the domain keeps the drawing big.
-            # The floor is for the furniture -- title, ticks, colorbar -- which does not
+            # The floor is for the furniture (title, ticks, colorbar), which does not
             # shrink with the domain and would otherwise crowd out a very flat panel.
             figsize = (5*ncols, max(3.0, 5/panel_aspect)*nrows)
 
@@ -82,7 +82,7 @@ class Plotter:
         self.axs = self.axs.reshape(nrows, ncols)
 
         # Whether the axes carry x/y/z labels. Off for figures whose axes are the
-        # domain itself -- an outline in SVG user units gains nothing from being told
+        # domain itself: an outline in SVG user units gains nothing from being told
         # its horizontal axis is x, and gains a false suggestion the numbers mean
         # something.
         self.axis_labels = axis_labels
@@ -131,15 +131,15 @@ class Plotter:
         `clim` fixes the colour range instead of taking it from `values`, which is what
         lets a grid of panels be compared. Each panel otherwise renormalizes to its own
         extremes, so six snapshots of a field decaying by 70% draw as six near-identical
-        squares -- the run is visible only in the colorbar's tick labels, and only to a
+        squares: the run is visible only in the colorbar's tick labels, and only to a
         reader who thought to check them. `plot_animation` has always fixed this across
         the frames of one panel; this is the same thing across panels.
 
         `cmap` selects the colormap (default 'viridis'); `log_scale` uses logarithmic
         normalization.
 
-        Returns the recolourable collection for the colored and solid modes -- the
-        artist an animation updates in place across frames -- and `None` otherwise.
+        Returns the recolourable collection for the colored and solid modes (the
+        artist an animation updates in place across frames), and `None` otherwise.
         """
         mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
         ax = self.axs[idx]
@@ -197,8 +197,8 @@ class Plotter:
     ) -> None:
         """Overlay support/load glyphs on the panel at `idx` (see `fem.plot.bc`).
 
-        `coords` places them at deformed vertex positions -- for a buckled shape, so a
-        load follows the material -- while the conditions are still read off `mesh`.
+        `coords` places them at deformed vertex positions (for a buckled shape, so a
+        load follows the material) while the conditions are still read off `mesh`.
         """
         overlay_supports(self.axs[idx], mesh, bc, coords=coords)
 
@@ -259,7 +259,7 @@ class Plotter:
             ax = self.axs[idx]
             if mode is PlotMode.SOLID:
                 # Built up front, so the colorbar spans the whole series rather than
-                # just frame 0 -- `plot`'s own SOLID branch only sets one up when idx
+                # just frame 0; `plot`'s own SOLID branch only sets one up when idx
                 # has none yet, which this pre-empts. The swap to 3D axes has to happen
                 # first: a colorbar anchored to the 2D axes orphans when `plot` swaps
                 # it out from under it.
@@ -274,7 +274,7 @@ class Plotter:
         if frame_meshes is not None:
             # Moving geometry: a fixed collection cannot be recoloured into a new shape,
             # so redraw the deformed mesh each frame. Bounds are frozen over the whole
-            # series -- the union of every frame's extent, with a margin -- so the shape
+            # series (the union of every frame's extent, with a margin) so the shape
             # swings within a still frame rather than the axes chasing it.
             all_vertices = np.concatenate([m.vertices for m in frame_meshes])
             lo, hi = all_vertices.min(axis=0), all_vertices.max(axis=0)
@@ -289,8 +289,8 @@ class Plotter:
                 ax.set_xlim(xlim)
                 ax.set_ylim(ylim)
                 ax.set_aspect('equal')
-        # Colored and solid over a *fixed* mesh draw one collection, so a frame only
-        # changes its colours -- recolour that artist in place rather than clearing the
+        # Colored and solid over a fixed mesh draw one collection, so a frame only
+        # changes its colours; recolour that artist in place rather than clearing the
         # axes and rebuilding it, which re-lays out every tick and label each frame and
         # was the bulk of an animated demo's render cost. Surface lifts the field into
         # z, so its geometry changes frame to frame and it has to be redrawn.
@@ -353,14 +353,14 @@ class Plotter:
     def _fit_colorbars(self) -> None:
         """Resize each colorbar to the panel it annotates.
 
-        Constrained layout sizes a colorbar to the whole subplot *cell*, while an
-        equal-aspect axes fills only part of that cell -- so a 4:1 domain got a bar
+        Constrained layout sizes a colorbar to the whole subplot cell, while an
+        equal-aspect axes fills only part of that cell, so a 4:1 domain got a bar
         three times the height of the plot beside it.
 
         A panel's drawn box is only known once the layout has run, and the layout
         would undo any position set by hand, so it is run once here and then switched
         off. Later calls (a frame sequence makes one per frame) reapply the same
-        boxes, which is what `ax.clear()` would otherwise lose.
+        boxes, which `ax.clear()` would otherwise lose.
         """
         if not self.cbar_infos:
             return
@@ -387,7 +387,7 @@ class Plotter:
         grid of 3D surfaces runs to megabytes at the default, which is a lot to ask of
         a README.
         """
-        # self.fig, not plt.savefig: pyplot writes the *current* figure, which is
+        # self.fig, not plt.savefig: pyplot writes the current figure, which is
         # whichever was created last, so a caller holding two Plotters saved the second
         # one under both names.
         self.format_axs()
@@ -402,8 +402,8 @@ class Plotter:
         of those, and saving through either one leaves the other panel frozen.
 
         `max_frames` samples the run down to at most that many images, evenly and
-        keeping both ends -- the last frame of a topology optimization is the result,
-        so it is never the one dropped. The *solve* is untouched; this is only how
+        keeping both ends: the last frame of a topology optimization is the result,
+        so it is never the one dropped. The solve is untouched; this is only how
         much of it gets rasterized, which is what a frame sequence actually costs.
         '''
         if not self._anim_updates:
@@ -426,7 +426,7 @@ class Plotter:
         return paths
 
     def frame_count(self) -> int:
-        '''Frames the animations on this figure share -- the shortest, so every panel
+        '''Frames the animations on this figure share: the shortest, so every panel
         has something to draw at every step.'''
         return min((n for _, n in self._anim_updates.values()), default=0)
 

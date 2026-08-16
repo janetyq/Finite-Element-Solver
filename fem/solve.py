@@ -1,12 +1,12 @@
 """Solve strategies over an assembled system.
 
 `LinearSolve` and `NewtonSolve` consume a `Problem` and return a DOF vector;
-`EigenSolve` consumes an operator *pair* plus constraints and returns eigenpairs.
+`EigenSolve` consumes an operator pair plus constraints and returns eigenpairs.
 The first two sit on the one algebra atom, `DiscreteSystem` (matrix + Dirichlet
 partition + factor-once solve), and know nothing about which PDE produced the
 `Problem`. `LinearSolve` assembles once and solves once; `NewtonSolve` iterates.
 The two are one engine: a `LinearProblem` has a constant tangent and an affine
-residual, so `NewtonSolve` reaches its solution in a single step from any seed --
+residual, so `NewtonSolve` reaches its solution in a single step from any seed;
 `LinearSolve` is that step done directly, skipping the residual evaluation.
 
 `EigenSolve` is the eigen-analogue: an eigenproblem has no right-hand side, so it
@@ -32,7 +32,7 @@ class SolveStrategy(Protocol):
 class LinearSolve:
     '''Assemble once, solve once: for a `Problem` with a state-independent tangent.
 
-    `backend` selects the linear algebra for the one solve -- direct by default,
+    `backend` selects the linear algebra for the one solve: direct by default,
     or an `IterativeBackend` for a large SPD system (Poisson, small-strain elasticity).
     '''
 
@@ -47,8 +47,8 @@ class LinearSolve:
 class NewtonSolve:
     '''Newton's method on r(u) = 0, re-factoring the tangent each iteration.
 
-    The increment is pinned to zero at the fixed DOFs -- the seed already carries
-    their Dirichlet values -- and `DiscreteSystem` eliminates them, so the tangent
+    The increment is pinned to zero at the fixed DOFs (the seed already carries
+    their Dirichlet values) and `DiscreteSystem` eliminates them, so the tangent
     needs no special-casing. Convergence is checked before the step is applied, so a
     sub-tolerance increment is never added: on a `LinearProblem` the first step is
     exact and the second is zero, so the exact answer is reached in one applied step.
@@ -77,12 +77,12 @@ class NewtonSolve:
 class EigenSolve:
     '''A generalized symmetric eigenproblem `A φ = μ B φ`, reduced to the free block.
 
-    `(A, B)` is the *pencil* -- the matrix pair whose generalized eigenvalues μ and
+    `(A, B)` is the pencil, the matrix pair whose generalized eigenvalues μ and
     eigenvectors φ are sought. The eigen-analogue of `LinearSolve`: it eliminates the
     Dirichlet DOFs, hands the free-free pencil to `scipy.sparse.linalg.eigsh`, and lifts
-    each eigenvector back to a full DOF vector (the fixed DOFs are zero in every mode). It does not interpret the
-    eigenvalues -- `BucklingSolver` reads `μ = 1/λ`, `ModalSolver` reads `μ = ω²`. Two
-    modes, by one pair of knobs:
+    each eigenvector back to a full DOF vector (the fixed DOFs are zero in every mode). It
+    does not interpret the eigenvalues: `BucklingSolver` reads `μ = 1/λ`, `ModalSolver`
+    reads `μ = ω²`. Two modes, by one pair of knobs:
 
     - **Regular** (`sigma=None`): the largest/smallest `μ` by `which` (buckling uses
       `which='LA'` for the largest).
@@ -104,7 +104,7 @@ class EigenSolve:
 
         Returns `(mu, modes)`, shapes `(k,)` and `(k, n_dofs)` with `k <= n_modes` (fewer
         if the free block is small or higher modes stall). No ordering or sign beyond
-        `eigsh`'s -- the facade owns interpretation.
+        `eigsh`'s; the facade owns interpretation.
         '''
         Aff = A[np.ix_(free, free)]
         Bff = B[np.ix_(free, free)]
@@ -124,7 +124,7 @@ class EigenSolve:
         try:
             mu, vecs = eigsh(A_sym, k=k, M=B_sym, sigma=self.sigma, which=self.which)
         except ArpackNoConvergence as failure:
-            # Keep whatever converged -- the lower modes a caller wants resolve first;
+            # Keep whatever converged: the lower modes a caller wants resolve first;
             # only nothing-converged is fatal.
             mu, vecs = failure.eigenvalues, failure.eigenvectors
             if mu.size == 0:

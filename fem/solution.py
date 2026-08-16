@@ -1,10 +1,10 @@
-"""Typed solution containers -- one dataclass per solve shape.
+"""Typed solution containers: one dataclass per solve shape.
 
 Replaces a single dict of named arrays. The fields a solve produces are now typed
 attributes: `solution.u` instead of `solution.get_values("u")`, discoverable and
 checkable. A steady field (an array) and a time series (a list of arrays) are
-different *types* rather than both being `values[...]` told apart by guessing at a
-length, which is what the old `get_values(mode=...)` had to do.
+different types rather than both being `values[...]` told apart by guessing at a
+length, as the old `get_values(mode=...)` had to do.
 
 The hierarchy follows the physics: a `FieldSolution` carries the unknown `u`;
 `ElasticSolution` adds the recovered stress fields; `TransientSolution` is a time
@@ -43,7 +43,7 @@ class Solution:
 
 @dataclass(frozen=True, eq=False)
 class FieldSolution(Solution):
-    '''A single steady field u -- Projection, Poisson, and the base of elasticity.'''
+    '''A single steady field u: Projection, Poisson, and the base of elasticity.'''
     u: DofVector
 
     def deformed_mesh(self) -> 'Mesh':
@@ -82,7 +82,7 @@ class ElasticSolution(FieldSolution):
     ) -> 'ElasticSolution':
         '''Recover the elastic fields for `u` and package them.'''
         mesh, n_components = space.mesh, space.n_components
-        # (n_elements, N, n_components) -- the layout RecoversElasticFields takes,
+        # (n_elements, N, n_components): the layout RecoversElasticFields takes,
         # and the same one FunctionSpace.assemble_residual gathers. Indexed by the
         # space's element nodes, not the mesh triangles: a P2 element has six nodes.
         u_elements = np.asarray(u).reshape(-1, n_components)[space.element_nodes]
@@ -91,7 +91,7 @@ class ElasticSolution(FieldSolution):
 
     @property
     def von_mises(self) -> ElementField:
-        '''Von Mises equivalent stress per element -- the usual scalar to plot.'''
+        '''Von Mises equivalent stress per element: the usual scalar to plot.'''
         return invariants.von_mises(self.stress)
 
     @property
@@ -114,8 +114,8 @@ class ElasticSolution(FieldSolution):
 class BucklingSolution(Solution):
     '''Linearised buckling result: critical load factors and their mode shapes.
 
-    `load_factors[i]` is λ_i, the multiplier on the *reference load* at which the
-    structure buckles into `modes[i]` -- the eigenvalues of `K φ = -λ K_g φ`, in
+    `load_factors[i]` is λ_i, the multiplier on the reference load at which the
+    structure buckles into `modes[i]`, the eigenvalues of `K φ = -λ K_g φ`, in
     ascending order, so `load_factors[0]` is the critical (lowest) one and its mode
     is the shape the structure buckles into first. A mode is a shape, not a
     displacement: its amplitude is arbitrary (the eigenproblem is homogeneous), so
@@ -126,7 +126,7 @@ class BucklingSolution(Solution):
 
     @property
     def critical_load_factor(self) -> float:
-        '''The lowest buckling factor λ_1 -- the one a real structure reaches first.'''
+        '''The lowest buckling factor λ_1: the one a real structure reaches first.'''
         return float(self.load_factors[0])
 
     def mode_mesh(self, i: int, scale: float = 1.0) -> 'Mesh':
@@ -136,7 +136,7 @@ class BucklingSolution(Solution):
         caller picks it to make the shape legible against the structure's size.
 
         A P2 mode carries edge-midpoint DOFs the mesh has no vertices for, so only the
-        leading vertex DOFs move the geometry -- the mode draws as its P1 restriction,
+        leading vertex DOFs move the geometry: the mode draws as its P1 restriction,
         the same simplification the rest of the plot layer makes for P2 fields.
         '''
         mesh = self.mesh.copy()

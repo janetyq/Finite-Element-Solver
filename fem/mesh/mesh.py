@@ -9,8 +9,8 @@ from fem.typing import Elements, FloatArray, IntArray, Vertices
 Edge = tuple[int, int]
 
 # Node counts of the linear simplices a Mesh holds: a line (2), a triangle (3),
-# a tet (4). Higher-node (quadratic) elements are the FunctionSpace's concern --
-# it adds midside DOFs on top of a P1 Mesh -- not the geometry's.
+# a tet (4). Higher-node (quadratic) elements are the FunctionSpace's concern
+# (it adds midside DOFs on top of a P1 Mesh), not the geometry's.
 _SIMPLEX_NODE_COUNTS = (2, 3, 4)
 
 
@@ -144,7 +144,7 @@ class Mesh:
 
     @cached_property
     def element_diameters(self) -> FloatArray:
-        '''Maximum edge length per element -- the h_K in error estimates.'''
+        '''Maximum edge length per element: the h_K in error estimates.'''
         pairs = _edge_node_pairs(self.elements.shape[1])
         corners = self.vertices[self.elements]                        # (n_el, n_nodes, dim)
         edge_vecs = corners[:, pairs[:, 1]] - corners[:, pairs[:, 0]]  # (n_el, n_pairs, dim)
@@ -167,14 +167,14 @@ class Mesh:
 
         For a linear simplex the edge set is exactly every pair of its nodes:
         1 pair for a line, 3 for a triangle, 6 for a tet. That makes this
-        dimension-general without a per-shape table -- it holds *only* for
-        linear simplices, which the constructor guarantees (quadratic elements
-        carry midside nodes, so pairing every node would invent edges that don't
+        dimension-general without a per-shape table; it holds only for linear
+        simplices, which the constructor guarantees (quadratic elements carry
+        midside nodes, so pairing every node would invent edges that don't
         exist).
 
         Lazy, matching its connectivity siblings: only `p2_connectivity` reads
-        it, so a P1 solve -- and every transient or refinement mesh -- never
-        pays the edge extraction.
+        it, so a P1 solve (and every transient or refinement mesh) never pays
+        the edge extraction.
         '''
         pairs = self.elements[:, _edge_node_pairs(self.elements.shape[1])]  # (n_el, n_pairs, 2)
         # Sort each pair so (v0, v1) has v0 < v1, then dedup. np.unique returns

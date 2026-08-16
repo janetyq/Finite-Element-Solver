@@ -1,10 +1,10 @@
 """What kind of value a PDE's unknown takes at each point.
 
 The number of components an unknown carries per node is not always a free
-choice. Elasticity's unknown is a *vector field on the domain*, so its component
+choice. Elasticity's unknown is a vector field on the domain, so its component
 count is determined by the domain: 2 on a triangle mesh, 3 on a tet mesh. Storing
-the shape and deriving the count is what lets one `LinearElastic` class describe
-both, where a class constant could only ever describe one.
+the shape and deriving the count lets one `LinearElastic` class describe both,
+where a class constant could only ever describe one.
 
 Deliberately a small sum type rather than an `Enum`. A k-species reaction-diffusion
 system has k components unrelated to the spatial dimension, and enum members are

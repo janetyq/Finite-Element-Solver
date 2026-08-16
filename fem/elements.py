@@ -1,23 +1,22 @@
 """Element types and the batched geometry they produce.
 
-An element type is a *stateless* description of a shape: how many nodes it has,
-what its boundary facets are, and how to turn node coordinates into shape-function
-gradients and a measure. It holds no per-element data, so there is exactly one
-`LinearTetrahedralElement` in a program rather than one per tet.
+An element type is a stateless description of a shape: how many nodes it has, what
+its boundary facets are, and how to turn node coordinates into shape-function
+gradients and a measure. It holds no per-element data, so a program has exactly one
+`LinearTetrahedralElement` rather than one per tet.
 
 The per-element data lives in `ElementGeometry`, which holds it for the whole mesh
-at once: an `(n_elements, n_qp, N, spatial_dim)` array of `grad_phi` -- one shape
-gradient per element and quadrature point -- with the matching `(n_elements, n_qp)`
-quadrature weights. That shape is what lets `fem.forms` compute every element matrix
-in one vectorized pass instead of a Python loop -- assembly was the dominant cost of
-a 3D solve when this was a loop over per-element objects. A linear element's gradient
-is constant across the points, so P1 is the single-point (`n_qp == 1`) special case.
+at once: an `(n_elements, n_qp, N, spatial_dim)` array of `grad_phi` (one shape
+gradient per element and quadrature point) with the matching `(n_elements, n_qp)`
+quadrature weights. That batched shape lets `fem.forms` compute every element matrix
+in one vectorized pass instead of a Python loop, which was the dominant cost of a 3D
+solve. A linear element's gradient is constant across the points, so P1 is the
+single-point (`n_qp == 1`) special case.
 
-Two quantities are easy to confuse and are kept distinct throughout:
-`reference_dim` is the dimension of the element itself (2 for a triangle), while
-`spatial_dim` is the dimension it is embedded in. They differ exactly for the
-boundary facets of a 3D mesh -- a triangle in 3D -- which is why the Jacobian
-below is not assumed square.
+Two quantities are easy to confuse and are kept distinct throughout. `reference_dim`
+is the dimension of the element itself (2 for a triangle); `spatial_dim` is the
+dimension it is embedded in. They differ exactly for the boundary facets of a 3D mesh
+(a triangle in 3D), which is why the Jacobian below is not assumed square.
 """
 from dataclasses import dataclass
 from math import factorial
@@ -34,8 +33,8 @@ class Element:
 
     An element is defined by its node count `N`, the polynomial degree of its shape
     functions `SHAPE_DEGREE`, and the boundary-facet element `SUB_TYPE`. The shared
-    machinery -- quadrature selection, the reference mass matrix, and the batched
-    geometry -- lives here; a subclass supplies only `shape_values` / `shape_gradients`
+    machinery (quadrature selection, the reference mass matrix, and the batched
+    geometry) lives here; a subclass supplies only `shape_values` / `shape_gradients`
     and, for a higher-order element, its own `reference_dim`.
     '''
     # Annotations without values: a concrete element type must supply these, and
@@ -50,9 +49,9 @@ class Element:
         '''Dimension of the element itself: 1 for a line, 2 for a triangle, 3 for a tet.
 
         Distinct from the spatial dimension: a triangle embedded in 3D has
-        reference_dim 2 and spatial_dim 3. Equals `N - 1` only for a *linear*
-        simplex, so a higher-order element overrides it -- a 6-node quadratic
-        triangle is still a 2D element.
+        reference_dim 2 and spatial_dim 3. Equals `N - 1` only for a linear simplex,
+        so a higher-order element overrides it: a 6-node quadratic triangle is still
+        a 2D element.
         '''
         return cls.N - 1
 
@@ -62,8 +61,7 @@ class Element:
 
         A quadratic element has more nodes than corners; the extra ones carry field
         DOFs but do not move the (straight-sided) geometry, so only the corners enter
-        the Jacobian. Nodes are ordered corners-first, which is what lets this take a
-        prefix.
+        the Jacobian. Nodes are ordered corners-first, so this can take a prefix.
         '''
         return cls.reference_dim() + 1
 
@@ -77,7 +75,7 @@ class Element:
         '''The degree a plain stiffness needs: the shape-gradient product's degree.
 
         A gradient drops one degree, and the stiffness pairs two of them, so the
-        integrand is `2 * (SHAPE_DEGREE - 1)` -- 0 for P1 (a single point suffices),
+        integrand is `2 * (SHAPE_DEGREE - 1)`: 0 for P1 (a single point suffices),
         2 for P2. Floored at 1 so it always names a real rule.
         '''
         return max(1, 2 * (cls.SHAPE_DEGREE - 1))
@@ -94,7 +92,7 @@ class Element:
 
     @classmethod
     def reference_mass_matrix(cls) -> Matrix:
-        '''Consistent mass matrix per unit measure -- `int phi_i phi_j` over the
+        '''Consistent mass matrix per unit measure: `int phi_i phi_j` over the
         reference simplex, divided by the simplex measure so `MassForm` recovers the
         element's mass by scaling with its volume.
 
@@ -117,11 +115,11 @@ class Element:
         caller integrating a higher-degree form (a mass matrix, a variable
         coefficient) passes a rule of the degree it needs.
 
-        The geometry map is affine -- subparametric: the Jacobian is built from the
+        The geometry map is affine and subparametric: the Jacobian is built from the
         `n_corners` simplex corners alone, while the field's shape functions may be
         higher order. So the Jacobian is constant per element and only the reference
         shape gradients differ between quadrature points. P1 falls out as the case
-        where the corners *are* all the nodes and the gradients are constant.
+        where the corners are all the nodes and the gradients are constant.
         '''
         X = np.asarray(element_vertices, dtype=np.float64)
         if X.ndim != 3 or X.shape[1] != cls.N:
@@ -133,7 +131,7 @@ class Element:
 
         # Columns of J are the edge vectors from corner 0, so J maps the reference
         # simplex onto the element: (n_elements, spatial_dim, reference_dim). Only the
-        # corners enter -- the affine map does not see the higher-order nodes.
+        # corners enter; the affine map does not see the higher-order nodes.
         corners = X[:, :cls.n_corners()]
         J = np.swapaxes(corners[:, 1:] - corners[:, :1], 1, 2)
         spatial_dim, reference_dim = J.shape[1], J.shape[2]
@@ -146,7 +144,7 @@ class Element:
         else:
             # An embedded element (a triangular facet of a tet mesh) has a tall J
             # with no inverse. The pseudo-inverse gives the gradient *within* the
-            # element's own plane, and the Gram determinant gives its measure --
+            # element's own plane, and the Gram determinant gives its measure:
             # sqrt(det(J^T J)) is |a x b| for a triangle in 3D. Both reduce to the
             # square case above, which is preferred where it applies because it
             # avoids squaring the condition number.
@@ -165,10 +163,10 @@ class Element:
             grad_phi=np.einsum('qnr,ers->eqns', dshape, J_inv),
             # (n_el, n_qp): the reference weight at each point times the element's
             # measure scale. The reference weights sum to 1/d!, so this sums over
-            # points to `scale / d!` -- the closed-form element volume.
+            # points to `scale / d!`, the closed-form element volume.
             weight_detJ=scale[:, None] * rule.weights[None, :],
             # (n_el, n_qp, spatial): where each quadrature point lands in space,
-            # interpolated through the shape functions -- for a form or load that
+            # interpolated through the shape functions, for a form or load that
             # samples a coefficient or source there.
             points=np.einsum('qn,ens->eqs', shape, X),
         )
@@ -178,8 +176,8 @@ class LinearElement(Element):
     '''Base class for linear (P1) simplex elements.
 
     Shape function phi(x) = a + b*x_1 + c*x_2 + ... + z*x_{N-1}, so the gradient
-    is constant over the element -- the reason a P1 assembly reduces to one
-    Jacobian per element and a single quadrature point.
+    is constant over the element, the reason a P1 assembly reduces to one Jacobian
+    per element and a single quadrature point.
     '''
     SHAPE_DEGREE = 1
 
@@ -187,8 +185,8 @@ class LinearElement(Element):
     def _dshape(cls) -> Matrix:
         '''(N, N-1) shape-function gradients on the reference simplex.
 
-        Constant per element type -- the reference simplex does not move -- so the
-        only per-element work is mapping these through the inverse Jacobian.
+        Constant per element type (the reference simplex does not move), so the only
+        per-element work is mapping these through the inverse Jacobian.
         '''
         return np.vstack([-np.ones(cls.N - 1), np.eye(cls.N - 1)])
 
@@ -207,8 +205,7 @@ class LinearElement(Element):
 
         Barycentric: phi_0 = 1 - sum(xi) and phi_i = xi_i, so the first column is
         the node-0 hat and the rest are the reference coordinates themselves. Nodal
-        (1 at its own node, 0 at the others), which is what makes a DOF the value at
-        its node.
+        (1 at its own node, 0 at the others), so a DOF is the value at its node.
         '''
         P = np.atleast_2d(np.asarray(points, dtype=float))
         first = 1.0 - P.sum(axis=1, keepdims=True)
@@ -218,9 +215,9 @@ class LinearElement(Element):
     def shape_gradients(cls, points: FloatArray) -> FloatArray:
         '''(n_points, N, N-1) reference-coordinate shape gradients.
 
-        Constant for a linear element -- the same `_dshape` at every point -- so
-        this broadcasts it over the requested points. `geometry` maps these through
-        the inverse Jacobian to get physical gradients.
+        Constant for a linear element (the same `_dshape` at every point), so this
+        broadcasts it over the requested points. `geometry` maps these through the
+        inverse Jacobian to get physical gradients.
         '''
         n_points = len(np.atleast_2d(np.asarray(points, dtype=float)))
         return np.broadcast_to(cls._dshape(), (n_points, cls.N, cls.N - 1))
@@ -280,12 +277,12 @@ class QuadraticLineElement(Element):
 class QuadraticTriangleElement(Element):
     '''2D quadratic triangle: three corner nodes and three edge-midpoint nodes.
 
-    Nodes are ordered corners-first -- [c0, c1, c2, m12, m02, m01] -- where mij is the
+    Nodes are ordered corners-first, [c0, c1, c2, m12, m02, m01], where mij is the
     midpoint of the edge between corners i and j, and each edge-midpoint hat is the one
-    opposite the corner it is *not* named by. That ordering is what lets the affine map
-    read the first three nodes as the simplex corners, and it must match the (element ->
-    global node) map `FunctionSpace` builds. The field is quadratic (O(h^3) in L2) while
-    the geometry stays straight-sided.
+    opposite the corner it is not named by. That ordering lets the affine map read the
+    first three nodes as the simplex corners, and it must match the (element -> global
+    node) map `FunctionSpace` builds. The field is quadratic (O(h^3) in L2) while the
+    geometry stays straight-sided.
     '''
     N = 6
     SHAPE_DEGREE = 2
@@ -330,29 +327,28 @@ class ElementGeometry:
     '''Shape values, shape-function gradients, and quadrature weights for one mesh.
 
     The batched, quadrature-aware geometry every form integrates against. `grad_phi`
-    carries a gradient per (element, quadrature point); a linear element's is
-    constant across the points, so P1 assembly is the single-point special case --
-    which is why one assembly path serves P1 and higher orders alike.
+    carries a gradient per (element, quadrature point); a linear element's is constant
+    across the points, so P1 assembly is the single-point special case, and one
+    assembly path serves P1 and higher orders alike.
 
-    Immutable, and cached on the `FunctionSpace` that built it: it is valid only
-    while the mesh underneath it is not mutated, the same contract the space's
-    operators have.
+    Immutable, and cached on the `FunctionSpace` that built it: it is valid only while
+    the mesh underneath it is not mutated, the same contract the space's operators have.
     '''
     element_type: type[Element]
     rule: QuadratureRule
-    # (n_qp, N) -- shape functions at the quadrature points, for mass and load
+    # (n_qp, N): shape functions at the quadrature points, for mass and load
     # integrals; the gradients alone are not enough once the integrand samples the
     # field's value rather than only its slope.
     shape: FloatArray
-    # (n_elements, n_qp, N, spatial_dim) -- gradient of each shape function at each
-    # quadrature point. The last axis is the *spatial* dimension, so for an embedded
+    # (n_elements, n_qp, N, spatial_dim): gradient of each shape function at each
+    # quadrature point. The last axis is the spatial dimension, so for an embedded
     # facet it is wider than the element's own reference_dim.
     grad_phi: FloatArray
-    # (n_elements, n_qp) -- the quadrature weight times |det J| at each point; the
+    # (n_elements, n_qp): the quadrature weight times |det J| at each point, the
     # coefficient every integrand is summed against. Replaces the old scalar
     # `volumes`, which is now these summed over the points.
     weight_detJ: FloatArray
-    # (n_elements, n_qp, spatial_dim) -- physical coordinates of the quadrature
+    # (n_elements, n_qp, spatial_dim): physical coordinates of the quadrature
     # points. Empty of meaning for a constant-coefficient form, which never samples
     # anything; carried so a variable coefficient or source can be evaluated there.
     points: FloatArray
@@ -375,7 +371,7 @@ class ElementGeometry:
 
     @property
     def volumes(self) -> FloatArray:
-        '''(n_elements,) element measure -- the quadrature weights summed per element.'''
+        '''(n_elements,) element measure: the quadrature weights summed per element.'''
         return self.weight_detJ.sum(axis=1)
 
     @property

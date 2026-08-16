@@ -90,13 +90,13 @@ def demo_backends(sizes=DEFAULT_SIZES):
         [Figure(plotter,
                 'Direct factorization grows super-linearly with the fill-in a 3D mesh '
                 'brings; AMG-preconditioned CG scales closer to linearly, and overtakes '
-                'it as the mesh grows -- the crossover this benchmark exists to measure.')],
+                'it as the mesh grows: the crossover this benchmark exists to measure.')],
         text='\n'.join(str(t) for t in timings),
     )
 
 
 DEMOS = [
-    # The sweep is the point -- a crossover is a claim about two curves -- so the CLI
+    # The sweep is the point (a crossover is a claim about two curves), so the CLI
     # and the gallery run all five sizes. The test only needs to know that assembly and
     # both backends still compose, which n=5 answers in 0.01s where the full sweep
     # takes 11.6s, over half of it one sparse factorisation at n=21.

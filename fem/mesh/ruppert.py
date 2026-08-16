@@ -17,7 +17,7 @@ from fem.geometry import (
 
 logger = logging.getLogger(__name__)
 
-# The sharpest corner -- two input segments meeting at a shared vertex -- for which
+# The sharpest corner (two input segments meeting at a shared vertex) for which
 # Ruppert's is proven to finish. Refinement fixes one problem at a time (a segment with
 # a vertex inside its diametral circle, or a triangle failing the angle or area test) by
 # inserting a point, and stops once none are left. Below 60 degrees two segments sharing
@@ -32,7 +32,7 @@ SAFE_INPUT_ANGLE = 60.0
 # (which would split it forever).
 ENCROACHMENT_TOLERANCE = 1e-12
 
-# Twice the area over the longest edge squared -- a scale-free flatness measure, ~1 for
+# Twice the area over the longest edge squared: a scale-free flatness measure, ~1 for
 # a well-shaped triangle and ~1e-14 for one whose corners lie on a line. Below this a
 # triangle counts as collinear to floating-point precision; real triangles, however
 # skinny, stay above ~1e-3. See `_is_degenerate`.
@@ -49,9 +49,9 @@ def _triangle_keys(simplices):
     '''One integer naming each triangle, from its corners in sorted order.
 
     A triangle has to be named by its corners because qhull renumbers
-    `simplices` freely across an insertion -- a row index means nothing from one
-    pass to the next. Reducing the three corners to a single integer is what
-    turns "does this triangle still exist" into a lookup in a sorted array.
+    `simplices` freely across an insertion; a row index means nothing from one
+    pass to the next. Reducing the three corners to a single integer turns
+    "does this triangle still exist" into a lookup in a sorted array.
 
     Takes one `(3,)` triangle or a stacked `(n, 3)` array.
     '''
@@ -81,15 +81,15 @@ class RuppertsAlgorithm:
 
     **Why segments are respected.**  The Delaunay triangulation only knows
     about points, not segments.  But if a segment's diametral circle contains
-    no other vertex, it is guaranteed to appear as a Delaunay edge.  Splitting
-    encroached segments clears their diametral circles, which is what makes
-    the unconstrained Delaunay conform to the boundary.
+    no other vertex, it is guaranteed to appear as a Delaunay edge. Splitting
+    encroached segments clears their diametral circles, which makes the
+    unconstrained Delaunay conform to the boundary.
 
-    **What is returned.**  The result keeps only what the PSLG encloses — a
+    **What is returned.** The result keeps only what the PSLG encloses: a
     Delaunay triangulation spans the convex hull, so a non-convex outline also
-    produces triangles outside it.  Interior/exterior alternates by the
+    produces triangles outside it. Interior/exterior alternates by the
     even-odd rule: a region with an odd number of segment crossings to
-    infinity is inside, so a loop inside another is a hole.  After `refine`,
+    infinity is inside, so a loop inside another is a hole. After `refine`,
     `boundary_loops` records which input loop each boundary facet came from.
 
     Ruppert proved termination for inputs whose segments meet at 60 degrees or
@@ -113,7 +113,7 @@ class RuppertsAlgorithm:
         bounds up to about 20.7 degrees and it holds in practice to roughly 30;
         above that refinement can fail to terminate however blunt the input.
 
-        `max_area` is an absolute area, not a fraction of the region -- callers
+        `max_area` is an absolute area, not a fraction of the region; callers
         wanting a fraction scale it themselves. None leaves element size
         unbounded, so a large region comes back as a handful of big triangles.
         '''
@@ -145,7 +145,7 @@ class RuppertsAlgorithm:
         self.input_angle = min(corner_angles.values(), default=180.0)
         # Corners the angle bound cannot be met at. Their segments split on shells
         # rather than at midpoints, and the triangle across them is accepted as it
-        # comes -- otherwise refinement chases them forever.
+        # comes; otherwise refinement chases them forever.
         self.sharp_vertices = {v for v, angle in corner_angles.items()
                                if angle < SAFE_INPUT_ANGLE}
         if self.sharp_vertices:
@@ -229,7 +229,7 @@ class RuppertsAlgorithm:
         if self.max_area is not None:
             bad |= self.get_triangle_areas(simplices) > self.max_area
         # A degenerate sliver has no usable circumcenter, so it is never bad
-        # however small its angle -- see `_is_degenerate`.
+        # however small its angle; see `_is_degenerate`.
         bad &= ~self._is_degenerate(simplices)
         return bad
 
@@ -251,7 +251,7 @@ class RuppertsAlgorithm:
     def get_bad_triangles(self):
         '''Interior triangles that violate the angle bound or area cap, in index order.
 
-        Exterior triangles are excluded — refining them would insert
+        Exterior triangles are excluded: refining them would insert
         circumcenters that enlarge the convex hull, creating more exterior
         triangles and never terminating.  They go through the region labelling
         rather than an even-odd test per triangle: a non-convex outline leaves
@@ -284,8 +284,8 @@ class RuppertsAlgorithm:
         trigonometry a full rescan costs.
 
         Enclosure is settled per triangle here rather than by labelling regions.
-        That is the wrong trade over a whole mesh -- measured at 1.9x slower --
-        and the right one over the handful of triangles one insertion makes.
+        That is the wrong trade over a whole mesh (measured at 1.9x slower) and
+        the right one over the handful of triangles one insertion makes.
         '''
         simplices = self.triangulation.simplices
         created = simplices[(simplices == vertex_index).any(axis=1)]
@@ -297,10 +297,10 @@ class RuppertsAlgorithm:
         '''Sorted keys of every triangle that currently exists.
 
         Rebuilt after an insertion rather than maintained. That is a couple of
-        vectorised passes, and it is what lets a queued triangle be checked
-        without asking qhull to locate a point -- point location rebuilds its
-        own search structure on every insertion, which costs a thousand times
-        more in a loop that inserts and then immediately asks.
+        vectorised passes, and it lets a queued triangle be checked without
+        asking qhull to locate a point; point location rebuilds its own search
+        structure on every insertion, which costs a thousand times more in a
+        loop that inserts and then immediately asks.
         '''
         if self._live_keys is None:
             self._live_keys = np.sort(_triangle_keys(self.triangulation.simplices))
@@ -349,8 +349,8 @@ class RuppertsAlgorithm:
         '''(n_tri, 3) bool mask: which of each triangle's edges is a PSLG segment.
 
         Column `j` corresponds to the edge opposite vertex `j`, matching the
-        layout of `Delaunay.neighbors` — so `neighbors[i, j]` is the triangle
-        across a segment when `_segment_edges()[i, j]` is True.  Defaults to
+        layout of `Delaunay.neighbors`, so `neighbors[i, j]` is the triangle
+        across a segment when `_segment_edges()[i, j]` is True. Defaults to
         every triangle; pass a subset to ask about only those.
         '''
         if simplices is None:
@@ -445,9 +445,9 @@ class RuppertsAlgorithm:
     def _trace_boundary_to_loops(self, boundary, used, renumbered):
         '''The input loop each boundary facet came from, or -1 if none did.
 
-        This is what tells an obstacle's rim from the outer wall around it, and
-        it cannot be recovered from the finished mesh -- a boundary is just
-        edges by then.
+        This tells an obstacle's rim from the outer wall around it, and it
+        cannot be recovered from the finished mesh; a boundary is just edges
+        by then.
         '''
         is_used = np.zeros(len(self.vertices), dtype=bool)
         is_used[used] = True
@@ -467,7 +467,7 @@ class RuppertsAlgorithm:
         placed, once per insertion, and that is half of a refinement run.
 
         Incremental mode cannot start from a point set with no non-degenerate
-        initial simplex, and that is not an exotic input -- any four cocircular
+        initial simplex, and that is not an exotic input: any four cocircular
         points are one, a square included. It also rules out the `Qz` option that
         would otherwise handle them. So a run rebuilds until qhull will take the
         point set, which the first inserted vertex almost always settles.
@@ -576,12 +576,12 @@ class RuppertsAlgorithm:
         ever clearing each other. Cutting at a power-of-two distance from the
         corner instead puts both splits on the same ladder of radii, and once
         two of them land on one shell they are equidistant from the corner and
-        stop encroaching -- the cascade ends after a bounded number of rounds.
+        stop encroaching, and the cascade ends after a bounded number of rounds.
 
-        A segment sharp at *both* ends is laddered from one of them per split,
+        A segment sharp at both ends is laddered from one of them per split,
         and still ends up on shells at each. The midpoint is always the newest
         vertex and so the highest index, which leaves the other corner at index
-        0 of the half kept beside it -- so that half ladders from there when it
+        0 of the half kept beside it, so that half ladders from there when it
         splits in turn. Renumber vertices and this stops being true.
         '''
         start, end = self.vertices[segment[0]], self.vertices[segment[1]]
@@ -650,9 +650,9 @@ def create_box_mesh(
 
     Each grid cell is split into six tets by Kuhn's decomposition: every tet
     contains the cell's main diagonal (corner 000 to 111), one per permutation
-    of the three axes. Because every cell splits along the *same* diagonal
+    of the three axes. Because every cell splits along the same diagonal
     direction, neighbouring cells agree on their shared faces and the mesh is
-    conforming -- the property that makes this usable for convergence studies,
+    conforming, the property that makes this usable for convergence studies,
     where an unstructured generator would confound the refinement rate.
     '''
     nx, ny, nz = resolution
@@ -665,7 +665,7 @@ def create_box_mesh(
     def get_index(i, j, k):
         return (i*ny + j)*nz + k
 
-    # Corners of a cell, indexed by the bits of (di, dj, dk) -- corner 5 is
+    # Corners of a cell, indexed by the bits of (di, dj, dk): corner 5 is
     # (1, 0, 1). The six tets below are written against that numbering.
     KUHN_TETS = [
         (0, 1, 3, 7), (0, 1, 5, 7), (0, 2, 3, 7),

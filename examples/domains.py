@@ -1,13 +1,13 @@
 """The domains the demos solve on, built rather than loaded.
 
-A demo's shape is part of what it says -- a cantilever is a beam, and an SIMP result is
-a truss spanning one -- so each demo names its domain here instead of solving on
+A demo's shape is part of what it says (a cantilever is a beam, and an SIMP result is
+a truss spanning one), so each demo names its domain here instead of solving on
 whatever mesh the caller happened to pass. `files/` used to hold six meshes for this,
 which were cached `create_rect_mesh` output: the same function reproduces any of them
 vertex for vertex in about 40 ms, so they were fixtures that could only drift.
 
 Sizes are chosen for what the figure needs to show, within what the gallery workflow
-can afford -- it renders every demo on each push. There is more room there than the
+can afford: it renders every demo on each push. There is more room there than the
 sizes suggest: a `tripcolor` is flat-shaded per element, so a coarse mesh is visibly
 faceted, while the build's cost sits mostly in rasterizing animation frames rather
 than in solving. `tests/test_demos.py` substitutes a tiny mesh for every domain, so
@@ -29,7 +29,7 @@ def beam(length: float = 4.0, height: float = 1.0, n: int = 80) -> Mesh:
     """A `length` x `height` rectangle divided `n` ways along its length.
 
     The cross-wise count follows the aspect ratio, so the triangles stay near-isotropic
-    rather than becoming slivers as the beam gets longer -- element quality bounds the
+    rather than becoming slivers as the beam gets longer: element quality bounds the
     error, and a demo should not quietly hand the solver its worst case.
     """
     across = max(2, round(n * height / length))
@@ -59,7 +59,7 @@ def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float
 
     Two loops: the outline and the hole. Under the even-odd rule the inner one is a
     hole rather than a second region, so the mesh covers the material and stops at
-    the rim -- which is what makes the rim a boundary the solver can see.
+    the rim, which makes the rim a boundary the solver can see.
 
     `segments` is how finely the circle is polygonalised. Too few and the "hole" is a
     visible polygon whose corners are stress concentrations of their own.

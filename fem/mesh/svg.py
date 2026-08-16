@@ -63,8 +63,8 @@ def read_svg_to_list_of_path_points(svg_file):
                 # zero-length start-to-end chord in `douglas_peucker`. Sampling a
                 # Bezier through its own true endpoint (below) can land exactly
                 # back on the Move point when the artwork already closes there,
-                # so drop that redundant last vertex rather than keep it -- a
-                # path that does *not* close exactly is left as drawn, its
+                # so drop that redundant last vertex rather than keep it. A
+                # path that does not close exactly is left as drawn, its
                 # closing edge coming from the same implicit wraparound.
                 if path_points and np.allclose(path_points[-1], path_points[0]):
                     path_points.pop()
@@ -158,8 +158,8 @@ def _find_crossing_segments(vertices, segments):
     '''The first pair of segments that properly cross, or None.
 
     Pairs sharing an endpoint are allowed to touch there, so they are skipped.
-    Compares every pair, which is quadratic in the *input* size -- the outline,
-    not the mesh refined from it.
+    Compares every pair, which is quadratic in the input size (the outline, not
+    the mesh refined from it).
     '''
     starts, ends = vertices[segments[:, 0]], vertices[segments[:, 1]]
 
@@ -224,11 +224,11 @@ class PSLG:
                 for loop_id in np.unique(self.loop_ids)]
 
     def area(self):
-        '''Area of the region these loops enclose, which is what a mesh of them covers.
+        '''Area of the region these loops enclose, which a mesh of them covers.
 
         Holes subtract, by the same even-odd rule meshing applies: a loop nested
         inside an odd number of others encloses nothing. Summing the loops instead
-        would count a hole twice over -- once as the plate it is cut from, once as
+        would count a hole twice over: once as the plate it is cut from, once as
         itself.
         '''
         loops = self.loops()
