@@ -16,7 +16,14 @@ import pytest
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
-from fem.convergence import ELASTIC_E, ELASTIC_NU, elastic_source
+from fem.convergence import (
+    ELASTIC_E,
+    ELASTIC_NU,
+    elastic_source,
+    exact_gradient,
+    h1_seminorm_error,
+    quadrature_l2,
+)
 from fem.equations import LinearElastic, Poisson
 from fem.estimators import recovery_estimator
 from fem.materials import Enu_to_Lame
@@ -34,26 +41,11 @@ def _global(eta):
     return float(np.sqrt((np.asarray(eta) ** 2).sum()))
 
 
-def _poisson_true_gradient_error(solver):
-    """||grad(u_exact) - grad(u_h)||_L2 for u = sin(pi x) sin(pi y), the H1 seminorm
-    error the recovered-gradient estimate targets. Integrated at the same degree-2
-    rule the estimator uses, so the two are compared in one norm."""
-    space = solver.space
-    geometry = space.geometry_at(2)
-    x, y = geometry.points[..., 0], geometry.points[..., 1]
-    grad_exact = np.stack(
-        [np.pi * np.cos(np.pi * x) * np.sin(np.pi * y),
-         np.pi * np.sin(np.pi * x) * np.cos(np.pi * y)],
-        axis=-1,
-    )
-    grad_h = space.gradient(solver.solution.u)          # (n_el, 2), constant per element
-    diff = grad_exact - grad_h[:, None, :]
-    return float(np.sqrt(np.einsum('eqd,eqd,eq->', diff, diff, geometry.weight_detJ)))
-
-
 def _elastic_true_stress_error(solver):
     """||sigma_exact - sigma_h||_L2 (in-plane, Frobenius) for the elasticity MMS,
-    the norm the recovered-stress estimate targets."""
+    the norm the recovered-stress estimate targets. Shares `quadrature_l2` with the
+    gradient error; the Frobenius norm of the full symmetric 2x2 difference is what
+    the primitive computes from the trailing tensor axes."""
     mu, lamb = Enu_to_Lame(ELASTIC_E, ELASTIC_NU)
     space = solver.space
     geometry = space.geometry_at(2)
@@ -64,12 +56,11 @@ def _elastic_true_stress_error(solver):
     sxx = (2 * mu + lamb) * eps_xx
     syy = lamb * eps_xx
     sxy = 2 * mu * eps_xy
-    sh = solver.solution.stress[:, :2, :2]              # (n_el, 2, 2), constant per element
-    d00 = sxx - sh[:, None, 0, 0]
-    d11 = syy - sh[:, None, 1, 1]
-    d01 = sxy - sh[:, None, 0, 1]
-    frob2 = d00**2 + d11**2 + 2 * d01**2                # Frobenius of the symmetric 2x2
-    return float(np.sqrt(np.einsum('eq,eq->', frob2, geometry.weight_detJ)))
+    row0 = np.stack([sxx, sxy], axis=-1)
+    row1 = np.stack([sxy, syy], axis=-1)
+    sigma_exact = np.stack([row0, row1], axis=-2)          # (n_el, n_qp, 2, 2)
+    sigma_h = solver.solution.stress[:, None, :2, :2]      # (n_el, 1, 2, 2), constant per element
+    return quadrature_l2(geometry, sigma_exact - sigma_h)
 
 
 def _solve_poisson(n):
@@ -100,7 +91,7 @@ def test_poisson_recovery_is_asymptotically_exact():
     for n in (11, 21, 41):
         solver = _solve_poisson(n)
         eta = _global(recovery_estimator(solver.equation).estimate(solver))
-        true_error = _poisson_true_gradient_error(solver)
+        true_error = h1_seminorm_error(solver.space, solver.solution.u, exact_gradient)
         indices.append(eta / true_error)
 
     assert all(0.5 < i < 2.0 for i in indices)          # bounded everywhere
