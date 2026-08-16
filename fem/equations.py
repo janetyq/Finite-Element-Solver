@@ -5,7 +5,7 @@ parameters. It sits in the physics layer next to `fem.forms` and `fem.energies`,
 not with the solvers: `Solver` and `EnergySolver` both consume equations, so
 neither module owns them.
 
-Each subclass answers "what physics do I mean?" for both assembly paths --
+Each subclass answers "what physics do I mean?" for both assembly paths:
 `operator` gives the bilinear form the linear path assembles, `energy_density`
 gives the strain-energy density the nonlinear path differentiates. A solver picks
 a path; it does not decide what material an equation implies.
@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 class Equation:
     '''Base class for a PDE to solve.
 
-    An Equation is typed data: it says *what* to solve and carries the physical
-    parameters, while a solve strategy owns *how* (the same equation, e.g.
+    An Equation is typed data: it says what to solve and carries the physical
+    parameters, while a solve strategy owns how (the same equation, e.g.
     LinearElastic, may be handled by several solvers). Transient problems are not
     equation types: heat and wave are a steady operator paired with a time
     integrator (see fem.problem.heat / .wave and fem.integrators).
@@ -51,8 +51,8 @@ class Equation:
     def operator(self, n_components: int) -> Form:
         '''The bilinear form a linear solve assembles for this equation.
 
-        The scalar diffusion family -- Poisson, and the Laplacian behind the heat
-        and wave problems -- shares the material-free Laplacian, so it is the base
+        The scalar diffusion family (Poisson, and the Laplacian behind the heat
+        and wave problems) shares the material-free Laplacian, so it is the base
         answer; subclasses that mean something else override.
         '''
         return LaplacianForm()
@@ -71,7 +71,7 @@ class Equation:
     def flux(self) -> Flux:
         '''The flux an error estimator jumps or recovers for this equation.
 
-        Names the physics -- Poisson's gradient, elasticity's stress -- that
+        Names the physics (Poisson's gradient, elasticity's stress) that
         `fem.estimators` builds a per-element indicator from, the estimator analogue
         of `operator`. Only defined where an estimator exists; the base raises.
         '''
@@ -97,7 +97,7 @@ class Poisson(Equation):
 
 
 class StrainMeasure(Enum):
-    '''Which strain the elastic energy is built on -- the kinematics axis.
+    '''Which strain the elastic energy is built on: the kinematics axis.
 
     The material `W` is one function; the two paths differ only in the strain fed
     to it (see `fem.energies`). SMALL is the infinitesimal `ε = ½(∇u + ∇uᵀ)`,
@@ -149,8 +149,8 @@ class LinearElastic(Equation):
         StVenantKirchhoff and overrides only the strain, so both satisfy the
         return type.
         '''
-        # E may be per-element -- TopologyOptimizer sets a density-scaled modulus
-        # -- but a density carries one pair of Lame parameters for the whole mesh,
+        # E may be per-element (TopologyOptimizer sets a density-scaled modulus),
+        # but a density carries one pair of Lame parameters for the whole mesh,
         # and an array lamb broadcasts wrongly against the constant d2W/dS2.
         if not isinstance(self.E, int | float):
             raise NotImplementedError(
@@ -166,7 +166,7 @@ class LinearElastic(Equation):
     def flux(self) -> Flux:
         '''The elastic flux the estimators work from: the in-plane Cauchy stress.
 
-        Carries the masked Neumann/free boundary residual as well -- the term that
+        Carries the masked Neumann/free boundary residual as well, the term that
         lets a traction-free stress concentration register (see `fem.estimators`).
         '''
         return StressFlux()

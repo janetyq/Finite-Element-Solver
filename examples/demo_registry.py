@@ -24,17 +24,14 @@ class Figure:
     `slug` names the file when a demo produces more than one figure, so they save as
     `wave-animation.png` / `wave-snapshots.png` rather than `wave_0` / `wave_1`.
 
-    `thumbnail` nominates this figure as the demo's card image in the gallery, which
-    otherwise uses the first. Most demos need no nomination: they return their results
-    first and the setup after, which is the order a reader arriving from a card wants
-    anyway. It is for the demo whose order is deliberately the other way round --
-    `stress_concentration` runs an outline through to a stress, where the sequence is
-    the content, and its card should still be the stress.
+    `thumbnail` nominates this figure as the demo's gallery card instead of the first.
+    Most demos return their result first and their setup after, the order a reader
+    arriving from a card wants, so the default suffices; it is for a demo like
+    `stress_concentration`, whose card should be the final stress, not its outline.
 
-    `setup` marks a figure as how the problem was posed rather than what came out --
-    the conditions imposed, the state it started from. The gallery gives those a section
-    of their own at the foot of the page, beside the source, because they are the same
-    kind of thing: how a reader would set this up themselves, rather than what it shows.
+    `setup` marks a figure as how the problem was posed (the conditions imposed, the
+    state it started from) rather than what came out. The gallery collects those at the
+    foot of the page, beside the source.
     """
     plotter: 'Plotter'
     caption: str
@@ -56,8 +53,8 @@ class Figure:
 class DemoResult:
     """Everything one demo produced.
 
-    Empty is legal for none of these individually -- a demo with no figures may still
-    have `text` -- but a demo yielding nothing at all shows up nowhere, which
+    Empty is legal for none of these individually (a demo with no figures may still
+    have `text`), but a demo yielding nothing at all shows up nowhere, which
     `tests/test_demos.py` rejects.
     """
     figures: list[Figure] = field(default_factory=list)
@@ -75,7 +72,7 @@ class Demo:
     name: str
     func: Callable[..., DemoResult]
     # How to build the domain this demo runs on, passed as its first argument. `None`
-    # means the demo takes no mesh -- it builds its own, or has nothing to solve on.
+    # means the demo takes no mesh: it builds its own, or has nothing to solve on.
     # A factory rather than a Mesh so nothing is meshed until the demo is actually run,
     # and per demo rather than one default for all, because a cantilever wants a beam
     # and a projection wants a fine square. `cli.py --mesh` overrides it.
@@ -88,14 +85,14 @@ class Demo:
     smoke_requires: str | None = None
     # Cheaper arguments for `tests/test_demos.py`, which runs every demo on every
     # commit. Only a few demos set it, and each says why: the rest are cheap enough
-    # either way. Everyone else -- the CLI and the gallery -- runs demos exactly as
+    # either way. Everyone else (the CLI and the gallery) runs demos exactly as
     # written, so a demo's defaults are what a reader actually sees.
     smoke_kwargs: dict[str, Any] = field(default_factory=dict)
 
     def _unwrapped(self) -> Callable[..., DemoResult]:
         """The demo function itself, from behind any `functools.partial` around it.
 
-        Binding arguments to preconfigure a demo must not change what the demo *is*:
+        Binding arguments to preconfigure a demo must not change what the demo is:
         a partial has its own docstring, its own module, and no source at all.
         """
         func = self.func
@@ -111,7 +108,7 @@ class Demo:
         """
         try:
             return inspect.getsource(self._unwrapped())
-        except OSError:      # no source available -- a REPL-defined or C function
+        except OSError:      # no source available: a REPL-defined or C function
             return ''
 
     def description(self) -> str:

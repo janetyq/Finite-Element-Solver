@@ -1,19 +1,19 @@
 """Position-based regions and fields: specifications written against coordinates
 rather than vertex indices.
 
-A *region* is any callable mapping an (N, spatial_dim) array of point coordinates to an
+A region is any callable mapping an (N, spatial_dim) array of point coordinates to an
 (N,) boolean mask, so a bare lambda qualifies. The helpers below just name the
 cases that kept recurring and own the coordinate tolerance, which was previously
 an ad-hoc `< 1e-6` re-derived at every call site.
 
-A *field* is a value that may be either a constant or a callable of position;
+A field is a value that may be either a constant or a callable of position;
 `evaluate_field` normalizes both into a (N, n_components) array.
 
 Both are deliberately mesh-independent, and that is the point: a boundary
 condition described this way can be resolved afresh against whatever mesh is
-current, which is what lets it survive refinement. `at_indices` is the escape
-hatch for genuinely node-specific work; it marks itself mesh-bound so remeshers
-can refuse it instead of silently relocating it.
+current, which lets it survive refinement. `at_indices` is the escape hatch for
+genuinely node-specific work; it marks itself mesh-bound so remeshers can refuse
+it instead of silently relocating it.
 """
 from collections.abc import Sequence
 
@@ -28,7 +28,7 @@ DEFAULT_ATOL: float = 1e-9
 
 def everywhere() -> Region:
     '''Every point. Combined with the boundary-only resolution, this means
-    "the entire boundary" -- the most common Dirichlet region.'''
+    "the entire boundary", the most common Dirichlet region.'''
     return lambda points: np.ones(len(points), dtype=bool)
 
 
@@ -122,7 +122,7 @@ def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -
 
     def coerce(raw: float | Sequence[float | None] | FloatArray) -> FloatArray:
         # object dtype defers numeric coercion to the comprehension below, so a
-        # scalar and a sequence -- with or without a None in it -- all flatten
+        # scalar and a sequence, with or without a None in it, all flatten
         # to something iterable the same way.
         components = np.atleast_1d(np.asarray(raw, dtype=object))
         return np.array([np.nan if c is None else float(c) for c in components])
@@ -137,14 +137,14 @@ def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -
 def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
     '''Normalize a constant or a callable-of-position into an (N, n_components) array.
 
-    A single rule -- "the value at a point" -- for both forms. The previous API
+    A single rule, "the value at a point", for both forms. The previous API
     chose between "one value per index" and "one value shared by all indices" by
     comparing `len(indices) == len(values)`, so `add('dirichlet', left, [0, 0])`
     on 2D elasticity silently changed meaning when the edge happened to hold
     exactly two nodes.
 
     Every component must be a real number: `None` has no meaning for a source,
-    a traction, or a Robin `g` -- there is nothing "left free" about a load. Use
+    a traction, or a Robin `g`: there is nothing "left free" about a load. Use
     `BoundaryConditions`' own Dirichlet resolver for a value that may leave a
     component unconstrained.
     '''
@@ -157,6 +157,6 @@ def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> Fl
         )
     if np.any(np.isnan(values)):
         raise ValueError(
-            'field component is None (or NaN) -- every component must be a real number here'
+            'field component is None (or NaN); every component must be a real number here'
         )
     return values

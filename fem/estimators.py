@@ -2,28 +2,28 @@
 
 An estimator answers "where is the discrete solution least trustworthy?" as one
 non-negative number per element, which an `AdaptiveRefinement` driver turns into a
-refinement decision. It is an *operation on a solved system*, not data of the PDE,
-so it lives here rather than on `Equation` -- the equation only *names* its physics
-(`Equation.flux`), the way it names its `operator` and `energy_density`.
+refinement decision. It is an operation on a solved system, not data of the PDE, so
+it lives here rather than on `Equation`: the equation only names its physics
+(`Equation.flux`), as it names its `operator` and `energy_density`.
 
 Two families share one seam and one physics hook:
 
 - **Residual** (`ResidualEstimator`): measures how badly the computed field fails
-  the PDE -- an interior term (the source it does not balance), an interior-edge
-  jump (the flux discontinuity between neighbours), and a boundary term (the
-  applied traction the discrete flux does not match). This is a direct check of
-  equilibrium and needs the mesh's edge normals, so it is 2D-only for now.
+  the PDE, through an interior term (the source it does not balance), an
+  interior-edge jump (the flux discontinuity between neighbours), and a boundary
+  term (the applied traction the discrete flux does not match). A direct check of
+  equilibrium, it needs the mesh's edge normals, so it is 2D-only for now.
 
 - **Recovery** (`RecoveryEstimator`): the Zienkiewicz-Zhu idea. The discrete flux
-  is discontinuous (element-constant for P1); a *recovered* continuous flux `sigma*`
-  -- here the volume-weighted nodal average `FunctionSpace.element_to_vertex` builds
-  -- is much closer to the exact flux, so `eta_K = ||sigma* - sigma_h||_K` measures
-  the error. It reads no edge normals, so it is dimension-general (validated in 2D).
+  is discontinuous (element-constant for P1). A recovered continuous flux `sigma*`,
+  the volume-weighted nodal average `FunctionSpace.element_to_vertex` builds, is
+  much closer to the exact flux, so `eta_K = ||sigma* - sigma_h||_K` measures the
+  error. It reads no edge normals, so it is dimension-general (validated in 2D).
 
-The one equation-specific input, shared by both, is the **`Flux`**: *which* field
-to jump/recover (Poisson's gradient, elasticity's stress) and -- residual-only --
-what the boundary residual is. Everything else is neutral machinery, exactly the
-`Form`/`assemble` split the rest of the package uses.
+The one equation-specific input, shared by both, is the **`Flux`**: which field to
+jump or recover (Poisson's gradient, elasticity's stress) and, for the residual
+estimator only, what the boundary residual is. Everything else is neutral machinery,
+the same `Form`/`assemble` split the rest of the package uses.
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ class Solved:
 
     Built once per `estimate` and handed to the flux hooks so neither the engine
     nor the flux re-derives the DOF partition. `is_fixed[v, c]` marks vertex `v`'s
-    component `c` as Dirichlet-constrained -- the mask a boundary residual uses to
+    component `c` as Dirichlet-constrained, the mask a boundary residual uses to
     ignore a pinned direction's reaction traction.
     '''
     space: FunctionSpace
@@ -65,8 +65,8 @@ class Solved:
 def _solved(solver: RefinableSolver) -> Solved:
     '''Resolve `solver`'s latest solve into the view the flux hooks read.
 
-    Raises if the solver has not solved yet -- the single guard both estimators
-    lean on, so `estimate` never has to narrow the solution itself.
+    Raises if the solver has not solved yet: the single guard both estimators lean
+    on, so `estimate` never has to narrow the solution itself.
     '''
     solution = solver.solution
     if solution is None:
@@ -101,7 +101,7 @@ class Flux(Protocol):
         self, ctx: Solved, flux: FloatArray, v0: int, v1: int, e0: int,
         outward_normal: FloatArray,
     ) -> float:
-        '''The squared boundary residual on one boundary edge -- 0 where there is none.
+        '''The squared boundary residual on one boundary edge, 0 where there is none.
 
         Physics only: the engine applies the `h_K * edge_length` weight. The edge
         runs between vertices `v0`, `v1` on element `e0`, with `outward_normal`
@@ -147,9 +147,9 @@ class GradientFlux:
 class StressFlux:
     '''The elastic flux: the in-plane Cauchy stress `sigma`, with a Neumann residual.
 
-    The recovered/ jumped field is the `(n_el, d, d)` in-plane stress. On a boundary
-    edge the residual is `||g - sigma.n||^2` over the components with a live test
-    function there -- a component fixed at *both* endpoints has no free hat and is
+    The recovered or jumped field is the `(n_el, d, d)` in-plane stress. On a
+    boundary edge the residual is `||g - sigma.n||^2` over the components with a live
+    test function there. A component fixed at both endpoints has no free hat and is
     dropped, so a pinned direction's reaction traction is not counted as error while
     a roller's free direction still is. This is the masked-norm boundary term the
     stress-concentration estimator relies on.
@@ -167,9 +167,9 @@ class StressFlux:
         self, ctx: Solved, flux: FloatArray, v0: int, v1: int, e0: int,
         outward_normal: FloatArray,
     ) -> float:
-        # Free iff *either* endpoint's hat is free -- fixed at both is what removes
-        # the component from the assembled system, and only then is its traction a
-        # reaction rather than a residual.
+        # Free iff either endpoint's hat is free. Fixed at both removes the component
+        # from the assembled system, and only then is its traction a reaction rather
+        # than a residual.
         free = ~(ctx.is_fixed[v0] & ctx.is_fixed[v1])
         if not free.any():
             return 0.0
@@ -188,9 +188,9 @@ class StressFlux:
 class ErrorEstimator(Protocol):
     '''A per-element error indicator over a solved system.
 
-    The single method `AdaptiveRefinement` drives. Residual and recovery
-    estimators implement it, and so would a future goal-oriented one, though they
-    share no internals -- which is why this is the seam the driver depends on.
+    The single method `AdaptiveRefinement` drives. Residual and recovery estimators
+    implement it, and so would a future goal-oriented one, though they share no
+    internals. That is why this is the seam the driver depends on.
     '''
 
     def estimate(self, solver: RefinableSolver) -> ElementField:
@@ -210,14 +210,14 @@ class ResidualEstimator:
     `eta_K^2 = h_K^2 ||f||^2_K + (h_K/2) sum_edges ||[[flux.n]]||^2_e
                                 + h_K sum_(bnd edges) ||boundary residual||^2_e`
 
-    The engine owns every geometric quantity -- `h_K`, the edge normals, the
-    accumulation -- and delegates the three physics pieces to the `flux`: the flux
-    field it jumps, and (per boundary edge) the boundary residual. The interior
-    term is the source `f` the P1 field cannot balance (`div(flux) = 0` inside a
+    The engine owns every geometric quantity (`h_K`, the edge normals, the
+    accumulation) and delegates the three physics pieces to the `flux`: the flux
+    field it jumps, and (per boundary edge) the boundary residual. The interior term
+    is the source `f` the P1 field cannot balance (`div(flux) = 0` inside a
     constant-strain element), read at the element centroid.
 
-    2D only: the jump and boundary terms need edge normals. A 3D mesh would need
-    face normals, which the recovery estimator sidesteps entirely.
+    2D only: the jump and boundary terms need edge normals. A 3D mesh would need face
+    normals, which the recovery estimator sidesteps entirely.
     '''
     flux: Flux
     source: FieldValue = None
@@ -260,7 +260,7 @@ class ResidualEstimator:
 
             # Boundary edge: orient the normal out of the domain (g is directional,
             # unlike the interior jump where either sign cancels), then delegate the
-            # residual to the flux -- zero for a scalar problem.
+            # residual to the flux, zero for a scalar problem.
             (e0,) = adjacent
             centroid = mesh.vertices[mesh.elements[e0]].mean(axis=0)
             midpoint = 0.5 * (mesh.vertices[v0] + mesh.vertices[v1])
@@ -278,14 +278,14 @@ class RecoveryEstimator:
     '''Zienkiewicz-Zhu recovery estimator: `eta_K = ||sigma* - sigma_h||_K`.
 
     The discrete flux `sigma_h` is element-constant (P1) and discontinuous; the
-    recovered `sigma*` is its volume-weighted nodal average, a continuous field that
-    -- being superconvergent -- stands in for the unknown exact flux. Their gap,
-    integrated over each element, estimates the error.
+    recovered `sigma*` is its volume-weighted nodal average, a continuous field that,
+    being superconvergent, stands in for the unknown exact flux. Their gap, integrated
+    over each element, estimates the error.
 
-    Needs no edge normals, so unlike the residual estimator it is dimension-general;
-    validated in 2D. Recovery by simple averaging is biased at boundaries and
-    re-entrant corners -- it still orders elements well enough to drive refinement,
-    but the effectivity there is looser (patch recovery would tighten it).
+    Needs no edge normals, so unlike the residual estimator it is dimension-general
+    (validated in 2D). Recovery by simple averaging is biased at boundaries and
+    re-entrant corners; it still orders elements well enough to drive refinement, but
+    the effectivity there is looser (patch recovery would tighten it).
     '''
     flux: Flux
 
@@ -296,7 +296,7 @@ class RecoveryEstimator:
         sigma_star = space.element_to_vertex(sigma_h)     # (n_nodes, k, d), continuous
 
         # Integrate ||sigma* - sigma_h||^2 over each element. sigma* is P1 (linear),
-        # sigma_h constant, so the integrand is quadratic -- a degree-2 rule is exact.
+        # sigma_h constant, so the integrand is quadratic, and a degree-2 rule is exact.
         geometry = space.geometry_at(2)
         per_element = sigma_star[space.element_nodes]     # (n_el, N, k, d)
         sigma_star_qp = np.einsum('qn,en...->eq...', geometry.shape, per_element)

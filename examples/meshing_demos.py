@@ -44,11 +44,11 @@ DEFAULT_MAX_AREA_FRACTION = 0.005
 
 def demo_regions(mesh):
     """Name parts of a domain by position, which is how a boundary condition says where
-    it applies -- and survives a remesh the way a vertex index could not."""
+    it applies, and survives a remesh the way a vertex index could not."""
     # The alternative is naming vertex indices, and an index means nothing after a
     # remesh renumbers them. Everything here is written against coordinates, so the
-    # same three lines select the same three places on any mesh of this beam -- which
-    # is what lets a generated mesh carry boundary conditions at all.
+    # same three lines select the same three places on any mesh of this beam, which
+    # lets a generated mesh carry boundary conditions at all.
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     clamped = on_plane(0, 0.0)
     loaded = intersect(on_plane(0, w), in_box([None, 0.2*h], [None, 0.8*h]))
@@ -61,7 +61,7 @@ def demo_regions(mesh):
 
     # The claim these regions are worth anything rests on: resolved fresh against
     # whatever mesh is current, not tied to one triangulation's vertex numbering. Shown
-    # rather than asserted -- the same three predicates land on the same physical
+    # rather than asserted: the same three predicates land on the same physical
     # patches on a second, differently-resolved mesh of this beam, whose vertices are
     # numbered nothing like the first's.
     finer = beam(w, h, 90)
@@ -89,13 +89,13 @@ def demo_regions(mesh):
 
     return DemoResult([
         Figure(resolved,
-               'Three regions selected by position -- on_plane, in_box, and their '
-               f'intersect -- resolved on two different meshes of the same beam: '
+               'Three regions selected by position (on_plane, in_box, and their '
+               f'intersect) resolved on two different meshes of the same beam: '
                f'{len(mesh.elements)} triangles, then {len(finer.elements)}, differently '
                'numbered. Every region lands on the same physical patch either way, which '
                'is what lets a boundary condition be placed once and survive whatever '
                'remeshing happens after. The regions themselves are geometric, not '
-               "boundary-aware -- a plane through the domain's middle would keep only the "
+               "boundary-aware: a plane through the domain's middle would keep only the "
                'two vertices where it meets the edge, once resolved against one.'),
     ])
 
@@ -120,8 +120,8 @@ def simplify_curve(curve, save_file='douglas_peucker_output.json',
 
     `tolerance` is a fraction of the curve's extent. `interactive=True` opens a slider
     to explore it instead, starting from `tolerance`, and returns whatever it was left
-    on. Simplifying directly is the default so that every caller -- including ones with
-    nobody watching -- gets the same result without having to ask for it.
+    on. Simplifying directly is the default so that every caller (including ones with
+    nobody watching) gets the same result without having to ask for it.
     """
     d = max(np.max(curve, axis=0) - np.min(curve, axis=0))
     if not interactive:
@@ -223,11 +223,10 @@ def demo_mesh_from_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATI
                        interactive=False, min_angle=20,
                        max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
     """Turn an SVG drawing into a mesh: simplify each outline with Douglas-Peucker, then
-    triangulate them with Ruppert's algorithm.
-
-    --interactive opens a slider over the simplification tolerance, previewing it on the
-    largest outline before meshing. The tolerance used for meshing is always `tolerance`,
-    applied per-loop by `read_svg_to_pslg`."""
+    triangulate with Ruppert's algorithm."""
+    # --interactive opens a slider previewing the simplification tolerance on the largest
+    # outline; the tolerance used for meshing is always `tolerance` (per-loop, via
+    # read_svg_to_pslg).
     # The two steps are one demo because the first exists for the second: Ruppert's cost
     # is superlinear in the point count it is handed, and an SVG outline traced at screen
     # resolution has thousands. Simplification is what makes the triangulation finish.
@@ -260,7 +259,7 @@ def demo_mesh_from_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATI
 DEMOS = [
     # Both mesh to a size cap, which is what makes the figures worth looking at and
     # also most of their cost; the smoke run only needs the code paths. Loosen the cap
-    # and nothing else -- simplifying the outline further is *not* reliably cheaper,
+    # and nothing else: simplifying the outline further is not reliably cheaper,
     # because it sharpens corners, and refinement spends extra elements around those.
     Demo('mesh_from_svg', demo_mesh_from_svg, section='Meshing a domain',
          smoke_kwargs={'max_area_fraction': 0.05}),

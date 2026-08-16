@@ -1,8 +1,8 @@
 """How the free-free block gets solved: the linear-algebra backend.
 
-`DiscreteSystem` owns the Dirichlet elimination -- the partition of the DOFs and
-the lifting of the fixed values to the right-hand side -- but not the choice of
-*how* the remaining free-free block is solved. That choice is a `Backend`,
+`DiscreteSystem` owns the Dirichlet elimination (the partition of the DOFs and
+the lifting of the fixed values to the right-hand side) but not the choice of
+how the remaining free-free block is solved. That choice is a `Backend`,
 injected so the two orthogonal axes stay separate: a `SolveStrategy` picks linear
 vs. Newton, a `Backend` picks direct vs. iterative, and they compose without a
 class per combination.
@@ -17,24 +17,24 @@ What a caller touches, versus what is plumbing:
 nonsingular system, indefinite ones included, but its fill-in on a 3D mesh grows
 super-linearly and caps the reachable resolution. `IterativeBackend` runs
 preconditioned conjugate gradients with an algebraic-multigrid preconditioner
-(`pyamg`); CG is *SPD-only*, so it is opt-in (Poisson / small-strain elasticity
+(`pyamg`); CG is SPD-only, so it is opt-in (Poisson / small-strain elasticity
 stiffness, mass, the time-stepping operators), and on a large 3D system it is O(n)
-where the direct factorization is not -- the whole point of the exercise.
+where the direct factorization is not, the whole point of the exercise.
 
 Both `prepare` an operator into a `LinearSolver`: an object that has
 factored/preconditioned one matrix and can solve it against many right-hand sides.
 `DiscreteSystem` builds one per operator and reuses it across solves, so a
 time-stepper or Newton loop with a constant operator pays the setup once. scipy's
-`SuperLU` already *is* such an object; the iterative path wraps CG in one.
+`SuperLU` already is such an object; the iterative path wraps CG in one.
 
 Config (the immutable `Backend`) and the bound solver (`LinearSolver`) are two
-objects rather than one because the matrix actually solved -- the eliminated
-free-free block -- is born *inside* `DiscreteSystem`, so a caller can only hand in
+objects rather than one because the matrix actually solved (the eliminated
+free-free block) is born inside `DiscreteSystem`, so a caller can only hand in
 a recipe for building the solver, never the solver itself.
 
 The AMG preconditioner is currently `pyamg`'s smoothed aggregation. A hand-rolled
 geometric two-grid V-cycle could replace it behind this same `Backend` seam
-without touching a caller -- see BACKLOG.md.
+without touching a caller (see BACKLOG.md).
 """
 from typing import Protocol
 
@@ -113,10 +113,10 @@ def rigid_body_modes(vertices: Vertices, n_components: int) -> FloatArray:
     '''The rigid-body modes of an elastic body: the AMG near-kernel for elasticity.
 
     Rigid translations and (infinitesimal) rotations produce no strain, so they lie
-    in the kernel of the unconstrained stiffness -- the low-energy modes a plain
+    in the kernel of the unconstrained stiffness: the low-energy modes a plain
     smoother cannot damp and the coarse levels must represent. Feeding them to AMG
-    is what keeps CG's iteration count flat under mesh refinement for a lightly
-    constrained body; the constant vector pyamg assumes by default does not.
+    keeps CG's iteration count flat under mesh refinement for a lightly constrained
+    body; the constant vector pyamg assumes by default does not.
 
     Returns `(n_dofs, n_modes)` in the interleaved DOF order (component `d` of node
     `v` at `n_components*v + d`): 3 modes in 2D (two translations, one rotation), 6

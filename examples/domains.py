@@ -1,13 +1,13 @@
 """The domains the demos solve on, built rather than loaded.
 
-A demo's shape is part of what it says -- a cantilever is a beam, and an SIMP result is
-a truss spanning one -- so each demo names its domain here instead of solving on
+A demo's shape is part of what it says (a cantilever is a beam, and an SIMP result is
+a truss spanning one), so each demo names its domain here instead of solving on
 whatever mesh the caller happened to pass. `files/` used to hold six meshes for this,
 which were cached `create_rect_mesh` output: the same function reproduces any of them
 vertex for vertex in about 40 ms, so they were fixtures that could only drift.
 
 Sizes are chosen for what the figure needs to show, within what the gallery workflow
-can afford -- it renders every demo on each push. There is more room there than the
+can afford: it renders every demo on each push. There is more room there than the
 sizes suggest: a `tripcolor` is flat-shaded per element, so a coarse mesh is visibly
 faceted, while the build's cost sits mostly in rasterizing animation frames rather
 than in solving. `tests/test_demos.py` substitutes a tiny mesh for every domain, so
@@ -29,7 +29,7 @@ def beam(length: float = 4.0, height: float = 1.0, n: int = 80) -> Mesh:
     """A `length` x `height` rectangle divided `n` ways along its length.
 
     The cross-wise count follows the aspect ratio, so the triangles stay near-isotropic
-    rather than becoming slivers as the beam gets longer -- element quality bounds the
+    rather than becoming slivers as the beam gets longer: element quality bounds the
     error, and a demo should not quietly hand the solver its worst case.
     """
     across = max(2, round(n * height / length))
@@ -38,19 +38,22 @@ def beam(length: float = 4.0, height: float = 1.0, n: int = 80) -> Mesh:
 
 def column(length: float = 24.0, height: float = 1.0,
            n_length: int = 48, n_across: int = 6) -> Mesh:
-    """A slender column, meshed for a buckling solve.
+    """A slender column standing upright, meshed for a buckling solve.
+
+    Length runs along y (ends at y = 0 and y = length) so the mode shapes draw as columns
+    stand, with `height` the thin cross-dimension along x.
 
     Unlike `beam`, the through-thickness count is set independently of the aspect ratio
     rather than following it. A buckling mode is bending, which the elements have to
-    resolve across the height; an isotropic-triangle slice of a long column would leave
-    only two or three of them there, far too few for the mode to curve. `n_across` points
-    evenly spaced across the height land on the neutral axis only when `n_across` is odd
-    (an even number of intervals, one landing dead-center); `n_across` is forced odd so a
-    pinned end has a vertex there to anchor.
+    resolve across the thin dimension; an isotropic-triangle slice of a long column would
+    leave only two or three of them there, far too few for the mode to curve. `n_across`
+    points evenly spaced across the thickness land on the neutral axis only when `n_across`
+    is odd (an even number of intervals, one landing dead-center); `n_across` is forced odd
+    so a pinned end has a vertex there to anchor.
     """
     n_across += 1 - n_across % 2
-    return create_rect_mesh(corners=[[0.0, 0.0], [length, height]],
-                            resolution=(n_length, n_across))
+    return create_rect_mesh(corners=[[0.0, 0.0], [height, length]],
+                            resolution=(n_across, n_length))
 
 
 def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float = 0.3,
@@ -59,7 +62,7 @@ def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float
 
     Two loops: the outline and the hole. Under the even-odd rule the inner one is a
     hole rather than a second region, so the mesh covers the material and stops at
-    the rim -- which is what makes the rim a boundary the solver can see.
+    the rim, which makes the rim a boundary the solver can see.
 
     `segments` is how finely the circle is polygonalised. Too few and the "hole" is a
     visible polygon whose corners are stress concentrations of their own.
@@ -84,11 +87,9 @@ def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,
     sharp reentrant corners a straight slot bottom would leave. The mesher resolves the
     straight edges; only the fillet is pre-sampled, into `n_fillet` points.
 
-    Dimensions are in metres, sized so a steel fork's fundamental lands near concert A
-    (see `demo_modal`): each tine is a clamped-free beam of length `tine_length` and
-    thickness `tine_thickness`, and beam theory sets the tone from those two and the
-    material. Centred on x = 0, with the stem base on y = 0 -- the line a modal solve
-    clamps, the node a real fork is held at.
+    Dimensions are in metres; the defaults size a steel fork near concert A (see
+    `demo_modal`). Centred on x = 0, with the stem base on y = 0, the line a modal solve
+    clamps.
     """
     half_outer = gap / 2 + tine_thickness       # tine outer edge, |x| at the tips
     y_base_top = stem_length + base_height       # where the tines and the slot begin

@@ -1,11 +1,10 @@
 """Hyperelastic strain energy densities: the material law for nonlinear FEM.
 
-An energy density maps the deformation gradient F = I + grad u to a scalar
-energy W and the derivative chain the Newton solver needs (dW/dF, d²W/dF²
-decomposed through the strain tensor S).  Every quantity is batched over the
-mesh: the primary interface is `evaluate`, which takes `(n_elements, d, d)`
-gradients and returns a `StrainEnergyDerivatives` bundle with a leading element
-axis on each array.
+An energy density maps the deformation gradient F = I + grad u to a scalar energy W
+and the derivative chain the Newton solver needs (dW/dF, d²W/dF² decomposed through
+the strain tensor S). Every quantity is batched over the mesh: the primary interface
+is `evaluate`, which takes `(n_elements, d, d)` gradients and returns a
+`StrainEnergyDerivatives` bundle with a leading element axis on each array.
 
 Two strain measures share one energy function W(S):
 
@@ -13,13 +12,12 @@ Two strain measures share one energy function W(S):
     small strain    ε = ½(F + Fᵀ) - I  linearisation, constant Hessian
 
 They differ only in how S depends on F, so the derivative chain factorises as
-dW/dF = dW/dS : dS/dF, and the parent–child split below mirrors that exactly:
-`StVenantKirchhoff` owns the S-to-F map, `SmallStrain` overrides it with the
-linear one.
+dW/dF = dW/dS : dS/dF. The parent-child split below mirrors that: `StVenantKirchhoff`
+owns the S-to-F map, `SmallStrain` overrides it with the linear one.
 
-Dimension-general: every tensor is built from `d = grad_u.shape[-1]`, not a
-fixed DIM = 2. The constant tensors (d²S/dF² for Green-Lagrange, d²W/dS²) are
-precomputed once at construction and broadcast over elements.
+Dimension-general: every tensor is built from `d = grad_u.shape[-1]`, not a fixed
+DIM = 2. The constant tensors (d²S/dF² for Green-Lagrange, d²W/dS²) are precomputed
+once at construction and broadcast over elements.
 
 
 Solving versus reporting
@@ -30,10 +28,10 @@ post-processing. Two conventions differ between the two jobs.
 
 **Gradient orientation.** `ElementGeometry.gradients` puts `du_c/dx_i` at entry
 `[i, c]`, the transpose of the usual convention, so the `F` built here is
-`F_standardᵀ` and `evaluate`'s whole chain works in that orientation. W is blind
-to it -- it uses S only through `tr S` and `tr(SᵀS)`, which `½(FFᵀ - I)` and
-`½(FᵀF - I)` share -- but a reported tensor is not, so `strain` transposes back
-and returns the textbook `½(FᵀF - I)`.
+`F_standardᵀ` and `evaluate`'s whole chain works in that orientation. W is blind to
+it, using S only through `tr S` and `tr(SᵀS)`, which `½(FFᵀ - I)` and `½(FᵀF - I)`
+share. A reported tensor is not blind to it, so `strain` transposes back and returns
+the textbook `½(FᵀF - I)`.
 
 **Plane strain.** A 2D density models a 3D body held fixed in z, so `S_zz = 0`.
 That is why a stress appears there: material squeezed in x and y pushes outward
@@ -56,16 +54,16 @@ logger = logging.getLogger(__name__)
 class StrainEnergyDerivatives:
     """The derivative chain of a strain energy, batched over elements.
 
-    Every array has a leading `(n_elements,)` axis.  `EnergyForm` contracts
-    these against the shape-function-derived `dF_dx` to assemble the element
-    energy, residual, and tangent in one vectorised pass.
+    Every array has a leading `(n_elements,)` axis. `EnergyForm` contracts these
+    against the shape-function-derived `dF_dx` to assemble the element energy,
+    residual, and tangent in one vectorised pass.
     """
     W: FloatArray          # (n_el,)
     dW_dF: FloatArray      # (n_el, d, d)
     dW_dS: FloatArray      # (n_el, d, d)
     dS_dF: FloatArray      # (n_el, d, d, d, d)
-    d2S_dF2: FloatArray    # (d, d, d, d, d, d)  -- constant, broadcast
-    d2W_dS2: FloatArray    # (d, d, d, d)         -- constant, broadcast
+    d2S_dF2: FloatArray    # (d, d, d, d, d, d), constant, broadcast
+    d2W_dS2: FloatArray    # (d, d, d, d), constant, broadcast
 
 
 class StVenantKirchhoff:
@@ -76,14 +74,13 @@ class StVenantKirchhoff:
 
     Not linear elasticity, despite pairing the same W with the same Lame
     parameters. Green-Lagrange keeps the quadratic grad_uᵀ grad_u term that
-    infinitesimal strain theory drops, which makes the model *geometrically*
+    infinitesimal strain theory drops, which makes the model geometrically
     nonlinear: it is frame indifferent (a rigid rotation produces no strain,
     where small strain produces a spurious ~θ²/2 compression) at the cost of a
     Newton solve.
 
-    Small strain is its linearisation, so the two agree to O(‖grad u‖²) --
-    see tests/test_elasticity_models.py, which pins both halves of that
-    statement.
+    Small strain is its linearisation, so the two agree to O(‖grad u‖²); see
+    tests/test_elasticity_models.py, which pins both halves of that statement.
     """
 
     def __init__(self, E: float, nu: float) -> None:
@@ -109,7 +106,7 @@ class StVenantKirchhoff:
     # -- strain measure (overridden by SmallStrain) -------------------------
 
     def strain(self, grad_u: FloatArray) -> FloatArray:
-        """This density's own strain measure -- for reporting, not for solving.
+        """This density's own strain measure, for reporting rather than solving.
 
         Subclasses override `_strain`, so both strain measures answer through
         this. F is built in the standard orientation; see "Gradient orientation".
@@ -130,9 +127,9 @@ class StVenantKirchhoff:
         return self.lamb * np.einsum('eii->e', strain)
 
     def _strain(self, F: FloatArray, eye: FloatArray) -> FloatArray:
-        # Green-Lagrange. The quadratic term is what makes this nonlinear in u,
-        # so Newton takes several iterations rather than the single step a
-        # quadratic energy would need.
+        # Green-Lagrange. The quadratic term makes this nonlinear in u, so Newton
+        # takes several iterations rather than the single step a quadratic energy
+        # would need.
         return 0.5 * (np.einsum('eji,ejk->eik', F, F) - eye)
 
     def _dS_dF(self, F: FloatArray, d: int) -> FloatArray:
@@ -212,11 +209,11 @@ class StVenantKirchhoff:
 class SmallStrain(StVenantKirchhoff):
     """Infinitesimal-strain elasticity: St-VK with ε = ½(F + Fᵀ) - I.
 
-    The linearisation of Green-Lagrange.  The strain is affine in F, so dS/dF
-    is constant, d²S/dF² vanishes, the energy is quadratic in u, and Newton
-    converges in one step.  This is the same physics `Solver` solves by direct
-    assembly — its value is as the independent cross-check and as the
-    small-strain member of the strain-measure axis.
+    The linearisation of Green-Lagrange. The strain is affine in F, so dS/dF is
+    constant, d²S/dF² vanishes, the energy is quadratic in u, and Newton converges
+    in one step. This is the same physics `Solver` solves by direct assembly; its
+    value is as the independent cross-check and as the small-strain member of the
+    strain-measure axis.
     """
 
     def _strain(self, F: FloatArray, eye: FloatArray) -> FloatArray:

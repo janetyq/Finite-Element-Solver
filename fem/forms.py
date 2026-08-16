@@ -1,25 +1,26 @@
-"""Bilinear and nonlinear forms: the integrands a finite-element assembly scatters.
+"""Bilinear and nonlinear forms: the per-element matrices assembly scatters.
 
-A `Form` is the assembly-ready view of a bilinear form `a(u, v)`, the way
-`ResolvedBC` is the assembly-ready view of a `BoundaryConditions`. It answers one
-question -- "what are the element matrices for this mesh?" -- and
-`FunctionSpace.assemble` scatters the results into the global matrix. Every
-matrix the linear solvers assemble -- mass, stiffness, boundary mass -- is a
-`Form`, so nothing reaches into element internals with an ad-hoc loop.
+A `Form` builds the small dense matrices for each element. `FunctionSpace.assemble`
+then scatters those element matrices into the global system matrix, so a `Form` is
+the layer between element geometry and the global linear system. It answers one
+thing: given this mesh, what are the per-element matrices?
 
-`EnergyForm` is the nonlinear sibling: same batched geometry, but the integrand
-depends on the current displacement through an energy density whose derivative
-chain is evaluated once for the whole mesh rather than element-at-a-time.
+Almost every element matrix follows the same pattern:
 
-Every element matrix here has the shape `Gᵀ C G · volume`, where G is a
-gradient-like operator built from the element's shape-function gradients and C is
-the material. The Laplacian is the case G = grad_phi, C = I (no material). Linear
-elasticity is G = B (the strain-displacement matrix), C = D (the material's Hooke
-matrix). Splitting G from C is what lets element types be pure geometry: they
-supply `grad_phi`, and the form knows what physics to build from it.
+    Gᵀ C G · volume
 
-`strain_displacement` fixes the Voigt ordering of the strain vector, which must
-match `fem.materials.hooke_matrix`; the two are contracted together.
+G comes from the element's shape-function gradients, and C is the material. Keeping
+them separate is the main design idea: element types stay pure geometry (they supply
+G), and the `Form` supplies the physics (C). The Laplacian is G = grad_phi with
+C = I; linear elasticity is G = B (strain-displacement) with C = D (the Hooke matrix).
+
+The two families
+----------------
+
+1. Linear forms produce a constant element matrix (mass, stiffness).
+2. `EnergyForm` is the nonlinear version. Its output depends on the current
+   displacement, so it returns energy, residual, and tangent for a Newton solve
+   (hyperelasticity).
 """
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
@@ -73,18 +74,17 @@ def strain_displacement(grad_phi: FloatArray) -> FloatArray:
 def gradient_displacement(grad_phi: FloatArray) -> FloatArray:
     '''Gradient-displacement matrices G: nodal DOFs -> displacement-gradient vector.
 
-    The sibling of `strain_displacement`. Where B produces the *symmetric* strain
-    a material law contracts against, G produces the *full* displacement gradient
-    `du_c/dx_i` -- the operand the geometric (initial-stress) stiffness contracts a
-    prestress against, since buckling is driven by the rotation part of the gradient
-    that the symmetric strain discards.
+    The sibling of `strain_displacement`. Where B produces the symmetric strain a
+    material law contracts against, G produces the full displacement gradient
+    `du_c/dx_i`. The geometric (initial-stress) stiffness contracts a prestress
+    against this, since buckling is driven by the rotation part the symmetric strain
+    discards.
 
     Operates on the trailing `(n_nodes, dim)` axes and preserves any leading batch
     axes, returning those axes followed by `(dim*dim, n_nodes*dim)`. The gradient
-    vector is ordered component-major -- row `c*dim + i` is `d u_c / d x_i` -- and
-    DOFs are interleaved per node, so column `dim*n + e` is node n's component e.
-    That pairing is what makes the block-diagonal prestress `I ⊗ σ` in
-    `GeometricStiffnessForm` line up with it.
+    vector is component-major (row `c*dim + i` is `d u_c / d x_i`), and DOFs are
+    interleaved per node, so column `dim*n + e` is node n's component e. That pairing
+    lines up with the block-diagonal prestress `I ⊗ σ` in `GeometricStiffnessForm`.
     '''
     *batch, n_nodes, dim = grad_phi.shape
     G = np.zeros((*batch, dim * dim, n_nodes * dim))
@@ -97,16 +97,14 @@ def gradient_displacement(grad_phi: FloatArray) -> FloatArray:
 def voigt_to_tensor(voigt: FloatArray, shear_factor: float = 1.0) -> FloatArray:
     '''Unpack `(n_elements, n_strains)` Voigt vectors into `(n_elements, d, d)` tensors.
 
-    Voigt packing stores a symmetric tensor as a vector, which is what makes the
-    element stiffness a matrix product `B^T D B`. Nothing above assembly should
-    have to know it: a norm or an eigenvalue of the packed vector is not the
-    tensor's, since the off-diagonal entries appear once in one and twice in the
-    other.
+    Voigt packing stores a symmetric tensor as a vector, which makes the element
+    stiffness a matrix product `B^T D B`. A norm or eigenvalue of the packed vector
+    is not the tensor's, since the off-diagonal entries appear once in one and twice
+    in the other.
 
-    `shear_factor` divides the packed shear entry to recover the tensor
-    component: 1 for stress, 2 for strain, which packs engineering shear
-    `gamma = 2 eps`. That asymmetry is what makes the Voigt dot product equal the
-    tensor contraction.
+    `shear_factor` divides the packed shear entry to recover the tensor component:
+    1 for stress, 2 for strain, which packs engineering shear `gamma = 2 eps`. That
+    asymmetry makes the Voigt dot product equal the tensor contraction.
     '''
     voigt = np.asarray(voigt, dtype=float)
     n_elements, n_strains = voigt.shape
@@ -122,8 +120,8 @@ def voigt_to_tensor(voigt: FloatArray, shear_factor: float = 1.0) -> FloatArray:
     tensor = np.zeros((n_elements, d, d))
     for i in range(d):
         tensor[:, i, i] = voigt[:, i]
-    # These pairs must match the shear rows `strain_displacement` writes above --
-    # xy, then yz, then xz in 3D -- and the ordering is spelled out in both places
+    # These pairs must match the shear rows `strain_displacement` writes above
+    # (xy, then yz, then xz in 3D). The ordering is spelled out in both places
     # because B is built by direct assignment and cannot read a shared table.
     # `tests/test_invariants.py` pins the pairing; a mismatch also breaks the
     # convergence tests, so it cannot drift silently.
@@ -169,8 +167,8 @@ class RecoversElasticFields(Protocol):
         The nested layout, matching what `FunctionSpace.assemble_residual` builds
         and what `ElementGeometry.gradients` consumes. A form wanting the flat
         interleaved `(n_elements, N*n_components)` that Voigt's B multiplies
-        reshapes internally -- flattening the last two axes reproduces exactly the
-        node-major, component-minor order `dof_indices` emits.
+        reshapes internally: flattening the last two axes reproduces the node-major,
+        component-minor order `dof_indices` emits.
         '''
         ...
 
@@ -191,7 +189,7 @@ class Form(Protocol):
 
 @dataclass(frozen=True)
 class MassForm:
-    '''The mass form ∫ u·v -- the consistent P1 mass matrix.
+    '''The mass form ∫ u·v: the consistent P1 mass matrix.
 
     The scalar `∫ phi_i phi_j` is element geometry; a k-component field repeats it
     once per component, which is the Kronecker product with the k×k identity: DOFs
@@ -211,7 +209,7 @@ class MassForm:
 
 @dataclass(frozen=True)
 class MaskedMassForm:
-    '''A mass form zeroed on the facets outside `mask` -- a boundary mass over a
+    '''A mass form zeroed on the facets outside `mask`: a boundary mass over a
     subset of the boundary.
 
     Used for the Robin term ∫_∂Ω_R u·v, restricted to its region: `mask` marks the
@@ -229,11 +227,11 @@ class MaskedMassForm:
 
 @dataclass(frozen=True)
 class LaplacianForm:
-    '''The scalar Laplacian ∫ ∇u·∇v -- material-free, so G = grad_phi, C = I.'''
+    '''The scalar Laplacian ∫ ∇u·∇v: material-free, so G = grad_phi, C = I.'''
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         # Sum over quadrature points q and spatial index d. For a 1-point P1 rule
-        # this is the old `eid,ejd,e->eij` with a singleton q axis -- identical.
+        # this is the old `eid,ejd,e->eij` with a singleton q axis, identical.
         grad_phi = geometry.grad_phi
         return np.einsum('eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ)
 
@@ -241,10 +239,9 @@ class LaplacianForm:
 def _sample_field(field: FieldValue, geometry: ElementGeometry, n_components: int) -> FloatArray:
     '''Evaluate a coefficient or source at every quadrature point: (n_el, n_qp, n_components).
 
-    The point of a real quadrature layer: a value that varies *within* an element,
-    read at the interior points assembly integrates over rather than only at the
-    nodes. Flattens the (element, point) pair for `evaluate_field`, which works
-    point-by-point, then restores it.
+    Reads a value that varies within an element at the interior points assembly
+    integrates over, not only at the nodes. Flattens the (element, point) pair for
+    `evaluate_field`, which works point-by-point, then restores it.
     '''
     n_el, n_qp = geometry.weight_detJ.shape
     flat = geometry.points.reshape(n_el * n_qp, geometry.spatial_dim)
@@ -257,10 +254,9 @@ class DiffusionForm:
     '''Variable-coefficient diffusion ∫ κ(x) ∇u·∇v, κ sampled at the quadrature points.
 
     `LaplacianForm` is the κ ≡ 1 special case, kept as the cheaper constant path
-    that needs no sampling and no interior points. Here κ is a `FieldValue` -- a
-    constant or a callable of position -- and the only change from the Laplacian is
-    that it scales each point's weight, so a spatially varying conductivity, a
-    material property that changes across the domain, is one multiply in the sum.
+    that needs no sampling. Here κ is a `FieldValue` (a constant or a callable of
+    position) and scales each quadrature point's weight, so a spatially varying
+    conductivity is one multiply in the sum.
 
     `quadrature_degree` selects the rule the space integrates this against; 2 (three
     points on a triangle) resolves a smoothly varying κ against a P1 field.
@@ -279,11 +275,11 @@ class DiffusionForm:
 class LinearForm:
     '''The linear form L(v) = ∫ f(x)·v, assembled by sampling f at the quadrature points.
 
-    The counterpart of the bilinear `Form`: it produces one element *vector* per
+    The counterpart of the bilinear `Form`: it produces one element vector per
     element, which `FunctionSpace.assemble_load` scatters into the global load.
     `problem.Source` is the cheaper special case that integrates f's P1 interpolant
-    through the cached mass matrix; this samples f itself, so it captures variation
-    within an element the interpolant cannot -- the load half of the quadrature layer.
+    through the cached mass matrix; this samples f itself, capturing variation within
+    an element the interpolant cannot.
     '''
     field: FieldValue
     n_components: int = 1
@@ -309,7 +305,7 @@ class LinearElasticForm:
         )
         # B^T D B summed over quadrature points q and strain indices j, k, weighted
         # per point. D does not vary within an element, so it carries no q axis. For
-        # a 1-point P1 rule this is the old `eji,ejk,ekl,e->eil` -- identical.
+        # a 1-point P1 rule this is the old `eji,ejk,ekl,e->eil`, identical.
         # optimize=True is load-bearing rather than cosmetic: the default
         # left-to-right order forms a large intermediate and runs far slower here.
         return np.einsum('eqji,ejk,eqkl,eq->eil', B, D, B, geometry.weight_detJ, optimize=True)
@@ -360,23 +356,23 @@ class LinearElasticForm:
 class GeometricStiffnessForm:
     '''Geometric (initial-stress) stiffness ∫ Gᵀ Σ₀ G, from a per-element prestress.
 
-    The one operator whose material `C` is not a fixed constitutive law but the
-    *stress the structure is already carrying*: `G = gradient_displacement` (the
-    full gradient, not the symmetric strain `B`) and `Σ₀ = I ⊗ σ₀` block-diagonalises
-    the prestress, so the quadratic form is `Σ_c (∇u_c)ᵀ σ₀ (∇u_c)`. It is the term
-    that stiffens a structure in tension and softens it in compression -- to the
-    point of buckling, where `K + λ K_g` loses positive-definiteness.
+    The material `C` here is not a constitutive law but the stress the structure
+    already carries: `G = gradient_displacement` (the full gradient, not the
+    symmetric strain `B`) and `Σ₀ = I ⊗ σ₀` block-diagonalises the prestress, so the
+    quadratic form is `Σ_c (∇u_c)ᵀ σ₀ (∇u_c)`. This term stiffens a structure in
+    tension and softens it in compression, to the point of buckling, where `K + λ K_g`
+    loses positive-definiteness.
 
-    This is exactly `term1` of the St-Venant–Kirchhoff consistent tangent
-    (`EnergyForm.element_tangents`): there the prestress is the second Piola–Kirchhoff
-    stress `dW/dS` at the current state, contracted through the constant nonlinear
-    kernel `d²S/dF²`. Here the prestress is supplied -- recovered once from a reference
-    linear solve -- so the geometric stiffness can be assembled about the undeformed
-    configuration for a *linearised* buckling eigenproblem, without a Newton solve.
+    It is exactly `term1` of the St-Venant–Kirchhoff consistent tangent
+    (`EnergyForm.element_tangents`), where the prestress is the second Piola–Kirchhoff
+    stress `dW/dS` contracted through the constant kernel `d²S/dF²`. Here the prestress
+    is supplied (recovered once from a reference linear solve), so the geometric
+    stiffness assembles about the undeformed configuration for a linearised buckling
+    eigenproblem, without a Newton solve.
 
-    `prestress` is the `(n_elements, d, d)` Cauchy stress in the spatial dimension of
-    the mesh (the in-plane 2x2 block for a 2D solve); `σ_zz` does not enter, having no
-    in-plane displacement gradient to couple to.
+    `prestress` is the `(n_elements, d, d)` Cauchy stress in the mesh's spatial
+    dimension (the in-plane 2x2 block for a 2D solve); `σ_zz` does not enter, having
+    no in-plane displacement gradient to couple to.
     '''
     prestress: FloatArray   # (n_elements, d, d) prestress from the reference solve
 
@@ -401,13 +397,11 @@ class GeometricStiffnessForm:
 
 @dataclass(frozen=True)
 class ScaledForm:
-    '''A form scaled by a constant coefficient -- c² for the wave operator.
+    '''A form scaled by a constant coefficient, such as c² for the wave operator.
 
-    The first operator-side combinator, and it earns its place exactly where the
-    composition-algebra design said it would: the wave equation's stiffness is
-    c²K, so `problem.tangent` returns the scaled operator and the integrator never
-    has to know the wave speed. Kept minimal on purpose -- an `OperatorSum` waits
-    for a second operator term (Robin, advection).
+    The wave equation's stiffness is c²K, so `problem.tangent` returns the scaled
+    operator and the integrator never has to know the wave speed. Kept minimal: an
+    `OperatorSum` waits for a second operator term (Robin, advection).
     '''
     factor: float
     form: Form
@@ -420,15 +414,14 @@ class ScaledForm:
 class PrecomputedForm:
     '''Element matrices computed elsewhere, handed to assembly as they are.
 
-    The escape hatch for a driver that can derive its element matrices more cheaply
-    than by re-integrating them. SIMP is the case in hand: scaling the modulus by
-    `rho^p` scales each element matrix by exactly `rho^p`, since the constitutive
-    matrix is linear in E, so a topology optimization iteration rescales one
-    precomputed set rather than re-contracting `B^T D B` over the mesh.
+    An escape hatch for a driver that can derive its element matrices more cheaply
+    than by re-integrating them. SIMP is the case in hand: since the constitutive
+    matrix is linear in E, scaling the modulus by `rho^p` scales each element matrix
+    by `rho^p`, so a topology optimization iteration rescales one precomputed set
+    rather than re-contracting `B^T D B` over the mesh.
 
-    Valid only for the geometry the matrices were computed on, which is why the
-    element count is checked -- `matrices` carries the geometry's imprint but no
-    way to identify it, so a mismatched *shape* is the one error catchable here.
+    Valid only for the geometry the matrices were computed on. The element count is
+    checked, the one mismatch a bare `matrices` array can reveal.
     '''
     matrices: FloatArray   # (n_elements, k, k)
 
@@ -462,28 +455,27 @@ class EnergyForm:
     '''The nonlinear (hyperelastic) sibling of `Form`.
 
     A bilinear `Form` maps geometry to a constant matrix. An `EnergyForm` maps
-    geometry *and the current nodal displacement* to three volume-weighted
-    quantities, all batched over the mesh:
+    geometry and the current nodal displacement to three volume-weighted quantities,
+    all batched over the mesh:
 
     - the stored energy (a scalar per element),
     - its gradient (the residual, one vector per element),
     - its Hessian (the tangent, one matrix per element).
 
-    A quadratic energy gives a constant tangent independent of the state -- the
-    linear stiffness `Form` is that special case, which is why these are siblings
-    rather than one protocol taking a mostly-ignored state.
+    A quadratic energy gives a constant tangent independent of the state. The linear
+    stiffness `Form` is that special case, which is why these are siblings.
 
-    The physics is delegated to an energy density (`fem.energies`), which
-    evaluates the full derivative chain once for the whole mesh and returns a
-    `StrainEnergyDerivatives` bundle -- derivatives of W, distinct from the
-    derivatives of the total potential Pi that this form goes on to build. It
-    contracts those against `dF_dx` (the shape-function contribution to the
-    deformation gradient) to produce the assembly-ready element quantities.
+    The physics is delegated to an energy density (`fem.energies`), which evaluates
+    the full derivative chain once for the whole mesh and returns a
+    `StrainEnergyDerivatives` bundle (derivatives of W, distinct from those of the
+    total potential Pi this form builds). It contracts those against `dF_dx` (the
+    shape-function contribution to the deformation gradient) to produce the
+    assembly-ready element quantities.
     '''
     energy_density: EnergyDensity
 
     def _dF_dx(self, geometry: ElementGeometry, q: int) -> FloatArray:
-        '''(n_el, d, d, N, d) -- dF/dx at quadrature point q = I ⊗ grad_phi_qᵀ.'''
+        '''(n_el, d, d, N, d): dF/dx at quadrature point q = I ⊗ grad_phi_qᵀ.'''
         d = geometry.spatial_dim
         return np.einsum('emi,jn->eijmn', geometry.grad_phi[:, q, :, :d], np.eye(d))
 
@@ -494,7 +486,7 @@ class EnergyForm:
 
         Summed over the quadrature points, each contributing its density evaluated
         at that point weighted by `weight_detJ`. One iteration for a 1-point P1
-        rule -- the density's derivative chain is reused across orders unchanged.
+        rule. The density's derivative chain is reused across orders unchanged.
         '''
         grad_u = geometry.gradients(u_elements)   # (n_el, n_qp, d, d)
         total = np.zeros(geometry.n_elements)
@@ -506,7 +498,7 @@ class EnergyForm:
     def element_residuals(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> FloatArray:
-        '''(n_elements, N, d) element residuals -- dPi/dx per element.'''
+        '''(n_elements, N, d) element residuals: dPi/dx per element.'''
         grad_u = geometry.gradients(u_elements)
         n_nodes, d = geometry.grad_phi.shape[2], geometry.spatial_dim
         residual = np.zeros((geometry.n_elements, n_nodes, d))
@@ -520,7 +512,7 @@ class EnergyForm:
     def element_tangents(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> FloatArray:
-        '''(n_elements, N, d, N, d) element tangents -- d²Pi/dx² per element.
+        '''(n_elements, N, d, N, d) element tangents: d²Pi/dx² per element.
 
         Reshaped to (n_elements, k, k) by the caller for scatter into the global
         matrix, where k = N * n_components.
@@ -528,7 +520,7 @@ class EnergyForm:
         # d2W_dx2 = dW_dS : (d2S_dF2 : dF_dx : dF_dx) + d2W_dS2 : (dS_dx : dS_dx)
         #
         # ":" is the tensor double contraction. For two second-order tensors,
-        # A : B = sum_ij A_ij B_ij -- the elementwise product summed over both
+        # A : B = sum_ij A_ij B_ij, the elementwise product summed over both
         # indices, giving a scalar. In general it contracts the last two indices
         # of the left operand against the first two of the right; each ":" above
         # is one such contraction, i.e. one "...ij,ij...->..." einsum below (with
@@ -570,9 +562,9 @@ class EnergyForm:
         area, so it is not comparable with the small-strain path's stress. The two
         agree to O(||grad u||). Strain is the density's own measure.
 
-        Reconciles two conventions from `fem.energies` -- the gradient orientation
-        it works in and the plane-strain reduction a 2D solve makes -- both
-        explained there under "Solving versus reporting".
+        Reconciles two conventions from `fem.energies`: the gradient orientation it
+        works in and the plane-strain reduction a 2D solve makes. Both are explained
+        there under "Solving versus reporting".
 
         Recovered per element at the first quadrature point, matching the linear
         path: constant over the element for P1, one representative value otherwise.
@@ -590,8 +582,8 @@ class EnergyForm:
         J = np.linalg.det(F)
         cauchy = np.einsum('e,eij,ekj->eik', 1.0 / J, P, F)
 
-        # The density's own measure -- Green-Lagrange for St-VK, eps for its
-        # linearisation -- asked for rather than branched on here, so the class
+        # The density's own measure (Green-Lagrange for St-VK, eps for its
+        # linearisation) is asked for rather than branched on here, so the class
         # that owns the choice is the one that answers.
         strain = self.energy_density.strain(grad_u)
 
@@ -603,7 +595,7 @@ class EnergyForm:
             strain = _with_out_of_plane(strain, np.zeros(len(strain)))
             cauchy = _with_out_of_plane(cauchy, sigma_zz)
 
-        # Twice the stored energy, which for a quadratic W is exactly S:E -- the
+        # Twice the stored energy, which for a quadratic W is exactly S:E, the
         # work-conjugate pair. Contracting the *reported* Cauchy stress with E
         # instead mixes measures and runs ~30% wrong at finite strain. Going
         # through W also avoids having to pick an orientation.

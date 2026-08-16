@@ -40,12 +40,12 @@ def hooke_patterns(reference_dim: int) -> tuple[Matrix, Matrix]:
 
     The isotropic law is linear in the Lame parameters, so D decomposes into a
     part scaled by mu and a part scaled by lamb, neither depending on the
-    material. Writing it this way is what lets one element and a whole mesh of
-    elements with different moduli share an implementation: scale by scalars for
-    the first, by `(n_elements, 1, 1)` arrays for the second.
+    material. That decomposition lets one element and a whole mesh of elements
+    with different moduli share an implementation: scale by scalars for the first,
+    by `(n_elements, 1, 1)` arrays for the second.
 
     In Voigt form with strain ordered [xx, yy, (zz,) engineering shears], P_mu is
-    diagonal -- 2 on the normal components, 1 on the shears -- and P_lamb is the
+    diagonal (2 on the normal components, 1 on the shears) and P_lamb is the
     all-ones block coupling the normal components, since lamb multiplies the
     trace of the strain. For reference_dim 2 that spells out to
 
@@ -82,8 +82,8 @@ def hooke_matrix(reference_dim: int, mu: float, lamb: float) -> Matrix:
 class LinearElasticMaterial:
     '''Isotropic linear-elastic constitutive law, parameterised by E and nu.
 
-    E may be a scalar or a per-element array -- TopologyOptimizer scales it by a
-    density cubed each iteration -- so the constitutive matrix is requested per
+    E may be a scalar or a per-element array (TopologyOptimizer scales it by a
+    density cubed each iteration), so the constitutive matrix is requested per
     element rather than built once. nu is uniform.
     '''
     E: float | ElementField
@@ -108,9 +108,9 @@ class LinearElasticMaterial:
         return np.asarray(lamb) * trace
 
     def constitutive_matrices(self, reference_dim: int, n_elements: int) -> FloatArray:
-        '''(n_elements, s, s) Voigt D, one per element -- the batched assembly path.
+        '''(n_elements, s, s) Voigt D, one per element: the batched assembly path.
 
-        A uniform modulus returns a broadcast *view* of the single matrix rather
+        A uniform modulus returns a broadcast view of the single matrix rather
         than n_elements copies of it, so the common case costs no extra memory
         and `np.einsum` still contracts it against a per-element B.
         '''

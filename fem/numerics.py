@@ -29,8 +29,8 @@ def calculate_smoothing_matrix(mesh: Mesh, r: float) -> SparseMatrix:
 
     The SIMP sensitivity filter: an element's smoothed sensitivity is a weighted
     mean of the sensitivities within `r` of it, under the weight `r - distance`
-    falling linearly to zero at the radius. Filtering the sensitivity is what keeps
-    the optimizer off checkerboard designs, and `r` sets the design's feature size.
+    falling linearly to zero at the radius. Filtering the sensitivity keeps the
+    optimizer off checkerboard designs, and `r` sets the design's feature size.
 
     Sparse, off a KD-tree neighbour query: an element couples only to the ones
     inside its radius, so only those pairs are stored. Under the usual choice of a

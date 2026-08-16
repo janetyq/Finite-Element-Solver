@@ -54,12 +54,12 @@ class Solver:
     def remesh(self, mesh: Mesh) -> None:
         '''Rebind the solver to a new mesh, rebuilding the space and re-resolving BCs.
 
-        A refined mesh renumbers vertices, so the space -- which owns cached
-        operators sized to the old mesh -- is rebuilt from its specification
-        rather than carried over. Nothing index-keyed survives here: the boundary
+        A refined mesh renumbers vertices, so the space (which owns cached
+        operators sized to the old mesh) is rebuilt from its specification rather
+        than carried over. Nothing index-keyed survives here: the boundary
         conditions are resolved by the `LinearProblem` built for each solve. This
-        is what lets an outer driver (AdaptiveRefinement) advance the solver
-        across meshes without reaching into its state.
+        lets an outer driver (AdaptiveRefinement) advance the solver across meshes
+        without reaching into its state.
         '''
         self.mesh = mesh
         self.space = FunctionSpace(mesh, self.element_type, n_components=self.n_components)
@@ -83,9 +83,9 @@ class Solver:
 
         A vector elasticity stiffness has the rigid-body modes as its low-energy
         near-kernel; AMG needs them to keep CG's iteration count flat under
-        refinement. This is the one solve detail that depends on *which* equation is
-        being solved, so the equation-aware facade supplies it -- restricted to the
-        free DOFs, to match the block the backend factors -- rather than the
+        refinement. This is the one solve detail that depends on which equation is
+        being solved, so the equation-aware facade supplies it (restricted to the
+        free DOFs, to match the block the backend factors) rather than the
         physics-agnostic backend guessing. An explicit near-kernel the caller set is
         left untouched; the scalar Laplacian family needs none.
         '''

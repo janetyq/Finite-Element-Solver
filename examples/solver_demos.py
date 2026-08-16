@@ -80,7 +80,7 @@ def demo_poisson_equation(mesh):
                'fields'),
         Figure(conditions,
                'Pinned at every boundary node, so no part of this boundary is left to '
-               'the natural condition -- which is what makes the solution vanish all '
+               'the natural condition, which makes the solution vanish all '
                'the way round.',
                'conditions', setup=True),
     ])
@@ -100,7 +100,7 @@ def _tidy_log_axis(ax, steps):
     """Label the axis with the steps actually used.
 
     These sequences span well under a decade, where a log axis falls back to minor
-    ticks like 2x10^-2 -- which run into each other.
+    ticks like 2x10^-2, which run into each other.
     """
     ax.grid(True, which='both', alpha=0.3)
     # Plain decimals below a thousandth run to more digits than they are worth.
@@ -117,7 +117,7 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
     # Every other figure here is checked by eye; these are the claims that survive
     # being looked at properly, and they are the two the discretization makes:
     #
-    #   in space  P1 elements are O(h^2) -- halve h, quarter the error -- for a scalar
+    #   in space  P1 elements are O(h^2) (halve h, quarter the error) for a scalar
     #             unknown and for a coupled vector one alike;
     #   in time   the theta method's order is theta's to choose: 1 at backward Euler,
     #             2 at Crank-Nicolson, which is the default.
@@ -158,20 +158,19 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
         rows.append(f'{name:<22}{study.fitted_order:>9.2f}{expected:>11}')
     return DemoResult(
         [Figure(plotter,
-                'Left: the Poisson error is smooth and one-signed -- zero on the boundary '
+                'Left: the Poisson error is smooth and one-signed: zero on the boundary '
                 'where the solution is pinned exactly, deepest at the centre where the '
                 'piecewise-linear space has the most to miss. Middle: halving h quarters '
                 'that error, for a scalar unknown and for a coupled vector one alike. '
                 'Right: the same measurement against the time step instead, where the '
-                'order is not a property of the elements but a choice -- backward Euler '
+                'order is not a property of the elements but a choice: backward Euler '
                 'buys first order, Crank-Nicolson second, for the same cost per step.')],
         text='\n'.join(rows),
     )
 
 def demo_higher_order(resolutions=(11, 21, 41, 81)):
-    """Compare P1 and P2 elements on the same manufactured Poisson problem: quadratic
-    elements are third order in L2 where linear ones are second, and so reach a given
-    accuracy at far fewer degrees of freedom."""
+    """Compare P1 and P2 elements on the same manufactured Poisson problem: P2 is third
+    order in L2 where P1 is second."""
     # Same problem, two element orders. P2 carries the extra edge-midpoint DOFs that
     # let its solution curve within an element; the rate is what that buys.
     p1_solves = poisson_convergence(resolutions)
@@ -203,7 +202,7 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
     return DemoResult(
         [Figure(plotter,
                 'Left: on the same meshes, halving h quarters the P1 error (order 2) but '
-                'divides the P2 error by eight (order 3) -- the steeper line is the whole '
+                'divides the P2 error by eight (order 3): the steeper line is the whole '
                 'point of a higher-order element. Right: the same errors against the '
                 'number of unknowns. P2 spends more DOFs per element, yet reaches a given '
                 'accuracy well to the left of P1, so it is the cheaper choice where the '
@@ -212,10 +211,8 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
     )
 
 def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
-    """Show what sampling the load at the quadrature points buys. Both solves use the same
-    P1 elements; they differ only in how the source f becomes the right-hand side -- read
-    at the vertices, or at the interior quadrature points. The vertex shortcut undershoots
-    wherever f swings within an element."""
+    """Show what sampling the load at the quadrature points buys, against reading the
+    source only at the vertices."""
     k = LOAD_MMS_FREQUENCY
 
     # Setup: the load and the solution it drives, on a fine mesh so these are the ideal
@@ -273,18 +270,18 @@ def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
             f'  the nodal shortcut is {coarse.nodal_error / coarse.sampled_error:.1f}x worse']
     return DemoResult(
         [Figure(comp,
-                'Both solves use the same P1 (linear) elements -- neither is higher order. '
+                'Both solves use the same P1 (linear) elements; neither is higher order. '
                 'They differ only in how the source f becomes the load: the nodal load reads '
                 'f at the vertices only (integrating its linear interpolant), the sampled '
                 'load reads f at the interior quadrature points. Top-left: on a slice '
                 'through a row of bumps, the exact solution (grey) against the two P1 '
-                'solutions -- the nodal load undershoots each peak. Top-right: both converge '
+                'solutions: the nodal load undershoots each peak. Top-right: both converge '
                 'at order 2, the sampled load about 3x lower. Bottom: the absolute error '
                 'over the mesh for each, at the same colour scale.',
                 'comparison'),
          Figure(setup,
                 'The manufactured problem: -div(grad u) = f on the unit square, zero on the '
-                'boundary. The load is the source f (left) -- an oscillating field of '
+                'boundary. The load is the source f (left), an oscillating field of '
                 'sources and sinks; the solution u (right) is what it drives, a grid of '
                 'bumps pinned to zero all around. Both solves in the comparison target this '
                 'u and differ only in how f is sampled to build the load.',
@@ -306,7 +303,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # A domain with a hole in it has no structured triangulation, so this is a generated
     # mesh going straight into the solver. Nothing downstream of the meshing knows that:
     # the conditions are written against coordinates rather than vertex numbers, so they
-    # resolve against whatever triangulation arrives -- including the one adaptive
+    # resolve against whatever triangulation arrives, including the one adaptive
     # refinement (below) rebuilds several times over.
     #
     # The circle needs many more segments than its default here specifically because
@@ -319,11 +316,11 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # ahead of the triangulation rather than the other way around.
     pslg = plate_with_hole_pslg(length, height, radius, segments=circle_segments)
     pslg.validate()
-    # Deliberately coarse: the angle bound constrains element *shape* and says nothing
+    # Deliberately coarse: the angle bound constrains element shape and says nothing
     # about size, and this area cap is generous rather than tight, because resolving
     # the rim is adaptive refinement's job below, not this uniform pass's. The rim still
     # grades finer than the interior even here, since the polygonalised rim is built
-    # from short input segments and Ruppert's honours them -- adaptive refinement starts
+    # from short input segments and Ruppert's honours them; adaptive refinement starts
     # from that head start rather than from scratch.
     rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=max_area_fraction * pslg.area())
@@ -342,8 +339,8 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # -- the Poisson contraction a real clamp would resist. That resistance is itself a
     # local disturbance with nothing to do with the hole, and it used to compete with
     # the hole for the adaptive-refinement estimator's attention (see below). A roller
-    # cannot be built from one `add` alone -- pinning y anywhere along the edge would
-    # resist the same contraction a clamp does -- so a second condition pins y at just
+    # cannot be built from one `add` alone: pinning y anywhere along the edge would
+    # resist the same contraction a clamp does, so a second condition pins y at just
     # the one corner point the two conditions share, removing the last rigid-body mode
     # without adding back what the roller exists to avoid.
     bc = BoundaryConditions()
@@ -354,12 +351,12 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # Adaptive refinement, driven by this same equation's residual estimator
     # (residual_estimator, from fem.estimators), replaces the uniform mesh above with one built
     # by repeatedly re-solving and splitting wherever the estimator finds the most
-    # error -- everything the rest of this demo plots and measures is read off the
-    # *result* of this loop, not off the coarse mesh it started from.
+    # error: everything the rest of this demo plots and measures is read off the
+    # result of this loop, not off the coarse mesh it started from.
     #
     # Thirty-four rounds from a starting mesh this coarse spend a real share of their
     # budget bringing the whole plate up to a baseline before they can behave like
-    # they are chasing the hole specifically -- a finer starting mesh reaches that
+    # they are chasing the hole specifically; a finer starting mesh reaches that
     # point in far fewer rounds (see BACKLOG.md), but starting coarse and letting
     # this loop do more of the work is the trade made here. The ceiling on pushing
     # this further isn't the budget, it's the circle above: past roughly this many
@@ -378,24 +375,24 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     # A vertical strip through the hole's centre: the line the concentration decays
     # along, from the rim out to the far field. The geometry is known here rather than
-    # measured back off the mesh, which is what building the domain in the demo buys.
+    # measured back off the mesh, which building the domain in the demo buys.
     strip = np.abs(centroids[:, 0] - length/2) < 0.4*radius
     order = np.argsort(centroids[strip, 1])
     y_strip, ratio_strip = centroids[strip, 1][order], (sigma_xx[strip] / traction)[order]
     peak = ratio_strip.max()
 
-    # Kirsch's factor of 3 is the *infinite*-plate limit, and this plate is finite, so
-    # the measured peak sits above it -- the hole removes section, which raises the
+    # Kirsch's factor of 3 is the infinite-plate limit, and this plate is finite, so
+    # the measured peak sits above it: the hole removes section, which raises the
     # stress the remaining material carries. Sampled at three hole/height ratios (0.20,
     # 0.15, 0.12) it reads 3.24, 3.16, 3.12: falling toward 3 as the hole shrinks, and
-    # cleanly enough to say so -- adaptive sampling reads the peak from elements the
+    # cleanly enough to say so: adaptive sampling reads the peak from elements the
     # estimator put exactly where the gradient is steepest, rather than from whichever
     # elements a uniform cap happened to land nearby.
     #
     # Even so, only one digit of that is worth quoting. Refining further does not
     # settle it much closer than this: 3.23, 3.24, 3.24, 3.24 over 3600, 4249, 5209 and
-    # 5614 elements. That is tighter than a uniform mesh manages at any single size --
-    # the point of putting the resolution where the gradient is steepest -- but reading
+    # 5614 elements. That is tighter than a uniform mesh manages at any single size
+    # (the point of putting the resolution where the gradient is steepest), but reading
     # the true rim value would still mean extrapolating to the boundary rather than
     # sampling near it.
 
@@ -435,40 +432,35 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # Ruppert's own quality guarantee does not survive: `min_angle` bounds what
     # RuppertsAlgorithm builds, but red-green refinement bisects existing triangles
     # rather than re-triangulating for shape, so it is not a Delaunay construction and
-    # carries no angle guarantee of its own. Worth reporting rather than hiding --
+    # carries no angle guarantee of its own. Worth reporting rather than hiding:
     # `tests/test_refinement_conformity.py` covers that the mesh stays conforming
     # through this, not that it stays well-shaped.
     worst_angle = calculate_triangle_min_angle(
         np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
-    # rupperts.boundary_loops describes the *initial* triangulation's boundary facets,
-    # not the refined mesh's -- adaptive refinement does not carry it forward (see
+    # rupperts.boundary_loops describes the initial triangulation's boundary facets,
+    # not the refined mesh's; adaptive refinement does not carry it forward (see
     # BACKLOG.md), so this counts the rim facets Ruppert's produced, before refinement
     # added more of its own.
     rim_facets = int(np.sum(rupperts.boundary_loops == 1))
     return DemoResult(
         [Figure(built,
                 f'Left: the mesh after adaptive refinement, with the outline it started '
-                f'from in blue -- {n_initial} triangles from a deliberately coarse '
+                f'from in blue: {n_initial} triangles from a deliberately coarse '
                 f'uniform pass, grown to {len(mesh.elements)} by putting the rest where '
                 f'the residual estimator found the most error. Right: where the '
                 f'conditions went. The rim and the long edges carry none, which is not '
                 f'an omission but the natural condition of the weak form: an edge '
                 f'nothing is said about is traction-free. Every one of these is written '
-                f'against coordinates rather than vertex numbers, which is what lets '
-                f'them be placed on a mesh no one laid out by hand -- including the one '
+                f'against coordinates rather than vertex numbers, which lets '
+                f'them be placed on a mesh no one laid out by hand, including the one '
                 f'adaptive refinement rebuilds several times over.',
                 'built'),
          Figure(plotter,
                 f'A plate pulled from the right, with the hole left traction-free. The '
                 f'stress crowds into the material either side of the hole and relaxes '
                 f'to the applied value within about a diameter, peaking at {peak:.1f}x '
-                f'the applied stress. Kirsch gives 3x -- for a hole in an *infinite* '
-                f'plate. This one is three hole-diameters tall, so the hole removes '
-                f'enough section to push the peak above that limit, and the excess '
-                f'shrinks as the hole does. A textbook constant is a limit, not a '
-                f'target -- and one digit is all this measurement supports, since the '
-                f'peak is sampled at element centroids near the steepest gradient in '
-                f'the field.',
+                f'the applied stress, just above the classic Kirsch factor of 3x that '
+                f'holds for a hole in an infinite plate.',
                 'stress', thumbnail=True)],
         text=(f'outline points           {len(pslg.vertices)}  '
               f'(rectangle + polygonalised rim)\n'
@@ -487,7 +479,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
 
 def demo_elastic_3d(n=17):
     """Bend a 3D cantilever beam of tetrahedra, drawn as its boundary surface."""
-    # The package solves in 3D throughout -- the same assembly, the same element
+    # The package solves in 3D throughout: the same assembly, the same element
     # hierarchy, `Solver` reading the element type off the connectivity. `heat_3d` draws
     # the same way, through `plot_solid` (`fem/plot/helpers.py`).
     mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
@@ -515,7 +507,7 @@ def demo_elastic_3d(n=17):
         [Figure(plotter,
                 'The same clamp-and-load as the 2D cantilever, one dimension up: a '
                 'tetrahedral mesh, a three-component displacement, and stress recovered '
-                'the same way. Only the boundary surface is drawn -- the inside of a '
+                'the same way. Only the boundary surface is drawn: the inside of a '
                 'solid is not visible, and there are several times more tets than '
                 'surface triangles.')],
         text=(f'tetrahedra          {len(mesh.elements)}\n'
@@ -526,9 +518,9 @@ def demo_elastic_3d(n=17):
 def demo_robin_bc(mesh):
     """Cool a heated plate through a convective boundary, sweeping the Robin coefficient."""
     # du/dn + kappa*(u - u_ambient) = 0: heat generated inside escapes through a boundary
-    # film, and kappa says how freely. The other two condition types are its limits --
+    # film, and kappa says how freely. The other two condition types are its limits:
     # kappa -> 0 is insulated (Neumann) and kappa -> infinity pins u to ambient
-    # (Dirichlet) -- so the sweep ends on a Dirichlet solve the last Robin panel should
+    # (Dirichlet), so the sweep ends on a Dirichlet solve the last Robin panel should
     # already look like.
     u_ambient = 300.0
     equation = Poisson(source=50.0)
@@ -555,7 +547,7 @@ def demo_robin_bc(mesh):
     # One scale across the sweep, which is what the demo is claiming with. Renormalized
     # per panel the four look alike and the reader has to compare colorbar ticks; shared,
     # the plate visibly cools towards ambient as kappa rises, and the last two are the
-    # same picture -- which *is* the claim that the Robin limit is the Dirichlet solve.
+    # same picture, which is the claim that the Robin limit is the Dirichlet solve.
     span = (min(float(u.min()) for _, u in solves), max(float(u.max()) for _, u in solves))
     plotter = Plotter(1, len(solves), title='Robin BCs: convective cooling')
     for i, (name, u) in enumerate(solves):
@@ -564,13 +556,13 @@ def demo_robin_bc(mesh):
     return DemoResult([
         Figure(plotter,
                'Convective cooling at three film coefficients, all four on one colour '
-               'scale -- so the plate is seen to cool towards ambient as the film opens '
+               'scale, so the plate is seen to cool towards ambient as the film opens '
                'up. The last Robin panel and the Dirichlet solve beside it are the same '
                'picture and agree to the digit: the limit, computed both ways.',
                'sweep'),
         Figure(conditions,
                'Robin the whole way round, at the first of the three coefficients. Only '
-               'kappa changes across the sweep -- where the condition applies does not.',
+               'kappa changes across the sweep; where the condition applies does not.',
                'conditions', setup=True),
     ])
 
@@ -579,16 +571,16 @@ def demo_elasticity_models(mesh, stretch=0.5):
     minimisation, and finite strain."""
     # One setup, three paths, and the two comparisons worth making sit side by side.
     #
-    # Panels 1 and 2 are the same physics reached differently -- assembling and solving
+    # Panels 1 and 2 are the same physics reached differently: assembling and solving
     # K u = f, against driving Newton on the elastic energy whose stationary point that
-    # system is. The displacements come out identical to machine precision, which is
-    # what says the energy path is wired up right, and the demo prints the difference
+    # system is. The displacements come out identical to machine precision, which
+    # says the energy path is wired up right, and the demo prints the difference
     # rather than asserting it.
     #
-    # Their *stress* is not identical, and that is not a discrepancy: the two recover
+    # Their stress is not identical, and that is not a discrepancy: the two recover
     # different measures. `LinearElasticForm` reports sigma = D:eps; `EnergyForm`
     # reports the true Cauchy stress J^-1 P F^T at the deformed configuration. Those
-    # agree only to O(||grad u||) -- see EnergyForm.derived_fields -- and a 50% stretch
+    # agree only to O(||grad u||) (see EnergyForm.derived_fields), and a 50% stretch
     # is nowhere near that limit.
     #
     # Panel 3 changes the physics rather than the solve. The small-strain measure
@@ -626,10 +618,10 @@ def demo_elasticity_models(mesh, stretch=0.5):
     drift = np.linalg.norm(energy_u - linear_u) / np.linalg.norm(linear_u)
     return DemoResult(
         [Figure(plotter,
-                'The first two are the same physics reached two ways -- a linear system, '
+                'The first two are the same physics reached two ways: a linear system, '
                 'and Newton on the energy that system is the stationary point of. Their '
                 'displacements are identical to machine precision (below); their stress '
-                'is not, because the two recover different measures -- sigma = D:eps '
+                'is not, because the two recover different measures: sigma = D:eps '
                 'against the true Cauchy stress at the deformed configuration, which '
                 'agree only for small gradients. The third changes the physics rather '
                 'than the solve: Green-Lagrange stiffens as the stretch grows, which '
@@ -638,7 +630,7 @@ def demo_elasticity_models(mesh, stretch=0.5):
          Figure(conditions,
                 'Both ends are Dirichlet, and the difference between them is the whole '
                 'problem: the left is held at zero, the right is displaced to '
-                f'{stretch:.0%} of the width. Nothing is loaded -- the stress above is '
+                f'{stretch:.0%} of the width. Nothing is loaded; the stress above is '
                 'what it costs to hold that shape.',
                 'conditions', setup=True)],
         text=(f'displacement, linear solve vs energy minimisation: '
@@ -665,7 +657,7 @@ def demo_heat_equation(mesh):
     t_values = solution.t
 
     # One animated panel, not two. The second was the same field as a 3D surface, and
-    # `plot_trisurf` re-tessellates the whole mesh every frame -- it was the single most
+    # `plot_trisurf` re-tessellates the whole mesh every frame; it was the single most
     # expensive thing in a gallery build, for a second view of a field the snapshots
     # below already show at six times.
     # A transient problem is posed by two things, and the initial state is the one that
@@ -679,11 +671,11 @@ def demo_heat_equation(mesh):
     animation.plot_animation(mesh, u_values, mode='colored', label='temperature',
                              titles=[f't={t:.3f}' for t in t_values], idx=(0, 0))
 
-    # The animation renders only on show(), so the diffusion needs a still form too --
+    # The animation renders only on show(), so the diffusion needs a still form too;
     # otherwise this demo contributes nothing to a saved gallery.
     # One scale across the six, spanning the whole run. Renormalized per panel, a field
     # losing 70% of its contrast drew as six near-identical squares under a caption
-    # promising it approaches uniform -- the decay was in the colorbars and nowhere else.
+    # promising it approaches uniform; the decay was in the colorbars and nowhere else.
     span = (float(np.min(u_values)), float(np.max(u_values)))
     snapshots = Plotter(2, 3, title='Heat Equation: diffusion from the corner')
     for panel, i in enumerate(np.linspace(0, len(u_values) - 1, 6).astype(int)):
@@ -698,7 +690,7 @@ def demo_heat_equation(mesh):
         Figure(setup,
                'A hot bump in one corner of a plate whose every edge is insulated. '
                'du/dn = 0 is not an omission but the condition the weak form imposes '
-               'where nothing else is written, and here it means no heat can leave -- '
+               'where nothing else is written, and here it means no heat can leave, '
                'so the total is conserved and the plate must level off at the mean of '
                'where it started rather than cooling towards anything.',
                'conditions', setup=True),
@@ -723,7 +715,7 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
 
     # Newmark is second order in time, so it is posed by two initial conditions, not one.
     # Both are drawn: the velocity is identically zero, and a panel of nothing is what
-    # says the membrane starts at rest -- which is why the pulse spreads outwards in
+    # says the membrane starts at rest, which is why the pulse spreads outwards in
     # every direction rather than travelling in one.
     setup = Plotter(1, 3)
     setup.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
@@ -742,7 +734,7 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     # Shared z limits, so the six are the same membrane seen at six times rather than
     # six differently-scaled drawings: autoscaled, a pulse that has spread out is drawn
     # to the same height as the one that has not. Spanned over the frames shown and not
-    # the whole run -- the tallest thing here is the initial pulse before it disperses,
+    # the whole run: the tallest thing here is the initial pulse before it disperses,
     # which none of these panels contains, and scaling to it drew every one of them at
     # about a third of its axis.
     shown = [int(i) for i in np.linspace(len(u_values)//2, len(u_values) - 1, 6)]
@@ -773,7 +765,7 @@ def demo_linear_elastic(mesh):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     # Transverse, so the beam bends: an axial pull is much the same solve on any
     # domain, where a tip load is what makes a cantilever one. Sized for a tip
-    # deflection near 9% of the span -- a 4:1 beam is compliant enough that the load
+    # deflection near 9% of the span: a 4:1 beam is compliant enough that the load
     # this demo used to apply axially would bend it through more than its own length,
     # well outside the small-strain regime the solver assumes.
     bc.add(BCType.NEUMANN,
@@ -866,16 +858,11 @@ def demo_topology_optimization(mesh, iters=40):
 def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                   sweep_lengths=(16.0, 20.0, 28.0, 40.0)):
     """Find the loads at which a slender column buckles and the shapes it buckles into,
-    then check them against Euler three ways: the mode shapes of a pinned column, the
-    effective-length factors of four end conditions, and the 1/L^2 slenderness law.
-
-    Euler's column formula (Leonhard Euler, 1744) is the exact critical load of an ideal
-    slender elastic column, P_cr = pi^2 E* I / (K L)^2, and plays the role the manufactured
-    solution does for the steady solvers: the analytic answer the computed one is held to."""
+    checked against Euler three ways: mode shapes, end conditions, and the 1/L^2 law."""
     # Buckling is an eigenproblem, not a K u = b solve: a reference load puts the column
     # under a prestress, and BucklingSolver assembles the geometric stiffness K_g from it
     # and solves K phi = -lambda K_g phi. The load factor lambda multiplies the reference
-    # load to reach the buckling load. Quadratic (P2) elements throughout -- the
+    # load to reach the buckling load. Quadratic (P2) elements throughout: the
     # constant-strain triangle locks in bending and would need a mesh refined hard through
     # the thickness to reach Euler, where P2 matches it on this coarse one.
     E, nu = 200.0, 0.3
@@ -892,41 +879,43 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
         # that factor times the actual axial force the column carries, read at mid-span
         # where it is uniform and clear of the end disturbances.
         centroids = mesh.vertices[mesh.elements].mean(axis=1)
-        dx = span / (len(np.unique(mesh.vertices[:, 0])) - 1)
-        midspan = np.abs(centroids[:, 0] - span / 2) < dx
-        axial = -float(np.mean(solver.reference.stress[midspan, 0, 0])) * height
+        dy = span / (len(np.unique(mesh.vertices[:, 1])) - 1)
+        midspan = np.abs(centroids[:, 1] - span / 2) < dy
+        axial = -float(np.mean(solver.reference.stress[midspan, 1, 1])) * height
         return solution, solution.load_factors * axial
 
     # The four classic end conditions. What sets an end's effective-length factor is
     # whether it can rotate, and in a continuum that is the axial DOF: a traction-loaded
-    # edge (u_x free) rotates -- a pin or a free end -- while an imposed uniform axial
-    # displacement (u_x fixed) cannot -- a clamp. u_y = 0 along a whole edge holds the end
+    # edge (u_y free) rotates (a pin or a free end) while an imposed uniform axial
+    # displacement (u_y fixed) cannot (a clamp). u_x = 0 along a whole edge holds the end
     # transversely without touching its rotation, which is a pin rather than a point load.
+    # The column stands along y, so the ends are at y = 0 and y = span and the load pushes
+    # down the axis in -y.
     def cantilever(span):   # fixed-free, K = 2
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-        bc.add(BCType.NEUMANN, on_plane(0, span), [-1.0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
+        bc.add(BCType.NEUMANN, on_plane(1, span), [0, -1.0])
         return bc
 
     def pinned(span):       # pinned-pinned, K = 1
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [None, 0])
-        bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, height / 2)), [0, 0])
-        bc.add(BCType.DIRICHLET, on_plane(0, span), [None, 0])
-        bc.add(BCType.NEUMANN, on_plane(0, span), [-1.0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, None])
+        bc.add(BCType.DIRICHLET, intersect(on_plane(1, 0.0), on_plane(0, height / 2)), [0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, span), [0, None])
+        bc.add(BCType.NEUMANN, on_plane(1, span), [0, -1.0])
         return bc
 
     def fixed(span):        # fixed-fixed, K = 1/2
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-        bc.add(BCType.DIRICHLET, on_plane(0, span), [-0.02 * span, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, span), [0, -0.02 * span])
         return bc
 
     def fixed_pinned(span):  # fixed-pinned, K ~ 0.7
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-        bc.add(BCType.DIRICHLET, on_plane(0, span), [None, 0])
-        bc.add(BCType.NEUMANN, on_plane(0, span), [-1.0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
+        bc.add(BCType.DIRICHLET, on_plane(1, span), [0, None])
+        bc.add(BCType.NEUMANN, on_plane(1, span), [0, -1.0])
         return bc
 
     ends = [('Cantilever\n(fixed-free)', cantilever, 2.0),
@@ -940,38 +929,59 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
         """The mesh deformed by mode `i`, scaled so its bow is a fixed fraction of span,
         and the signed transverse displacement to colour it by."""
         n_v = len(mesh.vertices)
-        transverse = solution.modes[i].reshape(-1, 2)[:n_v, 1]
+        transverse = solution.modes[i].reshape(-1, 2)[:n_v, 0]
         scale = 0.14 * span / np.abs(transverse).max()
         return solution.mode_mesh(i, scale), scale * transverse
 
+    def share_limits(plotter, n_panels):
+        """Give the columns in a row one shared view: the union of the limits each panel
+        set for its own bow and glyphs, so they share a scale and their titles line up."""
+        axes = [plotter.get_ax((0, c)) for c in range(n_panels)]
+        xlo = min(a.get_xlim()[0] for a in axes)
+        xhi = max(a.get_xlim()[1] for a in axes)
+        ylo = min(a.get_ylim()[0] for a in axes)
+        yhi = max(a.get_ylim()[1] for a in axes)
+        for a in axes:
+            a.set_xlim(xlo, xhi)
+            a.set_ylim(ylo, yhi)
+
     # -- 1. Mode shapes of a pinned column: the buckling analogue of vibration modes ----
+    # Upright columns in a row, so the half-waves of successive modes sit side by side, with
+    # one glyph-and-colour key below all of them (fig.supxlabel) rather than per panel.
     pinned_solution, pinned_loads = solve_buckling(mesh, pinned(length), length)
-    modes = Plotter(n_modes, 1, title='Buckling modes of a pinned-pinned column',
-                    panel_aspect=6.0)
     pinned_bc = pinned(length)
+    modes = Plotter(1, n_modes, figsize=(2.4 * n_modes, 6.6), axis_labels=False,
+                    title='Buckling modes of a pinned-pinned column')
     for i in range(n_modes):
         shape, colour = buckled(pinned_solution, i, length)
-        modes.plot(shape, colour, mode='colored', idx=(i, 0), cmap='coolwarm',
-                   label='sideways deflection',
-                   title=f'Mode {i+1}: P_cr = {pinned_loads[i]:.3g}  '
+        modes.plot(shape, colour, mode='colored', idx=(0, i), cmap='coolwarm', colorbar=False,
+                   title=f'Mode {i+1}: P_cr = {pinned_loads[i]:.3g}\n'
                          f'({i+1} half-wave{"s" if i else ""})')
         # The pin/load glyphs, on the deformed shape so the load rides the moving end.
-        modes.overlay_supports(mesh, pinned_bc, idx=(i, 0), coords=shape.vertices)
+        modes.overlay_supports(mesh, pinned_bc, idx=(0, i), coords=shape.vertices)
+    share_limits(modes, n_modes)
+    modes.fig.supxlabel(
+        'Blue triangles: the pinned ends, held sideways but free to rotate.\n'
+        'Red arrow: the compressive load.\n'
+        'Colour: sideways deflection; its sign and amplitude are arbitrary.',
+        fontsize='small')
 
     # -- 2. Effective length: the same column, four ways to hold its ends ---------------
-    measured, factor_plots = {}, Plotter(len(ends), 1, panel_aspect=6.0,
-                                         title='End conditions set the effective length')
-    for row, (name, make_bc, K_ideal) in enumerate(ends):
+    measured = {}
+    factor_plots = Plotter(1, len(ends), figsize=(2.4 * len(ends), 6.6), axis_labels=False,
+                           title='End conditions set the effective length')
+    for col, (name, make_bc, K_ideal) in enumerate(ends):
         end_bc = make_bc(length)
         solution, loads = solve_buckling(mesh, end_bc, length, modes=1)
         K_measured = np.pi / length * np.sqrt(E_star * moment / loads[0])
         measured[name] = (K_measured, K_ideal, loads[0])
         shape, colour = buckled(solution, 0, length)
-        factor_plots.plot(shape, colour, mode='colored', idx=(row, 0), cmap='coolwarm',
-                          title=f'{name.splitlines()[0]}:  K = {K_measured:.2f}  '
-                                f'(Euler {K_ideal:g}),  P_cr = {loads[0]:.3g}')
+        factor_plots.plot(shape, colour, mode='colored', idx=(0, col), cmap='coolwarm', colorbar=False,
+                          title=f'{name.splitlines()[0]}\nK = {K_measured:.2f} (Euler {K_ideal:g})\n'
+                                f'P_cr = {loads[0]:.3g}')
         # Each end's supports drawn on it: a wall clamps, triangles pin, arrows load.
-        factor_plots.overlay_supports(mesh, end_bc, idx=(row, 0), coords=shape.vertices)
+        factor_plots.overlay_supports(mesh, end_bc, idx=(0, col), coords=shape.vertices)
+    share_limits(factor_plots, len(ends))
 
     # -- 3. Euler's laws: the 1/L^2 slenderness curve and the effective-length factors ---
     sweep = [(L, solve_buckling(column(L, height, max(32, int(2 * L)), n_across),
@@ -1001,13 +1011,13 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     bars.grid(True, axis='y', alpha=0.3)
 
     # -- 4. How the pinned column is posed ----------------------------------------------
-    conditions = Plotter(panel_aspect=10.0)
+    conditions = Plotter(panel_aspect=0.7)   # tall and narrow, matching the upright column
     conditions.plot(mesh, mode='bc', bc=pinned(length))
 
     ratios = '   '.join(f'{n.splitlines()[0]}/pinned {measured[n][2] / measured["Pinned-pinned"][2]:.2f}'
                         for n, _, _ in ends if n != 'Pinned-pinned')
     text = ('Euler (1744): an ideal slender column buckles at P_cr = pi^2 E* I / (K L)^2.\n'
-            'This demo reproduces it three ways -- mode shapes, end conditions, slenderness.\n\n'
+            'This demo reproduces it three ways: mode shapes, end conditions, slenderness.\n\n'
             'effective-length factor K (measured vs Euler):\n'
             + '\n'.join(f'  {n.splitlines()[0]:<14} {measured[n][0]:.3f}  (Euler {measured[n][1]:g})'
                         for n, _, _ in ends)
@@ -1016,33 +1026,25 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
 
     return DemoResult([
         Figure(modes,
-               'A pinned column buckles into half-sine waves; the glyphs mark the ends -- '
-               'blue triangles a pin (held sideways, free to rotate), a red arrow the '
-               'compressive load (blue holds the column, red pushes on it). Mode 1, one '
-               'half-wave at the lowest load, is the shape a real column actually takes. '
-               'The higher modes add a half-wave each and cost n^2 as much (mode 2 is ~4x '
-               'mode 1), and are reached only if the lower ones are prevented -- a brace at '
-               'mid-span, a node of mode 2 but not of mode 1, is what buys the jump. Read '
-               'the shape and the load, not the direction or the size: a mode is an '
-               'eigenvector, so its sign is arbitrary -- the column bows either way, and the '
-               'shading is that free sign -- and its amplitude is unset, scaled '
-               'here only to be visible. It is the buckling analogue of vibration modes: '
-               'one K phi = -lambda K_g phi eigenproblem, the shapes its eigenvectors and '
-               'the load factors its eigenvalues.',
+               'A pinned column buckles into half-sine waves. Mode 1 is a single half-wave '
+               'at the lowest load, the shape a real column takes. Each higher mode adds a '
+               'half-wave and costs n^2 as much (mode 2 is ~4x mode 1), and is reached only '
+               'if the lower ones are braced out: a support at mid-span, a node of mode 2 '
+               'but not mode 1, buys the jump to it. This is the buckling analogue of '
+               'vibration modes, one K phi = -lambda K_g phi eigenproblem: the shapes are '
+               'its eigenvectors and the load factors its eigenvalues.',
                'modes', thumbnail=True),
         Figure(factor_plots,
-               'The same slender column, its ends held four ways -- a blue hatched wall clamps '
-               'an end against rotation, blue triangles pin it (free to rotate), red arrows '
-               'are the load -- buckles at loads spanning 16x. Clamping shortens the effective '
-               'length K*L '
-               'the column buckles over -- from 2L free-standing down to L/2 with both ends '
-               'fixed -- and the load goes as 1/K^2. The measured K sits within a few percent '
-               'of Euler\'s 2, 1, 1/2 and ~0.7; the small excess is a real continuum effect, a '
+               'The same slender column held four ways, buckling at loads spanning 16x. '
+               'Clamping an end against rotation shortens the effective length K*L the '
+               'column buckles over, from 2L free-standing down to L/2 with both ends fixed, '
+               'and the load goes as 1/K^2. The measured K sits within a few percent of '
+               'Euler\'s 2, 1, 1/2 and ~0.7; the small excess is a real continuum effect, a '
                'clamp in a solid adding a little Saint-Venant stiffening an ideal beam has none of.',
                'end_conditions'),
         Figure(laws,
                'Euler\'s column formula (1744) is the exact buckling load of an ideal slender '
-               'elastic column, P_cr = pi^2 E* I / (K L)^2 -- the analytic truth this whole '
+               'elastic column, P_cr = pi^2 E* I / (K L)^2, the analytic truth this whole '
                'demo checks against. Left: sweeping the length of a pinned column, the critical '
                'load falls as 1/L^2 (a slope of -2 on log-log) and lands on it, with '
                'E* = E/(1-nu^2) the plane-strain modulus a 2D solve sees. Right: the '
@@ -1053,7 +1055,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                'A pinned-pinned column: both ends held across their width (u_y = 0) so they '
                'stay in line but can still rotate, one point anchoring the axial slide, and a '
                'compressive traction on the right. The transverse support and the axial load '
-               'share the loaded edge -- a roller carrying a tangential traction -- which the '
+               'share the loaded edge (a roller carrying a tangential traction) which the '
                'buckling column is the case that first needs.',
                'conditions', setup=True),
     ], text=text)
@@ -1063,13 +1065,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
                n_modes=6, n_shown=4, sweep_lengths=(0.075, 0.088, 0.105, 0.125),
                n_frames=24):
     """Find the natural frequencies and mode shapes of a steel tuning fork, meshed from
-    its own outline, and check them against beam theory: the fork is tuned to concert A
-    by the cantilever-tine formula, and its voice is read back against the 1/L^2 law.
-
-    Modal analysis is load-free -- unlike buckling, no reference solve enters. The natural
-    frequencies solve `K phi = omega^2 M phi` (elastic stiffness against consistent mass)
-    and are a property of the structure alone -- its shape, material, and supports -- the
-    way a bell's pitch is the bell's and not the striker's."""
+    its own outline and checked against beam theory."""
     # Real SI steel, so the frequencies come out in Hz a musician would recognise: this is
     # the one demo that names a pitch, and the abstract E=200 the others use would not land
     # on 440. E* = E/(1-nu^2) is the plane-strain modulus a 2D solve sees, the same
@@ -1083,7 +1079,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         return BETA1_SQ / (2*np.pi) * (thickness / length**2) * np.sqrt(E_STAR / (12*RHO))
 
     def clamp():
-        """Grounded at the stem base -- the fork's node, held without damping the voice."""
+        """Grounded at the stem base: the fork's node, held without damping the voice."""
         bc = BoundaryConditions()
         bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
         return bc
@@ -1104,7 +1100,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
     def voice_index(mesh, solution):
         """The acoustic mode: the lowest whose two tine tips swing in opposite directions.
 
-        A clamped fork's low modes come in pairs -- the tips moving together (a rocking
+        A clamped fork's low modes come in pairs: the tips moving together (a rocking
         that shakes the stem, damped the moment the fork is held there) or oppositely.
         The oppositely-moving one keeps the stem still and rings; it is the lowest with
         the tip transverse motions of opposite sign.
@@ -1149,7 +1145,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         hide_x_ticks(modes, (0, i))
     modes.fig.supxlabel(
         'Colour: sideways (transverse) displacement of the mode. Its sign and amplitude '
-        'are arbitrary -- the pattern of motion is what is physical.', fontsize='small')
+        'are arbitrary; the pattern of motion is what is physical.', fontsize='small')
 
     # -- 2. The voice, flexing: the mode as motion rather than a frozen shape -----------
     transverse = solution.modes[voice].reshape(-1, 2)[:n_v, 0]
@@ -1165,10 +1161,10 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
                          titles=['']*n_frames)
     # Say plainly what the animation is: not a dynamics simulation, but the mode's own
     # exact solution evaluated frame by frame. A standing-wave mode separates into a fixed
-    # shape times cos(omega t), so no time-stepping is needed -- and none is done here.
+    # shape times cos(omega t), so no time-stepping is needed, and none is done here.
     swing.fig.supxlabel(
         "Not a time-stepped simulation: this is the mode's exact\n"
-        'motion phi cos(omega t) -- one undamped, idealized mode\n'
+        'motion phi cos(omega t), one undamped, idealized mode\n'
         'at exaggerated amplitude. Only the shape and frequency\n'
         'are physical, not the size; a real fork mixes modes and\n'
         'rings down.', fontsize='small')
@@ -1228,12 +1224,9 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         Figure(modes,
                'The fork rings in these shapes, each at its own pitch. The low modes come '
                'in pairs: the tips swing together (a rocking that shakes the stem, damped '
-               'the moment the fork is held there) or oppositely -- and the oppositely '
+               'the moment the fork is held there) or oppositely, and the oppositely '
                'moving one, which leaves the stem still, is "the voice" the fork is made '
-               'for. A mode is an eigenvector, so its sign is free (the shading is that '
-               'free sign, red one way and blue the other) and its amplitude unset, scaled '
-               'here only to be visible: read the shape and the frequency, not the colour '
-               'direction or the size.',
+               'for.',
                'modes', thumbnail=True),
         Figure(swing,
                'The voice mode as motion rather than a frozen shape: phi cos(omega t), the '
@@ -1248,15 +1241,15 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
                'falling as 1/L^2. Sweeping the tine length, the computed fork tracks that '
                'slope and sits a little below the ideal-tine line, because a real fork\'s '
                'base yields where beam theory assumes a rigid clamp. Right: this fork\'s '
-               'first modes -- the voice (red) lands near concert A, a few percent under '
+               'first modes: the voice (red) lands near concert A, a few percent under '
                'the ideal tine for the same base-compliance reason.',
                'law'),
         Figure(built,
-               'The fork is one non-convex outline -- stem, base, two tines with a slot -- '
+               'The fork is one non-convex outline (stem, base, two tines with a slot) '
                'meshed by Ruppert\'s algorithm, with no structured grid. It is held only at '
                'the stem base: that Dirichlet clamp grounds the structure (a free body has '
                'rigid-body modes the shift-invert eigensolve cannot factor through) and is '
-               'exactly where a fork is held -- the one place that does not damp the voice, '
+               'exactly where a fork is held: the one place that does not damp the voice, '
                'since the stem barely moves in it.',
                'built', setup=True),
     ], text=text)
@@ -1281,7 +1274,7 @@ def demo_heat_3d(steps=20, n=17):
 
     return DemoResult([Figure(
         animation,
-        'Heat diffusing from a hot corner through a tetrahedral box -- the same solve '
+        'Heat diffusing from a hot corner through a tetrahedral box: the same solve '
         '`heat` runs in 2D, one dimension up. Only the boundary surface is drawn, so '
         'the interior is not directly visible, but the same diffusion reaches it.')])
 
@@ -1306,29 +1299,29 @@ DEMOS = [
     Demo('elasticity_models', demo_elasticity_models, section=SOLIDS,
          domain=partial(square, 60)),
     # Builds its own domain rather than taking one, because the meshing is part of what
-    # it shows -- the pipeline demo, from an outline through to a stress. The smoke run
+    # it shows: the pipeline demo, from an outline through to a stress. The smoke run
     # loosens the size cap and shortens the adaptive-refinement loop, which together are
-    # where all of its cost is -- refinement_iters/_budget aren't reachable through
+    # where all of its cost is; refinement_iters/_budget aren't reachable through
     # max_area_fraction alone, since they're independent knobs on top of it.
     Demo('stress_concentration', demo_stress_concentration, section=SOLIDS,
          smoke_kwargs={'max_area_fraction': 0.05, 'refinement_iters': 3, 'refinement_budget': 200}),
     # Builds its own box: the only 3D domain, and the tet count is what sets the
     # cost, so the smoke run takes a coarser one.
     Demo('elastic_3d', demo_elastic_3d, section=SOLIDS, smoke_kwargs={'n': 5}),
-    # Builds its own columns -- several lengths for the slenderness sweep, plus the four
-    # end conditions -- so it takes no domain. The smoke run shrinks the mesh and the
+    # Builds its own columns (several lengths for the slenderness sweep, plus the four
+    # end conditions) so it takes no domain. The smoke run shrinks the mesh and the
     # sweep, which together are all of its cost (each case is a small eigensolve).
     Demo('buckling', demo_buckling, section=SOLIDS,
          smoke_kwargs={'n_length': 12, 'n_across': 4, 'n_modes': 2,
                        'sweep_lengths': (12.0, 18.0)}),
     # Builds its own fork from an outline, so it takes no domain. Its cost is the eigen-
-    # solves -- the main one plus the tuning-law sweep -- and the animation frames, so the
+    # solves (the main one plus the tuning-law sweep) and the animation frames, so the
     # smoke run coarsens the mesh, shortens the sweep, and takes only a few frames.
     Demo('modal', demo_modal, section=SOLIDS,
          smoke_kwargs={'n_across_tine': 3, 'min_angle': 25, 'n_modes': 4, 'n_shown': 3,
                        'sweep_lengths': (0.088, 0.125), 'n_frames': 6}),
-    # 2:1, because the aspect ratio is what makes SIMP produce the truss it is known
-    # for. The resolution is now set by what the *filter* needs rather than by what 40
+    # 2:1, because the aspect ratio makes SIMP produce the truss it is known
+    # for. The resolution is now set by what the filter needs rather than by what 40
     # iterations cost: `smoothing_radius` is a fixed physical length, so refining
     # resolves the same structure more finely instead of growing thinner members. At
     # 56 a side that radius spanned about three elements, which is thin cover for the
@@ -1341,13 +1334,13 @@ DEMOS = [
     # leads the accuracy section because representation error is what the rest measures.
     Demo('l2_projection', demo_l2_projection, section=ACCURACY, domain=partial(square, 120)),
     # Builds its own sequence of meshes rather than taking a domain: the refinement
-    # sequence *is* the demo. The smoke run keeps the two coarsest -- an order needs
+    # sequence is the demo. The smoke run keeps the two coarsest: an order needs
     # two points, and the 81x81 solve is most of the cost.
     Demo('convergence', demo_convergence, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21), 'elastic_resolutions': (9, 17),
               'step_counts': (16, 32)}),
-    # Both build their own refinement sequences rather than taking a domain -- the
-    # sequence is the demo -- so the smoke run keeps only the two coarsest.
+    # Both build their own refinement sequences rather than taking a domain (the
+    # sequence is the demo) so the smoke run keeps only the two coarsest.
     Demo('higher_order', demo_higher_order, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21)}),
     Demo('quadrature_load', demo_quadrature_load, section=ACCURACY,
