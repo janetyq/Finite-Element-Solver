@@ -8,6 +8,21 @@ from fem.typing import Elements, FloatArray, IntArray, Vertices
 
 Edge = tuple[int, int]
 
+# Node counts of the linear simplices a Mesh holds: a line (2), a triangle (3),
+# a tet (4). Higher-node (quadratic) elements are the FunctionSpace's concern --
+# it adds midside DOFs on top of a P1 Mesh -- not the geometry's.
+_SIMPLEX_NODE_COUNTS = (2, 3, 4)
+
+
+def _edge_node_pairs(n_nodes: int) -> IntArray:
+    '''Local node-index pairs spanning the edges of one linear simplex.
+
+    Every pair of nodes: 1 for a line, 3 for a triangle, 6 for a tet. Used to
+    lift per-element connectivity into batched (n_elements, n_pairs, ...) form.
+    '''
+    return np.array(list(itertools.combinations(range(n_nodes), 2)))
+
+
 class Mesh:
     def __init__(
         self,
@@ -15,12 +30,62 @@ class Mesh:
         elements: Elements | Sequence[Sequence[int]],
         boundary: Elements | Sequence[Sequence[int]],
     ) -> None:
-        # TODO: assert the correct dimensions
         self.vertices: Vertices = np.array(vertices)
-        self.elements: Elements = np.array(elements) # list of indices of vertices
-        self.boundary: Elements = np.array(boundary) # list of indices of vertices
-        self.boundary_idxs: IntArray = np.array(list(set(self.boundary.ravel())))
-        self.edges: IntArray = self._get_all_edges()
+        self.elements: Elements = np.array(elements)  # vertex indices per element
+        self.boundary: Elements = np.array(boundary)  # vertex indices per facet
+        self._validate()
+        self.boundary_idxs: IntArray = np.unique(self.boundary.ravel())
+
+    def _validate(self) -> None:
+        '''Reject malformed topology at the source with a named error.
+
+        Without this a wrong-rank or out-of-range array survives the constructor
+        and fails much later inside `ElementGeometry` or a scatter, with an
+        opaque shape error far from the call that introduced it. `Mesh` is the
+        entry point for user data (`Mesh.load`, hand-built meshes), so this is
+        where a clear message pays off.
+        '''
+        if self.vertices.ndim != 2:
+            raise ValueError(
+                'vertices must be a 2D (n_vertices, spatial_dim) array, '
+                f'got shape {self.vertices.shape}'
+            )
+        if self.elements.ndim != 2:
+            raise ValueError(
+                'elements must be a 2D (n_elements, n_nodes) array, '
+                f'got shape {self.elements.shape}'
+            )
+        n_nodes = self.elements.shape[1]
+        if n_nodes not in _SIMPLEX_NODE_COUNTS:
+            raise NotImplementedError(
+                'elements must be linear simplices with 2, 3, or 4 nodes '
+                f'(a line, triangle, or tet), got {n_nodes}-node elements'
+            )
+        n_vertices = len(self.vertices)
+        self._check_indices_in_range(self.elements, n_vertices, 'element')
+        if self.boundary.size:
+            if self.boundary.ndim != 2:
+                raise ValueError(
+                    'boundary must be a 2D (n_facets, n_nodes) array, '
+                    f'got shape {self.boundary.shape}'
+                )
+            if self.boundary.shape[1] != n_nodes - 1:
+                raise ValueError(
+                    f'a boundary facet of a {n_nodes}-node element has '
+                    f'{n_nodes - 1} nodes, got {self.boundary.shape[1]}'
+                )
+            self._check_indices_in_range(self.boundary, n_vertices, 'boundary')
+
+    @staticmethod
+    def _check_indices_in_range(indices: IntArray, n_vertices: int, name: str) -> None:
+        if not indices.size:
+            return
+        lo, hi = int(indices.min()), int(indices.max())
+        if lo < 0 or hi >= n_vertices:
+            raise ValueError(
+                f'{name} node indices must be in [0, {n_vertices}), '
+                f'got range [{lo}, {hi}]'
+            )
 
     @property
     def spatial_dim(self) -> int:
@@ -80,14 +145,10 @@ class Mesh:
     @cached_property
     def element_diameters(self) -> FloatArray:
         '''Maximum edge length per element -- the h_K in error estimates.'''
-        diameters = np.zeros(len(self.elements))
-        for e_idx, element in enumerate(self.elements):
-            max_len_sq = 0.0
-            for v0, v1 in itertools.combinations(element, 2):
-                len_sq = float(np.sum((self.vertices[v1] - self.vertices[v0])**2))
-                max_len_sq = max(max_len_sq, len_sq)
-            diameters[e_idx] = np.sqrt(max_len_sq)
-        return diameters
+        pairs = _edge_node_pairs(self.elements.shape[1])
+        corners = self.vertices[self.elements]                        # (n_el, n_nodes, dim)
+        edge_vecs = corners[:, pairs[:, 1]] - corners[:, pairs[:, 0]]  # (n_el, n_pairs, dim)
+        return np.linalg.norm(edge_vecs, axis=2).max(axis=1)
 
     @cached_property
     def element_neighbours(self) -> list[list[int]]:
@@ -100,25 +161,23 @@ class Mesh:
                 neighbours[b].add(a)
         return [sorted(s) for s in neighbours]
 
-    def _get_all_edges(self) -> IntArray:
+    @cached_property
+    def edges(self) -> IntArray:
         '''Every edge in the mesh, as sorted (v0, v1) index pairs.
 
         For a linear simplex the edge set is exactly every pair of its nodes:
         1 pair for a line, 3 for a triangle, 6 for a tet. That makes this
-        dimension-general without a per-shape table -- but it holds *only* for
-        linear simplices, hence the guard (quadratic elements carry midside
-        nodes, so pairing every node would invent edges that don't exist).
+        dimension-general without a per-shape table -- it holds *only* for
+        linear simplices, which the constructor guarantees (quadratic elements
+        carry midside nodes, so pairing every node would invent edges that don't
+        exist).
+
+        Lazy, matching its connectivity siblings: only `p2_connectivity` reads
+        it, so a P1 solve -- and every transient or refinement mesh -- never
+        pays the edge extraction.
         '''
-        n_nodes = self.elements.shape[1]
-        if n_nodes not in (2, 3, 4):
-            raise NotImplementedError(
-                f'edge extraction is only defined for linear simplices, '
-                f'got {n_nodes}-node elements'
-            )
-        all_edges = {
-            tuple(sorted(pair))
-            for element in self.elements
-            for pair in itertools.combinations(element, 2)
-        }
-        return np.array(sorted(all_edges))
+        pairs = self.elements[:, _edge_node_pairs(self.elements.shape[1])]  # (n_el, n_pairs, 2)
+        # Sort each pair so (v0, v1) has v0 < v1, then dedup. np.unique returns
+        # the surviving rows lexicographically sorted.
+        return np.unique(np.sort(pairs.reshape(-1, 2), axis=1), axis=0)
 

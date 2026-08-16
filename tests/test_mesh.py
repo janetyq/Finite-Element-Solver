@@ -56,3 +56,30 @@ def test_copy_is_independent_of_its_source():
     duplicate = mesh.copy()
     duplicate.vertices[0] = [9.0, 9.0]
     assert np.allclose(mesh.vertices[0], [0.0, 0.0])
+
+
+# --- input validation ---
+# A malformed array should fail here, at the entry point for user data, with a
+# named error -- not much later inside element geometry with an opaque shape error.
+
+def test_rejects_wrong_rank_vertices():
+    with pytest.raises(ValueError, match='vertices must be a 2D'):
+        Mesh(vertices=[0, 1, 2], elements=[[0, 1]], boundary=[[0]])
+
+
+def test_rejects_out_of_range_element_index():
+    with pytest.raises(ValueError, match='element node indices'):
+        Mesh(
+            vertices=[[0, 0], [1, 0], [1, 1]],
+            elements=[[0, 1, 3]],  # node 3 does not exist
+            boundary=[[0, 1]],
+        )
+
+
+def test_rejects_boundary_facet_of_wrong_width():
+    with pytest.raises(ValueError, match='boundary facet'):
+        Mesh(
+            vertices=[[0, 0], [1, 0], [1, 1]],
+            elements=[[0, 1, 2]],
+            boundary=[[0, 1, 2]],  # a triangle's facet is an edge (2 nodes), not 3
+        )
