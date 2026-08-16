@@ -147,6 +147,46 @@ class BucklingSolution(Solution):
 
 
 @dataclass(frozen=True, eq=False)
+class ModalSolution(Solution):
+    '''Free-vibration result: natural frequencies and their mode shapes.
+
+    `angular_frequencies[i]` is omega_i (rad/s), ascending, and `modes[i]` the shape the
+    structure oscillates in at that frequency -- the eigenpairs of `K phi = omega^2 M phi`.
+    Like a buckling mode, a mode shape has arbitrary amplitude (the eigenproblem is
+    homogeneous): only its form and its frequency are physical, and any real free
+    vibration is a superposition of the modes, weighted by how the structure was set
+    moving. `frequencies` (Hz) and `periods` (s) are the same data in engineering units.
+    '''
+    angular_frequencies: FloatArray   # (n_modes,) ascending omega, rad/s
+    modes: FloatArray                 # (n_modes, n_dofs) mode-shape displacement vectors
+
+    @property
+    def frequencies(self) -> FloatArray:
+        '''The natural frequencies in Hz (cycles per second): omega / 2pi.'''
+        return self.angular_frequencies / (2 * np.pi)
+
+    @property
+    def periods(self) -> FloatArray:
+        '''The natural periods in seconds: 1 / f (infinite for a zero-frequency mode).'''
+        with np.errstate(divide='ignore'):
+            return 1.0 / self.frequencies
+
+    def mode_mesh(self, i: int, scale: float = 1.0) -> 'Mesh':
+        '''The mesh displaced by `scale` times mode `i`, for drawing it.
+
+        The amplitude is arbitrary, so `scale` is a display choice a caller picks to make
+        the shape legible. A P2 mode carries edge-midpoint DOFs the mesh has no vertices
+        for, so only the leading vertex DOFs move the geometry -- the mode draws as its P1
+        restriction, the same simplification the rest of the plot layer makes for P2.
+        '''
+        mesh = self.mesh.copy()
+        n_vertices = len(mesh.vertices)
+        displacement = self.modes[i].reshape(-1, self.n_components)[:n_vertices]
+        mesh.vertices = mesh.vertices + scale * displacement
+        return mesh
+
+
+@dataclass(frozen=True, eq=False)
 class TransientSolution(Solution):
     '''A time series: the times t and the field u at each step.'''
     t: FloatArray

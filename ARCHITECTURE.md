@@ -258,16 +258,18 @@ SPD by construction. `Solver` forwards a backend to its steady solve and attache
 near-kernel (§3). `pyamg` is a base dependency rather than an extra — it needs only numpy/scipy,
 and the iterative path is the core scaling story, not a niche feature.
 
-### `EigenSolve` — the solve that is not `Ax = b`
+### `EigenSolve` — the solves that are not `Ax = b`
 
-Linearised buckling steps outside the `DiscreteSystem` engine, because an eigenproblem is a
-different question, not a different matrix. `K φ = -λ K_g φ` has no right-hand side to
-back-substitute, so the factor-once-solve-many atom every other strategy sits on does not apply.
-What it *does* share with a linear solve is the Dirichlet elimination — the free-DOF reduction —
-so that reduction, the `scipy.sparse.linalg.eigsh` call, and the lift of each eigenvector back to
-a full DOF vector live in one place: `EigenSolve`, the eigen-analogue of `LinearSolve` in
-`fem/solve.py`. `BucklingSolver` is a thin facade over it, assembling `K` and `K_g` and reading
-the eigenvalues back as load factors (`μ = 1/λ`). Everything upstream is reused
+Linearised buckling and modal (free-vibration) analysis step outside the `DiscreteSystem` engine,
+because an eigenproblem is a different question, not a different matrix. `K φ = -λ K_g φ`
+(buckling) and `K φ = ω² M φ` (modal) have no right-hand side to back-substitute, so the
+factor-once-solve-many atom every other strategy sits on does not apply. What they *do* share
+with a linear solve is the Dirichlet elimination — the free-DOF reduction — so that reduction,
+the `scipy.sparse.linalg.eigsh` call, and the lift of each eigenvector back to a full DOF vector
+live in one place: `EigenSolve`, the eigen-analogue of `LinearSolve` in `fem/solve.py`.
+`BucklingSolver` and `ModalSolver` are thin facades over it, each assembling its operator pair and
+reading the eigenvalues back in its own physics (`μ = 1/λ` load factors, `μ = ω²` frequencies).
+Everything upstream is reused
 unchanged: the reference (pre-buckling) state comes from an ordinary `Solver`, the geometric
 stiffness is a `Form` (`GeometricStiffnessForm`) scattered by the same `FunctionSpace.assemble`,
 and the prestress that parameterises it is the recovered stress a linear elastic solve already
@@ -275,6 +277,13 @@ produces. The one physics primitive that is new — the geometric stiffness — 
 of the St-Venant–Kirchhoff tangent (`EnergyForm.element_tangents`), so the nonlinear machinery
 already carried its kernel; buckling is the linearisation of the ellipticity loss that tangent
 models under compression.
+
+Modal analysis reuses the same seam for a different pencil: no reference solve (the modes are
+load-free — a property of the structure, not of any applied load), the consistent mass matrix
+`FunctionSpace` already assembles for the time-steppers as the second operator, and shift-invert
+about `σ = 0` — the one knob `EigenSolve` adds beyond buckling's regular mode — to pull the lowest
+frequencies. The supports must ground every rigid-body mode, since the shift-invert factors `K` on
+the free block; a fully unsupported structure waits on a nonzero shift.
 
 ### Time integration — a strategy per ODE order
 

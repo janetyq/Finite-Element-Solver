@@ -228,11 +228,24 @@ class Plotter:
         titles: Sequence[str] | None = None,
         cbar_lims: tuple[float, float] | None = None,
         label: str | None = None,
+        meshes: "Sequence['Mesh'] | None" = None,
+        cmap: str | None = None,
     ) -> None:
+        """Animate `values` over the panel at `idx`.
+
+        `meshes` supplies one mesh per frame when the *geometry* moves -- a vibration
+        mode flexing, say -- rather than a field changing over fixed geometry. The
+        colours still come from `values`, but a moving mesh cannot be recoloured in
+        place, so each frame redraws within bounds fixed across the series (so the shape
+        flexes in view instead of the axes rescaling to follow it). Leave it `None` for
+        the fixed-mesh case, whose recolour path is left untouched.
+        """
         mode = PlotMode(mode)
-        # Bound to a local list so the nested `update` closure keeps the
-        # non-optional type; a narrowed parameter does not survive capture.
+        # Bound to local lists so the nested `update` closure keeps the non-optional
+        # type; a narrowed parameter does not survive capture.
         frame_titles = list(titles) if titles is not None else [str(i) for i in range(len(values))]
+        frame_meshes = list(meshes) if meshes is not None else None
+        cmap_name = cmap if cmap is not None else 'viridis'
 
         # Colored and solid are the two modes that read a colorbar; surface draws one
         # anyway onto the 2D axes that change_ax_to_ax3d then replaces, leaving a stray
@@ -252,16 +265,36 @@ class Plotter:
                 # it out from under it.
                 ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
                 self.axs[idx] = ax
-            self.cbar_infos[idx] = setup_colorbar(ax, cbar_lims, label=label)
+            self.cbar_infos[idx] = setup_colorbar(ax, cbar_lims, label=label, cmap_name=cmap_name)
 
-        artist = self.plot(mesh, values[0], mode=mode, idx=idx, title=frame_titles[0])
+        base_mesh = frame_meshes[0] if frame_meshes is not None else mesh
+        artist = self.plot(base_mesh, values[0], mode=mode, idx=idx, title=frame_titles[0],
+                           cmap=cmap)
 
-        # Colored and solid draw one collection over a fixed mesh, so a frame only
+        if frame_meshes is not None:
+            # Moving geometry: a fixed collection cannot be recoloured into a new shape,
+            # so redraw the deformed mesh each frame. Bounds are frozen over the whole
+            # series -- the union of every frame's extent, with a margin -- so the shape
+            # swings within a still frame rather than the axes chasing it.
+            all_vertices = np.concatenate([m.vertices for m in frame_meshes])
+            lo, hi = all_vertices.min(axis=0), all_vertices.max(axis=0)
+            margin = 0.05 * (hi - lo).max()
+            xlim = (float(lo[0] - margin), float(hi[0] + margin))
+            ylim = (float(lo[1] - margin), float(hi[1] + margin))
+
+            def update(frame: int) -> None:
+                self.plot(frame_meshes[frame], values[frame], mode=mode, idx=idx,
+                          title=frame_titles[frame], clear=True, cmap=cmap)
+                ax = self.axs[idx]
+                ax.set_xlim(xlim)
+                ax.set_ylim(ylim)
+                ax.set_aspect('equal')
+        # Colored and solid over a *fixed* mesh draw one collection, so a frame only
         # changes its colours -- recolour that artist in place rather than clearing the
         # axes and rebuilding it, which re-lays out every tick and label each frame and
         # was the bulk of an animated demo's render cost. Surface lifts the field into
         # z, so its geometry changes frame to frame and it has to be redrawn.
-        if mode in (PlotMode.COLORED, PlotMode.SOLID) and artist is not None:
+        elif mode in (PlotMode.COLORED, PlotMode.SOLID) and artist is not None:
             ax = self.axs[idx]
             to_array = solid_face_values if mode is PlotMode.SOLID else face_values
 
