@@ -17,7 +17,6 @@ Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / ma
 | Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
 | Numerics | 3D P2 (`QuadraticTetrahedralElement`); P2 plotting / adaptivity | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Mixed (u-p) formulation for near-incompressible elasticity | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Numerics | ZZ recovery error estimator (alternative to residual) | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize Newton (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -98,11 +97,6 @@ Two things measured and rejected, so they do not get proposed again:
   alongside the new element. Now that P2 elements exist, selective/reduced integration on the
   volumetric term is also available as a lighter-weight partial answer the constant-strain
   triangle could not offer.
-- 💡 **Zienkiewicz-Zhu (ZZ) recovery error estimator.** An alternative to the residual
-  estimator now in `Poisson.error_estimate`. ZZ computes a "recovered" gradient by nodal
-  averaging, then measures the difference from the raw per-element gradient. Simpler to
-  implement (no edge-neighbor bookkeeping), widely used in commercial codes, equally
-  legitimate mathematically. Would live as a sibling method or a second estimator option.
 
 **Post-processing coverage**
 
@@ -202,10 +196,6 @@ recovers anything. Each item below is an implementation of a seam that already e
   outer loop rather than loops of their own, so they still need a coordinate region
   (`fem.regions.on_plane`) to separate them, and the demo has to wire that to the Poisson
   equation and reproduce the README figure.
-- 💡 ~~**The `refinement` demo shows both ends of the loop and not the join.**~~ Done: the
-  demo now runs the full adaptive loop with `Poisson.error_estimate` driving refinement,
-  showing before/after meshes with refinement concentrated around the peaked source.
-  Every demo now runs under `tests/test_demos.py`, with no skips.
 - 💡 **Report the minimum corner angle alongside the demo's simplification tolerance.**
   Output size used to be non-monotonic in *input* size, because cost tracked the sharpest
   corner Douglas-Peucker left behind rather than the point count. The corner treatment

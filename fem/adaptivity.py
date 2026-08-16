@@ -11,18 +11,24 @@ spec up front -- a bare problem-factory would hide it.
 The solver is a `RefinableSolver`, so this drives the linear and nonlinear facades
 alike.
 """
+from __future__ import annotations
+
 import logging
-from collections.abc import Callable
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
 from fem.boundary import BoundaryConditions
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
+from fem.estimators import ErrorEstimator
 from fem.solution import FieldSolution
 from fem.space import FunctionSpace
-from fem.typing import ElementField
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from fem.typing import ElementField
 
 logger = logging.getLogger(__name__)
 
@@ -52,18 +58,19 @@ class AdaptiveRefinement:
     def __init__(
         self,
         solver: RefinableSolver,
-        estimator: Callable[[RefinableSolver], ElementField],
+        estimator: ErrorEstimator | Callable[[RefinableSolver], ElementField],
         max_triangles: int = 1000,
         max_iters: int = 20,
         refine_fraction: float = 0.9,
     ) -> None:
         self.solver = solver
-        # estimator(solver) -> per-element error. It takes the solver rather than a
-        # stored array because the estimate must be recomputed every round: once
-        # elements are split, the previous array is both stale and the wrong length,
-        # so indexing it selects unrelated elements -- the "bug somewhere" the old
-        # in-Solver loop used to carry.
+        # The estimator maps the solver to a per-element error -- an `ErrorEstimator`
+        # object (residual/recovery) or a bare callable for a one-off stand-in. Either
+        # way it takes the solver rather than a stored array because the estimate must
+        # be recomputed every round: once elements are split, the previous array is
+        # both stale and the wrong length, so indexing it selects unrelated elements.
         self.estimator = estimator
+        self._estimate = estimator.estimate if isinstance(estimator, ErrorEstimator) else estimator
         self.max_triangles = max_triangles
         self.max_iters = max_iters
         self.refine_fraction = refine_fraction
@@ -84,7 +91,7 @@ class AdaptiveRefinement:
             if len(self.solver.mesh.elements) >= self.max_triangles:
                 break
 
-            residuals = np.asarray(self.estimator(self.solver), dtype=float)
+            residuals = np.asarray(self._estimate(self.solver), dtype=float)
             if len(residuals) != len(self.solver.mesh.elements):
                 raise ValueError(
                     f'estimator returned {len(residuals)} values for '
