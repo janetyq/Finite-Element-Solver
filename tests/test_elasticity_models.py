@@ -136,14 +136,21 @@ def test_energy_solver_matches_recorded_solution(make_unit_square):
 
 
 def test_energy_gradient_and_hessian_are_consistent_by_finite_difference(make_unit_square):
-    """`energy_gradient` is d(`energy`) and `energy_hessian` is d(`energy_gradient`),
-    each to O(eps^2) under central differences.
+    """`energy_gradient` is the gradient of `energy`, and `energy_hessian` the gradient
+    of `energy_gradient`, each to O(eps^2) under central differences.
 
-    Checks the assembled Pi the Newton loop consumes, not the energy density
-    (`StVenantKirchhoff.check_gradients` covers that), so it catches a scatter or
-    orientation bug between them. St-VK is required: a small-strain energy is quadratic,
-    making the central difference exact and the order undefined; St-VK is degree-4 in u,
-    giving a clean O(eps^2).
+    These are the assembled quantities Newton uses: the potential energy Pi(u) summed
+    over the mesh, with its global gradient and Hessian. The density they are built
+    from is checked separately, by StVenantKirchhoff.check_gradients. Between the two
+    lies the element assembly, which evaluates the density per element and sums each
+    contribution into the global arrays by DOF. A mistake there (a wrong scatter, or a
+    transposed element matrix) leaves the density correct while making the assembled
+    gradient and Hessian inconsistent with the assembled energy. The density check
+    cannot see that; this test can.
+
+    St-VK (not small strain) is needed for a meaningful slope: its energy is quartic in
+    u, so the error is a clean O(eps^2), whereas a quadratic small-strain energy makes
+    the central difference exact and the slope meaningless.
     """
     mesh = make_unit_square(5)
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)

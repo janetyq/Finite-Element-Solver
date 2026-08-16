@@ -129,15 +129,16 @@ def central_difference_order(
     n_directions: int = 4,
     seed: int = 0,
 ) -> float:
-    '''Fitted log-log slope of a central-difference derivative check at `u`.
+    '''Fitted order of a central-difference check of `directional_derivative` at `u`.
 
-    A correct derivative matches the central difference to O(eps^2), so the error vs
-    `eps` has slope ~2. Returns that slope over a few random directions -- the
-    assert-shaped counterpart to `check_gradient` / `check_hessian`, which only plot.
+    For each of a few random directions `d`, compares the central difference
+        (function(u + eps*d) - function(u - eps*d)) / (2*eps)
+    against `directional_derivative(d)` across a sweep of `eps`, and returns the slope
+    of log(error) vs log(eps). A correct derivative makes the error O(eps^2), so the
+    slope is ~2; the default `eps` stays in that regime, above the roundoff floor.
 
     `directional_derivative(d)` is the derivative at `u` along `d`: `gradient @ d` for
-    a scalar `function`, `hessian @ d` for a vector one. The default `eps` sits in the
-    truncation regime, above the roundoff floor.
+    a scalar `function`, `hessian @ d` for a vector one.
     '''
     rng = np.random.default_rng(seed)
     if eps is None:
