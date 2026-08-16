@@ -31,9 +31,10 @@ from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
 from fem.buckling import BucklingSolver
+from fem.modal import ModalSolver
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import beam, column, plate_with_hole_pslg, square
+from domains import beam, column, plate_with_hole_pslg, square, tuning_fork_pslg
 
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
@@ -1058,6 +1059,209 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     ], text=text)
 
 
+def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_angle=27,
+               n_modes=6, n_shown=4, sweep_lengths=(0.075, 0.088, 0.105, 0.125),
+               n_frames=24):
+    """Find the natural frequencies and mode shapes of a steel tuning fork, meshed from
+    its own outline, and check them against beam theory: the fork is tuned to concert A
+    by the cantilever-tine formula, and its voice is read back against the 1/L^2 law.
+
+    Modal analysis is load-free -- unlike buckling, no reference solve enters. The natural
+    frequencies solve `K phi = omega^2 M phi` (elastic stiffness against consistent mass)
+    and are a property of the structure alone -- its shape, material, and supports -- the
+    way a bell's pitch is the bell's and not the striker's."""
+    # Real SI steel, so the frequencies come out in Hz a musician would recognise: this is
+    # the one demo that names a pitch, and the abstract E=200 the others use would not land
+    # on 440. E* = E/(1-nu^2) is the plane-strain modulus a 2D solve sees, the same
+    # effective modulus the buckling demo's bending uses.
+    E, NU, RHO = 2.0e11, 0.3, 7850.0             # Young's (Pa), Poisson, density (kg/m^3)
+    E_STAR = E / (1 - NU**2)
+    BETA1_SQ = 1.875104**2                        # first fixed-free beam root, squared
+
+    def cantilever_hz(length, thickness=tine_thickness):
+        """The ideal clamped-free tine's fundamental (Hz): a bare beam, with no base."""
+        return BETA1_SQ / (2*np.pi) * (thickness / length**2) * np.sqrt(E_STAR / (12*RHO))
+
+    def clamp():
+        """Grounded at the stem base -- the fork's node, held without damping the voice."""
+        bc = BoundaryConditions()
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
+        return bc
+
+    def solve_fork(length, modes, across=n_across_tine):
+        """Mesh a fork of tine length `length` from its outline, and solve its modes."""
+        pslg = tuning_fork_pslg(tine_length=length, tine_thickness=tine_thickness)
+        pslg.validate()
+        # Element size is set by resolving the thin tine, not the fork's overall extent:
+        # bending curves across the tine, and too few elements there under-resolve the
+        # very mode the demo is about.
+        mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
+                                 max_area=0.5*(tine_thickness/across)**2).refine()
+        solution = ModalSolver(mesh, LinearElastic(E, NU), clamp(), n_modes=modes,
+                               element_type=QuadraticTriangleElement, density=RHO).solve()
+        return mesh, solution
+
+    def voice_index(mesh, solution):
+        """The acoustic mode: the lowest whose two tine tips swing in opposite directions.
+
+        A clamped fork's low modes come in pairs -- the tips moving together (a rocking
+        that shakes the stem, damped the moment the fork is held there) or oppositely.
+        The oppositely-moving one keeps the stem still and rings; it is the lowest with
+        the tip transverse motions of opposite sign.
+        """
+        verts = mesh.vertices
+        tips = verts[:, 1] > verts[:, 1].max() - 0.2*tine_length
+        left, right = tips & (verts[:, 0] < 0), tips & (verts[:, 0] > 0)
+        for i in range(len(solution.frequencies)):
+            u_x = solution.modes[i].reshape(-1, 2)[:len(verts), 0]
+            if u_x[left].mean() * u_x[right].mean() < 0:
+                return i
+        return 0
+
+    # -- 1. The modes: the shapes the fork rings in, and their pitches ------------------
+    mesh, solution = solve_fork(tine_length, n_modes)
+    freqs = solution.frequencies
+    voice = voice_index(mesh, solution)
+    n_v = len(mesh.vertices)
+
+    def mode_shape(i):
+        """Mode `i` as a deformed mesh, and the signed transverse motion colouring it."""
+        transverse = solution.modes[i].reshape(-1, 2)[:n_v, 0]
+        scale = 0.12 * tine_length / np.abs(transverse).max()
+        return solution.mode_mesh(i, scale), scale * transverse
+
+    def hide_x_ticks(plotter, idx):
+        """Drop the x-axis ticks on a tall, thin fork panel, where the millimetre-scale
+        labels only collide; the y-axis carries the scale."""
+        ax = plotter.get_ax(idx)
+        ax.tick_params(axis='x', labelbottom=False, bottom=False)
+
+    modes = Plotter(1, n_shown, figsize=(2.9*n_shown, 6.0), axis_labels=False,
+                    title="A tuning fork's natural modes and their pitches")
+    for i in range(n_shown):
+        shape, colour = mode_shape(i)
+        lim = float(np.abs(colour).max())
+        tag = '  (the voice)' if i == voice else ''
+        # One shared caption names the colour below; a per-bar label would repeat it.
+        modes.plot(shape, colour, mode='colored', idx=(0, i), cmap='coolwarm',
+                   clim=(-lim, lim), title=f'Mode {i+1}: {freqs[i]:.0f} Hz{tag}')
+        modes.overlay_supports(mesh, clamp(), idx=(0, i), coords=shape.vertices)
+        hide_x_ticks(modes, (0, i))
+    modes.fig.supxlabel(
+        'Colour: sideways (transverse) displacement of the mode. Its sign and amplitude '
+        'are arbitrary -- the pattern of motion is what is physical.', fontsize='small')
+
+    # -- 2. The voice, flexing: the mode as motion rather than a frozen shape -----------
+    transverse = solution.modes[voice].reshape(-1, 2)[:n_v, 0]
+    amp = 0.12 * tine_length / np.abs(transverse).max()
+    phases = np.cos(np.linspace(0, 2*np.pi, n_frames, endpoint=False))
+    frames = [solution.mode_mesh(voice, amp*c) for c in phases]
+    colour = amp * transverse                    # fixed colour; only the geometry moves
+    lim = float(np.abs(colour).max())
+    swing = Plotter(1, 1, figsize=(4.6, 6.2),
+                    title=f'The voice mode swinging: {freqs[voice]:.0f} Hz')
+    swing.plot_animation(mesh, [colour]*n_frames, mode='colored', meshes=frames,
+                         cmap='coolwarm', cbar_lims=(-lim, lim), label='sideways motion',
+                         titles=['']*n_frames)
+    # Say plainly what the animation is: not a dynamics simulation, but the mode's own
+    # exact solution evaluated frame by frame. A standing-wave mode separates into a fixed
+    # shape times cos(omega t), so no time-stepping is needed -- and none is done here.
+    swing.fig.supxlabel(
+        "Not a time-stepped simulation: this is the mode's exact\n"
+        'motion phi cos(omega t) -- one undamped, idealized mode\n'
+        'at exaggerated amplitude. Only the shape and frequency\n'
+        'are physical, not the size; a real fork mixes modes and\n'
+        'rings down.', fontsize='small')
+
+    # -- 3. Euler-Bernoulli's tuning law: pitch falls as 1/L^2 --------------------------
+    sweep_L = np.array(sweep_lengths)
+    sweep_f = []
+    for length in sweep_lengths:
+        swept_mesh, swept = solve_fork(length, max(voice + 2, 3), across=max(3, n_across_tine - 1))
+        sweep_f.append(swept.frequencies[voice_index(swept_mesh, swept)])
+    sweep_f = np.array(sweep_f)
+    slope = np.polyfit(np.log(sweep_L), np.log(sweep_f), 1)[0]
+
+    law = Plotter(1, 2, title='Against Euler-Bernoulli beam theory')
+    curve = law.chart_ax(idx=(0, 0), xlabel='tine length L (m)', ylabel='voice frequency (Hz)')
+    curve.loglog(sweep_L, sweep_f, 'o', color='tab:blue', label=f'computed fork (slope {slope:.2f})')
+    dense = np.linspace(sweep_L.min(), sweep_L.max(), 100)
+    curve.loglog(dense, cantilever_hz(dense), '-', color='tab:red', alpha=0.6,
+                 label='ideal tine  f ~ 1/L^2')
+    curve.axvline(tine_length, color='0.6', ls=':', label=f'this fork ({tine_length*1000:.0f} mm)')
+    curve.set_title('Pitch falls as 1/L^2')
+    curve.grid(True, which='both', alpha=0.3)
+    curve.legend(fontsize='small')
+
+    bars = law.chart_ax(idx=(0, 1), ylabel='frequency (Hz)')
+    x = np.arange(n_shown)
+    bars.bar(x, freqs[:n_shown],
+             color=['tab:red' if i == voice else 'tab:blue' for i in range(n_shown)])
+    bars.axhline(440.0, color='0.4', ls='--', label='concert A (440 Hz)')
+    bars.axhline(cantilever_hz(tine_length), color='tab:red', ls=':', alpha=0.6,
+                 label=f'ideal tine ({cantilever_hz(tine_length):.0f} Hz)')
+    bars.set_xticks(x, [str(i + 1) for i in range(n_shown)])
+    bars.set_xlabel('mode')
+    bars.set_title('First modes (voice in red)')
+    bars.grid(True, axis='y', alpha=0.3)
+    bars.legend(fontsize='small')
+
+    # -- 4. How the fork is posed: an outline, meshed, held at the stem -----------------
+    built = Plotter(1, 2, figsize=(6.0, 7.0), title='From an outline to a meshed fork')
+    built.plot(mesh, mode='mesh', idx=(0, 0), title=f'{len(mesh.elements)} triangles')
+    hide_x_ticks(built, (0, 0))
+    built.plot(mesh, mode='bc', bc=clamp(), idx=(0, 1), title='Clamped at the stem base')
+
+    ideal = cantilever_hz(tine_length)
+    text = (
+        f'A steel tuning fork (E={E:.0e} Pa, rho={RHO:.0f} kg/m^3), meshed from its outline.\n'
+        f'tine length x thickness   {tine_length*1000:.0f} x {tine_thickness*1000:.1f} mm\n'
+        f'mesh                      {len(mesh.elements)} P2 triangles\n\n'
+        f'ideal clamped tine (beam theory)   {ideal:.0f} Hz\n'
+        f'fork voice (mode {voice+1}, computed)      {freqs[voice]:.0f} Hz   '
+        f'({100*(freqs[voice]/ideal - 1):+.0f}%: the base is not a rigid clamp)\n'
+        f'first {n_shown} modes (Hz)             ' + '  '.join(f'{f:.0f}' for f in freqs[:n_shown]) + '\n'
+        f'tuning law   f ~ L^{slope:.2f}         (beam-theory exponent -2)'
+    )
+
+    return DemoResult([
+        Figure(modes,
+               'The fork rings in these shapes, each at its own pitch. The low modes come '
+               'in pairs: the tips swing together (a rocking that shakes the stem, damped '
+               'the moment the fork is held there) or oppositely -- and the oppositely '
+               'moving one, which leaves the stem still, is "the voice" the fork is made '
+               'for. A mode is an eigenvector, so its sign is free (the shading is that '
+               'free sign, red one way and blue the other) and its amplitude unset, scaled '
+               'here only to be visible: read the shape and the frequency, not the colour '
+               'direction or the size.',
+               'modes', thumbnail=True),
+        Figure(swing,
+               'The voice mode as motion rather than a frozen shape: phi cos(omega t), the '
+               'tines flexing apart and together at the natural frequency. Any free '
+               'vibration is a sum of the modes, each ringing at its own rate; struck, a '
+               'fork sheds the others and settles onto this one, which is why it sounds a '
+               'single clean tone.',
+               'swing'),
+        Figure(law,
+               'Left: the fork is a pair of clamped-free tines, so beam theory sets its '
+               'voice at f = (1.875)^2 / (2 pi) . (t / L^2) . sqrt(E* / 12 rho), the pitch '
+               'falling as 1/L^2. Sweeping the tine length, the computed fork tracks that '
+               'slope and sits a little below the ideal-tine line, because a real fork\'s '
+               'base yields where beam theory assumes a rigid clamp. Right: this fork\'s '
+               'first modes -- the voice (red) lands near concert A, a few percent under '
+               'the ideal tine for the same base-compliance reason.',
+               'law'),
+        Figure(built,
+               'The fork is one non-convex outline -- stem, base, two tines with a slot -- '
+               'meshed by Ruppert\'s algorithm, with no structured grid. It is held only at '
+               'the stem base: that Dirichlet clamp grounds the structure (a free body has '
+               'rigid-body modes the shift-invert eigensolve cannot factor through) and is '
+               'exactly where a fork is held -- the one place that does not damp the voice, '
+               'since the stem barely moves in it.',
+               'built', setup=True),
+    ], text=text)
+
+
 def demo_heat_3d(steps=20, n=17):
     """Animate transient heat diffusion on a 3D tetrahedral box, drawn as its boundary surface."""
     # Same box and resolution convention as `elastic_3d`.
@@ -1117,6 +1321,12 @@ DEMOS = [
     Demo('buckling', demo_buckling, section=SOLIDS,
          smoke_kwargs={'n_length': 12, 'n_across': 4, 'n_modes': 2,
                        'sweep_lengths': (12.0, 18.0)}),
+    # Builds its own fork from an outline, so it takes no domain. Its cost is the eigen-
+    # solves -- the main one plus the tuning-law sweep -- and the animation frames, so the
+    # smoke run coarsens the mesh, shortens the sweep, and takes only a few frames.
+    Demo('modal', demo_modal, section=SOLIDS,
+         smoke_kwargs={'n_across_tine': 3, 'min_angle': 25, 'n_modes': 4, 'n_shown': 3,
+                       'sweep_lengths': (0.088, 0.125), 'n_frames': 6}),
     # 2:1, because the aspect ratio is what makes SIMP produce the truss it is known
     # for. The resolution is now set by what the *filter* needs rather than by what 40
     # iterations cost: `smoothing_radius` is a fixed physical length, so refining
