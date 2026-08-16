@@ -20,7 +20,7 @@ from fem.convergence import (
 from fem.elements import QuadraticTriangleElement
 from fem.forms import LinearElasticForm
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
-from fem.mesh.ruppert import create_rect_mesh
+from fem.mesh.structured import create_rect_mesh
 from fem.problem import LinearProblem
 from fem.regions import everywhere
 from fem.solution import ElasticSolution

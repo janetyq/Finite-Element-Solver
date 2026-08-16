@@ -20,7 +20,7 @@ from benchmark_assembly import demo_backends  # noqa: E402
 from demo_registry import Demo, DemoResult, Figure  # noqa: E402
 from gallery import build_gallery  # noqa: E402
 
-from fem.mesh.ruppert import create_rect_mesh  # noqa: E402
+from fem.mesh.structured import create_rect_mesh  # noqa: E402
 from fem.plot.plotter import Plotter  # noqa: E402
 
 # The smallest valid GIF: a 1x1 pixel. Enough to stand in for a demo's rendered output.

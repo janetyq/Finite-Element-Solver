@@ -24,7 +24,7 @@ from scipy.sparse import csr_array
 
 from fem.forms import LaplacianForm, LinearElasticForm
 from fem.materials import LinearElasticMaterial
-from fem.mesh.ruppert import create_box_mesh, create_rect_mesh
+from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.space import FunctionSpace, dof_indices
 
 

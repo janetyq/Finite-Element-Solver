@@ -15,7 +15,7 @@ from matplotlib.patches import Polygon
 from matplotlib.quiver import Quiver
 
 from fem.boundary import BCType, BoundaryConditions
-from fem.mesh.ruppert import create_rect_mesh
+from fem.mesh.structured import create_rect_mesh
 from fem.plot.bc import overlay_supports, plot_bc
 from fem.regions import everywhere, intersect, on_plane
 

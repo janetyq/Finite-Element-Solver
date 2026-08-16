@@ -39,15 +39,12 @@ in z, the restraint pushes back, and the law gives `sigma_zz = lambda * tr(S)`.
 A 2D assembly produces only the three in-plane Voigt components, so von Mises
 built from those alone is missing this one. `out_of_plane_stress` supplies it.
 """
-import logging
 from dataclasses import dataclass
 
 import numpy as np
 
 from fem.materials import Enu_to_Lame
 from fem.typing import FloatArray
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -164,46 +161,11 @@ class StVenantKirchhoff:
         return (self.lamb * np.einsum('ij,mn->ijmn', eye, eye)
                 + 2 * self.mu * np.einsum('im,jn->ijmn', eye, eye))
 
-    # -- single-element interface for gradient checks -----------------------
-
-    def calculate_S_from_F(self, F: FloatArray) -> FloatArray:
-        """Single-element S(F), for the parked gradient checks."""
-        d = F.shape[-1]
-        return self._strain(F[None], np.eye(d))[0]
+    # -- single-element energy, for the test cross-check --------------------
 
     def calculate_W_from_S(self, S: FloatArray) -> float:
+        """Single-element W(S), pinning `Material`'s D as d2W/de2 in the tests."""
         return float(self._energy(S[None])[0])
-
-    def calculate_W_from_F(self, F: FloatArray) -> float:
-        d = F.shape[-1]
-        return self.calculate_W_from_S(self._strain(F[None], np.eye(d))[0])
-
-    def calculate_dS_dF(self, F: FloatArray) -> FloatArray:
-        d = F.shape[-1]
-        return self._dS_dF(F[None], d)[0]
-
-    def calculate_dW_dS(self, S: FloatArray) -> FloatArray:
-        d = S.shape[-1]
-        return self._dW_dS(S[None], np.eye(d))[0]
-
-    def calculate_dW_dF(self, F: FloatArray) -> FloatArray:
-        d = F.shape[-1]
-        eye = np.eye(d)
-        S = self._strain(F[None], eye)
-        return np.einsum('ij,ijmn->mn', self._dW_dS(S, eye)[0], self._dS_dF(F[None], d)[0])
-
-    def calculate_d2S_dF2(self, F: FloatArray) -> FloatArray:
-        return self._d2S_dF2(F.shape[-1])
-
-    def calculate_d2W_dS2(self, S: FloatArray) -> FloatArray:
-        return self._d2W_dS2(S.shape[-1])
-
-    def check_gradients(self) -> None:
-        from fem.numerics import check_gradient
-        check_gradient(self.calculate_S_from_F, self.calculate_dS_dF, (2, 2))
-        check_gradient(self.calculate_W_from_S, self.calculate_dW_dS, (2, 2))
-        check_gradient(self.calculate_W_from_F, self.calculate_dW_dF, (2, 2))
-        logger.info("Gradient checks completed")
 
 
 class SmallStrain(StVenantKirchhoff):
