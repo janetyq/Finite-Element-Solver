@@ -54,9 +54,13 @@ def test_first_order_h1_convergence(convergence_data):
         np.log(errors[i] / errors[i + 1]) / np.log(hs[i] / hs[i + 1])
         for i in range(len(hs) - 1)
     ]
-    # P1 elements give order 1 in the H1 seminorm; band it like the L2 order-2 test.
+    # P1 gives order 1 in the H1 seminorm. Banded tighter than the L2 order-2 test
+    # (0.9-1.1, not the +/-0.3 the L2 rate needs): the gradient error is cleanly O(h)
+    # here with essentially no pre-asymptotic drift -- observed 1.00 at both pairs,
+    # where L2 still climbs 1.97 -> 1.99 -- so the slack buys nothing and a tight band
+    # catches a subtly wrong grad_phi that degrades the rate.
     for p in orders:
-        assert 0.7 < p < 1.3, f"expected ~1st order in H1, got orders {orders}"
+        assert 0.9 < p < 1.1, f"expected ~1st order in H1, got orders {orders}"
 
 
 def test_absolute_accuracy_on_fine_mesh(convergence_data):
