@@ -169,9 +169,8 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
     )
 
 def demo_higher_order(resolutions=(11, 21, 41, 81)):
-    """Compare P1 and P2 elements on the same manufactured Poisson problem: quadratic
-    elements are third order in L2 where linear ones are second, and so reach a given
-    accuracy at far fewer degrees of freedom."""
+    """Compare P1 and P2 elements on the same manufactured Poisson problem: P2 is third
+    order in L2 where P1 is second."""
     # Same problem, two element orders. P2 carries the extra edge-midpoint DOFs that
     # let its solution curve within an element; the rate is what that buys.
     p1_solves = poisson_convergence(resolutions)
@@ -212,10 +211,8 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
     )
 
 def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
-    """Show what sampling the load at the quadrature points buys. Both solves use the same
-    P1 elements; they differ only in how the source f becomes the right-hand side: read
-    at the vertices, or at the interior quadrature points. The vertex shortcut undershoots
-    wherever f swings within an element."""
+    """Show what sampling the load at the quadrature points buys, against reading the
+    source only at the vertices."""
     k = LOAD_MMS_FREQUENCY
 
     # Setup: the load and the solution it drives, on a fine mesh so these are the ideal
@@ -861,12 +858,7 @@ def demo_topology_optimization(mesh, iters=40):
 def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                   sweep_lengths=(16.0, 20.0, 28.0, 40.0)):
     """Find the loads at which a slender column buckles and the shapes it buckles into,
-    then check them against Euler three ways: the mode shapes of a pinned column, the
-    effective-length factors of four end conditions, and the 1/L^2 slenderness law.
-
-    Euler's column formula (Leonhard Euler, 1744) is the exact critical load of an ideal
-    slender elastic column, P_cr = pi^2 E* I / (K L)^2, and plays the role the manufactured
-    solution does for the steady solvers: the analytic answer the computed one is held to."""
+    checked against Euler three ways: mode shapes, end conditions, and the 1/L^2 law."""
     # Buckling is an eigenproblem, not a K u = b solve: a reference load puts the column
     # under a prestress, and BucklingSolver assembles the geometric stiffness K_g from it
     # and solves K phi = -lambda K_g phi. The load factor lambda multiplies the reference
@@ -1073,13 +1065,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
                n_modes=6, n_shown=4, sweep_lengths=(0.075, 0.088, 0.105, 0.125),
                n_frames=24):
     """Find the natural frequencies and mode shapes of a steel tuning fork, meshed from
-    its own outline, and check them against beam theory: the fork is tuned to concert A
-    by the cantilever-tine formula, and its voice is read back against the 1/L^2 law.
-
-    Modal analysis is load-free: unlike buckling, no reference solve enters. The natural
-    frequencies solve `K phi = omega^2 M phi` (elastic stiffness against consistent mass)
-    and are a property of the structure alone (its shape, material, and supports), the
-    way a bell's pitch is the bell's and not the striker's."""
+    its own outline and checked against beam theory."""
     # Real SI steel, so the frequencies come out in Hz a musician would recognise: this is
     # the one demo that names a pitch, and the abstract E=200 the others use would not land
     # on 440. E* = E/(1-nu^2) is the plane-strain modulus a 2D solve sees, the same

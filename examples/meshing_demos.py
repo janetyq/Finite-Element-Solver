@@ -223,11 +223,10 @@ def demo_mesh_from_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATI
                        interactive=False, min_angle=20,
                        max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
     """Turn an SVG drawing into a mesh: simplify each outline with Douglas-Peucker, then
-    triangulate them with Ruppert's algorithm.
-
-    --interactive opens a slider over the simplification tolerance, previewing it on the
-    largest outline before meshing. The tolerance used for meshing is always `tolerance`,
-    applied per-loop by `read_svg_to_pslg`."""
+    triangulate with Ruppert's algorithm."""
+    # --interactive opens a slider previewing the simplification tolerance on the largest
+    # outline; the tolerance used for meshing is always `tolerance` (per-loop, via
+    # read_svg_to_pslg).
     # The two steps are one demo because the first exists for the second: Ruppert's cost
     # is superlinear in the point count it is handed, and an SVG outline traced at screen
     # resolution has thousands. Simplification is what makes the triangulation finish.
