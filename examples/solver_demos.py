@@ -1043,13 +1043,11 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                'its eigenvectors and the load factors its eigenvalues.',
                'modes', thumbnail=True),
         Figure(factor_plots,
-               'The same slender column, its ends held four ways (a blue hatched wall clamps '
-               'an end against rotation, blue triangles pin it (free to rotate), red arrows '
-               'are the load) buckles at loads spanning 16x. Clamping shortens the effective '
-               'length K*L '
-               'the column buckles over, from 2L free-standing down to L/2 with both ends '
-               'fixed, and the load goes as 1/K^2. The measured K sits within a few percent '
-               'of Euler\'s 2, 1, 1/2 and ~0.7; the small excess is a real continuum effect, a '
+               'The same slender column held four ways, buckling at loads spanning 16x. '
+               'Clamping an end against rotation shortens the effective length K*L the '
+               'column buckles over, from 2L free-standing down to L/2 with both ends fixed, '
+               'and the load goes as 1/K^2. The measured K sits within a few percent of '
+               'Euler\'s 2, 1, 1/2 and ~0.7; the small excess is a real continuum effect, a '
                'clamp in a solid adding a little Saint-Venant stiffening an ideal beam has none of.',
                'end_conditions'),
         Figure(laws,
@@ -1242,10 +1240,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
                'in pairs: the tips swing together (a rocking that shakes the stem, damped '
                'the moment the fork is held there) or oppositely, and the oppositely '
                'moving one, which leaves the stem still, is "the voice" the fork is made '
-               'for. A mode is an eigenvector, so its sign is free (the shading is that '
-               'free sign, red one way and blue the other) and its amplitude unset, scaled '
-               'here only to be visible: read the shape and the frequency, not the colour '
-               'direction or the size.',
+               'for.',
                'modes', thumbnail=True),
         Figure(swing,
                'The voice mode as motion rather than a frozen shape: phi cos(omega t), the '

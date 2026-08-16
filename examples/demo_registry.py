@@ -24,17 +24,14 @@ class Figure:
     `slug` names the file when a demo produces more than one figure, so they save as
     `wave-animation.png` / `wave-snapshots.png` rather than `wave_0` / `wave_1`.
 
-    `thumbnail` nominates this figure as the demo's card image in the gallery, which
-    otherwise uses the first. Most demos need no nomination: they return their results
-    first and the setup after, which is the order a reader arriving from a card wants
-    anyway. It is for the demo whose order is deliberately the other way round:
-    `stress_concentration` runs an outline through to a stress, where the sequence is
-    the content, and its card should still be the stress.
+    `thumbnail` nominates this figure as the demo's gallery card instead of the first.
+    Most demos return their result first and their setup after, the order a reader
+    arriving from a card wants, so the default suffices; it is for a demo like
+    `stress_concentration`, whose card should be the final stress, not its outline.
 
-    `setup` marks a figure as how the problem was posed rather than what came out:
-    the conditions imposed, the state it started from. The gallery gives those a section
-    of their own at the foot of the page, beside the source, because they are the same
-    kind of thing: how a reader would set this up themselves, rather than what it shows.
+    `setup` marks a figure as how the problem was posed (the conditions imposed, the
+    state it started from) rather than what came out. The gallery collects those at the
+    foot of the page, beside the source.
     """
     plotter: 'Plotter'
     caption: str
