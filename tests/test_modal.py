@@ -22,7 +22,7 @@ import pytest
 from fem.boundary import BoundaryConditions, BCType
 from fem.elements import QuadraticTriangleElement
 from fem.equations import LinearElastic, Poisson, StrainMeasure
-from fem.mesh.ruppert import create_rect_mesh
+from fem.mesh.structured import create_rect_mesh
 from fem.regions import on_plane
 from fem.solution import ModalSolution, Solution
 from fem.space import FunctionSpace

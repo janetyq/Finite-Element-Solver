@@ -25,7 +25,8 @@ from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
-from fem.mesh.ruppert import RuppertsAlgorithm, create_box_mesh, create_rect_mesh
+from fem.mesh.ruppert import RuppertsAlgorithm
+from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer

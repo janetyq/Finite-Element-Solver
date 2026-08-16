@@ -28,7 +28,7 @@ import pytest
 from fem.boundary import BoundaryConditions, BCType
 from fem.backends import IterativeBackend
 from fem.materials import Enu_to_Lame
-from fem.mesh.ruppert import create_box_mesh, create_rect_mesh
+from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere
 from fem.equations import LinearElastic
 from fem.solver import Solver

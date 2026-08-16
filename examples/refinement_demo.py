@@ -14,7 +14,7 @@ from fem.equations import Poisson
 from fem.estimators import residual_estimator
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
-from fem.mesh.ruppert import create_rect_mesh
+from fem.mesh.structured import create_rect_mesh
 from fem.plot.plotter import Plotter
 from fem.regions import everywhere
 from fem.solver import Solver
