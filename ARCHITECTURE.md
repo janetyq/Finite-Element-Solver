@@ -227,8 +227,12 @@ factor-once solve), and knows nothing about which PDE produced the `Problem`. `L
 assembles once and solves once; `NewtonSolve` iterates, re-factoring the tangent each step and
 checking convergence before applying the increment. A `LinearProblem` has a constant tangent and
 an affine residual, so `NewtonSolve` reaches its solution in a single applied step from any seed —
-`LinearSolve` is that step done directly. The two are one engine: `EnergySolver`'s Newton loop *is*
-`NewtonSolve`, applied to an `EnergyProblem`. `SolveStrategy` is the protocol both satisfy, and
+`LinearSolve` is that step done directly. An optional `BacktrackingLineSearch` globalizes the step:
+it scales each increment to decrease a merit (the problem's energy Π(u) when it has one via
+`SupportsEnergy`, else ½‖r‖²), so a non-convex St-Venant–Kirchhoff solve converges from a seed a
+full step would send diverging, at no cost near the solution where α = 1. The two are one engine:
+`EnergySolver`'s Newton loop *is* `NewtonSolve` (line-searched), applied to an `EnergyProblem`.
+`SolveStrategy` is the protocol both satisfy, and
 `TopologyOptimizer` takes one as an injectable parameter — a driver that accepts any strategy,
 which is the protocol earning its place.
 

@@ -144,9 +144,11 @@ recovers anything. Each item below is an implementation of a seam that already e
     negative curvature (`pᵀAp ≤ 0`), using the iterate reached so far. CG deliberately
     repurposed for indefinite systems, normally inside a trust region.
 
-  Either also closes a gap that is already open: `NewtonSolve` takes a full step every iteration
-  with no line search or trust region, so convergence currently depends on the seed being close
-  enough.
+  Step *length* is already globalized: `NewtonSolve` takes an optional `BacktrackingLineSearch`
+  (Armijo on Π, else ½‖r‖²), which `EnergySolver` uses by default, so a full step no longer
+  diverges from a poor seed. What remains here is the step *direction*: at an indefinite tangent
+  the line search has no descent direction to scale and falls back to the full step, and the two
+  routes above are what supply one, which is also what makes the CG backend safe every iteration.
 
 - 💡 **Nonlinear post-buckling, the sequel to `BucklingSolver`.** Linearised buckling now finds the
   critical load and the mode shape (`fem/buckling.py`), but not what the structure *does* past the

@@ -29,7 +29,7 @@ from fem.regions import on_plane
 from fem.equations import LinearElastic, StrainMeasure
 from fem.solver import Solver
 from fem.energy_solver import EnergySolver
-from fem.solve import NewtonSolve
+from fem.solve import BacktrackingLineSearch, NewtonSolve
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.forms import EnergyForm
 from fem.numerics import central_difference_order
@@ -99,6 +99,41 @@ def _one_newton_step(solver):
     u = np.zeros(solver.space.n_dofs)
     u[fixed] = fixed_values
     return NewtonSolve(max_iters=1).solve(problem, u0=u)
+
+
+def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_square):
+    """Under strong compression the St-Venant–Kirchhoff tangent loses ellipticity, so a
+    full Newton step from the zero seed overshoots and the iteration diverges. Backtracking
+    on the energy keeps every step a descent and reaches equilibrium.
+
+    The right edge is pushed 70% of the way through the block, deep into the non-convex
+    regime. Convergence is read from the free-DOF residual (the fixed DOFs carry reaction
+    forces that are nonzero at equilibrium): the line-searched solve drives it to zero while
+    the full-step solve blows up by orders of magnitude within the same iteration budget.
+    """
+    mesh = make_unit_square(8)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [-0.7, 0])   # 70% compression
+    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    solver = EnergySolver(mesh, equation, bc)
+
+    problem = solver.problem()
+    free, fixed, fixed_values = problem.constraints
+    seed = np.zeros(solver.space.n_dofs)
+    seed[fixed] = fixed_values
+
+    def free_residual(line_search):
+        u = NewtonSolve(max_iters=50, line_search=line_search).solve(problem, u0=seed.copy())
+        return float(np.linalg.norm(problem.residual(u)[free]))
+
+    r_full = free_residual(None)
+    r_searched = free_residual(BacktrackingLineSearch())
+
+    assert r_searched < 1e-5, f"line search should converge, got residual {r_searched:.2e}"
+    assert not np.isfinite(r_full) or r_full > 1e-2, (
+        f"the full step should fail to converge here, got residual {r_full:.2e}"
+    )
 
 
 def test_kinematics_is_an_equation_level_choice():
