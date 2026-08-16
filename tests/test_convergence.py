@@ -20,11 +20,11 @@ from fem.convergence import ConvergenceStudy, solve_poisson_mms
 @pytest.fixture(scope="module")
 def convergence_data():
     resolutions = [11, 21, 41]  # h = 0.1, 0.05, 0.025 (each halved)
-    return [(s.h, s.l2_error) for s in (solve_poisson_mms(n) for n in resolutions)]
+    return [solve_poisson_mms(n) for n in resolutions]
 
 
 def test_error_decreases_monotonically(convergence_data):
-    errors = [e for _, e in convergence_data]
+    errors = [s.l2_error for s in convergence_data]
     for coarse, fine in zip(errors, errors[1:]):
         assert fine < coarse, f"error grew under refinement: {errors}"
 
@@ -32,8 +32,8 @@ def test_error_decreases_monotonically(convergence_data):
 def test_second_order_convergence(convergence_data):
     # Observed order p from successive (h, error) pairs:
     #   error ~ C h^p  =>  p = log(e1/e2) / log(h1/h2)
-    hs = [h for h, _ in convergence_data]
-    errors = [e for _, e in convergence_data]
+    hs = [s.h for s in convergence_data]
+    errors = [s.l2_error for s in convergence_data]
     orders = [
         np.log(errors[i] / errors[i + 1]) / np.log(hs[i] / hs[i + 1])
         for i in range(len(hs) - 1)
@@ -43,9 +43,29 @@ def test_second_order_convergence(convergence_data):
         assert 1.7 < p < 2.3, f"expected ~2nd order, got orders {orders}"
 
 
+def test_first_order_h1_convergence(convergence_data):
+    """The H1 seminorm -- the gradient error, integrated against the analytic gradient
+    rather than read off the assembled K -- converges at O(h) for P1, one order below
+    L2. It is the sharper probe of the stiffness the operator is built from: a subtly
+    wrong grad_phi degrades this rate while the L2 error can still look almost right."""
+    hs = [s.h for s in convergence_data]
+    errors = [s.h1_error for s in convergence_data]
+    orders = [
+        np.log(errors[i] / errors[i + 1]) / np.log(hs[i] / hs[i + 1])
+        for i in range(len(hs) - 1)
+    ]
+    # P1 gives order 1 in the H1 seminorm. Banded tighter than the L2 order-2 test
+    # (0.9-1.1, not the +/-0.3 the L2 rate needs): the gradient error is cleanly O(h)
+    # here with essentially no pre-asymptotic drift -- observed 1.00 at both pairs,
+    # where L2 still climbs 1.97 -> 1.99 -- so the slack buys nothing and a tight band
+    # catches a subtly wrong grad_phi that degrades the rate.
+    for p in orders:
+        assert 0.9 < p < 1.1, f"expected ~1st order in H1, got orders {orders}"
+
+
 def test_absolute_accuracy_on_fine_mesh(convergence_data):
     # Sanity floor: the finest mesh should be reasonably accurate.
-    _, finest_error = convergence_data[-1]
+    finest_error = convergence_data[-1].l2_error
     assert finest_error < 1e-2
 
 
