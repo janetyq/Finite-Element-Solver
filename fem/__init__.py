@@ -75,6 +75,7 @@ from fem.buckling import BucklingSolver
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
 from fem.adaptivity import AdaptiveRefinement
+from fem.estimators import ErrorEstimator, recovery_estimator, residual_estimator
 from fem.plot.plotter import Plotter, PlotMode
 
 # Library-quiet by default: emit nothing unless the application configures a
@@ -132,6 +133,9 @@ __all__ = [
     "EnergySolver",
     "TopologyOptimizer",
     "AdaptiveRefinement",
+    "ErrorEstimator",
+    "residual_estimator",
+    "recovery_estimator",
     "Plotter",
     "PlotMode",
 ]

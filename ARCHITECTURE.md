@@ -4,7 +4,7 @@ The package's object model: which concepts exist and which object owns each job,
 structural and dead-weight items collected at the end. Anchored on symbol names rather than line
 numbers, which drift with every refactor.
 
-The numeric roadmap that remains — quadrature, higher-order elements, an error estimator, a
+The numeric roadmap that remains — quadrature, higher-order elements, a
 hand-rolled multigrid preconditioner — lives in `BACKLOG.md`.
 
 ---
@@ -305,14 +305,17 @@ integrator (`problem.heat(...)`, `problem.wave(...)`), not a distinct PDE type, 
 material — `TopologyOptimizer` builds a fresh material each iteration — so it is immutable
 specification.
 
-It also answers what its constants *mean*, along one method per assembly path: `operator(...)`
+It also answers what its constants *mean*, along one method per consumer: `operator(...)`
 returns the bilinear `Form` the linear path assembles (`MassForm` for a projection, the
 material-free `LaplacianForm` for the scalar family, a `LinearElasticForm` built from its own
-`E`/`nu`), and `energy_density()` returns the density the nonlinear path differentiates. Both
-refuse rather than approximate: a Green–Lagrange `LinearElastic` has no constant stiffness, so it
-has no `operator`, and a scalar equation has no stored energy, so it has no `energy_density`. That
-is why neither facade holds a `_select_*` mapping, and it is the natural home for the per-equation
-error estimator the backlog wants.
+`E`/`nu`), `energy_density()` returns the density the nonlinear path differentiates, and `flux()`
+names the field an error estimator jumps or recovers (`GradientFlux` for the scalar family,
+`StressFlux` for elasticity). The first two refuse rather than approximate: a Green–Lagrange
+`LinearElastic` has no constant stiffness, so it has no `operator`, and a scalar equation has no
+stored energy, so it has no `energy_density`. That is why neither facade holds a `_select_*`
+mapping. The estimator *algorithm* lives apart, in `fem/estimators.py`: the equation only names
+its flux, exactly as it names its `Form`, and a residual or recovery estimator is a neutral engine
+over that flux — the `Form`/`assemble` split once more, keeping the algorithm off the data class.
 
 `fem/equations.py` is its own module for the same reason: both facades consume equations, so
 neither owns them.
@@ -445,7 +448,6 @@ this one:
 |---|---|
 | Poisson flux `-∇u` | a `derived_fields` on the scalar family's form |
 | Derived fields for a transient solve | `TransientSolution`; the per-step series has no recovery |
-| A-posteriori error estimator | a method on `Equation` (`BACKLOG.md`); per-equation by nature |
 | Plane *stress* as an alternative 2D reduction | a second branch in `LinearElasticMaterial` |
 
 None is blocked by the structure — each is an additional implementation of a seam that now exists,

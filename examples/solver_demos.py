@@ -19,6 +19,7 @@ from fem.convergence import (
     theta_convergence,
 )
 from fem.elements import QuadraticTriangleElement
+from fem.estimators import residual_estimator
 from fem.space import FunctionSpace
 from fem.regions import everywhere, on_plane, in_box, intersect
 from fem.plot.plotter import Plotter
@@ -350,7 +351,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     bc.add(BCType.NEUMANN, on_plane(0, length), [traction, 0])
 
     # Adaptive refinement, driven by this same equation's residual estimator
-    # (LinearElastic.error_estimate), replaces the uniform mesh above with one built
+    # (residual_estimator, from fem.estimators), replaces the uniform mesh above with one built
     # by repeatedly re-solving and splitting wherever the estimator finds the most
     # error -- everything the rest of this demo plots and measures is read off the
     # *result* of this loop, not off the coarse mesh it started from.
@@ -367,7 +368,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     equation = LinearElastic(E=200, nu=0.3)
     solver = Solver(mesh, equation, bc)
     solution = AdaptiveRefinement(
-        solver, equation.error_estimate,
+        solver, residual_estimator(equation),
         max_triangles=n_initial + refinement_budget, max_iters=refinement_iters,
     ).run()
     mesh = solver.mesh

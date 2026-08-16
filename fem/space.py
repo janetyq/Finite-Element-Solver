@@ -413,6 +413,12 @@ class FunctionSpace:
         vertex, so something has to combine the values of the elements meeting at
         a node.
 
+        Takes a per-element scalar `(n_elements,)` or a per-element array
+        `(n_elements, *component_shape)` -- a flux tensor, say -- and returns the
+        matching `(n_nodes,)` or `(n_nodes, *component_shape)`, recovering each
+        component independently. The array form is what the recovery error
+        estimator smooths a discontinuous flux with.
+
         Weighted by volume rather than counted evenly: on a graded mesh a sliver
         and the large element beside it are not equally good evidence about the
         field near their shared node, and an unweighted mean gives them the same
@@ -430,15 +436,24 @@ class FunctionSpace:
             )
         nodes = self.element_nodes
         weights = self.element_volumes
+        n_local = nodes.shape[1]
         flat = nodes.ravel()
-        weighted = np.repeat(values * weights, nodes.shape[1])
-        totals = np.repeat(weights, nodes.shape[1])
+        trailing = values.shape[1:]
 
-        sums = np.bincount(flat, weights=weighted, minlength=self.n_nodes)
-        norms = np.bincount(flat, weights=totals, minlength=self.n_nodes)
+        # Broadcast the per-element weight over any trailing component axes, then
+        # scatter each element's weighted value onto its own nodes. `add.at`
+        # accumulates rather than assigns, so a shared node sums its elements'
+        # contributions (an assignment would keep only the last, an order-dependent
+        # bug the scalar path once had).
+        w = weights.reshape((-1,) + (1,) * len(trailing))
+        weighted = np.repeat(values * w, n_local, axis=0)
+        sums = np.zeros((self.n_nodes, *trailing))
+        np.add.at(sums, flat, weighted)
+        norms = np.bincount(flat, weights=np.repeat(weights, n_local), minlength=self.n_nodes)
         # Every referenced node belongs to at least one element; an unreferenced one
         # would divide by zero, so it keeps 0 instead.
-        return sums / np.where(norms > 0, norms, 1.0)
+        norms = np.where(norms > 0, norms, 1.0).reshape((-1,) + (1,) * len(trailing))
+        return sums / norms
 
     # -- operators ----------------------------------------------------------
 

@@ -11,6 +11,7 @@ import numpy as np
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.equations import Poisson
+from fem.estimators import residual_estimator
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.ruppert import create_rect_mesh
@@ -44,19 +45,20 @@ def demo_refinement(_mesh):
     coarse_solver = Solver(mesh.copy(), equation, bc)
     coarse_solution = coarse_solver.solve()
     coarse_mesh = coarse_solver.mesh
-    coarse_error = equation.error_estimate(coarse_solver)
+    estimator = residual_estimator(equation)
+    coarse_error = estimator.estimate(coarse_solver)
     n_coarse = len(coarse_mesh.elements)
 
     # Run adaptive refinement driven by the residual error estimator
     refined_solver = Solver(mesh.copy(), equation, bc)
     refined_solution = AdaptiveRefinement(
         refined_solver,
-        equation.error_estimate,
+        estimator,
         max_triangles=3000,
         max_iters=20,
     ).run()
     refined_mesh = refined_solver.mesh
-    refined_error = equation.error_estimate(refined_solver)
+    refined_error = estimator.estimate(refined_solver)
     n_refined = len(refined_mesh.elements)
 
     # Use a shared log scale for both error plots so they're comparable
