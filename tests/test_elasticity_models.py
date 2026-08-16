@@ -32,6 +32,7 @@ from fem.energy_solver import EnergySolver
 from fem.solve import NewtonSolve
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.forms import EnergyForm
+from fem.numerics import central_difference_order
 
 
 def test_hooke_matrix_is_the_second_derivative_of_the_small_strain_energy():
@@ -132,6 +133,43 @@ def test_energy_solver_matches_recorded_solution(make_unit_square):
     np.testing.assert_allclose(u.max(), 0.1, rtol=1e-12)
     np.testing.assert_allclose(u.min(), -0.037995668257, rtol=1e-9)
     np.testing.assert_allclose(solver.energy(u.copy()), 1.590561321584, rtol=1e-9)
+
+
+def test_energy_gradient_and_hessian_are_consistent_by_finite_difference(make_unit_square):
+    """`energy_gradient` is the gradient of `energy`, and `energy_hessian` the gradient
+    of `energy_gradient`, each to O(eps^2) under central differences.
+
+    These are the assembled quantities Newton uses: the potential energy Pi(u) summed
+    over the mesh, with its global gradient and Hessian. The density they are built
+    from is checked separately, by StVenantKirchhoff.check_gradients. Between the two
+    lies the element assembly, which evaluates the density per element and sums each
+    contribution into the global arrays by DOF. A mistake there (a wrong scatter, or a
+    transposed element matrix) leaves the density correct while making the assembled
+    gradient and Hessian inconsistent with the assembled energy. The density check
+    cannot see that; this test can.
+
+    St-VK (not small strain) is needed for a meaningful slope: its energy is quartic in
+    u, so the error is a clean O(eps^2), whereas a quadratic small-strain energy makes
+    the central difference exact and the slope meaningless.
+    """
+    mesh = make_unit_square(5)
+    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    # BCs are unused here: energy/gradient/hessian are the raw, unconstrained
+    # quantities, evaluated at an imposed state rather than a solve.
+    solver = EnergySolver(mesh, equation)
+
+    # A non-trivial state, so the nonlinearity is active -- at u = 0 the tangent is the
+    # small-strain one and the cubic term this check leans on would vanish.
+    rng = np.random.default_rng(0)
+    u = 0.1 * rng.standard_normal(solver.space.n_dofs)
+    gradient = solver.energy_gradient(u)
+    hessian = solver.energy_hessian(u)
+
+    grad_order = central_difference_order(solver.energy, lambda d: gradient @ d, u)
+    hess_order = central_difference_order(solver.energy_gradient, lambda d: hessian @ d, u)
+
+    assert 1.9 < grad_order < 2.1, f"energy_gradient disagrees with d(energy): order {grad_order:.3f}"
+    assert 1.9 < hess_order < 2.1, f"energy_hessian disagrees with d(energy_gradient): order {hess_order:.3f}"
 
 
 def test_small_strain_energy_equals_direct_solve(make_unit_square):

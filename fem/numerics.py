@@ -1,6 +1,8 @@
 """Numerical utilities: source/field functions, the SIMP smoothing matrix, and
 finite-difference gradient/Hessian checks.
 """
+from collections.abc import Callable
+
 import numpy as np
 from scipy.sparse import csr_array
 from scipy.spatial import KDTree
@@ -116,3 +118,41 @@ def check_hessian(gradient, hessian, input_shape):
     plt.xlabel('eps')
     plt.ylabel('error')
     plt.show()
+
+
+def central_difference_order(
+    function: Callable[[FloatArray], FloatArray | float],
+    directional_derivative: Callable[[FloatArray], FloatArray | float],
+    u: FloatArray,
+    *,
+    eps: FloatArray | None = None,
+    n_directions: int = 4,
+    seed: int = 0,
+) -> float:
+    '''Fitted order of a central-difference check of `directional_derivative` at `u`.
+
+    For each of a few random directions `d`, compares the central difference
+        (function(u + eps*d) - function(u - eps*d)) / (2*eps)
+    against `directional_derivative(d)` across a sweep of `eps`, and returns the slope
+    of log(error) vs log(eps). A correct derivative makes the error O(eps^2), so the
+    slope is ~2; the default `eps` stays in that regime, above the roundoff floor.
+
+    `directional_derivative(d)` is the derivative at `u` along `d`: `gradient @ d` for
+    a scalar `function`, `hessian @ d` for a vector one.
+    '''
+    rng = np.random.default_rng(seed)
+    if eps is None:
+        eps = np.logspace(-4, -1, 8)
+    directions = rng.standard_normal((n_directions, *np.shape(u)))
+    per_direction = tuple(range(1, directions.ndim))  # every axis but the direction index
+    directions /= np.linalg.norm(directions, axis=per_direction, keepdims=True)
+    exact = [np.asarray(directional_derivative(d), dtype=float) for d in directions]
+
+    errors = []
+    for step in eps:
+        squared = 0.0
+        for d, exact_d in zip(directions, exact):
+            approx = (function(u + step * d) - function(u - step * d)) / (2 * step)
+            squared += float(np.sum((np.asarray(approx, dtype=float) - exact_d) ** 2))
+        errors.append(np.sqrt(squared))
+    return float(np.polyfit(np.log(eps), np.log(errors), 1)[0])
