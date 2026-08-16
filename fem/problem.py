@@ -20,7 +20,7 @@ Poisson" means, so there is no PDE type to switch on.
 """
 import copy
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
@@ -49,6 +49,17 @@ class Problem(Protocol):
     def tangent(self, u: DofVector | None) -> Operator: ...
 
     def residual(self, u: DofVector) -> DofVector: ...
+
+
+@runtime_checkable
+class SupportsEnergy(Protocol):
+    '''A `Problem` that can score a state by a scalar energy Π(u).
+
+    The merit function a globalized `NewtonSolve` minimises: `EnergyProblem`
+    supplies its potential energy, so the line search decreases the quantity being
+    solved for. A problem without one (a `LinearProblem`) falls back to ½‖r‖².
+    '''
+    def energy(self, u: DofVector) -> float: ...
 
 
 # -- load terms: the linear form L(v), assembled as a vector --------------------

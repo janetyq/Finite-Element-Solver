@@ -15,7 +15,7 @@ from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, ScaledForm
 from fem.materials import LinearElasticMaterial
 from fem.problem import EnergyProblem, LinearProblem, linear_elastic, poisson
 from fem.regions import everywhere, on_plane
-from fem.solve import LinearSolve, NewtonSolve
+from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
 from fem.equations import LinearElastic, Poisson
 from fem.solver import Solver
 from fem.space import FunctionSpace
@@ -47,6 +47,20 @@ def test_newton_on_a_linear_problem_is_seed_independent(make_unit_square):
     for _ in range(3):
         seed = rng.normal(size=problem.space.n_dofs)
         np.testing.assert_allclose(NewtonSolve().solve(problem, u0=seed), reference, atol=1e-10)
+
+
+def test_line_search_is_a_noop_on_a_linear_problem(make_unit_square):
+    """A LinearProblem's exact Newton step already lands on the solution, so backtracking
+    accepts alpha = 1 on the first test and changes nothing. This also exercises the
+    residual-norm merit fallback: a LinearProblem is not `SupportsEnergy`, so the search
+    scores states by 1/2||r||^2, which is zero at the solution the full step reaches."""
+    problem = _poisson_problem(make_unit_square(15))
+    reference = LinearSolve().solve(problem)
+
+    searched = NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem)
+    np.testing.assert_allclose(searched, reference, atol=1e-10)
+    # And identical to the plain full-step path, not merely close.
+    np.testing.assert_allclose(searched, NewtonSolve().solve(problem), atol=1e-12)
 
 
 def test_poisson_factory_matches_the_solver_facade(make_unit_square):

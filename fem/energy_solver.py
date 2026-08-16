@@ -20,7 +20,7 @@ from fem.equations import LinearElastic
 from fem.forms import EnergyForm
 from fem.mesh.mesh import Mesh
 from fem.problem import EnergyProblem
-from fem.solve import NewtonSolve
+from fem.solve import BacktrackingLineSearch, NewtonSolve
 from fem.solution import ElasticSolution, Solution
 from fem.space import FunctionSpace
 from fem.typing import DofVector, SparseMatrix
@@ -111,7 +111,11 @@ class EnergySolver:
         u[fixed] = fixed_values
 
         logger.info('Initial energy: %s', self.energy(u))
-        u = NewtonSolve(max_iters=max_iters).solve(problem, u0=u)
+        # Line-searched: the St-Venant–Kirchhoff energy is non-convex, so a full Newton
+        # step from this seed can raise the energy and diverge. Backtracking on Π(u)
+        # keeps each step a descent, at no cost near the solution where alpha = 1.
+        newton = NewtonSolve(max_iters=max_iters, line_search=BacktrackingLineSearch())
+        u = newton.solve(problem, u0=u)
         # The energy form recovers Cauchy stress from the same derivative chain
         # Newton just used, so the nonlinear path reports the stress state the
         # linear one does rather than displacement alone.
