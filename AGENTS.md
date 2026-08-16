@@ -17,6 +17,7 @@ Working guidelines for agents on this repo. `CLAUDE.md` imports this file. Do no
 - Keep `main` linear: squash-merge the branch into a single commit, then delete the branch. Never use `git merge --no-ff`.
 - Don't delete a merged branch while another PR is stacked on it: retarget the child to `main` first (`gh pr edit <child> --base main`). A deleted base branch auto-closes its child PRs, unreopenably.
 - Squash-merge through GitHub (`gh pr merge --squash`), not locally, so the PR shows as merged.
+- Parallel efforts run in linked worktrees; keep the primary checkout on `main` (never do feature work there) and give every worktree its own branch off `main`. A branch is then only ever checked out in one place, so `git checkout` and `gh pr merge --delete-branch` never collide across worktrees.
 - Stage explicit paths only. Never use `git add -A` or `git add .`.
 
 ## Verification
