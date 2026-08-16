@@ -491,8 +491,8 @@ Legend: 🟡 design / maintainability · 🟢 small
 
 ### Dead paths and unused code
 
-- 🟢 **`fem/numerics.py` `class color`** — no callers, superseded by the move to `logging`.
-- 🟢 **`fem/numerics.py` `timer`** — no callers.
+(`fem/numerics.py`'s callerless `class color` and `timer` decorator were deleted, and
+`bump_function` — its one live helper here, seeding the transient demos — was vectorized.)
 
 (`fem/quadrature.py` was the standout here — rules shaped `(func, polygon_vertices)` with no
 callers. It is now the real reference-element layer, `QuadratureRule` + Gauss rules per simplex,
@@ -528,7 +528,6 @@ minimal-import goal would want both edges lazy.
    assumptions behind the P1 ceiling both fell: the quadrature-point axis is on `ElementGeometry.grad_phi`, and
    the DOF numbering runs through `FunctionSpace.element_nodes` / `node_coords` rather than the
    mesh vertices. What is left is the 3D P2 element and P2-aware plotting / adaptivity (`BACKLOG.md`).
-2. **Clear the unused modules** — delete `numerics.py`'s `color` / `timer`.
-3. **Fill in the post-processing coverage gaps** (§5) — each is an implementation of an existing
+2. **Fill in the post-processing coverage gaps** (§5) — each is an implementation of an existing
    seam (Poisson flux, transient derived fields).
-4. **Clear the remaining core → plot re-export** — only if headless import becomes a goal.
+3. **Clear the remaining core → plot re-export** — only if headless import becomes a goal.

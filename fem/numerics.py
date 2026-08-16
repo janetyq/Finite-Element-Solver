@@ -1,21 +1,25 @@
-"""Numerical utilities: source/field functions, the SIMP smoothing matrix,
-finite-difference gradient/Hessian checks, and small dev helpers (timer, color).
+"""Numerical utilities: source/field functions, the SIMP smoothing matrix, and
+finite-difference gradient/Hessian checks.
 """
-import logging
-from math import cos, pi
-
 import numpy as np
 from scipy.sparse import csr_array
 from scipy.spatial import KDTree
 
 from fem.mesh.mesh import Mesh
-from fem.typing import SparseMatrix
-
-logger = logging.getLogger(__name__)
+from fem.typing import FloatArray, SparseMatrix
 
 
-def bump_function(vertices, center, mag=100, size=0.5):
-    return np.array([mag*cos(pi/2*np.linalg.norm(point - center)/size) if np.linalg.norm(point - center) < size else 0 for point in vertices])
+def bump_function(
+    vertices: FloatArray, center: FloatArray, mag: float = 100, size: float = 0.5
+) -> FloatArray:
+    '''A radial cosine bump of height `mag` and radius `size`, centered at `center`.
+
+    `mag * cos(pi/2 * r/size)` inside the radius, falling to zero at the rim, and
+    flat zero outside it. Seeds smooth initial conditions in the transient demos
+    and tests.
+    '''
+    distances = np.linalg.norm(vertices - center, axis=1)
+    return np.where(distances < size, mag * np.cos(np.pi / 2 * distances / size), 0.0)
 
 
 def calculate_smoothing_matrix(mesh: Mesh, r: float) -> SparseMatrix:
@@ -112,29 +116,3 @@ def check_hessian(gradient, hessian, input_shape):
     plt.xlabel('eps')
     plt.ylabel('error')
     plt.show()
-
-
-# Decorators
-def timer(func):
-    import time
-    def wrapper(*args, **kwargs):
-        start = time.time()
-        result = func(*args, **kwargs)
-        end = time.time()
-        logger.info('%s took %s seconds', func.__name__, end - start)
-        return result
-    return wrapper
-
-
-# ANSI terminal colors for pretty-printing
-class color:
-   PURPLE = '\033[95m'
-   CYAN = '\033[96m'
-   DARKCYAN = '\033[36m'
-   BLUE = '\033[94m'
-   GREEN = '\033[92m'
-   YELLOW = '\033[93m'
-   RED = '\033[91m'
-   BOLD = '\033[1m'
-   UNDERLINE = '\033[4m'
-   END = '\033[0m'
