@@ -136,17 +136,14 @@ def test_energy_solver_matches_recorded_solution(make_unit_square):
 
 
 def test_energy_gradient_and_hessian_are_consistent_by_finite_difference(make_unit_square):
-    """The assembled energy path is self-consistent: `energy_gradient` is the gradient
-    of `energy`, and `energy_hessian` the gradient of `energy_gradient`, each to
-    O(eps^2) under central differences.
+    """`energy_gradient` is d(`energy`) and `energy_hessian` is d(`energy_gradient`),
+    each to O(eps^2) under central differences.
 
-    This checks the *assembled, constrained* quantities the Newton loop consumes, not
-    the energy *density* -- `StVenantKirchhoff.check_gradients` already does the
-    density level. So it catches a scatter or orientation bug between the density and
-    the assembled Pi that the density-level check cannot see. St-VK is required: a
-    small-strain energy is quadratic, which makes central differences exact and the
-    observed order undefined, whereas St-VK is a genuine degree-4 polynomial in u
-    whose central-difference error is cleanly O(eps^2).
+    Checks the assembled Pi the Newton loop consumes, not the energy density
+    (`StVenantKirchhoff.check_gradients` covers that), so it catches a scatter or
+    orientation bug between them. St-VK is required: a small-strain energy is quadratic,
+    making the central difference exact and the order undefined; St-VK is degree-4 in u,
+    giving a clean O(eps^2).
     """
     mesh = make_unit_square(5)
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)

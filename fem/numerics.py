@@ -129,19 +129,15 @@ def central_difference_order(
     n_directions: int = 4,
     seed: int = 0,
 ) -> float:
-    '''Observed convergence order of a central-difference derivative check at `u`.
+    '''Fitted log-log slope of a central-difference derivative check at `u`.
 
-    For a correct derivative, the central difference along a direction `d`,
-    `(function(u + eps*d) - function(u - eps*d)) / (2*eps)`, matches
-    `directional_derivative(d)` to O(eps^2), so the error against `eps` has a
-    log-log slope of ~2 wherever truncation dominates roundoff. This probes a few
-    random directions, sweeps `eps`, and returns the fitted slope -- the assert-shaped
-    counterpart to `check_gradient` / `check_hessian`, which only plot the curve.
+    A correct derivative matches the central difference to O(eps^2), so the error vs
+    `eps` has slope ~2. Returns that slope over a few random directions -- the
+    assert-shaped counterpart to `check_gradient` / `check_hessian`, which only plot.
 
-    `function` may be scalar- or vector-valued; `directional_derivative(d)` is its
-    directional derivative at `u` along `d` -- `gradient @ d` for a scalar potential,
-    `hessian @ d` for that potential's vector gradient. The default `eps` window stays
-    in the truncation regime (above the ~1e-5 roundoff floor for O(1) quantities).
+    `directional_derivative(d)` is the derivative at `u` along `d`: `gradient @ d` for
+    a scalar `function`, `hessian @ d` for a vector one. The default `eps` sits in the
+    truncation regime, above the roundoff floor.
     '''
     rng = np.random.default_rng(seed)
     if eps is None:
