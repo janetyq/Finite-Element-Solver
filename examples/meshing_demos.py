@@ -6,21 +6,22 @@ Run via the shared CLI:
     uv run python examples/cli.py run mesh_from_svg
 """
 import json
-from functools import partial
 from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
 from matplotlib.widgets import Slider
 
+from fem.boundary import BoundaryConditions, BCType
+from fem.equations import LinearElastic
 from fem.geometry import calculate_triangle_min_angle
 from fem.plot.plotter import Plotter
 from fem.mesh.ruppert import RuppertsAlgorithm
-from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker
-from fem.regions import in_box, intersect, on_plane
+from fem.mesh.svg import PSLG, read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker
+from fem.regions import on_plane
+from fem.solver import Solver
 
 from demo_registry import Demo, DemoResult, Figure
 from domains import beam
@@ -42,62 +43,77 @@ DEFAULT_SIMPLIFICATION_TOLERANCE = 0.005
 # enormous triangles.
 DEFAULT_MAX_AREA_FRACTION = 0.005
 
-def demo_regions(mesh):
-    """Name parts of a domain by position, which is how a boundary condition says where
-    it applies, and survives a remesh the way a vertex index could not."""
-    # The alternative is naming vertex indices, and an index means nothing after a
-    # remesh renumbers them. Everything here is written against coordinates, so the
-    # same three lines select the same three places on any mesh of this beam, which
-    # lets a generated mesh carry boundary conditions at all.
-    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
+def demo_regions(length=4.0, height=1.0, n_structured=60, min_angle=30,
+                 max_area_fraction=0.0009, E=200.0, nu=0.3, traction=0.5):
+    """Solve one cantilever on two unrelated triangulations of the same beam, a structured
+    grid and an unstructured Ruppert's mesh, to show position-based boundary conditions
+    resolving against whichever mesh is current: one specification, two meshes, one solve."""
+    # The alternative is naming vertex indices, and an index means nothing after a remesh
+    # renumbers them. The clamp and the load below are written once against coordinates, so
+    # the same two lines select the same physical edges on any triangulation of the beam.
+    # The two meshes here are the same size but built two different ways, so their vertices
+    # are numbered nothing alike; the same specification resolves against each and drives
+    # the same solve, which is what makes a mesh interchangeable at all. A whole-edge load,
+    # not a sub-patch: an edge holds the same total length on any mesh, where a patch's
+    # boundary would fall between different nodes on each and apply a slightly different
+    # resultant, a mesh dependence that has nothing to do with the point being made here.
     clamped = on_plane(0, 0.0)
-    loaded = intersect(on_plane(0, w), in_box([None, 0.2*h], [None, 0.8*h]))
-    far_half = in_box([w/2, None], [None, None])
+    loaded = on_plane(0, length)
 
-    # Sized for the domain plus a row of labels under it: the axes are equal-aspect, so
-    # a 4:1 beam in the default square-ish figure is a thin strip, and a legend inside
-    # one covers the mesh it is annotating.
-    figsize = (9.0, 3.6)
+    def make_bc():
+        bc = BoundaryConditions()
+        bc.add(BCType.DIRICHLET, clamped, [0, 0])         # clamp the left edge
+        bc.add(BCType.NEUMANN, loaded, [0, -traction])    # pull the right edge down
+        return bc
 
-    # The claim these regions are worth anything rests on: resolved fresh against
-    # whatever mesh is current, not tied to one triangulation's vertex numbering. Shown
-    # rather than asserted: the same three predicates land on the same physical
-    # patches on a second, differently-resolved mesh of this beam, whose vertices are
-    # numbered nothing like the first's.
-    finer = beam(w, h, 90)
-    resolved = Plotter(1, 2, title='The same regions, resolved on two different meshes',
-                       axis_labels=False, figsize=figsize)
-    for col, m in enumerate((mesh, finer)):
-        m_centroids = m.vertices[m.elements].mean(axis=1)
-        resolved.plot(m, mode='mesh', idx=(0, col), title=f'{len(m.elements)} triangles')
-        resolved.plot_highlights(m, [np.flatnonzero(far_half(m_centroids))], ['lightblue'],
-                                 [''], mode='elements', idx=(0, col))
-        resolved.plot_highlights(
-            m,
-            [np.flatnonzero(clamped(m.vertices)), np.flatnonzero(loaded(m.vertices))],
-            ['red', 'green'], ['', ''], idx=(0, col),
-        )
-    legend_handles = [
-        Patch(facecolor='lightblue', alpha=0.2, label='in_box: far half'),
-        Line2D([], [], marker='o', linestyle='', color='red', markersize=5,
-              label='on_plane: clamped edge'),
-        Line2D([], [], marker='o', linestyle='', color='green', markersize=5,
-              label='intersect: loaded patch'),
+    pslg = PSLG.from_loops([np.array([[0.0, 0.0], [length, 0.0],
+                                      [length, height], [0.0, height]])])
+    pslg.validate()
+    meshes = [
+        ('structured grid', beam(length, height, n_structured)),
+        ("Ruppert's mesh", RuppertsAlgorithm(pslg, min_angle=min_angle,
+                                             max_area=max_area_fraction * pslg.area()).refine()),
     ]
-    resolved.fig.legend(handles=legend_handles, loc='outside lower center', ncol=3,
+    solutions = [Solver(m, LinearElastic(E, nu), make_bc()).solve() for _, m in meshes]
+    disp = [np.linalg.norm(s.u.reshape(-1, 2), axis=1) for s in solutions]
+    tips = [float(d.max()) for d in disp]
+    clim = (0.0, max(tips))
+
+    # Two rows: the bare meshes with the selected regions on top (where the conditions go),
+    # the deformed solves below (what they drive). Sized so the 4:1 panels are not slivers.
+    resolved = Plotter(2, 2, title='One specification, two meshes, the same solve',
+                       axis_labels=False, figsize=(11.0, 5.6))
+    for col, ((name, m), s, d, tip) in enumerate(zip(meshes, solutions, disp, tips)):
+        resolved.plot(m, mode='mesh', idx=(0, col), title=f'{name}: {len(m.elements)} triangles')
+        resolved.plot_highlights(
+            m, [np.flatnonzero(clamped(m.vertices)), np.flatnonzero(loaded(m.vertices))],
+            ['red', 'lime'], ['', ''], idx=(0, col))
+        resolved.plot(s.deformed_mesh(), d, mode='colored', idx=(1, col),
+                      label='displacement |u|', clim=clim, title=f'tip |u| = {tip:.3f}')
+    legend_handles = [
+        Line2D([], [], marker='o', linestyle='', color='red', markersize=6,
+               label='on_plane: clamped edge'),
+        Line2D([], [], marker='o', linestyle='', color='lime', markersize=6,
+               label='on_plane: loaded edge'),
+    ]
+    resolved.fig.legend(handles=legend_handles, loc='outside lower center', ncol=2,
                         frameon=False)
 
+    spread = 100 * abs(tips[1] - tips[0]) / tips[1]
     return DemoResult([
         Figure(resolved,
-               'Three regions selected by position (on_plane, in_box, and their '
-               f'intersect) resolved on two different meshes of the same beam: '
-               f'{len(mesh.elements)} triangles, then {len(finer.elements)}, differently '
-               'numbered. Every region lands on the same physical patch either way, which '
-               'is what lets a boundary condition be placed once and survive whatever '
-               'remeshing happens after. The regions themselves are geometric, not '
-               "boundary-aware: a plane through the domain's middle would keep only the "
-               'two vertices where it meets the edge, once resolved against one.'),
-    ])
+               'One cantilever, clamped on the left edge and pulled down along the right, '
+               'solved on two unrelated triangulations of the same beam: a structured grid '
+               f"({len(meshes[0][1].elements)} triangles) and an unstructured Ruppert's mesh "
+               f"({len(meshes[1][1].elements)}), numbered nothing alike. Top: the clamp (red) "
+               'and load (green), placed by position rather than by vertex index, land on the '
+               'same physical edges on each mesh. Bottom: they drive the same solve, the tip '
+               f'deflections agreeing to within {spread:.1f}%. This is what lets a condition '
+               'be written once and survive whatever remeshing happens after, including '
+               'adaptive refinement rebuilding the mesh repeatedly.'),
+    ], text=(f'structured grid   {len(meshes[0][1].elements):>5} triangles, tip |u| = {tips[0]:.4f}\n'
+             f"Ruppert's mesh    {len(meshes[1][1].elements):>5} triangles, tip |u| = {tips[1]:.4f}\n"
+             f'difference        {spread:.1f}%'))
 
 def get_curve_from_svg(svg_file):
     output = read_svg_to_list_of_path_points(svg_file)
@@ -269,8 +285,8 @@ DEMOS = [
     Demo('mesh_from_svg', demo_mesh_from_svg, section='Meshing a domain',
          smoke_kwargs={'max_area_fraction': 0.05}),
     Demo('douglas_peucker', demo_douglas_peucker, section='Meshing a domain'),
-    # Coarse, so individual edges and the selected vertices stay legible, and a beam
-    # so the regions are the cantilever's own.
+    # Builds its own two meshes (a structured grid and a Ruppert's mesh) so it takes no
+    # domain. The smoke run shrinks both to a handful of triangles.
     Demo('regions', demo_regions, section='Meshing a domain',
-         domain=partial(beam, 4.0, 1.0, 24)),
+         smoke_kwargs={'n_structured': 6, 'max_area_fraction': 0.05}),
 ]
