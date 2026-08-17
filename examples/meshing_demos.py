@@ -194,11 +194,12 @@ def rupperts_mesh(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTIO
     rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=max_area)
     return rupperts.refine(), rupperts
 
-def rupperts_figure(mesh, rupperts, min_angle, slug=''):
-    """The triangulation, its input segments, and what the angle bound actually held to."""
-    plotter = Plotter(title='Triangulated mesh', axis_labels=False)
-    plotter.plot(mesh, mode='mesh')
-    ax = plotter.get_ax()
+def _draw_rupperts_mesh(plotter, idx, mesh, rupperts, min_angle):
+    """Draw the triangulation and its input segments on one panel; return the caption
+    fragment describing what came out (how many outlines and triangles, and the angle
+    bound the mesh actually held to)."""
+    plotter.plot(mesh, mode='mesh', idx=idx, title='Triangulated mesh')
+    ax = plotter.get_ax(idx)
     # One collection rather than a plot call per segment: an outline that has been
     # refined runs to hundreds of them.
     ax.add_collection(LineCollection(rupperts.vertices[rupperts.segments],
@@ -211,13 +212,9 @@ def rupperts_figure(mesh, rupperts, min_angle, slug=''):
     held = (f'every angle at least {min_angle} degrees' if worst >= min_angle else
             f'every angle at least {min_angle} degrees bar the input corners already '
             f'sharper than that, the worst {worst:.0f}')
-    return Figure(
-        plotter,
-        f"Ruppert's refinement of {outlines} outlines (blue) into {len(mesh.elements)} "
-        f'triangles, {held}. The mesh covers what the '
-        f'outlines enclose and nothing else, and carries the {len(mesh.boundary)} boundary '
-        'edges a solver needs to put conditions on.',
-        slug)
+    noun = 'outline' if outlines == 1 else 'outlines'
+    return (f"Ruppert's refinement of {outlines} {noun} (blue) into {len(mesh.elements)} "
+            f'triangles, {held}')
 
 def demo_mesh_from_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE,
                        interactive=False, min_angle=20,
@@ -232,27 +229,35 @@ def demo_mesh_from_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATI
     # resolution has thousands. Simplification is what makes the triangulation finish.
     curve = get_curve_from_svg(svg_file)
     simplified = simplify_curve(curve, tolerance=tolerance, interactive=interactive)
+    pslg = read_svg_to_pslg(svg_file, tolerance=tolerance)
+    mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
+                                   max_area_fraction=max_area_fraction)
 
-    # The interactive path has already had its say on screen; this is the result either
-    # way, and the only thing a saved gallery can show of it.
-    simplify_plotter = Plotter(title='Douglas-Peucker simplification', axis_labels=False)
-    ax = simplify_plotter.get_ax()
+    # The two stages side by side: the simplified outline handed to Ruppert's (left) and
+    # the triangulation it returns (right). `panel_aspect` matches the outline's own
+    # width:height so the two tall panels fill the figure rather than floating in it.
+    plotter = Plotter(1, 2, title='From an SVG outline to a mesh', axis_labels=False,
+                      panel_aspect=0.86)
+    ax = plotter.get_ax((0, 0))
+    ax.set_title('Douglas-Peucker simplification')
+    ax.set_aspect('equal')
     closed_curve = close_ring(curve)
     closed_simplified = close_ring(simplified)
     ax.plot(closed_curve[:, 0], closed_curve[:, 1], color='gray', linewidth=1.0,
             label=f'original ({len(curve)} pts)')
     ax.plot(closed_simplified[:, 0], closed_simplified[:, 1], 'b-',
             label=f'simplified ({len(simplified)} pts)')
+    ax.legend(loc='lower left', fontsize=8, frameon=False)
+    mesh_caption = _draw_rupperts_mesh(plotter, (0, 1), mesh, rupperts, min_angle)
 
-    pslg = read_svg_to_pslg(svg_file, tolerance=tolerance)
-    mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
-                                   max_area_fraction=max_area_fraction)
     return DemoResult([
-        Figure(simplify_plotter,
-               f'{len(curve)} outline points reduced to {len(simplified)} on the largest '
-               'loop, at a tolerance set as a fraction of the outline\'s extent.',
-               'simplified'),
-        rupperts_figure(mesh, rupperts, min_angle, 'meshed'),
+        Figure(plotter,
+               f'Left: the largest outline reduced from {len(curve)} points to '
+               f'{len(simplified)} by Douglas-Peucker, at a tolerance set as a fraction of '
+               f"the outline's extent (Ruppert's cost grows steeply in the point count). "
+               f'Right: {mesh_caption}. The mesh covers what the outlines enclose and '
+               f'nothing else, and carries the {len(mesh.boundary)} boundary edges a solver '
+               'needs to put conditions on.'),
     ])
 
 
