@@ -119,6 +119,10 @@ class RuppertsAlgorithm:
         self.segments = np.array([sorted(seg) for seg in pslg.segments])
         self.segment_loops = np.array(getattr(pslg, 'loop_ids',
                                               np.zeros(len(self.segments), dtype=int)))
+        # Analytic curve each loop lies on, if any: a split point on such a loop is
+        # projected onto the curve rather than left at the chord midpoint, so refinement
+        # rounds the outline. Carried onto the output mesh's boundary facets too.
+        self.loop_curves = dict(getattr(pslg, 'loop_curves', {}))
         self.triangulation = Delaunay(self.vertices)
         self._incremental = False
         self.min_angle = min_angle
@@ -443,7 +447,16 @@ class RuppertsAlgorithm:
 
         boundary = get_boundary_from_vertices_elements(elements)
         self.boundary_loops = self._trace_boundary_to_loops(boundary, used, renumbered)
-        return Mesh(self.vertices[used], elements, boundary)
+        boundary_curves = self._boundary_curves(self.boundary_loops)
+        return Mesh(self.vertices[used], elements, boundary, boundary_curves)
+
+    def _boundary_curves(self, boundary_loops):
+        '''The analytic curve each boundary facet lies on, or None if the PSLG had no
+        curves. Aligned with the facets `_enclosed_mesh` builds, so an isoparametric
+        space can put its boundary nodes on the true curve.'''
+        if not self.loop_curves:
+            return None
+        return [self.loop_curves.get(int(loop)) for loop in boundary_loops]
 
     def _trace_boundary_to_loops(self, boundary, used, renumbered):
         '''The input loop each boundary facet came from, or -1 if none did.
@@ -640,7 +653,14 @@ class RuppertsAlgorithm:
         # Halves inherit the loop, so a boundary facet can still be traced back to
         # the outline it came from however many times it has been split.
         loop_id = self.del_segment(segment)
-        self.add_vertex(self._split_point(segment))
+        split = self._split_point(segment)
+        # On a curved loop the midpoint is projected onto the true curve, so each split
+        # moves the outline toward the circle rather than only halving a chord. A smooth
+        # loop has no sharp corner, so this never fights the shell splitting above.
+        curve = self.loop_curves.get(loop_id)
+        if curve is not None:
+            split = np.asarray(curve.project(split))
+        self.add_vertex(split)
         self.add_segment(new_segments[0], loop_id)
         self.add_segment(new_segments[1], loop_id)
         return new_segments

@@ -129,13 +129,17 @@ class Mesh:
         vertices: Vertices,
         elements: Elements,
         boundary: Elements,
+        boundary_curves: Sequence[Curve | None] | None = None,
     ) -> 'Mesh':
         '''A new mesh over the given topology.
 
         The seam remeshers build through, so that refinement and coarsening name
-        what they are doing rather than reaching for the constructor.
+        what they are doing rather than reaching for the constructor. A remesher that
+        keeps its boundary on the same curves passes the (remapped) `boundary_curves`;
+        omitting them yields a straight-sided mesh, since the new facets are otherwise
+        unrelated to the old ones' curves.
         '''
-        return Mesh(vertices, elements, boundary)
+        return Mesh(vertices, elements, boundary, boundary_curves)
 
     def copy(self) -> 'Mesh':
         # Same topology, so the per-facet curve association carries unchanged.

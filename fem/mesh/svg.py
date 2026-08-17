@@ -189,9 +189,15 @@ class PSLG:
     `loop_ids` says which closed outline each segment came from, so a caller can
     tell an obstacle's boundary from an enclosing box's after meshing. It is all
     zeros unless the graph was built by `from_loops`.
+
+    `loop_curves` maps a loop id to the analytic `Curve` its segments sample, when
+    the outline is a true curve (a circle, an arc) rather than freehand. Meshing
+    carries it onto the output mesh's boundary facets and projects new boundary
+    vertices onto it, so refinement rounds the outline instead of only subdividing its
+    chords. Empty for a straight-line outline, the default.
     '''
 
-    def __init__(self, vertices, segments=None, loop_ids=None):
+    def __init__(self, vertices, segments=None, loop_ids=None, loop_curves=None):
         self.vertices = vertices
         if segments is None:
             self.segments = np.array([[i, (i + 1) % len(vertices)] for i in range(len(vertices))])
@@ -199,14 +205,18 @@ class PSLG:
             self.segments = np.asarray(segments)
         self.loop_ids = (np.zeros(len(self.segments), dtype=int) if loop_ids is None
                          else np.asarray(loop_ids))
+        self.loop_curves = dict(loop_curves) if loop_curves else {}
 
     @classmethod
-    def from_loops(cls, loops):
+    def from_loops(cls, loops, curves=None):
         '''A PSLG spanning several closed outlines.
 
         What each loop *means* is decided when meshing, by the even-odd rule: a
         loop inside another is a hole, a loop beside it is a separate piece. So
         the caller draws the outlines and does not also have to label them.
+
+        `curves` is an optional per-loop list of analytic `Curve`s (or `None`), so a
+        loop sampled from a circle can carry that circle for meshing to follow.
         '''
         vertices, segments, loop_ids = [], [], []
         for loop_id, loop in enumerate(loops):
@@ -216,7 +226,9 @@ class PSLG:
             segments.extend([[offset + i, offset + (i + 1) % len(points)]
                              for i in range(len(points))])
             loop_ids.extend([loop_id] * len(points))
-        return cls(np.array(vertices), np.array(segments), np.array(loop_ids))
+        loop_curves = ({i: curve for i, curve in enumerate(curves) if curve is not None}
+                       if curves is not None else None)
+        return cls(np.array(vertices), np.array(segments), np.array(loop_ids), loop_curves)
 
     def loops(self):
         '''The vertices of each closed outline, in order.'''
