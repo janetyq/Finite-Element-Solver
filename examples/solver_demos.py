@@ -21,7 +21,7 @@ from fem.convergence import (
 from fem.elements import QuadraticTriangleElement
 from fem.estimators import residual_estimator
 from fem.space import FunctionSpace
-from fem.regions import everywhere, on_plane, in_box, intersect
+from fem.regions import everywhere, on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
@@ -37,8 +37,8 @@ from fem.modal import ModalSolver
 
 from demo_registry import Demo, DemoResult, Figure
 from domains import (
-    airfoil_channel_pslg, beam, column, l_bracket_pslg, plate_with_hole_pslg, square,
-    tuning_fork_pslg,
+    airfoil_channel_pslg, beam, column, heatsink_pslg, l_bracket_pslg, plate_with_hole_pslg,
+    square, tuning_fork_pslg,
 )
 
 np.set_printoptions(suppress=True)
@@ -793,61 +793,75 @@ def demo_elasticity_models(mesh, stretch=0.5):
               f'minimised elastic energy: {energy_solver.energy(energy_u):.4g}'),
     )
 
-def demo_heat_equation(mesh):
-    """Animate transient heat diffusion from a hot bump initial condition."""
-    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
-    heat_center = np.max(mesh.vertices, axis=0)
-    u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.5*min(w, h)) + 300
+def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0,
+                       min_angle=28, max_area_fraction=0.0016):
+    """Warm a finned heatsink from a cold start: heat conducts up from the hot base and
+    sheds through the fins, which cool convectively (Robin) toward ambient."""
+    # The heat equation is Poisson's operator integrated in time (see fem.problem.heat),
+    # so this is one Crank-Nicolson run over a shape with somewhere for the heat to go: a
+    # square plate has none, and only its contrast fades. The mesh is built here because
+    # the shape is part of what the demo says.
+    pslg = heatsink_pslg()
+    pslg.validate()
+    mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
+                             max_area=max_area_fraction * pslg.area()).refine()
 
-    # Empty on purpose, and stated rather than left as a `None` default: every edge is
-    # insulated, which is why the plate levels off at the mean of its initial state
-    # instead of cooling towards anything.
+    # The bottom face is held hot (a chip beneath the base); every other surface is a
+    # convective film, du/dn + kappa*(u - u_ambient) = 0, so a fin sheds heat and cools
+    # toward its tip. Robin g is kappa*u_ambient, the same limit-spanning condition the
+    # standalone Robin demo sweeps. The film is everything above the heated base, plus the
+    # base's two sides down to the corners, so no non-heated facet reads as insulated.
+    w = float(np.max(mesh.vertices[:, 0]))
+    film = union(in_box([None, 1e-6], [None, None]), on_plane(0, 0.0), on_plane(0, w))
     bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(1, 0.0), u_hot)
+    bc.add_robin(film, kappa=kappa, g=kappa * u_ambient)
 
-    # dt sized to the bump's decay, not to a round number: the corner bump loses 99% of
-    # its contrast by t=0.4, so a run that long is three quarters flat square. Over
-    # t=0.08 the same 40 frames spread the decay out and still reach near-uniform.
-    solution = ThetaMethod(dt=0.002, steps=40).run(heat(mesh, bc=bc), u_initial.copy())
+    # A cold start at ambient, so the run is a heatsink warming up: the base energizes at
+    # the first step and the heat front climbs the fins to a steady gradient.
+    u_initial = np.full(len(mesh.vertices), u_ambient)
+    solution = ThetaMethod(dt=dt, steps=steps).run(heat(mesh, bc=bc), u_initial)
     u_values = solution.u
     t_values = solution.t
 
-    # One animated panel, not two. The second was the same field as a 3D surface, and
-    # `plot_trisurf` re-tessellates the whole mesh every frame; it was the single most
-    # expensive thing in a gallery build, for a second view of a field the snapshots
-    # below already show at six times.
-    # A transient problem is posed by two things, and the initial state is the one that
-    # decides what the picture looks like.
-    setup = Plotter(1, 2)
+    # A transient problem is posed by two things: the conditions and the state it starts
+    # from. Both are drawn here so the run reads as a warm-up from cold.
+    setup = Plotter(1, 2, title='How the heatsink is posed')
     setup.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
     setup.plot(mesh, u_initial, mode='colored', idx=(0, 1), label='temperature',
-               title=f'Initial condition u(x, 0)\n{u_initial.min():.1f} - {u_initial.max():.1f}')
+               cmap='inferno', clim=(u_ambient, u_hot),
+               title=f'Initial condition u(x, 0) = {u_ambient:.0f}')
 
-    animation = Plotter(1, 1, title='Heat Equation')
+    animation = Plotter(1, 1, title='Heatsink warming up')
     animation.plot_animation(mesh, u_values, mode='colored', label='temperature',
-                             titles=[f't={t:.3f}' for t in t_values], idx=(0, 0))
+                             cmap='inferno', cbar_lims=(u_ambient, u_hot),
+                             titles=[f't={t:.2f}' for t in t_values], idx=(0, 0))
 
-    # The animation renders only on show(), so the diffusion needs a still form too;
-    # otherwise this demo contributes nothing to a saved gallery.
-    # One scale across the six, spanning the whole run. Renormalized per panel, a field
-    # losing 70% of its contrast drew as six near-identical squares under a caption
-    # promising it approaches uniform; the decay was in the colorbars and nowhere else.
-    span = (float(np.min(u_values)), float(np.max(u_values)))
-    snapshots = Plotter(2, 3, title='Heat Equation: diffusion from the corner')
+    # One scale across the six (ambient to the heated base), so the panels compare: the
+    # warming front is in the picture, not hidden in per-panel colorbars. A warm colormap
+    # for a warming shape.
+    snapshots = Plotter(2, 3, title='Heatsink warming: heat climbing the fins')
     for panel, i in enumerate(np.linspace(0, len(u_values) - 1, 6).astype(int)):
         snapshots.plot(mesh, u_values[i], mode='colored', idx=divmod(panel, 3),
-                       label='temperature', title=f't={t_values[i]:.3f}', clim=span)
+                       label='temperature', cmap='inferno', clim=(u_ambient, u_hot),
+                       title=f't={t_values[i]:.2f}')
 
+    tip = float(u_values[-1].min())     # coolest node at steady state: a fin tip
     return DemoResult([
-        Figure(animation, 'Crank-Nicolson diffusion of the corner bump.', 'animation'),
         Figure(snapshots,
-               'The same run sampled at six times: the corner bump spreads and the '
-               'plate approaches a uniform temperature.', 'snapshots'),
+               'A finned heatsink warming from a cold start, sampled at six times. The '
+               'base is held hot underneath; the fins shed heat to ambient through a '
+               'convective (Robin) film, so the warming front climbs each fin and settles '
+               'into the classic fin gradient, hot at the root and cooler toward the tip '
+               f'(about {tip:.0f} at steady state, against the {u_hot:.0f} base).',
+               'snapshots'),
+        Figure(animation, 'Crank-Nicolson warming of the heatsink, base to fin tips.',
+               'animation'),
         Figure(setup,
-               'A hot bump in one corner of a plate whose every edge is insulated. '
-               'du/dn = 0 is not an omission but the condition the weak form imposes '
-               'where nothing else is written, and here it means no heat can leave, '
-               'so the total is conserved and the plate must level off at the mean of '
-               'where it started rather than cooling towards anything.',
+               'The bottom face is held at a fixed hot temperature (a chip beneath the '
+               'base); every other surface carries a Robin film, du/dn + kappa*(u - '
+               'u_ambient) = 0, shedding heat to ambient. The sink starts cold at ambient, '
+               'so what follows is a warm-up to the steady dissipating state.',
                'conditions', setup=True),
     ])
 
@@ -1484,7 +1498,10 @@ ACCURACY = 'Accuracy & performance'
 
 DEMOS = [
     Demo('poisson', demo_poisson_equation, section=SOLVING, domain=partial(square, 80)),
-    Demo('heat', demo_heat_equation, section=SOLVING, domain=square),
+    # Builds its own heatsink from an outline (the shape is part of what it shows), so it
+    # takes no domain. The smoke run loosens the size cap and takes only a few steps.
+    Demo('heat', demo_heat_equation, section=SOLVING,
+         smoke_kwargs={'max_area_fraction': 0.03, 'steps': 4}),
     Demo('heat_3d', demo_heat_3d, section=SOLVING, smoke_kwargs={'steps': 3, 'n': 5}),
     Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
     Demo('robin', demo_robin_bc, section=SOLVING, domain=partial(square, 80)),

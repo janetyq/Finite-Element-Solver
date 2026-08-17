@@ -35,11 +35,14 @@ cap.
 ![From an SVG outline to a mesh: simplify, then triangulate](images/mesh_from_svg.png)
 
 Boundary conditions are placed by *position*, not by vertex index, so the same
-specification lands on the same physical patch on any mesh of the domain. That is what
-lets a condition be written once and survive whatever remeshing happens after,
-including adaptive refinement rebuilding the mesh several times over.
+specification lands on the same physical patch on any triangulation of the domain. Below,
+one cantilever, clamped on the left and loaded on the right, is solved on a structured
+grid and an unstructured Ruppert's mesh of the same beam: the conditions resolve against
+each, and the two deflect the same. That is what lets a condition be written once and
+survive whatever remeshing happens after, including adaptive refinement rebuilding the
+mesh several times over.
 
-![The same regions resolved on two different meshes](images/regions.png)
+![One cantilever solved on a structured grid and an unstructured mesh of the same beam](images/regions.png)
 
 ## Solving PDEs
 
@@ -69,11 +72,13 @@ equipotentials crowd over the upper surface, where the flow speeds up.
 
 The heat equation, $\partial u / \partial t = \alpha \nabla^2 u$, describes how
 temperature spreads over time. It is integrated with the theta-method, defaulting to
-$\theta = \tfrac{1}{2}$ (Crank-Nicolson); $\theta = 1$ is backward Euler. Here a hot
-bump in an insulated corner diffuses out and levels off at the mean, since no heat can
-leave a boundary that carries the natural (zero-flux) condition.
+$\theta = \tfrac{1}{2}$ (Crank-Nicolson); $\theta = 1$ is backward Euler. A finned
+heatsink warms from a cold start: its base is held hot underneath, and every other
+surface sheds heat to ambient through a convective (Robin) film,
+$\partial u / \partial n + \kappa (u - u_\infty) = 0$. The warming front climbs each fin
+and settles into the classic fin gradient, hot at the root and cooler toward the tip.
 
-![Heat diffusion from a corner bump, sampled at six times](images/heat.png)
+![A heatsink warming from cold: heat climbing the fins at six times](images/heat.png)
 
 ### Wave equation
 
@@ -83,17 +88,6 @@ theta-method used for the first-order systems. A pulse released from rest spread
 reflects off the free boundary the same way up, and interferes with itself.
 
 ![Wave reflection and interference, second half of the run](images/wave.png)
-
-### Robin boundary conditions
-
-A Robin condition, $\partial u / \partial n + \kappa\, u = g$, contributes to both the
-operator and the load. It is convective cooling: heat generated inside escapes through a
-boundary film, and $\kappa$ says how freely. Its two limits are the other condition
-types: $\kappa \to 0$ is insulated (Neumann) and $\kappa \to \infty$ pins the boundary
-to ambient (Dirichlet). The sweep ends on a Dirichlet solve the last Robin panel
-already matches.
-
-![Convective cooling across three film coefficients](images/robin.png)
 
 ## Solids & structures
 

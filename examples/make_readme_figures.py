@@ -46,7 +46,6 @@ FIGURES: list[tuple[str, str]] = [
     ('potential_flow-flow', 'potential_flow.png'),
     ('heat-snapshots', 'heat.png'),
     ('wave-snapshots', 'wave.png'),
-    ('robin-sweep', 'robin.png'),
     # Solids & structures
     ('linear_elastic-fields', 'linear_elastic.png'),
     ('bracket-fields', 'bracket.png'),
