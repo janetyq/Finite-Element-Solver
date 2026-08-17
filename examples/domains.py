@@ -15,6 +15,7 @@ none of this reaches the per-commit gate either.
 """
 import numpy as np
 
+from fem.mesh.curves import Arc, Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import create_rect_mesh
 from fem.mesh.svg import PSLG
@@ -64,14 +65,48 @@ def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float
     hole rather than a second region, so the mesh covers the material and stops at
     the rim, which makes the rim a boundary the solver can see.
 
-    `segments` is how finely the circle is polygonalised. Too few and the "hole" is a
-    visible polygon whose corners are stress concentrations of their own.
+    The hole loop carries a `Circle`, so refinement rounds it and an isoparametric
+    solve places its boundary nodes on the true rim, instead of the polygon corners
+    being stress concentrations of their own. `segments` still sets the initial
+    polygonisation; with curved elements far fewer are needed.
     """
     outline = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
+    center = (length / 2, height / 2)
     angles = np.linspace(0, 2*np.pi, segments, endpoint=False)
-    hole = np.column_stack([length/2 + radius*np.cos(angles),
-                            height/2 + radius*np.sin(angles)])
-    return PSLG.from_loops([outline, hole])
+    hole = np.column_stack([center[0] + radius*np.cos(angles),
+                            center[1] + radius*np.sin(angles)])
+    return PSLG.from_loops([outline, hole], curves=[None, Circle(list(center), radius)])
+
+
+def disk_pslg(radius: float = 1.0, center: tuple[float, float] = (0.0, 0.0),
+              segments: int = 24) -> PSLG:
+    """A disk of `radius` about `center`, its rim carrying a `Circle`.
+
+    A single curved loop: with isoparametric elements the rim follows the true circle,
+    so `segments` only sets the coarsest sampling refinement starts from.
+    """
+    angles = np.linspace(0, 2*np.pi, segments, endpoint=False)
+    rim = np.column_stack([center[0] + radius*np.cos(angles),
+                           center[1] + radius*np.sin(angles)])
+    return PSLG.from_loops([rim], curves=[Circle(list(center), radius)])
+
+
+def annulus_pslg(inner_radius: float = 0.5, outer_radius: float = 1.0,
+                 center: tuple[float, float] = (0.0, 0.0), segments: int = 24) -> PSLG:
+    """An annulus between two concentric circles, each rim carrying a `Circle`.
+
+    The outer loop is the material's outer edge and the inner loop the hole; under the
+    even-odd rule the mesh covers the ring between them, and both rims are curved.
+    """
+    angles = np.linspace(0, 2*np.pi, segments, endpoint=False)
+
+    def ring(r: float) -> np.ndarray:
+        return np.column_stack([center[0] + r*np.cos(angles), center[1] + r*np.sin(angles)])
+
+    return PSLG.from_loops(
+        [ring(outer_radius), ring(inner_radius)],
+        curves=[Circle(list(center), outer_radius), Circle(list(center), inner_radius)],
+    )
 
 
 def heatsink_pslg(width: float = 3.0, base_height: float = 0.5, fin_height: float = 1.4,
@@ -165,8 +200,13 @@ def l_bracket_pslg(arm: float = 4.0, width: float = 1.2, fillet_radius: float = 
 
     Clamp the top of the vertical limb (`on_plane(1, arm)`) and load the tip of the
     horizontal one (`on_plane(0, arm)`); the concentration then sits at the inner corner.
+
+    With a fillet, the arc segments carry an `Arc` curve (the straight edges do not), so
+    an isoparametric solve reads a true circular fillet and refinement rounds it, rather
+    than the polygonal arc being a source of its own small stress ripples.
     """
     outline = [(0.0, 0.0), (arm, 0.0), (arm, width)]
+    point_curves = [None, None, None]
     if fillet_radius > 0:
         # Round the re-entrant corner: an arc of radius r centred at (width+r, width+r),
         # bulging into the notch to add material. It runs from A = (width+r, width) on the
@@ -176,10 +216,13 @@ def l_bracket_pslg(arm: float = 4.0, width: float = 1.2, fillet_radius: float = 
         theta = np.linspace(1.5 * np.pi, np.pi, n_fillet)
         arc = np.column_stack([width + r + r * np.cos(theta), width + r + r * np.sin(theta)])
         outline.extend(map(tuple, arc))
+        point_curves.extend([Arc([width + r, width + r], r, np.pi, 1.5 * np.pi)] * n_fillet)
     else:
         outline.append((width, width))
+        point_curves.append(None)
     outline.extend([(width, arm), (0.0, arm)])
-    return PSLG.from_loops([np.array(outline)])
+    point_curves.extend([None, None])
+    return PSLG.from_loops([np.array(outline)], curves=[point_curves])
 
 
 def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,

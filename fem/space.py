@@ -201,7 +201,9 @@ class NodeSet:
     spatial_dim: int
 
 
-def p2_connectivity(mesh: Mesh) -> tuple[Elements, Vertices, Elements]:
+def p2_connectivity(
+    mesh: Mesh, project_boundary: bool = False,
+) -> tuple[Elements, Vertices, Elements]:
     '''Build the P2 node set for `mesh`: (element_nodes, node_coords, boundary_nodes).
 
     Nodes are the mesh vertices (indices unchanged) followed by one node per edge,
@@ -209,6 +211,12 @@ def p2_connectivity(mesh: Mesh) -> tuple[Elements, Vertices, Elements]:
     element's six nodes are its three corners then its three edge nodes, ordered so
     the edge opposite corner k comes k-th, matching `QuadraticTriangleElement`'s hats.
     A boundary facet gains its own edge's node as a third entry.
+
+    With `project_boundary` and a mesh carrying `boundary_curves`, a boundary edge's
+    midside node is projected onto its curve instead of the chord midpoint, so an
+    isoparametric element's boundary edge bends to follow the true curve. Interior edge
+    nodes stay at chord midpoints (curved boundary, straight interior). A straight P2
+    element passes `project_boundary=False`, so its node placement is unchanged.
     '''
     n_vertices = len(mesh.vertices)
     edge_index = {(int(a), int(b)): i for i, (a, b) in enumerate(mesh.edges)}
@@ -225,6 +233,13 @@ def p2_connectivity(mesh: Mesh) -> tuple[Elements, Vertices, Elements]:
         element_nodes[e, 5] = edge_node(a, b)   # opposite corner 2
 
     edge_midpoints = mesh.vertices[mesh.edges].mean(axis=1)
+    if project_boundary and mesh.boundary_curves is not None:
+        for facet, curve in zip(mesh.boundary, mesh.boundary_curves):
+            if curve is None:
+                continue
+            a, b = int(facet[0]), int(facet[1])
+            e = edge_index[(a, b) if a < b else (b, a)]
+            edge_midpoints[e] = curve.project(edge_midpoints[e])
     node_coords = np.vstack([mesh.vertices, edge_midpoints])
 
     boundary = np.asarray(mesh.boundary)
@@ -291,7 +306,11 @@ class FunctionSpace:
         '''
         if self.element_type.SHAPE_DEGREE == 1:
             return self.mesh.elements, self.mesh.vertices, self.mesh.boundary
-        return p2_connectivity(self.mesh)
+        # A curved element places its boundary nodes on the mesh's curves; a straight
+        # P2 element keeps them at chord midpoints, so the two switches (node positions
+        # and the Jacobian) always move together.
+        return p2_connectivity(
+            self.mesh, project_boundary=self.element_type.GEOMETRY_DEGREE > 1)
 
     @property
     def element_nodes(self) -> Elements:

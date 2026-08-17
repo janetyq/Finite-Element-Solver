@@ -384,7 +384,7 @@ def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
     )
 
 def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
-                              min_angle=25, max_area_fraction=0.01, circle_segments=192,
+                              min_angle=25, max_area_fraction=0.01, circle_segments=16,
                               refinement_iters=34, refinement_budget=11000):
     """Take a plate with a hole from an outline through meshing, boundary conditions and
     adaptive refinement to the stress concentration at its rim, measured against the
@@ -400,14 +400,13 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # resolve against whatever triangulation arrives, including the one adaptive
     # refinement (below) rebuilds several times over.
     #
-    # The circle needs many more segments than its default here specifically because
-    # this mesh is going to be refined well past what the area cap alone would produce:
-    # honouring a 48-gon down to elements smaller than one of its own straight sides
-    # subdivides the polygon rather than resolving a rounder hole. Pushed as far as it
-    # is below (some 4000 triangles from a deliberately coarse start), even a 48-gon's
-    # chord (about 0.039 here) is far bigger than the smallest elements it would be
-    # asked to sit under; 192 segments (chord about 0.010) is what keeps the polygon
-    # ahead of the triangulation rather than the other way around.
+    # The hole is only a coarse 16-gon here, and that is enough: `plate_with_hole_pslg`
+    # tags the hole loop with a `Circle`, so Ruppert's split points and the adaptive
+    # red-green refinement below project onto the true rim rather than subdividing chords.
+    # The hole gets rounder as the mesh gets finer, instead of freezing into whatever
+    # polygon the initial sampling drew. Before curved boundaries this demo needed a
+    # 192-gon to keep the polygon ahead of the triangulation; the projection removes that
+    # need, and 16 segments now reaches the same peak (about 3.2x) from a far coarser mesh.
     pslg = plate_with_hole_pslg(length, height, radius, segments=circle_segments)
     pslg.validate()
     # Deliberately coarse: the angle bound constrains element shape and says nothing
@@ -452,11 +451,9 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # budget bringing the whole plate up to a baseline before they can behave like
     # they are chasing the hole specifically; a finer starting mesh reaches that
     # point in far fewer rounds (see BACKLOG.md), but starting coarse and letting
-    # this loop do more of the work is the trade made here. The ceiling on pushing
-    # this further isn't the budget, it's the circle above: past roughly this many
-    # rounds the smallest elements at the rim start to undercut even a 192-gon's own
-    # chord length, at which point more refinement would be subdividing the polygon
-    # rather than resolving a rounder hole.
+    # this loop do more of the work is the trade made here. Because the rim splits
+    # project onto the true circle, more refinement keeps rounding the hole rather
+    # than subdividing a fixed polygon, so the budget is now the only ceiling.
     equation = LinearElastic(E=200, nu=0.3)
     solver = Solver(mesh, equation, bc)
     solution = AdaptiveRefinement(
@@ -499,11 +496,17 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     figure.plot(mesh, mode='bc', bc=bc, idx=(0, 0),
                 title=f'{len(mesh.elements)} triangles (refined from {n_initial}), '
                       'with conditions')
+    ax0 = figure.get_ax((0, 0))
+    # The triangulation under the conditions, so the panel shows the mesh the solve ran
+    # on (and how finely refinement graded the rim) rather than only the outline. Thin
+    # and grey, below the glyphs, which keep their own zorder and still read over it.
+    ax0.triplot(mesh.vertices[:, 0], mesh.vertices[:, 1], mesh.elements,
+                color='0.55', linewidth=0.2, zorder=1.5)
     # The input segments over the triangulation: which of the outline the mesher kept and
     # which it split. Fixed PSLG data, so it overlays the refined mesh as validly as the
     # coarse one it started from.
-    figure.get_ax((0, 0)).add_collection(LineCollection(
-        rupperts.vertices[rupperts.segments], colors='blue', linewidths=1.0))
+    ax0.add_collection(LineCollection(
+        rupperts.vertices[rupperts.segments], colors='blue', linewidths=1.0, zorder=2.0))
     figure.plot(mesh, sigma_xx, mode='colored', idx=(0, 1), label='sigma_xx',
                 title='Stress concentration (sigma_xx)')
     ax = figure.chart_ax(idx=(0, 2), xlabel='y', ylabel='sigma_xx / applied')
@@ -562,7 +565,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     )
 
 def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=200.0, nu=0.3,
-                 min_angle=28, max_area_fraction=0.012, n_rounds=14, refine_fraction=0.9):
+                 min_angle=28, max_area_fraction=0.006, n_rounds=14, refine_fraction=0.9):
     """Load an L-bracket and read the stress at its inner corner: a sharp re-entrant
     corner is a stress singularity whose peak climbs without bound as the mesh refines,
     while a fillet gives a finite, converged value. This is why real parts round their
