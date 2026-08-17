@@ -794,7 +794,7 @@ def demo_elasticity_models(mesh, stretch=0.5):
     )
 
 def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0,
-                       min_angle=28, max_area_fraction=0.0016):
+                       min_angle=28, max_area_fraction=0.0004):
     """Warm a finned heatsink from a cold start: heat conducts up from the hot base and
     sheds through the fins, which cool convectively (Robin) toward ambient."""
     # The heat equation is Poisson's operator integrated in time (see fem.problem.heat),
