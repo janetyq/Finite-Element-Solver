@@ -15,16 +15,17 @@ from fem.geometry import calculate_triangle_min_angle
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import (
-    LOAD_MMS_FREQUENCY, ConvergenceStudy, elastic_convergence, load_comparison_convergence,
-    oscillatory_exact, poisson_convergence, poisson_p2_convergence, solve_load_comparison,
-    theta_convergence,
+    ANNULUS_INNER, ANNULUS_OUTER, LOAD_MMS_FREQUENCY, ConvergenceStudy, create_annulus_mesh,
+    elastic_convergence, load_comparison_convergence, oscillatory_exact, poisson_convergence,
+    poisson_p2_convergence, solve_annulus_mms, solve_load_comparison, theta_convergence,
 )
-from fem.elements import QuadraticTriangleElement
+from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.estimators import residual_estimator
 from fem.forms import MaskedMassForm
 from fem.space import FunctionSpace
 from fem.regions import everywhere, on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
+from fem.plot.helpers import plot_mesh
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
@@ -303,6 +304,90 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
                 'solution is smooth.')],
         text='\n'.join(rows),
     )
+
+def _annulus_area_study(element_type, resolutions):
+    """Domain-area error vs h for the annulus, a pure measure of boundary fidelity.
+
+    The area the elements integrate over is the polygon for straight facets and the true
+    curved annulus for isoparametric ones, so `space.geometry.total_volume` minus the
+    exact area isolates the geometry error with no solve involved.
+    """
+    true_area = np.pi * (ANNULUS_OUTER**2 - ANNULUS_INNER**2)
+    steps, errors = [], []
+    for n in sorted(resolutions):
+        mesh = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
+        space = FunctionSpace(mesh, element_type, n_components=1)
+        errors.append(abs(space.geometry.total_volume - true_area))
+        steps.append(1.0 / (n - 1))
+    return ConvergenceStudy(np.array(steps), np.array(errors))
+
+
+def demo_curved_elements(coarse_n=4, resolutions=(3, 5, 9, 17)):
+    """Show what curved (isoparametric) elements buy on a curved domain: the boundary
+    follows the true circle instead of a polygon, so the domain area (pure geometry)
+    converges at the element's own order instead of the polygonal O(h^2)."""
+    # A deliberately coarse annulus for the two picture panels, so the straight facets are
+    # obvious. Both solve the same manufactured Poisson problem (u = sin(x) sin(y)); only
+    # the element's geometry differs, straight P2 vs isoparametric P2.
+    coarse = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, coarse_n, 4 * coarse_n)
+    straight = solve_annulus_mms(coarse_n, QuadraticTriangleElement)
+    curved = solve_annulus_mms(coarse_n, IsoparametricTriangleElement)
+    sp_straight = FunctionSpace(coarse, QuadraticTriangleElement, n_components=1)
+    sp_curved = FunctionSpace(coarse, IsoparametricTriangleElement, n_components=1)
+
+    # One colour scale across both panels so the fields are read side by side; the
+    # difference is meant to be the boundary, not the normalisation.
+    clim = (float(min(straight.u.min(), curved.u.min())),
+            float(max(straight.u.max(), curved.u.max())))
+
+    figure = Plotter(1, 3, figsize=(14.0, 4.2),
+                     title='Curved elements follow the true boundary')
+    # Both fields are drawn on a sub-triangulation of each P2 element (a display
+    # tessellation, added below in `space=`), so the quadratic field shows faithfully and
+    # the only visible difference is the rim: a polygon for straight facets, the true
+    # circle for the curved map. A light wireframe over each makes the elements explicit.
+    figure.plot(coarse, straight.u, mode='colored', idx=(0, 0), space=sp_straight,
+                clim=clim, colorbar=False, title='Straight P2: the rim is a polygon')
+    plot_mesh(figure.get_ax((0, 0)), coarse, color='0.6', linewidth=0.4)
+
+    figure.plot(coarse, curved.u, mode='colored', idx=(0, 1), space=sp_curved,
+                clim=clim, label='u', title='Isoparametric P2: the rim is the true circle')
+    plot_mesh(figure.get_ax((0, 1)), coarse, color='0.6', linewidth=0.4, space=sp_curved)
+
+    # The geometry behind the picture: the polygon's area is wrong by O(h^2), the curved
+    # rim's by the element's own O(h^3). This is where straight and curved separate
+    # cleanly and honestly. On this smooth Dirichlet solve the solution's own L2 error
+    # does not floor visibly (the domain-perturbation error stays subdominant here), so
+    # the panel measures the geometry directly rather than claiming a rate gap that this
+    # problem does not show.
+    straight_area = _annulus_area_study(QuadraticTriangleElement, resolutions)
+    curved_area = _annulus_area_study(IsoparametricTriangleElement, resolutions)
+    rate = figure.chart_ax(idx=(0, 2), xlabel='h', ylabel='domain area error')
+    _plot_study(rate, straight_area, 'straight P2', 'tab:blue', 2, 'h')
+    _plot_study(rate, curved_area, 'isoparametric P2', 'tab:orange', 3, 'h')
+    rate.set_title('Area error: O(h^2) vs O(h^3)')
+    _tidy_log_axis(rate, straight_area.step)
+
+    rows = ['             area-error order   expected']
+    for name, study, expected in (('straight P2', straight_area, 2),
+                                  ('isoparametric', curved_area, 3)):
+        rows.append(f'{name:<18}{study.fitted_order:>9.2f}{expected:>11}')
+
+    return DemoResult(
+        [Figure(figure,
+                'The same manufactured Poisson solve on an annulus, straight versus curved '
+                'elements. Left: straight P2 approximates each rim by a chord, so the domain '
+                'is a polygon. Middle: isoparametric P2 places its boundary nodes on the true '
+                'circle and integrates over the curved element, so the rim is round. Both '
+                'fields are drawn on a sub-triangulation of each P2 element, a display '
+                'tessellation that shows the quadratic field faithfully and adds nothing to '
+                'the solve. Right: the geometry behind the picture. The area the straight '
+                'elements integrate over is a polygon, wrong by O(h^2); the curved elements '
+                'integrate the true annulus, area right to O(h^3) and orders of magnitude '
+                'closer at every mesh.')],
+        text='\n'.join(rows),
+    )
+
 
 def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
     """Show what sampling the load at the quadrature points buys, against reading the
@@ -1765,6 +1850,10 @@ DEMOS = [
     # sequence is the demo) so the smoke run keeps only the two coarsest.
     Demo('higher_order', demo_higher_order, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21)}),
+    # Builds its own coarse annulus and a convergence sequence (both are the demo), so it
+    # takes no domain; the smoke run keeps the two coarsest resolutions.
+    Demo('curved_elements', demo_curved_elements, section=ACCURACY,
+         smoke_kwargs={'resolutions': (3, 5)}),
     Demo('quadrature_load', demo_quadrature_load, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21)}),
 ]

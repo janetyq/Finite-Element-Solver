@@ -9,8 +9,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from fem.convergence import ANNULUS_INNER, ANNULUS_OUTER, create_annulus_mesh
+from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.mesh.structured import create_rect_mesh
 from fem.plot.plotter import Plotter
+from fem.space import FunctionSpace
 
 
 @pytest.fixture
@@ -278,3 +281,99 @@ def test_explicit_colorbar_limits_are_respected(mesh):
     norm = plotter.cbar_infos[(0, 0)].norm
     assert (norm.vmin, norm.vmax) == (0.0, 400.0)
     plotter.close()
+
+
+# -- curved / P2-aware rendering --------------------------------------------------
+#
+# A curved space places its boundary nodes on the true curve and its field varies
+# quadratically within each element, neither of which the straight P1 arrays a plot
+# consumes can show. These check the display tessellation the plot layer draws instead:
+# that its sub-triangles sit on the true geometry, that it interpolates a field faithfully,
+# and that the plot path actually reaches for it.
+
+
+def _annulus_spaces(n=9):
+    mesh = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
+    return (mesh,
+            FunctionSpace(mesh, QuadraticTriangleElement, n_components=1),
+            FunctionSpace(mesh, IsoparametricTriangleElement, n_components=1))
+
+
+def _distance_off_rim(points):
+    radius = np.hypot(points[:, 0], points[:, 1])
+    return np.minimum(np.abs(radius - ANNULUS_INNER),
+                      np.abs(radius - ANNULUS_OUTER)).max()
+
+
+def test_tessellation_indices_and_size_are_consistent():
+    """Every sub-triangle indexes a real point, and the count is one refined patch per
+    element: `subdivisions**2` sub-triangles over `(subdivisions+1)(subdivisions+2)/2`
+    reference points."""
+    _, _, curved = _annulus_spaces()
+    tess = curved.tessellation(subdivisions=3)
+
+    n_el = len(curved.element_nodes)
+    assert tess.triangles.shape == (n_el * 9, 3)
+    assert tess.points.shape == (n_el * 10, 2)
+    assert tess.triangles.min() == 0 and tess.triangles.max() == len(tess.points) - 1
+
+
+def test_curved_boundary_polylines_follow_the_true_circle():
+    """The defining property, at display resolution: an isoparametric facet's sampled
+    polyline tracks the true rim, where a straight P2 facet is a chord well off it."""
+    _, straight, curved = _annulus_spaces()
+
+    curved_off = _distance_off_rim(curved.boundary_polylines(subdivisions=4).reshape(-1, 2))
+    straight_off = _distance_off_rim(straight.boundary_polylines(subdivisions=4).reshape(-1, 2))
+
+    assert curved_off < 1e-4, f'curved boundary sampled off the rim by {curved_off}'
+    assert straight_off > 1e-3, 'straight P2 facets should sit visibly inside the rim'
+    assert curved_off < straight_off / 20
+
+
+def test_tessellation_reproduces_an_affine_field_on_a_curved_space():
+    """`interpolate` samples the field through the same shape functions the geometry
+    uses, so a field linear in x, which lies in the P2 span even through the quadratic
+    map, is reproduced exactly at every sub-point."""
+    _, _, curved = _annulus_spaces()
+    tess = curved.tessellation(subdivisions=3)
+
+    def affine(xy):
+        return 2.0 * xy[:, 0] - 3.0 * xy[:, 1] + 1.5
+
+    got = tess.interpolate(affine(curved.node_coords))
+    assert np.abs(got - affine(tess.points)).max() < 1e-10
+
+
+def test_tessellation_reproduces_a_quadratic_field_on_straight_p2():
+    """On an affine (straight) P2 element the field interpolant of a quadratic is that
+    quadratic, so the tessellation shows the within-element curvature exactly rather than
+    the flat average one triangle per element would draw."""
+    _, straight, _ = _annulus_spaces()
+    tess = straight.tessellation(subdivisions=3)
+
+    def quadratic(xy):
+        x, y = xy[:, 0], xy[:, 1]
+        return 1.0 + 2.0 * x - y + 0.5 * x**2 - x * y + 2.0 * y**2
+
+    got = tess.interpolate(quadratic(straight.node_coords))
+    assert np.abs(got - quadratic(tess.points)).max() < 1e-10
+
+
+def test_colored_with_a_space_draws_a_denser_tessellation():
+    """Passing `space` opts a P2 solve into the tessellated path: the colored panel is
+    drawn on `subdivisions**2` sub-triangles per element instead of one, so the field's
+    curvature and the curved boundary can show."""
+    mesh, _, curved = _annulus_spaces()
+    values = np.hypot(curved.node_coords[:, 0], curved.node_coords[:, 1])  # per-node field
+
+    plain = Plotter(1, 1)
+    p1_artist = plain.plot(mesh, mesh.vertices[:, 0], mode='colored')
+    tessellated = Plotter(1, 1)
+    curved_artist = tessellated.plot(mesh, values, mode='colored', space=curved)
+
+    # subdivisions=3 splits each element into 9 sub-triangles, against one per element
+    # on the P1 path.
+    assert len(curved_artist.get_array()) == 9 * len(p1_artist.get_array())
+    plain.close()
+    tessellated.close()
