@@ -496,11 +496,17 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     figure.plot(mesh, mode='bc', bc=bc, idx=(0, 0),
                 title=f'{len(mesh.elements)} triangles (refined from {n_initial}), '
                       'with conditions')
+    ax0 = figure.get_ax((0, 0))
+    # The triangulation under the conditions, so the panel shows the mesh the solve ran
+    # on (and how finely refinement graded the rim) rather than only the outline. Thin
+    # and grey, below the glyphs, which keep their own zorder and still read over it.
+    ax0.triplot(mesh.vertices[:, 0], mesh.vertices[:, 1], mesh.elements,
+                color='0.55', linewidth=0.2, zorder=1.5)
     # The input segments over the triangulation: which of the outline the mesher kept and
     # which it split. Fixed PSLG data, so it overlays the refined mesh as validly as the
     # coarse one it started from.
-    figure.get_ax((0, 0)).add_collection(LineCollection(
-        rupperts.vertices[rupperts.segments], colors='blue', linewidths=1.0))
+    ax0.add_collection(LineCollection(
+        rupperts.vertices[rupperts.segments], colors='blue', linewidths=1.0, zorder=2.0))
     figure.plot(mesh, sigma_xx, mode='colored', idx=(0, 1), label='sigma_xx',
                 title='Stress concentration (sigma_xx)')
     ax = figure.chart_ax(idx=(0, 2), xlabel='y', ylabel='sigma_xx / applied')
@@ -559,7 +565,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     )
 
 def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=200.0, nu=0.3,
-                 min_angle=28, max_area_fraction=0.012, n_rounds=14, refine_fraction=0.9):
+                 min_angle=28, max_area_fraction=0.006, n_rounds=14, refine_fraction=0.9):
     """Load an L-bracket and read the stress at its inner corner: a sharp re-entrant
     corner is a stress singularity whose peak climbs without bound as the mesh refines,
     while a fillet gives a finite, converged value. This is why real parts round their
