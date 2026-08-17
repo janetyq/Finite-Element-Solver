@@ -124,17 +124,18 @@ with the gradient recovered from the solution beside it.
 
 ![Poisson solution, gradient, and gradient norm](images/poisson.png)
 
-### Potential flow around an obstacle
+### Potential flow over an airfoil
 
 The same scalar operator tells a different story on a domain with a hole. An ideal
 (incompressible, irrotational) flow has a velocity potential $\phi$ with
-$\mathbf{v} = \nabla\phi$, so $\phi$ solves Laplace's equation. A potential difference
-drives the flow left to right; the solid obstacle carries no flow through it, which is
-exactly the natural zero-flux condition of the weak form. Say nothing on the rim and it
-becomes a streamline the flow parts around. The equipotentials crowd and bend past the
-hole, and the flow speeds up where the channel narrows.
+$\mathbf{v} = \nabla\phi$, so $\phi$ solves Laplace's equation. The obstacle here is a
+NACA 2412 airfoil at a 6-degree angle of attack, generated from the standard formula
+rather than a data file. A potential difference drives the flow left to right; the wing
+carries no flow through it, which is exactly the natural zero-flux condition of the weak
+form. Say nothing on its surface and it becomes a streamline the flow parts around. The
+equipotentials crowd over the upper surface, where the flow speeds up.
 
-![Potential flow: equipotentials and flow speed around a circular obstacle](images/potential_flow.png)
+![Potential flow: equipotentials and flow speed over a NACA airfoil](images/potential_flow.png)
 
 ### Heat equation
 

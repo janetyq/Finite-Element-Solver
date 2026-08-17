@@ -664,3 +664,14 @@ def test_a_reentrant_corner_meshes_through_an_incremental_precision_error(max_ar
     vertices = np.asarray(mesh.vertices)
     filled = sum(calculate_polygon_area(vertices[element]) for element in mesh.elements)
     assert filled == pytest.approx(pslg.area())
+
+
+def test_refinement_is_reproducible_despite_the_perturbation():
+    """Each inserted circumcenter is nudged a hair off its exact position to dodge the
+    cocircular precision failure, but from a fixed seed, so a run is deterministic:
+    meshing the same outline twice must give the identical triangulation."""
+    first = RuppertsAlgorithm(_l_shape(), min_angle=25, max_area=REFINING_AREA).refine()
+    second = RuppertsAlgorithm(_l_shape(), min_angle=25, max_area=REFINING_AREA).refine()
+
+    assert np.array_equal(first.vertices, second.vertices)
+    assert np.array_equal(first.elements, second.elements)

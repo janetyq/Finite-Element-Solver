@@ -36,7 +36,8 @@ from fem.modal import ModalSolver
 
 from demo_registry import Demo, DemoResult, Figure
 from domains import (
-    beam, column, l_bracket_pslg, plate_with_hole_pslg, square, tuning_fork_pslg,
+    airfoil_channel_pslg, beam, column, l_bracket_pslg, plate_with_hole_pslg, square,
+    tuning_fork_pslg,
 )
 
 np.set_printoptions(suppress=True)
@@ -88,26 +89,25 @@ def demo_poisson_equation(mesh):
                'conditions', setup=True),
     ])
 
-def demo_potential_flow(length=6.0, height=3.0, radius=0.6, segments=128,
-                        min_angle=28, max_area_fraction=0.001):
-    """Potential flow around a circular obstacle: Laplace's equation for the velocity
-    potential, with the obstacle a no-flux streamline the flow parts around."""
+def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=6.0,
+                        n_points=80, min_angle=20, max_area_fraction=0.002):
+    """Potential flow over a NACA airfoil: Laplace's equation for the velocity potential,
+    with the wing a no-flux streamline the flow accelerates over."""
     # An ideal (incompressible, irrotational) flow has a velocity potential phi with
-    # v = grad(phi) and div(v) = 0, so phi solves Laplace's equation. The solid obstacle
-    # carries no flow through it, which is exactly the natural (zero-flux) condition of
-    # the weak form: say nothing on the rim and it becomes a streamline the flow parts
-    # around. A potential difference across the channel drives the flow; the top and
-    # bottom walls are no-flux too.
-    pslg = plate_with_hole_pslg(length, height, radius, segments=segments)
+    # v = grad(phi) and div(v) = 0, so phi solves Laplace's equation. The wing carries no
+    # flow through it, which is exactly the natural (zero-flux) condition of the weak
+    # form: say nothing on its surface and it becomes a streamline the flow parts around.
+    # A potential difference across the channel drives the flow; the walls are no-flux too.
+    pslg = airfoil_channel_pslg(length, height, chord, angle_of_attack, n_points=n_points)
     pslg.validate()
     mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
                              max_area=max_area_fraction * pslg.area()).refine()
 
     equation = Poisson(source=0)   # Laplace: no sources in the flow
     bc = BoundaryConditions()
-    # phi rises from inlet to outlet, so v = grad(phi) runs left to right. The rim and
-    # the long walls take no condition, which is the no-flux streamline that makes this
-    # a flow *around* the obstacle rather than through it.
+    # phi rises from inlet to outlet, so v = grad(phi) runs left to right. The wing and
+    # the walls take no condition, which is the no-flux streamline that makes this a flow
+    # *over* the wing rather than through it.
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)      # inlet (left)
     bc.add(BCType.DIRICHLET, on_plane(0, length), 1.0)   # outlet (right)
 
@@ -115,30 +115,35 @@ def demo_potential_flow(length=6.0, height=3.0, radius=0.6, segments=128,
     solution = solver.solve()
     velocity = solver.space.gradient(solution.u)         # v = grad(phi), per element
     speed = np.linalg.norm(velocity, axis=1)
+    # Ideal flow with no Kutta condition predicts a near-singular velocity where the
+    # airfoil edges are sharp, which would swamp the colour scale. Clip it to a high
+    # percentile so the flow over the wing, the point of the figure, stays legible.
+    cap = float(np.percentile(speed, 96))
 
-    conditions = Plotter(panel_aspect=2.0)
+    conditions = Plotter(panel_aspect=1.8)
     conditions.plot(mesh, mode='bc', bc=bc)
 
-    plotter = Plotter(1, 2, title='Potential flow around an obstacle', panel_aspect=2.0)
+    plotter = Plotter(1, 2, title='Potential flow over an airfoil', panel_aspect=1.8)
     plotter.plot(mesh, solution.u, mode='colored', idx=(0, 0), label='velocity potential',
-                 title='Potential and its equipotentials', contour=18)
-    plotter.plot(mesh, speed, mode='colored', idx=(0, 1), label='flow speed',
-                 title='Flow speed |grad phi|')
+                 title='Potential and its equipotentials', contour=22)
+    plotter.plot(mesh, speed, mode='colored', idx=(0, 1), label='flow speed', clim=(0.0, cap),
+                 title='Flow speed (clipped near the edges)')
     return DemoResult([
         Figure(plotter,
-               'Ideal flow past a circular obstacle. Left: the velocity potential phi '
-               '(Laplace) with its equipotentials, which crowd together where the flow '
-               'has to speed up and bend around the hole. Right: the flow speed |grad '
-               'phi|, highest at the top and bottom of the obstacle where the channel '
-               'narrows, and slack fore and aft at the stagnation points. The rim carries '
-               'no condition at all: a free surface is the no-flux streamline of the weak '
-               'form, so the flow parts around a solid obstacle without a word said about '
-               'it.',
+               'Ideal (irrotational, incompressible) flow over a NACA 2412 airfoil at a '
+               f'{angle_of_attack:g}-degree angle of attack, generated from the standard '
+               'formula rather than a data file. Left: the velocity potential phi (Laplace) '
+               'with its equipotentials, which crowd over the upper surface where the flow '
+               'speeds up. Right: the flow speed, faster over the top than the bottom, with '
+               'stagnation near the leading and trailing edges. The wing takes no condition '
+               'at all: a free surface is the no-flux streamline of the weak form, so the '
+               'flow parts around it. The speed is clipped near the sharp edges, where ideal '
+               'flow with no Kutta condition predicts an unphysical velocity spike.',
                'flow'),
         Figure(conditions,
                'A potential difference across the channel (phi = 0 at the inlet, 1 at the '
-               'outlet) drives the flow; the long walls and the obstacle rim take nothing, '
-               'which is the no-flux condition that makes them streamlines.',
+               'outlet) drives the flow left to right; the walls and the wing surface take '
+               'nothing, which is the no-flux condition that makes them streamlines.',
                'conditions', setup=True),
     ])
 
@@ -1458,11 +1463,11 @@ DEMOS = [
     Demo('heat_3d', demo_heat_3d, section=SOLVING, smoke_kwargs={'steps': 3, 'n': 5}),
     Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
     Demo('robin', demo_robin_bc, section=SOLVING, domain=partial(square, 80)),
-    # Builds its own plate-with-hole from an outline (the meshing is part of what it
-    # shows), so it takes no domain. The smoke run loosens the size cap and coarsens the
-    # circle, which together are all of its cost.
+    # Builds its own airfoil-in-a-channel from the NACA formula (the meshing is part of
+    # what it shows), so it takes no domain. The smoke run loosens the size cap and
+    # coarsens the airfoil, which together are all of its cost.
     Demo('potential_flow', demo_potential_flow, section=SOLVING,
-         smoke_kwargs={'segments': 32, 'max_area_fraction': 0.03}),
+         smoke_kwargs={'n_points': 40, 'max_area_fraction': 0.02}),
 
     # A cantilever is a beam. On the square this used to load, the "bending" was a
     # square bulging sideways, and the stress concentration had nowhere to run to.
