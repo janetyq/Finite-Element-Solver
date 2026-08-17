@@ -471,14 +471,26 @@ class RuppertsAlgorithm:
         points are one, a square included. It also rules out the `Qz` option that
         would otherwise handle them. So a run rebuilds until qhull will take the
         point set, which the first inserted vertex almost always settles.
+
+        An incremental insertion can also fail partway through a run, with a
+        precision error ("wide merge" on nearly-cocircular points, which an
+        axis-aligned outline and the circumcenters inserted along a re-entrant
+        corner readily produce). A batch rebuild settles the same point set,
+        because that path applies qhull's `Qbb`/`Qz` paraboloid scaling that
+        incremental mode cannot; the next insertion resumes incrementally.
         '''
         added = self.vertices[len(self.triangulation.points):]
         if not len(added):
             return
         self._live_keys = None
         if self._incremental:
-            self.triangulation.add_points(added)
-            return
+            try:
+                self.triangulation.add_points(added)
+                return
+            except QhullError:
+                # Fall through to a rebuild, dropping the incremental state the
+                # failed insertion left the triangulation in.
+                self._incremental = False
         try:
             self.triangulation = Delaunay(self.vertices, incremental=True)
             self._incremental = True

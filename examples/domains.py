@@ -74,6 +74,36 @@ def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float
     return PSLG.from_loops([outline, hole])
 
 
+def l_bracket_pslg(arm: float = 4.0, width: float = 1.2, fillet_radius: float = 0.0,
+                   n_fillet: int = 16) -> PSLG:
+    """An L-shaped bracket as a PSLG, with an optional fillet at the inner corner.
+
+    Two limbs of thickness `width` and length `arm`: the vertical one up the left edge,
+    the horizontal one along the bottom, meeting at a re-entrant (inner) corner at
+    `(width, width)`. A sharp corner there is a stress singularity; `fillet_radius > 0`
+    rounds it with a concave arc of `n_fillet` points, the same way `tuning_fork_pslg`
+    rounds its slot root, which is what turns the peak into a finite, mesh-converged
+    value.
+
+    Clamp the top of the vertical limb (`on_plane(1, arm)`) and load the tip of the
+    horizontal one (`on_plane(0, arm)`); the concentration then sits at the inner corner.
+    """
+    outline = [(0.0, 0.0), (arm, 0.0), (arm, width)]
+    if fillet_radius > 0:
+        # Round the re-entrant corner: an arc of radius r centred at (width+r, width+r),
+        # bulging into the notch to add material. It runs from A = (width+r, width) on the
+        # bottom limb's top edge (theta = 3pi/2) to B = (width, width+r) on the vertical
+        # limb's right edge (theta = pi), replacing the sharp point between them.
+        r = fillet_radius
+        theta = np.linspace(1.5 * np.pi, np.pi, n_fillet)
+        arc = np.column_stack([width + r + r * np.cos(theta), width + r + r * np.sin(theta)])
+        outline.extend(map(tuple, arc))
+    else:
+        outline.append((width, width))
+    outline.extend([(width, arm), (0.0, arm)])
+    return PSLG.from_loops([np.array(outline)])
+
+
 def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,
                      gap: float = 0.006, base_height: float = 0.012,
                      stem_length: float = 0.030, stem_width: float = 0.008,

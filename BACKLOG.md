@@ -190,14 +190,6 @@ recovers anything. Each item below is an implementation of a seam that already e
   `tests/test_demos.py` but has no assertions on what it draws. The 3D tet path now
   runs to h = 1/20 and asserts the same O(h²) band as the 2D case, and the
   `AdaptiveRefinement` driver is covered in `tests/test_refinement.py`.
-- 💡 **A flow-around-an-obstacle Poisson demo.** The meshing side is done: the
-  `stress_concentration` demo builds this mesh from `domains.plate_with_hole_pslg`, and
-  `RuppertsAlgorithm.boundary_loops` says which
-  outline each boundary facet came from, so the obstacle rim and the outer wall can take
-  different conditions. What is left is the solve — inlet and outlet are *parts* of the
-  outer loop rather than loops of their own, so they still need a coordinate region
-  (`fem.regions.on_plane`) to separate them, and the demo has to wire that to the Poisson
-  equation and reproduce the README figure.
 - 💡 **Report the minimum corner angle alongside the demo's simplification tolerance.**
   Output size used to be non-monotonic in *input* size, because cost tracked the sharpest
   corner Douglas-Peucker left behind rather than the point count. The corner treatment
@@ -232,10 +224,6 @@ recovers anything. Each item below is an implementation of a seam that already e
   `energy_gradient` / `energy_hessian` should satisfy the same finite-difference agreement.
   The existing helpers plot a convergence curve rather than asserting, so this wants an
   assert-shaped variant (error slope over a window of `eps`) before it can be a test.
-- 💡 **Contour overlay for scalar plots.** `fem/plot/helpers.py:plot_colored` draws a flat
-  `tripcolor`; a `contour: int` argument adding `tricontour` isolines on top would make
-  gradients readable. Was half-written and never validated — needs a look at level selection
-  (`np.linspace(min, max, contour)` bunches levels badly on skewed fields).
 
 ---
 
