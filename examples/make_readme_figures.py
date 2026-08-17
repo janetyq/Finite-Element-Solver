@@ -63,6 +63,7 @@ FIGURES: list[tuple[str, str]] = [
     ('l2_projection', 'l2_projection.png'),
     ('convergence', 'convergence.png'),
     ('higher_order', 'higher_order.png'),
+    ('curved_elements', 'curved_elements.png'),
     ('refinement-after', 'refinement.png'),
 ]
 

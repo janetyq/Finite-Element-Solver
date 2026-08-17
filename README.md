@@ -245,6 +245,8 @@ finer polygon. On an annulus the meshed area then converges at the element's own
 rather than the polygonal $O(h^2)$, and a coarsely sampled hole recovers the Kirsch
 stress concentration that a straight facet under-resolves.
 
+![Straight facets versus curved elements on an annulus](images/curved_elements.png)
+
 ### Adaptive refinement
 
 Adaptive refinement re-solves and splits wherever an a posteriori error estimator finds
