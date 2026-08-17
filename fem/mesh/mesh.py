@@ -31,6 +31,9 @@ class Mesh:
         elements: Elements | Sequence[Sequence[int]],
         boundary: Elements | Sequence[Sequence[int]],
         boundary_curves: Sequence[Curve | None] | None = None,
+        cell_tags: IntArray | Sequence[int] | None = None,
+        facet_tags: IntArray | Sequence[int] | None = None,
+        tag_names: dict[int, str] | None = None,
     ) -> None:
         self.vertices: Vertices = np.array(vertices)
         self.elements: Elements = np.array(elements)  # vertex indices per element
@@ -48,6 +51,18 @@ class Mesh:
                 f'boundary_curves has {len(self.boundary_curves)} entries but the mesh '
                 f'has {len(self.boundary)} boundary facets'
             )
+        # Optional integer physical-group tags per element and per boundary facet, with
+        # `tag_names` naming the ids (e.g. 3 -> "inlet"). These carry the named regions a
+        # standard mesh format (Gmsh) records; `on_tag` turns a facet tag into a region a
+        # boundary condition can use. None means untagged, the fully geometric default.
+        self.cell_tags: IntArray | None = (
+            np.asarray(cell_tags, dtype=int) if cell_tags is not None else None
+        )
+        self.facet_tags: IntArray | None = (
+            np.asarray(facet_tags, dtype=int) if facet_tags is not None else None
+        )
+        self.tag_names: dict[int, str] = dict(tag_names) if tag_names is not None else {}
+        self._validate_tags()
 
     def _validate(self) -> None:
         '''Reject malformed topology at the source with a named error.
@@ -100,6 +115,19 @@ class Mesh:
                 f'got range [{lo}, {hi}]'
             )
 
+    def _validate_tags(self) -> None:
+        '''Reject tag arrays that do not line up with the elements or facets they tag.'''
+        if self.cell_tags is not None and len(self.cell_tags) != len(self.elements):
+            raise ValueError(
+                f'cell_tags has {len(self.cell_tags)} entries but the mesh has '
+                f'{len(self.elements)} elements'
+            )
+        if self.facet_tags is not None and len(self.facet_tags) != len(self.boundary):
+            raise ValueError(
+                f'facet_tags has {len(self.facet_tags)} entries but the mesh has '
+                f'{len(self.boundary)} boundary facets'
+            )
+
     @property
     def spatial_dim(self) -> int:
         '''Dimension of the space the nodes live in.
@@ -111,13 +139,16 @@ class Mesh:
         '''
         return int(self.vertices.shape[1])
 
-    # TODO: Save and load to better formats - off, obj
     def save(self, path: str = 'test_mesh.json') -> None:
+        '''Write the mesh. `.json` is the native format; any other suffix
+        (`.vtu`, `.msh`, `.obj`, ...) is written through meshio.'''
         from fem.io import save_mesh
         save_mesh(self, path)
 
     @classmethod
     def load(cls, path: str = 'test_mesh.json') -> 'Mesh':
+        '''Read a mesh. `.json` is the native format; any other suffix
+        (`.msh`, `.vtu`, ...) is read through meshio.'''
         from fem.io import load_mesh
         return load_mesh(path)
 
@@ -142,12 +173,56 @@ class Mesh:
         return Mesh(vertices, elements, boundary, boundary_curves)
 
     def copy(self) -> 'Mesh':
-        # Same topology, so the per-facet curve association carries unchanged.
-        # `with_topology` builds a different topology and so does not carry it.
+        # Same topology, so the per-facet curve association and the tags carry
+        # unchanged. `with_topology` builds a different topology and so does not.
         curves = list(self.boundary_curves) if self.boundary_curves is not None else None
         return Mesh(
-            self.vertices.copy(), self.elements.copy(), self.boundary.copy(), curves
+            self.vertices.copy(), self.elements.copy(), self.boundary.copy(), curves,
+            cell_tags=None if self.cell_tags is None else self.cell_tags.copy(),
+            facet_tags=None if self.facet_tags is None else self.facet_tags.copy(),
+            tag_names=dict(self.tag_names),
         )
+
+    # -- physical-group tags -------------------------------------------------
+
+    def _resolve_tag(self, tag: int | str, tags: IntArray | None, kind: str) -> int:
+        '''The integer id for `tag` (an id or a name), checked to actually tag a `kind`.'''
+        if tags is None:
+            raise ValueError(f'mesh has no {kind} tags')
+        if isinstance(tag, str):
+            by_name = {name: tid for tid, name in self.tag_names.items()}
+            if tag not in by_name:
+                raise ValueError(f'unknown tag name {tag!r}; known names: {sorted(by_name)}')
+            tag = by_name[tag]
+        tag = int(tag)
+        if tag not in np.unique(tags):
+            named = f' ({self.tag_names[tag]!r})' if tag in self.tag_names else ''
+            raise ValueError(f'no {kind} carries tag {tag}{named}')
+        return tag
+
+    def facets_with_tag(self, tag: int | str) -> IntArray:
+        '''Indices into `boundary` of the facets carrying `tag` (an id or a name).'''
+        return np.flatnonzero(self.facet_tags == self._resolve_tag(tag, self.facet_tags, 'facet'))
+
+    def cells_with_tag(self, tag: int | str) -> IntArray:
+        '''Indices into `elements` of the cells carrying `tag` (an id or a name).'''
+        return np.flatnonzero(self.cell_tags == self._resolve_tag(tag, self.cell_tags, 'cell'))
+
+    def on_tag(self, tag: int | str, atol: float | None = None):
+        '''A geometric region selecting the boundary nodes on the facets tagged `tag`.
+
+        `tag` is a physical-group id or its name (e.g. `"inlet"`). The region tests
+        whether a node lies on one of those facets, so it picks up the P2 edge-midpoint
+        nodes on them and survives refinement, the same as the coordinate regions in
+        `fem.regions`. Use it wherever a region is expected:
+        `bc.add("dirichlet", mesh.on_tag("inlet"), 0.0)`.
+        '''
+        from fem.geometry import nodes_on_facets
+        from fem.regions import DEFAULT_ATOL
+
+        tol = DEFAULT_ATOL if atol is None else atol
+        facet_coords = self.vertices[self.boundary[self.facets_with_tag(tag)]]
+        return lambda points: nodes_on_facets(points, facet_coords, tol)
 
     @cached_property
     def _edge_table(self) -> tuple[IntArray, IntArray]:
