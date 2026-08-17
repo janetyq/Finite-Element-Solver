@@ -23,7 +23,7 @@ Working guidelines for agents on this repo. `CLAUDE.md` imports this file. Do no
 
 ## Verification
 
-- Before merging a PR, `uv run pytest`, `uv run ruff check`, and `uv run pyright` must all pass. It is not necessary to run these tests after small changes.
+- Every PR runs `uv run pytest`, `uv run ruff check`, and `uv run pyright` in CI, and all must pass before merging. Rely on CI for the full suite rather than running it locally; run only targeted checks locally (a single test, or `ruff`/`pyright` on changed files) when useful.
 - Use `uv`; don't invoke `pip` or bare `python`. The dev env is pinned to 3.11 (`.python-version`); the package itself supports 3.10+.
 - Add test coverage before refactoring untested code.
 - Keep the MMS convergence test (`tests/test_convergence.py`) passing through numerical refactors; don't weaken it to accommodate changes.
