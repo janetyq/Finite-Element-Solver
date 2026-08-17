@@ -100,11 +100,12 @@ detail; here the aim is a tour of what the solver does.
 ## Meshing a domain
 
 A structured grid is one line (`create_rect_mesh`), but most domains are not grids. An
-SVG outline becomes a mesh in two steps: Douglas-Peucker simplifies the traced curve
-(Ruppert's cost grows steeply in the point count), then Ruppert's algorithm refines it
-into a triangulation that honours a minimum-angle bound and an area cap.
+SVG outline becomes a mesh in two steps, left to right below: Douglas-Peucker simplifies
+the traced curve (Ruppert's cost grows steeply in the point count), then Ruppert's
+algorithm refines it into a triangulation that honours a minimum-angle bound and an area
+cap.
 
-![Meshing an SVG outline with Ruppert's algorithm](images/mesh_from_svg.png)
+![From an SVG outline to a mesh: simplify, then triangulate](images/mesh_from_svg.png)
 
 Boundary conditions are placed by *position*, not by vertex index, so the same
 specification lands on the same physical patch on any mesh of the domain. That is what
@@ -316,11 +317,13 @@ the estimated error drops sharply.
 
 ### Representation error
 
-Before any PDE, there is the question of what the space can represent at all. An
-oscillatory function projected onto the P1 space resolves the inner rings and loses the
-outer ones once they oscillate faster than the mesh can follow.
+Before any PDE, there is the question of what the space can represent at all. The target
+$\sin(40 r^2)$ has rings that tighten with radius; projected onto a deliberately coarse
+P1 mesh, the slow inner rings come through but the fast outer ones break up into the
+triangulation. That representation error is the floor every solver on this mesh starts
+from, and refining the mesh is what lowers it.
 
-![An oscillatory function projected onto the P1 space](images/l2_projection.png)
+![The target sin(40 r^2) beside its L2 projection onto a coarse P1 mesh](images/l2_projection.png)
 
 ---
 

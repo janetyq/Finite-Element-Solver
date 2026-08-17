@@ -44,21 +44,36 @@ from domains import (
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
 
-def demo_l2_projection(mesh):
-    """L2-project an oscillatory function onto the mesh's finite element space."""
+def demo_l2_projection(mesh, reference_resolution=120):
+    """Project an oscillatory function onto a mesh's P1 space to show representation error:
+    the resolution limit of the space itself, before any PDE is solved."""
     def cool_f(point):
         x, y = point - np.array([0.5, 0.5])
-        return [np.sin(40*(x**2+y**2))]
-    equation = Projection(source=cool_f)
-    solver = Solver(mesh, equation)
-    solution = solver.solve()
+        return [np.sin(40 * (x**2 + y**2))]
 
-    plotter = Plotter(title='L2 Projection')
-    plotter.plot(mesh, solution.u, mode='surface')
+    solution = Solver(mesh, Projection(source=cool_f)).solve()
+
+    # The target sampled on a fine mesh, so the left panel is the function itself rather
+    # than another coarse approximation of it. The projection (right) is on the demo's own
+    # mesh, coarse enough that the fast outer rings outrun what P1 can represent.
+    fine = square(reference_resolution)
+    xy = fine.vertices - np.array([0.5, 0.5])
+    exact = np.sin(40 * (xy[:, 0]**2 + xy[:, 1]**2))
+
+    plotter = Plotter(1, 2, title='L2 projection onto a P1 space')
+    plotter.plot(fine, exact, mode='colored', idx=(0, 0), label='', clim=(-1, 1),
+                 title='The target: sin(40 r^2)')
+    plotter.plot(mesh, solution.u, mode='colored', idx=(0, 1), label='', clim=(-1, 1),
+                 title=f'Projected onto P1 ({len(mesh.elements)} triangles)')
     return DemoResult([Figure(
         plotter,
-        'sin(40 r^2) projected onto the P1 space: the mesh resolves the inner rings '
-        'and loses the outer ones.')])
+        'Representation error, before any PDE: how well the P1 space can represent a '
+        'function at all. Left: the target sin(40 r^2), whose rings tighten with radius. '
+        'Right: its L2 projection onto a deliberately coarse mesh. The slow inner rings '
+        'come through; past the radius where one ring spans only a couple of triangles the '
+        'space can no longer follow it, and the outer rings break up into the mesh. This '
+        'is the error floor every solver on this mesh starts from, and the rest of this '
+        'section measures how fast it falls as the mesh is refined.')])
 
 def demo_poisson_equation(mesh):
     """Solve Poisson's equation with zero Dirichlet BCs and a constant force."""
@@ -1514,10 +1529,12 @@ DEMOS = [
     Demo('topology_optimization', demo_topology_optimization, section=SOLIDS,
          domain=partial(beam, 2.0, 1.0, 140)),
 
-    # The point is which oscillations of sin(40 r^2) the space can represent, so this
-    # one is meshed finer than the rest: at 40 a side the inner rings alias too. It
-    # leads the accuracy section because representation error is what the rest measures.
-    Demo('l2_projection', demo_l2_projection, section=ACCURACY, domain=partial(square, 120)),
+    # Meshed deliberately coarse: the point is the resolution limit, so it runs where
+    # sin(40 r^2)'s slow inner rings still resolve but the fast outer ones alias into the
+    # triangulation. It leads the accuracy section because representation error is the
+    # floor the rest of the section measures the shrinking of.
+    Demo('l2_projection', demo_l2_projection, section=ACCURACY, domain=partial(square, 28),
+         smoke_kwargs={'reference_resolution': 60}),
     # Builds its own sequence of meshes rather than taking a domain: the refinement
     # sequence is the demo. The smoke run keeps the two coarsest: an order needs
     # two points, and the 81x81 solve is most of the cost.
