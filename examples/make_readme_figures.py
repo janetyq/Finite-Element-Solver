@@ -54,12 +54,11 @@ FIGURES: list[tuple[str, str]] = [
     ('elasticity_models-stress', 'elasticity_models.png'),
     ('stress_concentration-built', 'stress_concentration_mesh.png'),
     ('stress_concentration-stress', 'stress_concentration.png'),
-    ('elastic_3d', 'elastic_3d.png'),
     ('buckling-modes', 'buckling.png'),
     ('buckling-laws', 'buckling_laws.png'),
     ('modal-modes', 'modal.png'),
     ('modal-law', 'modal_law.png'),
-    ('topology_optimization-final', 'topology_optimization.png'),
+    ('topology_optimization-comparison', 'topology_optimization.png'),
     # Accuracy & performance
     ('l2_projection', 'l2_projection.png'),
     ('convergence', 'convergence.png'),

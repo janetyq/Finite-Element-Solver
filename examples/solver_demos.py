@@ -188,6 +188,19 @@ def _tidy_log_axis(ax, steps):
     ax.set_xticks([], minor=True)
 
 
+def _share_panel_limits(plotter, n_panels):
+    """Give the panels in a row one shared view: the union of the x and y limits each set
+    for its own shape, so they share a scale and their baselines and titles line up."""
+    axes = [plotter.get_ax((0, c)) for c in range(n_panels)]
+    xlo = min(a.get_xlim()[0] for a in axes)
+    xhi = max(a.get_xlim()[1] for a in axes)
+    ylo = min(a.get_ylim()[0] for a in axes)
+    yhi = max(a.get_ylim()[1] for a in axes)
+    for a in axes:
+        a.set_xlim(xlo, xhi)
+        a.set_ylim(ylo, yhi)
+
+
 def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 33),
                      step_counts=(16, 32, 64, 128)):
     """Measure the solver's own error against exactly known solutions, and read off the
@@ -667,44 +680,6 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=200.0, 
              f'reduction from the fillet       {reduction:.0f}%'))
 
 
-def demo_elastic_3d(n=17):
-    """Bend a 3D cantilever beam of tetrahedra, drawn as its boundary surface."""
-    # The package solves in 3D throughout: the same assembly, the same element
-    # hierarchy, `Solver` reading the element type off the connectivity. `heat_3d` draws
-    # the same way, through `plot_solid` (`fem/plot/helpers.py`).
-    mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
-
-    # The two 3D demos are the only solves here with no conditions panel: `plot_bc`
-    # draws boundary facets as line segments, and in 3D they are triangles. The clamp
-    # and the tip load are the 2D cantilever's, which does show them.
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 4.0), [0, 0, -0.5])
-
-    # AMG-preconditioned CG rather than the direct factorization: a 3D elastic solve
-    # is where fill-in starts to hurt, which `backends` measures.
-    solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc,
-                      backend=IterativeBackend()).solve()
-    deformed = solution.deformed_mesh()
-    tip = np.abs(solution.u.reshape(-1, 3)[:, 2]).max()
-
-    plotter = Plotter(1, 2, figsize=(11.0, 4.5), title='A 3D cantilever in tetrahedra')
-    plotter.plot(mesh, mode='solid', idx=(0, 0),
-                 title=f'{len(mesh.elements)} tetrahedra')
-    plotter.plot(deformed, solution.von_mises, mode='solid', idx=(0, 1),
-                 label='von Mises stress', title='Loaded and deformed')
-    return DemoResult(
-        [Figure(plotter,
-                'The same clamp-and-load as the 2D cantilever, one dimension up: a '
-                'tetrahedral mesh, a three-component displacement, and stress recovered '
-                'the same way. Only the boundary surface is drawn: the inside of a '
-                'solid is not visible, and there are several times more tets than '
-                'surface triangles.')],
-        text=(f'tetrahedra          {len(mesh.elements)}\n'
-              f'degrees of freedom  {3*len(mesh.vertices)}\n'
-              f'peak deflection     {tip:.4f}'),
-    )
-
 def demo_robin_bc(mesh):
     """Cool a heated plate through a convective boundary, sweeping the Robin coefficient."""
     # du/dn + kappa*(u - u_ambient) = 0: heat generated inside escapes through a boundary
@@ -947,39 +922,46 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
                'conditions', setup=True),
     ])
 
-def demo_linear_elastic(mesh):
-    """Solve linear elasticity for a cantilever fixed on the left with a traction load,
-    then read four rotation-invariant stress measures off that one solve."""
+def demo_linear_elastic(mesh, n_3d=14):
+    """Solve linear elasticity for a cantilever in 2D and again in 3D, then read four
+    rotation-invariant stress measures off the 2D solve."""
+    E, nu = 200.0, 0.4
+
+    # -- 2D: clamped on the left, pulled down over the middle of the right edge ---------
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    # Transverse, so the beam bends: an axial pull is much the same solve on any
-    # domain, where a tip load is what makes a cantilever one. Sized for a tip
-    # deflection near 9% of the span: a 4:1 beam is compliant enough that the load
-    # this demo used to apply axially would bend it through more than its own length,
-    # well outside the small-strain regime the solver assumes.
+    # Transverse, so the beam bends: an axial pull is much the same solve on any domain,
+    # where a tip load is what makes a cantilever one. Sized for a tip deflection near 9%
+    # of the span, well inside the small-strain regime the solver assumes.
     bc.add(BCType.NEUMANN,
            intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])),
            [0, -0.5])
+    solution = Solver(mesh, LinearElastic(E, nu), bc).solve()
+    deformed = solution.deformed_mesh()
 
-    equation = LinearElastic(E=200, nu=0.4)
-    solver = Solver(mesh, equation, bc)
-    solution = solver.solve()
-    deformed_mesh = solution.deformed_mesh()
-    displacements = np.linalg.norm(solution.u.reshape(-1, 2), axis=1)
+    # -- 3D: the same clamp-and-load, one dimension up ---------------------------------
+    # The same assembly and element hierarchy, Solver reading the tetrahedron off the
+    # connectivity. An AMG-preconditioned CG solve rather than a direct factorization,
+    # where a 3D elastic system's fill-in starts to hurt. Only the boundary surface is
+    # drawn: there are several times more tets than surface triangles.
+    box = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]],
+                          resolution=(4 * n_3d // 2, n_3d // 2, n_3d // 2))
+    bc_3d = BoundaryConditions()
+    bc_3d.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])
+    bc_3d.add(BCType.NEUMANN, on_plane(0, 4.0), [0, 0, -0.5])
+    solution_3d = Solver(box, LinearElastic(E, nu), bc_3d, backend=IterativeBackend()).solve()
+    tip_3d = float(np.abs(solution_3d.u.reshape(-1, 3)[:, 2]).max())
 
-    conditions = Plotter(panel_aspect=4.0)
-    conditions.plot(mesh, mode='bc', bc=bc)
+    fields = Plotter(1, 2, figsize=(10.5, 4.2), title='Linear elasticity in 2D and 3D')
+    fields.plot(deformed, solution.von_mises, mode='colored', idx=(0, 0),
+                label='von Mises stress', title=f'2D: {len(mesh.elements)} triangles')
+    fields.plot(solution_3d.deformed_mesh(), solution_3d.von_mises, mode='solid', idx=(0, 1),
+                label='von Mises stress', title=f'3D: {len(box.elements)} tetrahedra')
 
-    plotter = Plotter(1, 2, title='Linear Elasticity', panel_aspect=4.0)
-    plotter.plot(deformed_mesh, solution.von_mises, mode='colored', title='Von Mises stress',
-                 label='von Mises stress', idx=(0, 0))
-    plotter.plot(mesh, displacements, mode='colored', title='Displacement',
-                 label='|u|', idx=(0, 1))
-
-    # The same stress tensor admits other rotation-invariant reductions besides von
-    # Mises: mean normal stress, the Tresca measure, and the largest tensile principal
-    # value. Each is its own question asked of one solve, not a different problem.
+    # The same stress tensor admits other rotation-invariant reductions besides von Mises:
+    # mean normal stress, the Tresca measure, and the largest tensile principal value.
+    # Each is its own question asked of one solve, not a different problem.
     invariant_fields = [
         ('Von Mises', solution.von_mises),
         ('Pressure', solution.pressure),
@@ -988,62 +970,107 @@ def demo_linear_elastic(mesh):
     ]
     invariants = Plotter(2, 2, title='Stress invariants of the same solve', panel_aspect=4.0)
     for i, (name, values) in enumerate(invariant_fields):
-        invariants.plot(deformed_mesh, values, mode='colored', idx=divmod(i, 2), title=name)
+        invariants.plot(deformed, values, mode='colored', idx=divmod(i, 2), title=name)
 
-    return DemoResult([
-        Figure(plotter,
-               'The bending stress is largest at the clamp and splits top from bottom '
-               '-- tension over the neutral axis, compression under it.',
-               'fields'),
-        Figure(invariants,
-               'Four rotation-invariant reductions of that same stress tensor: distortion, '
-               'mean normal stress, the Tresca measure, and the largest tensile principal '
-               'value.',
-               'invariants'),
-        Figure(conditions,
-               'Clamped along the left edge, pulled down over the middle of the right '
-               'one. Everything between is traction-free, which is what makes this a '
-               'cantilever rather than a beam being squeezed.',
-               'conditions', setup=True),
-    ])
-
-def demo_topology_optimization(mesh, iters=40):
-    """Run SIMP topology optimization on a cantilever under a downward force."""
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-
-    equation = LinearElastic(E=200, nu=0.4, source=[0, -0.5])
-    topopt = TopologyOptimizer(mesh, equation, bc, iters=iters, volume_frac=0.5)
-    history = topopt.solve()
-    deformed_mesh = topopt.deformed_mesh()
-
-    animation_plotter = Plotter(title='Topology Optimization', panel_aspect=2.0)
-    animation_plotter.plot_animation(mesh, history.rho, mode='colored', label='density') # TODO: have mesh deform during animation, title
-
-    rho_final = history.rho[-1]
-    stress_final = history.von_mises[-1]
-    # Only the clamp is a boundary condition here: the load is a body force over every
-    # element, not a traction on an edge, so the rest of the boundary is natural.
-    conditions = Plotter(panel_aspect=2.0)
+    conditions = Plotter(panel_aspect=4.0)
     conditions.plot(mesh, mode='bc', bc=bc)
 
-    final_plotter = Plotter(1, 2, title='Topology Optimization', panel_aspect=2.0)
-    final_plotter.plot(deformed_mesh, rho_final, mode='colored', title='Topology Optimized Structure',
-                       label='density', idx=(0, 0), empty=True)
-    final_plotter.plot(deformed_mesh, stress_final, mode='colored', title='Final von Mises stress',
-                       label='von Mises stress', idx=(0, 1))
     return DemoResult([
-        Figure(animation_plotter, 'Density evolving over the SIMP iterations.',
-               'animation'),
-        Figure(final_plotter,
-               'The converged structure and its stress: material has migrated into a '
-               'truss carrying the load back to the supported edge.', 'final'),
+        Figure(fields,
+               'The same clamp-and-load solved in 2D and 3D. The bending stress is largest '
+               'at the clamp and splits top from bottom: tension over the neutral axis, '
+               'compression under it. The 3D solve carries a three-component displacement '
+               'and recovers stress the same way, drawn on its boundary surface.',
+               'fields'),
+        Figure(invariants,
+               'Four rotation-invariant reductions of that same 2D stress tensor: '
+               'distortion, mean normal stress, the Tresca measure, and the largest '
+               'tensile principal value.',
+               'invariants'),
         Figure(conditions,
-               'Clamped on the left and nothing else: the load here is a body force over '
-               'every element rather than a traction on an edge, so it is the one thing '
-               'imposed that a picture of the boundary cannot show.',
+               'Clamped along the left edge, pulled down over the middle of the right one. '
+               'Everything between is traction-free, which is what makes this a cantilever '
+               'rather than a beam being squeezed. The 3D solve imposes the same clamp and '
+               'tip load, one dimension up.',
                'conditions', setup=True),
-    ])
+    ], text=(f'2D triangles           {len(mesh.elements)}\n'
+             f'3D tetrahedra          {len(box.elements)}\n'
+             f'3D degrees of freedom  {3 * len(box.vertices)}\n'
+             f'3D peak deflection     {tip_3d:.4f}'))
+
+def demo_topology_optimization(mesh, iters=60):
+    """Optimize where to put half a beam's material with SIMP, and measure how much
+    stiffness that buys against the fully solid block it came from."""
+    E, nu = 200.0, 0.4
+    w = np.max(mesh.vertices[:, 0])
+    h = np.max(mesh.vertices[:, 1])
+    aspect = float(w / h)
+
+    # A simply supported (MBB) beam, the classic topology-optimization test: pinned at one
+    # bottom corner, a vertical roller at the other, a downward load at the top centre.
+    bc = BoundaryConditions()
+    bottom, top = on_plane(1, 0.0), on_plane(1, h)
+    bc.add(BCType.DIRICHLET, intersect(bottom, in_box([None, None], [0.04 * w, None])), [0, 0])
+    bc.add(BCType.DIRICHLET, intersect(bottom, in_box([0.96 * w, None], [None, None])), [None, 0])
+    # A load over the central fifth of the top rather than a single point: wide enough to
+    # land on a boundary edge on any mesh (a point between two nodes carries no traction),
+    # so the demo also runs on the tiny mesh the gallery smoke-tests it with.
+    bc.add(BCType.NEUMANN, intersect(top, in_box([0.4 * w, None], [0.6 * w, None])), [0, -0.5])
+
+    equation = LinearElastic(E, nu)
+
+    # The solid block first: 100% material, the stiffest this domain and load admit, and
+    # the baseline the optimized structure is measured against.
+    solid = Solver(mesh, equation, bc).solve()
+    compliance_solid = float(solid.compliance.sum())
+    solid_disp = np.linalg.norm(solid.u.reshape(-1, 2), axis=1)
+
+    # Then optimize where to put half of it. Compliance is u.f, the work the load does, so
+    # a lower value is a stiffer structure; SIMP minimizes it under the volume constraint.
+    topopt = TopologyOptimizer(mesh, equation, bc, iters=iters, volume_frac=0.5,
+                               smoothing_radius=0.05)
+    history = topopt.solve()
+    compliance_opt = float(history.compliance[-1].sum())
+    ratio = compliance_opt / compliance_solid
+
+    # Explicit figsize rather than panel_aspect: two 4:1 panels stacked, sized so each
+    # fills its row instead of floating above the aspect helper's minimum panel height.
+    comparison = Plotter(2, 1, figsize=(6.5, 4.6),
+                         title='Half the material, comparable stiffness')
+    comparison.plot(solid.deformed_mesh(), solid_disp, mode='colored', idx=(0, 0), label='|u|',
+                    title=f'Solid: 100% material, compliance {compliance_solid:.3f}')
+    comparison.plot(topopt.deformed_mesh(), history.rho[-1], mode='colored', idx=(1, 0),
+                    label='density',
+                    title=f'Optimized: 50% material, compliance {compliance_opt:.3f} '
+                          f'({ratio:.2f}x)')
+
+    animation = Plotter(title='Topology optimization', panel_aspect=aspect)
+    animation.plot_animation(mesh, history.rho, mode='colored', label='density')
+
+    conditions = Plotter(panel_aspect=aspect)
+    conditions.plot(mesh, mode='bc', bc=bc)
+
+    return DemoResult([
+        Figure(comparison,
+               'The same simply supported beam under the same central load, solid and then '
+               'with half its material removed by optimization, both drawn deformed. '
+               'Compliance is the work the load does, so it measures deflection under load: '
+               f'the optimized truss is only {ratio:.2f}x as compliant as the fully solid '
+               'block on half the material, because what it removed was near the neutral '
+               'axis, where it was barely resisting the bending.',
+               'comparison'),
+        Figure(animation,
+               'Density evolving over the SIMP iterations, from an even grey to the '
+               'black-and-white truss.',
+               'animation'),
+        Figure(conditions,
+               'Simply supported: pinned at one bottom corner (both directions held), a '
+               'vertical roller at the other (free to slide horizontally), and a downward '
+               'load at the top centre.',
+               'conditions', setup=True),
+    ], text=(f'compliance, solid (100% material)     {compliance_solid:.4f}\n'
+             f'compliance, optimized (50% material)  {compliance_opt:.4f}\n'
+             f'ratio                                 {ratio:.2f}x'))
 
 def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                   sweep_lengths=(16.0, 20.0, 28.0, 40.0)):
@@ -1123,18 +1150,6 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
         scale = 0.14 * span / np.abs(transverse).max()
         return solution.mode_mesh(i, scale), scale * transverse
 
-    def share_limits(plotter, n_panels):
-        """Give the columns in a row one shared view: the union of the limits each panel
-        set for its own bow and glyphs, so they share a scale and their titles line up."""
-        axes = [plotter.get_ax((0, c)) for c in range(n_panels)]
-        xlo = min(a.get_xlim()[0] for a in axes)
-        xhi = max(a.get_xlim()[1] for a in axes)
-        ylo = min(a.get_ylim()[0] for a in axes)
-        yhi = max(a.get_ylim()[1] for a in axes)
-        for a in axes:
-            a.set_xlim(xlo, xhi)
-            a.set_ylim(ylo, yhi)
-
     # -- 1. Mode shapes of a pinned column: the buckling analogue of vibration modes ----
     # Upright columns in a row, so the half-waves of successive modes sit side by side, with
     # one glyph-and-colour key below all of them (fig.supxlabel) rather than per panel.
@@ -1149,7 +1164,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                          f'({i+1} half-wave{"s" if i else ""})')
         # The pin/load glyphs, on the deformed shape so the load rides the moving end.
         modes.overlay_supports(mesh, pinned_bc, idx=(0, i), coords=shape.vertices)
-    share_limits(modes, n_modes)
+    _share_panel_limits(modes, n_modes)
     modes.fig.supxlabel(
         'Blue triangles: the pinned ends, held sideways but free to rotate.\n'
         'Red arrow: the compressive load.\n'
@@ -1171,7 +1186,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                                 f'P_cr = {loads[0]:.3g}')
         # Each end's supports drawn on it: a wall clamps, triangles pin, arrows load.
         factor_plots.overlay_supports(mesh, end_bc, idx=(0, col), coords=shape.vertices)
-    share_limits(factor_plots, len(ends))
+    _share_panel_limits(factor_plots, len(ends))
 
     # -- 3. Euler's laws: the 1/L^2 slenderness curve and the effective-length factors ---
     sweep = [(L, solve_buckling(column(L, height, max(32, int(2 * L)), n_across),
@@ -1328,11 +1343,15 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         shape, colour = mode_shape(i)
         lim = float(np.abs(colour).max())
         tag = '  (the voice)' if i == voice else ''
-        # One shared caption names the colour below; a per-bar label would repeat it.
+        # No colorbar: the colour is qualitative (its amplitude is arbitrary), and one
+        # shared caption below names it. The symmetric clim keeps the diverging map
+        # centred on zero so the still tine reads white in every panel.
         modes.plot(shape, colour, mode='colored', idx=(0, i), cmap='coolwarm',
-                   clim=(-lim, lim), title=f'Mode {i+1}: {freqs[i]:.0f} Hz{tag}')
+                   clim=(-lim, lim), colorbar=False, title=f'Mode {i+1}: {freqs[i]:.0f} Hz{tag}')
         modes.overlay_supports(mesh, clamp(), idx=(0, i), coords=shape.vertices)
         hide_x_ticks(modes, (0, i))
+    # One shared vertical scale, so the tines line up across panels like the buckling modes.
+    _share_panel_limits(modes, n_shown)
     modes.fig.supxlabel(
         'Colour: sideways (transverse) displacement of the mode. Its sign and amplitude '
         'are arbitrary; the pattern of motion is what is physical.', fontsize='small')
@@ -1447,7 +1466,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
 
 def demo_heat_3d(steps=20, n=17):
     """Animate transient heat diffusion on a 3D tetrahedral box, drawn as its boundary surface."""
-    # Same box and resolution convention as `elastic_3d`.
+    # Same box and resolution convention as the 3D cantilever in `linear_elastic`.
     mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
 
     w = max(mesh.vertices.flatten()) - min(mesh.vertices.flatten())
@@ -1485,10 +1504,10 @@ DEMOS = [
     Demo('potential_flow', demo_potential_flow, section=SOLVING,
          smoke_kwargs={'n_points': 40, 'max_area_fraction': 0.02}),
 
-    # A cantilever is a beam. On the square this used to load, the "bending" was a
-    # square bulging sideways, and the stress concentration had nowhere to run to.
+    # The 2D cantilever whose domain this is, plus a 3D one the demo builds for itself.
+    # The smoke run coarsens only that box, where the tet count sets the cost.
     Demo('linear_elastic', demo_linear_elastic, section=SOLIDS,
-         domain=partial(beam, 4.0, 1.0, 140)),
+         domain=partial(beam, 4.0, 1.0, 140), smoke_kwargs={'n_3d': 6}),
     # Stretched end to end, so the domain is incidental; a square keeps the deformed
     # and undeformed shapes comparable at a glance.
     Demo('elasticity_models', demo_elasticity_models, section=SOLIDS,
@@ -1505,9 +1524,6 @@ DEMOS = [
     # the mesh and takes only a couple of rounds.
     Demo('bracket', demo_bracket, section=SOLIDS,
          smoke_kwargs={'max_area_fraction': 0.08, 'n_rounds': 2}),
-    # Builds its own box: the only 3D domain, and the tet count is what sets the
-    # cost, so the smoke run takes a coarser one.
-    Demo('elastic_3d', demo_elastic_3d, section=SOLIDS, smoke_kwargs={'n': 5}),
     # Builds its own columns (several lengths for the slenderness sweep, plus the four
     # end conditions) so it takes no domain. The smoke run shrinks the mesh and the
     # sweep, which together are all of its cost (each case is a small eigensolve).
@@ -1520,14 +1536,12 @@ DEMOS = [
     Demo('modal', demo_modal, section=SOLIDS,
          smoke_kwargs={'n_across_tine': 3, 'min_angle': 25, 'n_modes': 4, 'n_shown': 3,
                        'sweep_lengths': (0.088, 0.125), 'n_frames': 6}),
-    # 2:1, because the aspect ratio makes SIMP produce the truss it is known
-    # for. The resolution is now set by what the filter needs rather than by what 40
-    # iterations cost: `smoothing_radius` is a fixed physical length, so refining
-    # resolves the same structure more finely instead of growing thinner members. At
-    # 56 a side that radius spanned about three elements, which is thin cover for the
-    # thing keeping the design off a checkerboard; at 140 it spans seven.
+    # A 4:1 simply supported (MBB) beam, the aspect that optimizes into the classic arch.
+    # `smoothing_radius` is a fixed physical length setting the feature size, so the
+    # resolution resolves the same structure more finely rather than growing thinner
+    # members. The smoke run keeps the mesh but takes only a few iterations.
     Demo('topology_optimization', demo_topology_optimization, section=SOLIDS,
-         domain=partial(beam, 2.0, 1.0, 140)),
+         domain=partial(beam, 4.0, 1.0, 160), smoke_kwargs={'iters': 3}),
 
     # Meshed deliberately coarse: the point is the resolution limit, so it runs where
     # sin(40 r^2)'s slow inner rings still resolve but the fast outer ones alias into the

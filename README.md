@@ -170,14 +170,18 @@ already matches.
 
 ## Solids & structures
 
-### Linear elasticity
+### Linear elasticity, in 2D and 3D
 
 The linear elastic solver recovers displacement and a full stress tensor from applied
-forces and boundary conditions. A cantilever is clamped on the left and pulled down
-over the middle of the right edge; the bending stress is largest at the clamp and
-splits tension above the neutral axis from compression below.
+forces and boundary conditions. A cantilever is clamped on the left and pulled down over
+the middle of the right edge; the bending stress is largest at the clamp and splits
+tension above the neutral axis from compression below. The same assembly, element
+hierarchy, and stress recovery run one dimension up: the 3D panel is a tetrahedral
+cantilever under the same clamp-and-load, solved with an AMG-preconditioned
+conjugate-gradient backend where a direct factorization's fill-in starts to hurt, and
+drawn as its boundary surface.
 
-![Cantilever von Mises stress and displacement](images/linear_elastic.png)
+![Linear elasticity: a 2D cantilever and a 3D tetrahedral one under the same clamp-and-load](images/linear_elastic.png)
 
 One solve, one stress tensor, several rotation-invariant questions: von Mises,
 mean normal stress, the Tresca measure, and the largest tensile principal value are
@@ -223,15 +227,6 @@ holds for a hole in an infinite plate (a finite plate reads a little higher).
 
 ![Stress concentration at the hole, against the Kirsch factor](images/stress_concentration.png)
 
-### Three dimensions
-
-The same assembly, element hierarchy, and stress recovery run in 3D. A tetrahedral
-cantilever is clamped and loaded at the tip, solved with an AMG-preconditioned
-conjugate-gradient backend where a direct factorization's fill-in starts to hurt. Only
-the boundary surface is drawn.
-
-![A 3D cantilever in tetrahedra](images/elastic_3d.png)
-
 ### Buckling analysis
 
 A slender column under compression does not fail by crushing; it snaps sideways once
@@ -272,15 +267,19 @@ theory assumes a rigid clamp.
 ### Topology optimization
 
 Topology optimization distributes material to minimize compliance (deformation under
-load). The left edge is fixed and a downward body force is applied; the SIMP (Solid
-Isotropic Material with Penalization) method penalizes intermediate densities so the
-design resolves toward solid-or-void. Material migrates into a truss carrying the load
-back to the support.
+load). Here a simply supported beam carries a central load, and the SIMP (Solid Isotropic
+Material with Penalization) method is asked for the stiffest structure using half the
+material, penalizing intermediate densities so the design resolves toward solid-or-void.
+It finds the classic arch: a compression arch over a tension tie, braced by a diagonal
+web. Because compliance is the work the load does, it measures deflection directly, and
+the optimized truss comes out only about 1.6x as compliant as the fully solid block on
+half the material. What it removed was near the neutral axis, where the material was
+barely resisting the bending.
 
-![The converged topology and its stress](images/topology_optimization.png)
+![Solid beam vs the optimized half-material arch, compared by compliance](images/topology_optimization.png)
 
 The [gallery's topology page](https://janetyq.github.io/Finite-Element-Solver/topology_optimization.html)
-plays the SIMP iterations frame by frame.
+plays the SIMP iterations frame by frame, from an even grey to the black-and-white truss.
 
 ## Accuracy & performance
 
