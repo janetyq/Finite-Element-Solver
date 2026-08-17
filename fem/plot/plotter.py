@@ -12,7 +12,6 @@ from fem.typing import FloatArray
 if TYPE_CHECKING:
     from fem.boundary import BoundaryConditions
     from fem.mesh.mesh import Mesh
-    from fem.solution import Solution
     from fem.space import FunctionSpace
 
 from fem.plot.helpers import (
@@ -111,7 +110,7 @@ class Plotter:
     # function for plotting at a specific index
     def plot(
         self,
-        mesh: "Mesh | Solution",
+        mesh: 'Mesh',
         values: FloatArray | Sequence[float] | None = None,
         mode: PlotMode | str = PlotMode.MESH,
         idx: tuple[int, int] = (0, 0),
@@ -127,15 +126,8 @@ class Plotter:
         contour: int | None = None,
         space: 'FunctionSpace | None' = None,
         subdivisions: int = 3,
-        warp: 'FloatArray | bool | None' = None,
     ) -> Any:
         """Draw `values` on `mesh` into the subplot at `idx`.
-
-        `mesh` may be a `Solution` instead of a bare `Mesh`. It then supplies both its mesh
-        and its `space`, so a P2 or curved solve renders faithfully without passing `space=`
-        by hand (an explicit `space` still overrides it), and `warp=True` deforms the field
-        by the solution's own displacement. This is the ergonomic default; a raw mesh keeps
-        the low-level, field-agnostic path below.
 
         `label` names the quantity on the colorbar (colored mode); a colorbar is built
         once per subplot, so it is read on the call that first draws there and ignored
@@ -153,28 +145,17 @@ class Plotter:
         normalization. `contour=n` overlays n isolines of the field on the colored
         panel (the level sets of a scalar, e.g. a potential's equipotentials).
 
-        `space` opts a P2 or curved solve into a faithful render: the mesh, colored,
-        surface, and arrow panels draw on a `subdivisions`-fine tessellation of each
-        element, so a curved boundary follows its true curve and a quadratic field shows
-        its within-element curvature instead of being flattened to one triangle. Omitted,
-        the P1 path draws the straight-sided mesh exactly as before. `values` for the
-        colored and surface modes must then be a per-node field (length `space.n_nodes`,
-        e.g. a solution vector); arrows take a per-node vector field.
-
-        `warp` is an optional nodal displacement `(n_nodes, spatial)` that tessellates the
-        deformed configuration, so a P2 stress field draws on the warped shape (the
-        higher-order counterpart of plotting on `deformed_mesh()`). Only meaningful with a
-        tessellating `space`. Pass `warp=True` (with a Solution as the first argument) to
-        deform by that solution's own displacement.
+        `space` opts a P2 or curved solve into a faithful render: the mesh and colored
+        panels draw on a `subdivisions`-fine tessellation of each element, so a curved
+        boundary follows its true curve and a quadratic field shows its within-element
+        curvature instead of being flattened to one triangle. Omitted, the P1 path draws
+        the straight-sided mesh exactly as before. `values` for the colored mode must
+        then be a per-node field (length `space.n_nodes`, e.g. a solution vector).
 
         Returns the recolourable collection for the colored and solid modes (the
         artist an animation updates in place across frames), and `None` otherwise.
         """
         mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
-        # The first argument may be a Solution, which carries its own mesh and space, so
-        # the common "plot my solve" call renders a P2 or curved field faithfully with no
-        # `space=` to remember. A raw mesh keeps the explicit, field-agnostic path.
-        mesh, space, warp = self._resolve_target(mesh, space, warp)
         ax = self.axs[idx]
         if clear:
             ax.clear()
@@ -195,13 +176,12 @@ class Plotter:
             cbar_info, artist = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
                                              label=label, cmap_name=cmap_name, log_scale=log_scale,
                                              colorbar=colorbar, contour=contour,
-                                             space=space, subdivisions=subdivisions, warp=warp)
+                                             space=space, subdivisions=subdivisions)
             self.cbar_infos[idx] = cbar_info
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
-            plot_surface(ax, mesh, values, clim=clim, space=space,
-                         subdivisions=subdivisions, warp=warp)
+            plot_surface(ax, mesh, values, clim=clim)
         elif mode is PlotMode.SOLID:
             # The colorbar is set up on the 3D axes, after the swap: attaching it to the
             # 2D one it replaces is what left a stray bar beside a surface animation.
@@ -214,7 +194,7 @@ class Plotter:
         elif mode is PlotMode.REFINEMENT:
             plot_refinement(ax, mesh, values)
         elif mode is PlotMode.ARROWS:
-            plot_arrows(ax, mesh, values, space=space, warp=warp)
+            plot_arrows(ax, mesh, values) # inside arrows, assert the correct shape
         elif mode is PlotMode.BC:
             plot_bc(ax, mesh, bc)
             self._bc_panels.add(idx)
@@ -223,30 +203,6 @@ class Plotter:
         if empty:
             ax.axis('off')
         return artist
-
-    def _resolve_target(
-        self, target: "Mesh | Solution",
-        space: 'FunctionSpace | None', warp: 'FloatArray | bool | None',
-    ) -> "tuple[Mesh, FunctionSpace | None, FloatArray | None]":
-        '''Let `plot`'s first argument be a Solution, not only a Mesh.
-
-        A Solution carries the mesh its field lives on and the space that numbers it, so
-        passing one draws a P2 or curved solve faithfully without the caller threading
-        `space=` through by hand; an explicit `space` still wins. `warp=True` deforms by
-        the solution's own displacement, the common case for an elastic field. A raw mesh
-        is returned unchanged, so the low-level field-agnostic path is untouched.
-        '''
-        from fem.solution import FieldSolution, Solution
-        if not isinstance(target, Solution):
-            if warp is True:
-                raise ValueError('warp=True needs a Solution as the first argument, not a mesh')
-            return target, space, (None if warp is False else warp)
-        resolved_space = space if space is not None else target.space
-        if warp is True:
-            if not isinstance(target, FieldSolution):
-                raise ValueError('warp=True needs a Solution carrying a displacement field u')
-            warp = target.u.reshape(-1, target.n_components)
-        return target.mesh, resolved_space, (None if warp is False else warp)
 
     def overlay_supports(
         self,

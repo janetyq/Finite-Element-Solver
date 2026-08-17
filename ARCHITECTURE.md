@@ -106,15 +106,12 @@ Post-processing (9) is **distributed on purpose**, under one rule:
 
 > A derived quantity lives on the object that owns the data it needs.
 
-So `FunctionSpace` owns `integrate` / `mean_value` (they need the mass matrix) and `recover_nodal`
-(it needs the element measures to average a per-element field onto the nodes); a `Form` owns
-`derived_fields` (it needs `B` and `D`, or the energy's derivative chain); `Equation` owns
-`derived_field` (which physics is the recoverable flux, `fem.postprocess.DerivedField`); `Solution`
-owns the packaging (`ScalarFieldSolution.flux`, `ElasticSolution.stress`, and the `nodal_*` recoveries
-built on `recover_nodal`) and `deformed_mesh`; `invariants` owns the frame-independent reductions,
-which need only a tensor. The rule is what keeps this from being a junk drawer, and what made a
-misplacement visible when the nodal recovery was found sitting on `Mesh`, a geometry object with no
-measures to weight by.
+So `FunctionSpace` owns `integrate` / `mean_value` (they need the mass matrix) and `element_to_vertex`
+(it needs the element measures); a `Form` owns `derived_fields` (it needs `B` and `D`, or the energy's
+derivative chain); `Solution` owns the packaging and `deformed_mesh`; `invariants` owns the
+frame-independent reductions, which need only a tensor. The rule is what keeps this from being a junk
+drawer, and what made a misplacement visible when the element↔vertex projection was found sitting on
+`Mesh`, a geometry object with no measures to weight by.
 
 ---
 

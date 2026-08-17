@@ -50,16 +50,3 @@ class DiscreteSystem:
         b_free = b[self.free] - self._free_fixed @ self.fixed_values
         x[self.free] = self._solver.solve(b_free)
         return x
-
-    def solve_homogeneous(self, b: DofVector) -> DofVector:
-        '''Solve with the fixed DOFs pinned to zero, reusing the factorization.
-
-        The Dirichlet data is zero rather than the operator's own `fixed_values`, so the
-        free-fixed lifting term drops out and only the free block is solved. This is the
-        solve an adjoint problem needs: the adjoint field vanishes on the supported DOFs,
-        whatever displacement the forward problem prescribes there. Reuses the same
-        factored free block as `solve`, so it costs one back-substitution, not a refactor.
-        '''
-        x = np.zeros(self.n_dofs)
-        x[self.free] = self._solver.solve(b[self.free])
-        return x

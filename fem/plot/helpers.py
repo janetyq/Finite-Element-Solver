@@ -128,8 +128,7 @@ def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False, c
 
 
 def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridis', log_scale=False,
-                 colorbar=True, contour=None, space: 'FunctionSpace | None' = None, subdivisions=3,
-                 warp=None):
+                 colorbar=True, contour=None, space: 'FunctionSpace | None' = None, subdivisions=3):
     if cbar_info is None:
         cbar_info = setup_colorbar(ax, (min(values), max(values)), label, cmap_name, log_scale, colorbar)
 
@@ -141,10 +140,7 @@ def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridi
     if _tessellates_field(space):
         assert space is not None
         if np.asarray(values).shape[0] == space.n_nodes:
-            # `warp` (a nodal displacement) tessellates the deformed configuration, so a
-            # P2 field draws on the warped shape rather than the reference one.
-            deformed = None if warp is None else space.node_coords + np.asarray(warp)
-            tess = space.tessellation(subdivisions, node_coords=deformed)
+            tess = space.tessellation(subdivisions)
     if tess is not None:
         triangulation = Triangulation(tess.points[:, 0], tess.points[:, 1],
                                       triangles=tess.triangles)
@@ -168,7 +164,7 @@ def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridi
         nodal = np.asarray(field)
         if tess is None and nodal.shape == (len(mesh.elements),):
             from fem.space import FunctionSpace
-            nodal = FunctionSpace(mesh).recover_nodal(nodal)
+            nodal = FunctionSpace(mesh).element_to_vertex(nodal)
         ax.tricontour(triangulation, nodal, levels=contour, colors='black',
                       linewidths=0.5, alpha=0.5)
     return cbar_info, collection
@@ -198,7 +194,7 @@ def solid_face_values(mesh, values):
     values = np.asarray(values)
     if values.shape == (len(mesh.elements),):
         from fem.space import FunctionSpace
-        values = FunctionSpace(mesh).recover_nodal(values)
+        values = FunctionSpace(mesh).element_to_vertex(values)
     return values[np.asarray(mesh.boundary)].mean(axis=1)
 
 
@@ -211,38 +207,24 @@ def change_ax_to_ax3d(ax, fig, ax_shape, ax_idx):
     return ax
 
 
-def plot_surface(ax, mesh, values, clim=None, space: 'FunctionSpace | None' = None,
-                 subdivisions=3, warp=None):
+def plot_surface(ax, mesh, values, clim=None):
     """Lift `values` over a 2D mesh into the z direction.
 
     `clim` fixes both the colour mapping and the z axis, so a grid of surfaces can be
     compared: left to autoscale, each panel is drawn to its own height, and a wave
     losing amplitude looks exactly like one that is not.
-
-    With a P2 (or curved) `space` and a per-node field, the surface is lifted over the
-    element tessellation, so it shows the within-element curvature rather than one flat
-    facet per element. `warp` tessellates the deformed configuration (see `plot_colored`).
     """
-    if (space is not None and _tessellates_field(space)
-            and np.asarray(values).shape[0] == space.n_nodes):
-        deformed = None if warp is None else space.node_coords + np.asarray(warp)
-        tess = space.tessellation(subdivisions, node_coords=deformed)
-        triangulation = Triangulation(tess.points[:, 0], tess.points[:, 1],
-                                      triangles=tess.triangles)
-        values = tess.interpolate(values)
+    if values.shape == (len(mesh.vertices),):
+        pass
+    elif values.shape == (len(mesh.elements),):
+        # A surface plot interpolates between nodes, so an element-constant field
+        # has to be projected first. The projection is volume-weighted and lives
+        # on the space, which is cheap to build; nothing assembles until asked.
+        from fem.space import FunctionSpace
+        values = FunctionSpace(mesh).element_to_vertex(values)
     else:
-        if values.shape == (len(mesh.vertices),):
-            pass
-        elif values.shape == (len(mesh.elements),):
-            # A surface plot interpolates between nodes, so an element-constant field
-            # has to be projected first. The projection is volume-weighted and lives
-            # on the space, which is cheap to build; nothing assembles until asked.
-            from fem.space import FunctionSpace
-            values = FunctionSpace(mesh).recover_nodal(values)
-        else:
-            raise ValueError(f'Invalid values shape: {values.shape}')
-        triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1],
-                                      triangles=mesh.elements)
+        raise ValueError(f'Invalid values shape: {values.shape}')
+    triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
     vmin, vmax = clim if clim is not None else (None, None)
     ax.plot_trisurf(triangulation, values, cmap='viridis', vmin=vmin, vmax=vmax)
     if clim is not None:
@@ -313,18 +295,11 @@ def _spread_sample(points, target):
     return first
 
 
-def plot_arrows(ax, mesh, values, max_arrows=MAX_ARROWS,
-                space: 'FunctionSpace | None' = None, warp=None):
+def plot_arrows(ax, mesh, values, max_arrows=MAX_ARROWS):
     # TODO: colored arrows, hard to see scale currently
-    values = np.asarray(values)
-    if space is not None and values.shape[0] == space.n_nodes:
-        # A per-node vector field (a recovered flux) drawn at the nodes, optionally on the
-        # deformed configuration, rather than one arrow per element at its centroid.
-        positions = space.node_coords if warp is None else space.node_coords + np.asarray(warp)
-    else:
-        positions = np.mean(mesh.vertices[mesh.elements], axis=1)   # per-element, at centroids
-    keep = _spread_sample(positions, max_arrows)
-    ax.quiver(positions[keep, 0], positions[keep, 1],
+    element_vertices = np.mean(mesh.vertices[mesh.elements], axis=1)
+    keep = _spread_sample(element_vertices, max_arrows)
+    ax.quiver(element_vertices[keep, 0], element_vertices[keep, 1],
               values[keep, 0], values[keep, 1], alpha=0.5, scale=10)
 
 

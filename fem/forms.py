@@ -373,30 +373,6 @@ class LinearElasticForm:
         compliance = np.einsum('eij,eij,e->e', stress, strain, geometry.volumes)
         return ElasticFields(strain, stress, compliance)
 
-    def stress_field(
-        self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> FloatArray:
-        '''(n_elements, n_qp, d, d) in-plane Cauchy stress at every quadrature point.
-
-        The spatially-resolved counterpart of `derived_fields`, which reduces the state
-        to one tensor per element. A P2 displacement has a strain that varies linearly
-        within the element, so the stress does too; the recovery error estimator samples
-        it here rather than at the single point `derived_fields` reports. In-plane only:
-        the estimator jumps and recovers the in-plane stress, so the plane-strain
-        out-of-plane lift `derived_fields` makes for von Mises is not needed.
-        '''
-        B = strain_displacement(geometry.grad_phi)          # (n_el, n_qp, n_strains, k)
-        D = self.material.constitutive_matrices(
-            geometry.reference_dim, geometry.n_elements
-        )
-        u_flat = np.asarray(u_elements).reshape(geometry.n_elements, -1)
-        strain_voigt = np.einsum('eqsk,ek->eqs', B, u_flat)
-        stress_voigt = np.einsum('est,eqt->eqs', D, strain_voigt)   # (n_el, n_qp, n_strains)
-
-        n_el, n_qp = stress_voigt.shape[:2]
-        stress = voigt_to_tensor(stress_voigt.reshape(n_el * n_qp, -1), shear_factor=1.0)
-        return stress.reshape(n_el, n_qp, *stress.shape[1:])
-
 
 @dataclass(frozen=True)
 class GeometricStiffnessForm:
@@ -483,9 +459,6 @@ class PrecomputedForm:
 class EnergyDensity(Protocol):
     '''The material law an `EnergyForm` integrates: `fem.energies` implements it.'''
 
-    energy_degree: int
-    '''Polynomial degree of W in the displacement gradient, setting the quadrature rule.'''
-
     def evaluate(self, grad_u: FloatArray) -> StrainEnergyDerivatives:
         '''Derivative chain at `(n_elements, d, d)` displacement gradients.'''
         ...
@@ -522,16 +495,6 @@ class EnergyForm:
     assembly-ready element quantities.
     '''
     energy_density: EnergyDensity
-
-    def quadrature_degree(self, shape_degree: int) -> int:
-        '''The rule degree that integrates this energy on an element of `shape_degree`.
-
-        The displacement gradient has degree `shape_degree - 1`, and the density's energy
-        is `energy_degree`-degree in it, so the energy integrand is their product. This is
-        higher than the linear stiffness's default on P2 (quartic St-VK reaches degree 4),
-        which is why the energy path asks for its own rule rather than sharing that default.
-        '''
-        return self.energy_density.energy_degree * max(0, shape_degree - 1)
 
     def _dF_dx(self, geometry: ElementGeometry, q: int) -> FloatArray:
         '''(n_el, d, d, N, d): dF/dx at quadrature point q = I ⊗ grad_phi_qᵀ.'''

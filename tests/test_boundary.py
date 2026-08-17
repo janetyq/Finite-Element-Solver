@@ -12,9 +12,39 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, BCType
-from fem.equations import LinearElastic
+from fem.elements import QuadraticTriangleElement
+from fem.equations import LinearElastic, Poisson
+from fem.mesh.mesh import Mesh
 from fem.regions import at_indices, intersect, on_plane
 from fem.solver import Solver
+
+
+def _tag_left_right(mesh: Mesh) -> Mesh:
+    """Same mesh, with the left edge tagged "inlet" (3) and the right "outlet" (4)."""
+    xmid = mesh.vertices[mesh.boundary].mean(axis=1)[:, 0]
+    facet_tags = np.zeros(len(mesh.boundary), dtype=int)
+    facet_tags[np.isclose(xmid, xmid.min())] = 3
+    facet_tags[np.isclose(xmid, xmid.max())] = 4
+    return Mesh(mesh.vertices, mesh.elements, mesh.boundary,
+                facet_tags=facet_tags, tag_names={3: "inlet", 4: "outlet"})
+
+
+@pytest.mark.parametrize("element_type", [None, QuadraticTriangleElement])
+def test_tag_region_matches_geometric_region_in_a_solve(make_unit_square, element_type):
+    """A Dirichlet BC placed by facet tag gives the same solution as the equivalent
+    geometric region, on P1 and P2 alike -- the on-facet region picks up the P2 edge
+    nodes exactly as `on_plane` does."""
+    mesh = _tag_left_right(make_unit_square(8))
+
+    def solve(left, right):
+        bc = BoundaryConditions()
+        bc.add(BCType.DIRICHLET, left, 0.0)
+        bc.add(BCType.DIRICHLET, right, 1.0)
+        return Solver(mesh, Poisson(source=0), bc, element_type=element_type).solve().u
+
+    by_tag = solve(mesh.on_tag("inlet"), mesh.on_tag("outlet"))
+    by_geometry = solve(on_plane(0, 0.0), on_plane(0, 1.0))
+    assert np.allclose(by_tag, by_geometry)
 
 
 def test_partial_pin_leaves_the_other_component_free(make_unit_square):

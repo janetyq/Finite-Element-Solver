@@ -24,10 +24,10 @@ logger = logging.getLogger(__name__)
 # `_split_point` and `_spans_a_sharp_corner`.
 SAFE_INPUT_ANGLE = 60.0
 
-# Encroachment is tested in the Thales form (a - p).(b - p) < 0, which is exactly zero
-# for a segment's own endpoints and so never reports one inside its own circle (see
-# `_circles_containing`). This relative tolerance shrinks the test slightly so a vertex
-# a hair outside the circle is not counted in either.
+# A segment's own endpoints sit exactly on its diametral circle, so floating-point
+# noise can push them fractionally inside.  This relative tolerance shrinks the test
+# circle slightly to prevent a segment from appearing encroached by its own endpoint
+# (which would split it forever).
 ENCROACHMENT_TOLERANCE = 1e-12
 
 # Twice the area over the longest edge squared: a scale-free flatness measure, ~1 for
@@ -147,16 +147,8 @@ class RuppertsAlgorithm:
         self._bad_queue = []
         self._live_keys = None
         centers, radii_sq = self._diametral_circles()
-        distances, nearest = KDTree(self.vertices).query(centers)
-        # The vertex nearest a diametral centre decides encroachment: anything strictly
-        # inside is nearer than the endpoints, which sit on the circle. A segment's own
-        # endpoint is excluded so floating-point error at the centre cannot place it a
-        # hair inside its own circle; `_circles_containing` keeps that exclusion exact
-        # from here on.
-        is_own_endpoint = ((nearest == self.segments[:, 0])
-                           | (nearest == self.segments[:, 1]))
-        self._encroached = (~is_own_endpoint
-                            & (distances**2 < radii_sq * (1 - ENCROACHMENT_TOLERANCE)))
+        distances, _ = KDTree(self.vertices).query(centers)
+        self._encroached = distances**2 < radii_sq * (1 - ENCROACHMENT_TOLERANCE)
 
         corner_angles = calculate_segment_angles(self.vertices, self.segments)
         self.input_angle = min(corner_angles.values(), default=180.0)
@@ -187,33 +179,23 @@ class RuppertsAlgorithm:
         return self._circles
 
     def _circles_containing(self, vertex):
-        '''Mask over segments whose diametral circle strictly contains `vertex`.
-
-        Tested in the Thales form: `vertex` is inside the circle on diameter (a, b)
-        exactly when angle a-vertex-b is obtuse, i.e. (a - vertex).(b - vertex) < 0.
-        That dot product equals |center - vertex|^2 - radius^2 algebraically, but,
-        unlike computing the two terms apart, it is exactly zero when `vertex` is an
-        endpoint (identical coordinates subtract to zero). So a segment is never judged
-        to contain its own endpoint however tiny it is next to the coordinate
-        magnitude, where the old center/radius form lost that to cancellation and split
-        the segment forever.
-        '''
-        ends = self.vertices[self.segments]
-        _, radii_sq = self._diametral_circles()
-        signed = np.einsum('ij,ij->i', ends[:, 0] - vertex, ends[:, 1] - vertex)
-        return signed < -ENCROACHMENT_TOLERANCE * radii_sq
+        '''Mask over segments whose diametral circle strictly contains `vertex`.'''
+        centers, radii_sq = self._diametral_circles()
+        offsets = np.asarray(vertex) - centers
+        return np.sum(offsets**2, axis=-1) < radii_sq * (1 - ENCROACHMENT_TOLERANCE)
 
     def _is_encroached(self, segment):
         '''Whether any vertex placed so far falls strictly inside `segment`'s circle.
 
         For a segment that has just appeared, where the incremental mask has
-        nothing to carry forward. Uses the same endpoint-exact dot-product test as
-        `_circles_containing`.
+        nothing to carry forward.
         '''
-        start, end = self.vertices[segment[0]], self.vertices[segment[1]]
-        radius_sq = np.sum((end - start)**2) / 4
-        signed = np.einsum('ij,ij->i', start - self.vertices, end - self.vertices)
-        return bool(np.any(signed < -ENCROACHMENT_TOLERANCE * radius_sq))
+        ends = self.vertices[segment]
+        center = ends.mean(axis=0)
+        radius_sq = np.sum((ends[1] - ends[0])**2) / 4
+        offsets = self.vertices - center
+        return bool(np.any(np.sum(offsets**2, axis=-1)
+                           < radius_sq * (1 - ENCROACHMENT_TOLERANCE)))
 
     def get_encroached_segments(self):
         '''Segments with a mesh vertex strictly inside their diametral circle.

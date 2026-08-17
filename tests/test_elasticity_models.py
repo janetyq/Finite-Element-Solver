@@ -23,14 +23,13 @@ converge in 1 iteration" -- into executable claims.
 import numpy as np
 import pytest
 
-from fem.backends import MinresBackend
 from fem.boundary import BoundaryConditions, BCType
 from fem.materials import LinearElasticMaterial
 from fem.regions import on_plane
 from fem.equations import LinearElastic, StrainMeasure
 from fem.solver import Solver
 from fem.energy_solver import EnergySolver
-from fem.solve import BacktrackingLineSearch, NewtonSolve, TangentRegularization
+from fem.solve import BacktrackingLineSearch, NewtonSolve
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.forms import EnergyForm
 from fem.numerics import central_difference_order
@@ -304,50 +303,3 @@ def test_green_lagrange_is_frame_indifferent(make_unit_square):
     ratios = [a / b for a, b in zip(small_energies[:-1], small_energies[1:])]
     for r in ratios:
         assert 13 < r < 19, f"spurious energy ratio {r:.1f} is not the ~16x of a theta^4 law"
-
-
-def _stretched_stvk(make_unit_square, n=8, stretch=0.1):
-    """A well-constrained St-Venant-Kirchhoff pull: left edge fixed, right edge stretched."""
-    mesh = make_unit_square(n)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [stretch, 0])
-    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    return mesh, equation, bc
-
-
-def test_energy_solver_reaches_the_minres_backend(make_unit_square):
-    """A nonlinear St-VK solve converges through MINRES to the same minimum as direct.
-
-    The energy Hessian is indefinite at the zero seed, so this exercises both new pieces
-    together: MINRES solving the indefinite tangent, and the regularization steering each
-    step to a descent direction. The converged displacement must match the direct solve,
-    since both minimise the same energy.
-    """
-    mesh, equation, bc = _stretched_stvk(make_unit_square)
-
-    direct = EnergySolver(mesh, equation, bc).solve().u
-    iterative = EnergySolver(mesh, equation, bc, backend=MinresBackend()).solve().u
-
-    assert np.abs(direct).max() > 0, "trivial solution; test proves nothing"
-    np.testing.assert_allclose(iterative, direct, atol=1e-7 * np.abs(direct).max())
-
-
-def test_regularization_leaves_an_spd_tangent_unshifted(make_unit_square):
-    """On a LinearProblem (SPD tangent), regularization changes nothing: tau stays 0.
-
-    The guarantee that the common case pays no penalty: a positive-definite tangent's
-    first (tau=0) step already descends, so a regularized Newton reproduces the plain
-    one exactly on a small-strain (linear) problem solved in one step.
-    """
-    from fem.problem import linear_elastic
-
-    mesh = make_unit_square(8)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.05, 0])
-    problem = linear_elastic(mesh, LinearElasticMaterial(E=200, nu=0.3), bc)
-
-    plain = NewtonSolve().solve(problem)
-    regularized = NewtonSolve(regularization=TangentRegularization()).solve(problem)
-    np.testing.assert_allclose(regularized, plain, atol=1e-12)

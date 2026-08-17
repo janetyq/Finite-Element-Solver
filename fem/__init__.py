@@ -63,19 +63,12 @@ from fem.problem import (
     heat,
     wave,
 )
-from fem.solve import (
-    BacktrackingLineSearch,
-    LinearSolve,
-    NewtonSolve,
-    EigenSolve,
-    TangentRegularization,
-)
-from fem.backends import DirectBackend, IterativeBackend, MinresBackend, rigid_body_modes
+from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve, EigenSolve
+from fem.backends import DirectBackend, IterativeBackend, rigid_body_modes
 from fem.integrators import ThetaMethod, NewmarkMethod
 from fem.solution import (
     Solution,
     FieldSolution,
-    ScalarFieldSolution,
     ElasticSolution,
     BucklingSolution,
     ModalSolution,
@@ -86,23 +79,8 @@ from fem.buckling import BucklingSolver
 from fem.modal import ModalSolver
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
-from fem.sensitivity import (
-    SensitivityAnalysis,
-    Compliance,
-    PointValue,
-    MeanStress,
-    SoftMaxStress,
-    DensityField,
-    ModulusField,
-)
-from fem.design import DesignOptimizer, SIMPModel, DesignHistory, optimality_criteria_update
 from fem.adaptivity import AdaptiveRefinement
-from fem.estimators import (
-    ErrorEstimator,
-    goal_oriented_estimator,
-    recovery_estimator,
-    residual_estimator,
-)
+from fem.estimators import ErrorEstimator, recovery_estimator, residual_estimator
 from fem.plot.plotter import Plotter, PlotMode
 
 # Library-quiet by default: emit nothing unless the application configures a
@@ -150,17 +128,14 @@ __all__ = [
     "LinearSolve",
     "NewtonSolve",
     "BacktrackingLineSearch",
-    "TangentRegularization",
     "EigenSolve",
     "DirectBackend",
     "IterativeBackend",
-    "MinresBackend",
     "rigid_body_modes",
     "ThetaMethod",
     "NewmarkMethod",
     "Solution",
     "FieldSolution",
-    "ScalarFieldSolution",
     "ElasticSolution",
     "BucklingSolution",
     "ModalSolution",
@@ -170,22 +145,10 @@ __all__ = [
     "ModalSolver",
     "EnergySolver",
     "TopologyOptimizer",
-    "SensitivityAnalysis",
-    "Compliance",
-    "PointValue",
-    "MeanStress",
-    "SoftMaxStress",
-    "DensityField",
-    "ModulusField",
-    "DesignOptimizer",
-    "SIMPModel",
-    "DesignHistory",
-    "optimality_criteria_update",
     "AdaptiveRefinement",
     "ErrorEstimator",
     "residual_estimator",
     "recovery_estimator",
-    "goal_oriented_estimator",
     "Plotter",
     "PlotMode",
 ]

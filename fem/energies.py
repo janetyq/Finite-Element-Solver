@@ -80,12 +80,6 @@ class StVenantKirchhoff:
     tests/test_elasticity_models.py, which pins both halves of that statement.
     """
 
-    # Polynomial degree of W in the displacement gradient: the Green strain is quadratic
-    # in grad_u and W is quadratic in the strain, so W is quartic. This sets the rule the
-    # energy is integrated at, above the linear stiffness's default on P2 and higher (see
-    # FunctionSpace._energy_geometry).
-    energy_degree = 4
-
     def __init__(self, E: float, nu: float) -> None:
         self.mu, self.lamb = Enu_to_Lame(E, nu)
 
@@ -184,10 +178,6 @@ class SmallStrain(StVenantKirchhoff):
     strain-measure axis.
     """
 
-    # The small strain is affine in grad_u and W quadratic in it, so W is quadratic:
-    # the default P2 rule already integrates it exactly, unlike the quartic Green-Lagrange.
-    energy_degree = 2
-
     def _strain(self, F: FloatArray, eye: FloatArray) -> FloatArray:
         return 0.5 * (F + np.swapaxes(F, -2, -1)) - eye
 
@@ -203,10 +193,6 @@ class SmallStrain(StVenantKirchhoff):
 
 
 class NeohookeanEnergyDensity:
-    # Non-polynomial (it carries a log J term), so no rule is exact; 4 is a reasonable
-    # integration order, matching St-VK. Unused while `evaluate` is a stub.
-    energy_degree = 4
-
     def __init__(self, E: float, nu: float) -> None:
         self.mu, self.lamb = Enu_to_Lame(E, nu)
 

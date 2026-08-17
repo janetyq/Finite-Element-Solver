@@ -5,12 +5,14 @@ tests is that a save/load cycle preserves everything a caller depends on --
 value arrays, mesh geometry, mesh class and n_components -- and that the load path never
 falls back to pickle.
 """
+import meshio
 import numpy as np
 import pytest
 
 from fem.integrators import ThetaMethod
-from fem.io import load_mesh, save_mesh, save_solution
+from fem.io import _mesh_from_meshio, load_mesh, save_mesh, save_solution
 from fem.mesh.mesh import Mesh
+from fem.mesh.structured import create_box_mesh
 from fem.numerics import bump_function
 from fem.problem import heat
 from fem.solution import (
@@ -39,6 +41,170 @@ def test_mesh_load_rebuilds_the_requested_class(make_unit_square, tmp_path):
 
     assert type(load_mesh(path)) is Mesh
     assert type(Mesh.load(path)) is Mesh
+
+
+# --- standard formats via meshio --------------------------------------------
+
+def test_mesh_vtu_round_trip(make_unit_square, tmp_path):
+    """A 2D mesh survives a VTK .vtu save/load: the 3D-padded points come back
+    reduced to 2D, and the boundary is re-derived to the same facets."""
+    mesh = make_unit_square(6)
+    path = tmp_path / "mesh.vtu"
+
+    mesh.save(path)
+    loaded = Mesh.load(path)
+
+    assert loaded.spatial_dim == 2
+    assert np.allclose(loaded.vertices, mesh.vertices)
+    assert np.array_equal(loaded.elements, mesh.elements)
+    assert np.array_equal(np.sort(loaded.boundary, axis=0), np.sort(mesh.boundary, axis=0))
+
+
+def test_mesh_msh_round_trip_3d(tmp_path):
+    """A 3D tet mesh survives a Gmsh .msh save/load unchanged."""
+    mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(3, 3, 3))
+    path = tmp_path / "mesh.msh"
+
+    save_mesh(mesh, path)
+    loaded = load_mesh(path)
+
+    assert loaded.spatial_dim == 3
+    assert np.allclose(loaded.vertices, mesh.vertices)
+    assert np.array_equal(loaded.elements, mesh.elements)
+
+
+def test_from_meshio_reduces_padded_3d_points():
+    """Triangles with an all-zero z column import as a 2D mesh."""
+    points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    m = meshio.Mesh(points, [("triangle", np.array([[0, 1, 2]]))])
+
+    mesh = _mesh_from_meshio(m)
+
+    assert mesh.spatial_dim == 2
+    assert np.allclose(mesh.vertices, points[:, :2])
+
+
+def test_from_meshio_rejects_embedded_surface():
+    """A surface mesh with nonzero out-of-plane coordinates is out of scope."""
+    points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 0.0]])
+    m = meshio.Mesh(points, [("triangle", np.array([[0, 1, 2]]))])
+
+    with pytest.raises(NotImplementedError):
+        _mesh_from_meshio(m)
+
+
+def test_from_meshio_prunes_unreferenced_vertices():
+    """An isolated point no element references is dropped and indices renumber."""
+    points = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [5.0, 5.0]])
+    m = meshio.Mesh(points, [("triangle", np.array([[0, 1, 2]]))])
+
+    mesh = _mesh_from_meshio(m)
+
+    assert len(mesh.vertices) == 3
+    assert np.allclose(mesh.vertices, points[:3])
+
+
+def test_from_meshio_prefers_volume_cells():
+    """With both boundary triangles and volume tets present, the tets win."""
+    points = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    m = meshio.Mesh(
+        points,
+        [
+            ("triangle", np.array([[0, 1, 2]])),
+            ("tetra", np.array([[0, 1, 2, 3]])),
+        ],
+    )
+
+    mesh = _mesh_from_meshio(m)
+
+    assert mesh.elements.shape[1] == 4
+    assert mesh.spatial_dim == 3
+
+
+def test_from_meshio_higher_order_uses_corners():
+    """A P2 (triangle6) cell imports at its three corner nodes; midside nodes,
+    now unreferenced, are pruned."""
+    points = np.array(
+        [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.5, 0.0], [0.5, 0.5], [0.0, 0.5]]
+    )
+    m = meshio.Mesh(points, [("triangle6", np.array([[0, 1, 2, 3, 4, 5]]))])
+
+    mesh = _mesh_from_meshio(m)
+
+    assert mesh.elements.shape == (1, 3)
+    assert len(mesh.vertices) == 3
+
+
+def test_from_meshio_rejects_unsupported_cell_type():
+    """A non-simplex cell (a quad) has no linear-simplex mapping."""
+    points = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+    m = meshio.Mesh(points, [("quad", np.array([[0, 1, 2, 3]]))])
+
+    with pytest.raises(NotImplementedError):
+        _mesh_from_meshio(m)
+
+
+# --- physical-group tags -----------------------------------------------------
+
+def _tagged_square_meshio():
+    """A unit square (two triangles) with physical groups: the whole area "domain"
+    (id 1), the left edge "inlet" (id 3), the right edge "outlet" (id 4)."""
+    points = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=float)
+    triangles = np.array([[0, 1, 2], [0, 2, 3]])
+    lines = np.array([[3, 0], [1, 2]])  # left edge (x=0), right edge (x=1)
+    return meshio.Mesh(
+        points,
+        [("triangle", triangles), ("line", lines)],
+        cell_data={"gmsh:physical": [np.array([1, 1]), np.array([3, 4])]},
+        field_data={
+            "domain": np.array([1, 2]),
+            "inlet": np.array([3, 1]),
+            "outlet": np.array([4, 1]),
+        },
+    )
+
+
+def test_from_meshio_reads_cell_and_facet_tags():
+    """Physical groups import as cell/facet tags, with facet tags matched onto the
+    re-derived boundary by vertex set and untagged facets left at 0."""
+    mesh = _mesh_from_meshio(_tagged_square_meshio())
+
+    assert np.array_equal(mesh.cell_tags, [1, 1])
+    assert mesh.tag_names == {1: "domain", 3: "inlet", 4: "outlet"}
+    # The left and right edges carry their tags; the top and bottom edges get 0.
+    inlet = mesh.vertices[mesh.boundary[mesh.facets_with_tag("inlet")]]
+    outlet = mesh.vertices[mesh.boundary[mesh.facets_with_tag("outlet")]]
+    assert np.allclose(inlet[..., 0], 0.0)
+    assert np.allclose(outlet[..., 0], 1.0)
+    assert (mesh.facet_tags == 0).sum() == 2
+
+
+def test_msh_round_trip_preserves_tags(tmp_path):
+    """A Gmsh .msh save/load keeps the cell tags, facet tags, and their names."""
+    mesh = _mesh_from_meshio(_tagged_square_meshio())
+    path = tmp_path / "tagged.msh"
+
+    save_mesh(mesh, path)
+    loaded = load_mesh(path)
+
+    assert np.array_equal(loaded.cell_tags, mesh.cell_tags)
+    assert np.array_equal(loaded.facet_tags, mesh.facet_tags)
+    assert loaded.tag_names == mesh.tag_names
+
+
+def test_untagged_mesh_writes_only_volume_cells(make_unit_square, tmp_path):
+    """A mesh with no tags round-trips through .msh with tags still absent."""
+    mesh = make_unit_square(5)
+    path = tmp_path / "plain.msh"
+
+    save_mesh(mesh, path)
+    loaded = load_mesh(path)
+
+    assert loaded.cell_tags is None
+    assert loaded.facet_tags is None
+    assert loaded.tag_names == {}
 
 
 def test_elastic_solution_round_trip_preserves_fields_mesh_and_dim(make_unit_square, tmp_path):

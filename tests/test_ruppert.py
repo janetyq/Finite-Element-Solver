@@ -675,36 +675,3 @@ def test_refinement_is_reproducible_despite_the_perturbation():
 
     assert np.array_equal(first.vertices, second.vertices)
     assert np.array_equal(first.elements, second.elements)
-
-
-def test_a_short_segment_far_from_the_origin_is_not_encroached_by_its_own_endpoints():
-    """Regression for a floating-point non-termination. A segment short next to the
-    coordinate magnitude (here length ~1e-3 at coordinates ~5) has endpoints that the
-    old center-and-radius test computed as strictly inside its own diametral circle,
-    from catastrophic cancellation. The segment then read as forever encroached and was
-    split without end. The Thales dot-product form is exactly zero at an endpoint, so it
-    cannot happen."""
-    corner = np.array([4.72, 1.735])
-    vertices = np.array([corner, corner + [1.1e-3, 5e-4], [0.0, 0.0], [7.0, 0.0]])
-    algo = RuppertsAlgorithm(PSLG(vertices, segments=np.array([[0, 1]])), min_angle=20)
-
-    # Only the segment's own endpoints sit on its circle; nothing is strictly inside.
-    assert not algo._is_encroached(np.array([0, 1]))
-    assert not algo._encroached.any()   # the KD-tree seed agrees
-
-
-def test_a_finely_sampled_feature_far_from_the_origin_terminates():
-    """End to end: a box with a tiny hole (edges ~1e-3) offset to coordinates ~5, the
-    shape of a densely sampled airfoil trailing edge. Its short edges used to
-    self-encroach and split forever; the run must now finish, honour the angle bound,
-    and cut the hole out rather than fill it."""
-    center, half = np.array([4.72, 1.735]), 1.5e-3
-    hole = center + half * np.array([[-1, -1], [1, -1], [1, 1], [-1, 1]])
-    box = np.array([[0.0, 0.0], [7.0, 0.0], [7.0, 4.0], [0.0, 4.0]])
-    pslg = PSLG.from_loops([box, hole])
-
-    mesh = RuppertsAlgorithm(pslg, min_angle=20, max_area=0.5).refine()
-
-    assert _min_angles(mesh).min() >= 20
-    centroids = np.asarray(mesh.vertices)[np.asarray(mesh.elements)].mean(axis=1)
-    assert not any(point_in_polygon(c, hole) for c in centroids)   # the hole is empty
