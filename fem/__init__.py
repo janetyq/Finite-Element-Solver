@@ -6,10 +6,10 @@ optimization.
 
 Common entry points are re-exported here, so typical use is:
 
-    from fem import Mesh, BoundaryConditions, BCType, Solver, Poisson
+    from fem import create_rect_mesh, BoundaryConditions, BCType, Solver, Poisson
     from fem.regions import everywhere
 
-    mesh = Mesh.load("files/mesh_40x40.json")
+    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))
     equation = Poisson(source=lambda p: 1.0)
 
     bc = BoundaryConditions()                          # described geometrically,
