@@ -837,14 +837,16 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
                              cmap='inferno', cbar_lims=(u_ambient, u_hot),
                              titles=[f't={t:.2f}' for t in t_values], idx=(0, 0))
 
-    # One scale across the six (ambient to the heated base), so the panels compare: the
-    # warming front is in the picture, not hidden in per-panel colorbars. A warm colormap
-    # for a warming shape.
-    snapshots = Plotter(2, 3, title='Heatsink warming: heat climbing the fins')
-    for panel, i in enumerate(np.linspace(0, len(u_values) - 1, 6).astype(int)):
-        snapshots.plot(mesh, u_values[i], mode='colored', idx=divmod(panel, 3),
+    # One scale across the row (ambient to the heated base), so the panels compare: the
+    # warming front is in the picture, not hidden in per-panel colorbars, and one shared
+    # bar on the last panel serves them all. A warm colormap for a warming shape.
+    n_shown = 4
+    snapshots = Plotter(1, n_shown, panel_aspect=1.6,
+                        title='Heatsink warming: heat climbing the fins')
+    for panel, i in enumerate(np.linspace(0, len(u_values) - 1, n_shown).astype(int)):
+        snapshots.plot(mesh, u_values[i], mode='colored', idx=(0, panel),
                        label='temperature', cmap='inferno', clim=(u_ambient, u_hot),
-                       title=f't={t_values[i]:.2f}')
+                       colorbar=(panel == n_shown - 1), title=f't={t_values[i]:.2f}')
 
     tip = float(u_values[-1].min())     # coolest node at steady state: a fin tip
     return DemoResult([

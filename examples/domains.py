@@ -75,7 +75,7 @@ def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float
 
 
 def heatsink_pslg(width: float = 3.0, base_height: float = 0.5, fin_height: float = 1.4,
-                  fin_width: float = 0.28, n_fins: int = 5, margin: float = 0.2) -> PSLG:
+                  fin_width: float = 0.22, n_fins: int = 7, margin: float = 0.18) -> PSLG:
     """A finned heatsink cross-section (a comb) as a single-outline PSLG.
 
     A `width` x `base_height` base slab carries `n_fins` fins of `fin_width` x

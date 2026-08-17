@@ -20,7 +20,7 @@ from fem.geometry import calculate_triangle_min_angle
 from fem.plot.plotter import Plotter
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.svg import PSLG, read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker
-from fem.regions import in_box, intersect, on_plane
+from fem.regions import on_plane
 from fem.solver import Solver
 
 from demo_registry import Demo, DemoResult, Figure
@@ -43,24 +43,27 @@ DEFAULT_SIMPLIFICATION_TOLERANCE = 0.005
 # enormous triangles.
 DEFAULT_MAX_AREA_FRACTION = 0.005
 
-def demo_regions(length=4.0, height=1.0, n_structured=36, min_angle=30,
-                 max_area_fraction=0.0022, E=200.0, nu=0.3, traction=0.5):
+def demo_regions(length=4.0, height=1.0, n_structured=60, min_angle=30,
+                 max_area_fraction=0.0009, E=200.0, nu=0.3, traction=0.5):
     """Solve one cantilever on two unrelated triangulations of the same beam, a structured
     grid and an unstructured Ruppert's mesh, to show position-based boundary conditions
     resolving against whichever mesh is current: one specification, two meshes, one solve."""
     # The alternative is naming vertex indices, and an index means nothing after a remesh
     # renumbers them. The clamp and the load below are written once against coordinates, so
-    # the same two lines select the same physical edge and patch on any triangulation of
-    # the beam. The two meshes here are the same size but built two different ways, so their
-    # vertices are numbered nothing alike; the same specification resolves against each and
-    # drives the same solve, which is what makes a mesh interchangeable at all.
+    # the same two lines select the same physical edges on any triangulation of the beam.
+    # The two meshes here are the same size but built two different ways, so their vertices
+    # are numbered nothing alike; the same specification resolves against each and drives
+    # the same solve, which is what makes a mesh interchangeable at all. A whole-edge load,
+    # not a sub-patch: an edge holds the same total length on any mesh, where a patch's
+    # boundary would fall between different nodes on each and apply a slightly different
+    # resultant, a mesh dependence that has nothing to do with the point being made here.
     clamped = on_plane(0, 0.0)
-    loaded = intersect(on_plane(0, length), in_box([None, 0.2*height], [None, 0.8*height]))
+    loaded = on_plane(0, length)
 
     def make_bc():
         bc = BoundaryConditions()
         bc.add(BCType.DIRICHLET, clamped, [0, 0])         # clamp the left edge
-        bc.add(BCType.NEUMANN, loaded, [0, -traction])    # pull down a patch on the right
+        bc.add(BCType.NEUMANN, loaded, [0, -traction])    # pull the right edge down
         return bc
 
     pslg = PSLG.from_loops([np.array([[0.0, 0.0], [length, 0.0],
@@ -91,7 +94,7 @@ def demo_regions(length=4.0, height=1.0, n_structured=36, min_angle=30,
         Line2D([], [], marker='o', linestyle='', color='red', markersize=6,
                label='on_plane: clamped edge'),
         Line2D([], [], marker='o', linestyle='', color='lime', markersize=6,
-               label='intersect: loaded patch'),
+               label='on_plane: loaded edge'),
     ]
     resolved.fig.legend(handles=legend_handles, loc='outside lower center', ncol=2,
                         frameon=False)
@@ -99,15 +102,15 @@ def demo_regions(length=4.0, height=1.0, n_structured=36, min_angle=30,
     spread = 100 * abs(tips[1] - tips[0]) / tips[1]
     return DemoResult([
         Figure(resolved,
-               'One cantilever, clamped on the left edge and pulled down over a patch on '
-               'the right, solved on two unrelated triangulations of the same beam: a '
-               f"structured grid ({len(meshes[0][1].elements)} triangles) and an unstructured "
-               f"Ruppert's mesh ({len(meshes[1][1].elements)}), numbered nothing alike. Top: "
-               'the clamp (red) and load (green), placed by position rather than by vertex '
-               'index, land on the same physical edge and patch on each mesh. Bottom: they '
-               f'drive the same solve, the tip deflections agreeing to within {spread:.0f}%. '
-               'This is what lets a condition be written once and survive whatever remeshing '
-               'happens after, including adaptive refinement rebuilding the mesh repeatedly.'),
+               'One cantilever, clamped on the left edge and pulled down along the right, '
+               'solved on two unrelated triangulations of the same beam: a structured grid '
+               f"({len(meshes[0][1].elements)} triangles) and an unstructured Ruppert's mesh "
+               f"({len(meshes[1][1].elements)}), numbered nothing alike. Top: the clamp (red) "
+               'and load (green), placed by position rather than by vertex index, land on the '
+               'same physical edges on each mesh. Bottom: they drive the same solve, the tip '
+               f'deflections agreeing to within {spread:.1f}%. This is what lets a condition '
+               'be written once and survive whatever remeshing happens after, including '
+               'adaptive refinement rebuilding the mesh repeatedly.'),
     ], text=(f'structured grid   {len(meshes[0][1].elements):>5} triangles, tip |u| = {tips[0]:.4f}\n'
              f"Ruppert's mesh    {len(meshes[1][1].elements):>5} triangles, tip |u| = {tips[1]:.4f}\n"
              f'difference        {spread:.1f}%'))
@@ -283,8 +286,7 @@ DEMOS = [
          smoke_kwargs={'max_area_fraction': 0.05}),
     Demo('douglas_peucker', demo_douglas_peucker, section='Meshing a domain'),
     # Builds its own two meshes (a structured grid and a Ruppert's mesh) so it takes no
-    # domain. The smoke run shrinks both, but not so far that the loaded patch on the right
-    # edge falls between boundary nodes and lands no traction (a zero solve).
+    # domain. The smoke run shrinks both to a handful of triangles.
     Demo('regions', demo_regions, section='Meshing a domain',
-         smoke_kwargs={'n_structured': 16, 'max_area_fraction': 0.01}),
+         smoke_kwargs={'n_structured': 6, 'max_area_fraction': 0.05}),
 ]

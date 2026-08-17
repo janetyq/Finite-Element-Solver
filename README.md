@@ -78,7 +78,7 @@ surface sheds heat to ambient through a convective (Robin) film,
 $\partial u / \partial n + \kappa (u - u_\infty) = 0$. The warming front climbs each fin
 and settles into the classic fin gradient, hot at the root and cooler toward the tip.
 
-![A heatsink warming from cold: heat climbing the fins at six times](images/heat.png)
+![A heatsink warming from cold: heat climbing the fins, sampled over time](images/heat.png)
 
 ### Wave equation
 
