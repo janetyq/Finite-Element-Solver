@@ -75,12 +75,15 @@ Two approaches measured and rejected, so they are not proposed again:
   point), `Circle` / `Arc` curves carried through `PSLG` -> `RuppertsAlgorithm` ->
   `Mesh.boundary_curves`, boundary-node projection in `p2_connectivity`, curvature-aware Ruppert and
   red-green refinement, a curved `MassForm`, P2-aware plotting (`FunctionSpace.tessellation` through
-  `Plotter.plot(..., space=...)`, with the `curved_elements` gallery demo), and validation
-  (`tests/test_convergence_curved.py` area fidelity and the P2 rate; `tests/test_curved_meshing.py`
-  the pipeline and the Kirsch stress concentration). Three follow-ups are left. **SVG Beziers**:
-  `svg.py` still flattens cubics to line segments, so arbitrary traced artwork gets no curve;
-  retaining the control points would feed `PSLG` a curve. **3D curved elements** and **`fem/io.py`
-  curve serialization** (a saved mesh currently drops its curves) are the remaining gaps.
+  `Plotter.plot(..., space=...)`, with the `curved_elements` gallery demo), SVG cubic Beziers
+  retained as `CubicBezier` curves through `read_svg_to_pslg` (adaptive flatness sampling, tag-aware
+  Douglas-Peucker), and validation (`tests/test_convergence_curved.py` area fidelity and the P2 rate;
+  `tests/test_curved_meshing.py` the pipeline and the Kirsch stress concentration; `tests/test_svg.py`
+  the traced-outline round trip). Two follow-ups are left. **3D curved elements** and **`fem/io.py`
+  curve serialization** (a saved mesh currently drops its curves) are the remaining gaps. A curved SVG
+  *meshing* demo (e.g. `files/cloud.svg`) is a natural home for the curved-boundary visualization,
+  still to be placed. Quadratic Beziers (degree-elevate to cubic) and elliptical arcs (`EllipseArc`)
+  are unbuilt but unused by the bundled assets.
 - 💡 **Mixed (u-p) formulation, to remove volumetric locking near nu -> 0.5.** The linear triangle
   has one constant strain per element, which cannot represent deviatoric and volumetric deformation
   independently. As `nu` approaches incompressibility the element gets artificially stiff, worst in
