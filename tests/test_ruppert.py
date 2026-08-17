@@ -41,6 +41,16 @@ CLOUD_OUTLINE = np.array([
     [4.2375, 789.6797], [3.0531, 787.0782],
 ])
 
+# A slender L-bracket (arm 4, limb width 1.2) with a sharp re-entrant corner. Its long
+# axis-aligned edges and the circumcenters refinement inserts along the corner are
+# nearly cocircular, which used to trip qhull's *incremental* insertion with a "wide
+# merge" precision error partway through a run. Distinct from CLOUD_OUTLINE's failure,
+# which was a segment-split sliver; this one is in add_points, and the coordinates are
+# pinned because a regular shape does not reproduce it.
+L_BRACKET_OUTLINE = np.array([
+    [0.0, 0.0], [4.0, 0.0], [4.0, 1.2], [1.2, 1.2], [1.2, 4.0], [0.0, 4.0],
+])
+
 # The L-shape needs no angle refinement at any bound the algorithm can hold, so
 # tests that need refinement to have actually happened drive it with an area cap.
 REFINING_AREA = 0.05
@@ -636,3 +646,32 @@ def test_a_tight_outline_meshes_without_a_qhull_precision_error():
     vertices = np.asarray(mesh.vertices)
     filled = sum(calculate_polygon_area(vertices[element]) for element in mesh.elements)
     assert filled == pytest.approx(pslg.area())
+
+
+@pytest.mark.parametrize('max_area_fraction', [0.04, 0.06, 0.08, 0.10])
+def test_a_reentrant_corner_meshes_through_an_incremental_precision_error(max_area_fraction):
+    """Regression for a qhull precision error in *incremental* insertion: refining the
+    sharp re-entrant `L_BRACKET_OUTLINE` under an area cap used to raise QhullError from
+    `add_points` partway through, aborting the run. The wide merge is caught and the
+    triangulation rebuilt in batch, so the mesh comes back honouring the angle bound and
+    filling exactly what the outline encloses."""
+    pslg = PSLG(L_BRACKET_OUTLINE.copy())
+    algo = RuppertsAlgorithm(pslg, min_angle=25, max_area=max_area_fraction * pslg.area())
+
+    mesh = algo.refine()  # used to raise scipy.spatial.QhullError from add_points
+
+    assert _min_angles(mesh).min() >= 25
+    vertices = np.asarray(mesh.vertices)
+    filled = sum(calculate_polygon_area(vertices[element]) for element in mesh.elements)
+    assert filled == pytest.approx(pslg.area())
+
+
+def test_refinement_is_reproducible_despite_the_perturbation():
+    """Each inserted circumcenter is nudged a hair off its exact position to dodge the
+    cocircular precision failure, but from a fixed seed, so a run is deterministic:
+    meshing the same outline twice must give the identical triangulation."""
+    first = RuppertsAlgorithm(_l_shape(), min_angle=25, max_area=REFINING_AREA).refine()
+    second = RuppertsAlgorithm(_l_shape(), min_angle=25, max_area=REFINING_AREA).refine()
+
+    assert np.array_equal(first.vertices, second.vertices)
+    assert np.array_equal(first.elements, second.elements)

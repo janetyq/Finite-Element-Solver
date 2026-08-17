@@ -126,6 +126,11 @@ class RuppertsAlgorithm:
         # Which loop each boundary facet of the returned mesh came from; set by refine().
         self.boundary_loops = np.zeros(0, dtype=int)
 
+        # A fixed seed so a mesh is reproducible: the only randomness is the direction of
+        # the tiny nudge `_perturb` gives each inserted circumcenter (see there), and
+        # insertions happen in a deterministic order, so the whole run is deterministic.
+        self._rng = np.random.default_rng(0)
+
         # Diametral circles, and which segments a vertex sits inside. Both are
         # maintained as segments and vertices are added; see `_diametral_circles`
         # and `get_encroached_segments`. The one full scan is here, where a KD-tree
@@ -469,14 +474,26 @@ class RuppertsAlgorithm:
         points are one, a square included. It also rules out the `Qz` option that
         would otherwise handle them. So a run rebuilds until qhull will take the
         point set, which the first inserted vertex almost always settles.
+
+        An incremental insertion can also fail partway through a run, with a
+        precision error ("wide merge" on nearly-cocircular points, which an
+        axis-aligned outline and the circumcenters inserted along a re-entrant
+        corner readily produce). A batch rebuild settles the same point set,
+        because that path applies qhull's `Qbb`/`Qz` paraboloid scaling that
+        incremental mode cannot; the next insertion resumes incrementally.
         '''
         added = self.vertices[len(self.triangulation.points):]
         if not len(added):
             return
         self._live_keys = None
         if self._incremental:
-            self.triangulation.add_points(added)
-            return
+            try:
+                self.triangulation.add_points(added)
+                return
+            except QhullError:
+                # Fall through to a rebuild, dropping the incremental state the
+                # failed insertion left the triangulation in.
+                self._incremental = False
         try:
             self.triangulation = Delaunay(self.vertices, incremental=True)
             self._incremental = True
@@ -516,7 +533,8 @@ class RuppertsAlgorithm:
                         break
                     self._refill_bad_queue(remaining)
                     continue
-                circumcenter = calculate_circumcenter(self.vertices[list(triangle)])
+                circumcenter = self._perturb(
+                    calculate_circumcenter(self.vertices[list(triangle)]), list(triangle))
                 # Inserting a point inside a segment's diametral circle would cut
                 # the mesh off from the outline, so split those segments instead
                 # and put the triangle back to be reconsidered once they are gone.
@@ -547,6 +565,25 @@ class RuppertsAlgorithm:
         self._encroached = np.delete(self._encroached, segment_idx)
         self._circles = None
         return loop_id
+
+    def _perturb(self, circumcenter, triangle):
+        '''Nudge an inserted circumcenter a hair off its exact position.
+
+        A circumcenter lies exactly on its triangle's circumcircle, which is the
+        cocircular worst case for the incremental Delaunay underneath: on the lifted
+        paraboloid the new point is coplanar with the ones it joins, and qhull's facet
+        merge can fail with a precision error. One re-entrant corner trips it rarely, but
+        a finely sampled smooth outline (an airfoil) packs enough near-cocircular points
+        that it trips on most insertions there, and the batch-rebuild recovery in
+        `_retriangulate` then dominates the run. Moving the point a fixed tiny fraction of
+        its circumradius, in a deterministic direction, breaks the degeneracy at the
+        source while leaving it where refinement meant to put it: the offset is far above
+        qhull's precision floor and far below any mesh feature. Only interior circumcenters
+        are perturbed; a segment split point has to stay on its segment.
+        '''
+        radius = float(np.linalg.norm(circumcenter - self.vertices[triangle[0]]))
+        angle = float(self._rng.uniform(0, 2 * np.pi))
+        return circumcenter + 1e-4 * radius * np.array([np.cos(angle), np.sin(angle)])
 
     def add_vertex(self, vertex):
         # The one place vertices appear, so the one place a segment can newly

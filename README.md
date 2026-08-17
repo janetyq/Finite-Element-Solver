@@ -124,6 +124,19 @@ with the gradient recovered from the solution beside it.
 
 ![Poisson solution, gradient, and gradient norm](images/poisson.png)
 
+### Potential flow over an airfoil
+
+The same scalar operator tells a different story on a domain with a hole. An ideal
+(incompressible, irrotational) flow has a velocity potential $\phi$ with
+$\mathbf{v} = \nabla\phi$, so $\phi$ solves Laplace's equation. The obstacle here is a
+NACA 2412 airfoil at a 6-degree angle of attack, generated from the standard formula
+rather than a data file. A potential difference drives the flow left to right; the wing
+carries no flow through it, which is exactly the natural zero-flux condition of the weak
+form. Say nothing on its surface and it becomes a streamline the flow parts around. The
+equipotentials crowd over the upper surface, where the flow speeds up.
+
+![Potential flow: equipotentials and flow speed over a NACA airfoil](images/potential_flow.png)
+
 ### Heat equation
 
 The heat equation, $\partial u / \partial t = \alpha \nabla^2 u$, describes how
@@ -168,6 +181,22 @@ splits tension above the neutral axis from compression below.
 One solve, one stress tensor, several rotation-invariant questions: von Mises,
 mean normal stress, the Tresca measure, and the largest tensile principal value are
 each a reduction of the same tensor rather than a separate problem.
+
+### Stress at a re-entrant corner, and why fillets exist
+
+An L-bracket clamped at the top and pulled down at the tip concentrates stress at its
+inner corner. A *sharp* re-entrant corner is a genuine stress singularity: the exact
+elastic stress there is infinite, so no mesh resolves it. Drive adaptive refinement into
+the corner and the computed peak just keeps climbing. Round the corner with a fillet and
+the singularity is gone: the peak spreads over the radius and settles on a finite value.
+
+![L-bracket von Mises stress: sharp corner vs filleted](images/bracket.png)
+
+Tracking the corner peak against mesh size shows the two behaviours directly. The sharp
+corner climbs without bound (its "stress" is a property of the mesh, not the part); the
+fillet converges. This is the whole reason real parts round their inner corners.
+
+![Corner stress peak vs mesh refinement: sharp climbs, fillet converges](images/bracket_singularity.png)
 
 ### Three ways to solve the same stretch
 
