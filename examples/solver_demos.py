@@ -869,6 +869,22 @@ def _fin_efficiency(kappa, u_ambient, u_hot, thickness, lengths):
     return np.array(lengths), np.array(eta_fem), np.array(eta_theory)
 
 
+def _mark_base(ax, width, kind):
+    """Draw the base condition just below the domain, off the coloured field so it does not
+    clash with the warm colormap: upward arrows for a Neumann heat flux, a bar for a held
+    Dirichlet temperature. The Robin film (every other surface) is left to the legend."""
+    y0 = -0.22
+    if kind == 'flux':
+        xs = np.linspace(0.1 * width, 0.9 * width, 8)
+        ax.quiver(xs, np.full_like(xs, y0), np.zeros_like(xs), np.ones_like(xs),
+                  color='red', angles='xy', scale_units='xy', scale=1 / 0.17, width=0.010,
+                  headwidth=4, headlength=5, clip_on=False, zorder=6)
+    else:
+        ax.plot([0.05 * width, 0.95 * width], [y0, y0], color='tab:blue', lw=4,
+                solid_capstyle='round', clip_on=False, zorder=6)
+    ax.set_ylim(bottom=y0 - 0.12)
+
+
 def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0,
                        flux=40.0, fin_lengths=(0.4, 0.8, 1.4, 2.0, 2.8),
                        min_angle=28, max_area_fraction=0.0004):
@@ -930,7 +946,7 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     # One colour scale across all four (ambient to the block's fixed-power peak), so the
     # panels compare directly, one shared bar per row on the right.
     clim = (u_ambient, max(float(u_block_p.max()), u_hot))
-    comparison = Plotter(2, 2, panel_aspect=1.6,
+    comparison = Plotter(2, 2, panel_aspect=1.6, axis_labels=False, figsize=(10.5, 7.2),
                          title='Heatsink vs a solid block of the same size')
     comparison.plot(block, u_block_p, mode='colored', idx=(0, 0), cmap='inferno', clim=clim,
                     colorbar=False,
@@ -947,17 +963,19 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
                     label='temperature',
                     title=f'Base held at {u_hot:.0f}: finned\nsheds Q = {q_fin:.0f}  '
                           f'({effectiveness:.1f}x on {metal_ratio:.2f}x the metal)')
-    # Mark where each panel takes its conditions: heat into the base (a Neumann flux on the
-    # fixed-power row, a held Dirichlet temperature on the fixed-temperature row) and the
-    # Robin film it leaves through.
-    for idx, m, panel_bc in (((0, 0), block, bc_block_p), ((0, 1), mesh, bc_fin_p),
-                             ((1, 0), block, bc_block_t), ((1, 1), mesh, bc_fin_t)):
-        comparison.overlay_supports(m, panel_bc, idx=idx)
+    # Mark only the base, and off the coloured field so nothing clashes with the warm
+    # colormap: upward arrows below the base for the Neumann heat flux (fixed-power row), a
+    # bar for the held Dirichlet base (fixed-temperature row). The Robin film is every
+    # other surface, named in the legend rather than traced over the fins.
+    for idx, kind in (((0, 0), 'flux'), ((0, 1), 'flux'), ((1, 0), 'held'), ((1, 1), 'held')):
+        _mark_base(comparison.get_ax(idx), width, kind)
+        comparison.get_ax(idx).tick_params(left=False, bottom=False,
+                                           labelleft=False, labelbottom=False)
     comparison.fig.legend(handles=[
-        Line2D([], [], color='red', lw=3, label='Neumann: heat flux into the base'),
-        Line2D([], [], marker='o', linestyle='', color='tab:blue',
-               label='Dirichlet: base held hot'),
-        Line2D([], [], color='tab:orange', lw=3, label='Robin: convective film'),
+        Line2D([], [], color='red', marker='^', linestyle='', markersize=9,
+               label='Neumann: heat flux into the base'),
+        Line2D([], [], color='tab:blue', lw=4, label='Dirichlet: base held hot'),
+        Line2D([], [], color='tab:orange', lw=3, label='Robin: film on all other surfaces'),
     ], loc='outside lower center', ncol=3, frameon=False, fontsize='small')
 
     # -- validation: fin efficiency against beam theory --------------------------------
