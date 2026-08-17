@@ -80,6 +80,23 @@ and settles into the classic fin gradient, hot at the root and cooler toward the
 
 ![A heatsink warming from cold: heat climbing the fins, sampled over time](images/heat.png)
 
+Is the shape worth it? Compared against a solid block of the same size, posed two ways:
+driven by the same chip power, the block runs about 108&deg;C above ambient while the
+finned sink runs only 58&deg;C, roughly halving the thermal resistance; and holding each
+base at the same temperature, the finned sink sheds about 1.8x the heat on two-thirds the
+metal. The fins trade material for surface area, which is why a heatsink is finned rather
+than solid.
+
+![Heatsink vs a solid block: fixed power (the block overheats) and fixed base temperature (the fins shed more)](images/heatsink_comparison.png)
+
+Each fin is checked against beam theory: its efficiency, the heat it sheds against what it
+would shed with all of it at the base temperature, follows the textbook $\tanh(mL)/(mL)$
+law. Efficiency falls as fins lengthen, since a long fin runs cold toward the tip, so
+these fins sit near 40%, spending efficiency for the extra surface area that does the
+cooling.
+
+![Fin efficiency against the tanh(mL)/(mL) beam-theory law](images/heatsink_efficiency.png)
+
 ### Wave equation
 
 The wave equation, $\partial^2 u / \partial t^2 = c^2 \nabla^2 u$, is second order in
