@@ -12,6 +12,7 @@ from fem.typing import FloatArray
 if TYPE_CHECKING:
     from fem.boundary import BoundaryConditions
     from fem.mesh.mesh import Mesh
+    from fem.space import FunctionSpace
 
 from fem.plot.helpers import (
     plot_mesh,
@@ -123,6 +124,8 @@ class Plotter:
         log_scale: bool = False,
         colorbar: bool = True,
         contour: int | None = None,
+        space: 'FunctionSpace | None' = None,
+        subdivisions: int = 3,
     ) -> Any:
         """Draw `values` on `mesh` into the subplot at `idx`.
 
@@ -142,6 +145,13 @@ class Plotter:
         normalization. `contour=n` overlays n isolines of the field on the colored
         panel (the level sets of a scalar, e.g. a potential's equipotentials).
 
+        `space` opts a P2 or curved solve into a faithful render: the mesh and colored
+        panels draw on a `subdivisions`-fine tessellation of each element, so a curved
+        boundary follows its true curve and a quadratic field shows its within-element
+        curvature instead of being flattened to one triangle. Omitted, the P1 path draws
+        the straight-sided mesh exactly as before. `values` for the colored mode must
+        then be a per-node field (length `space.n_nodes`, e.g. a solution vector).
+
         Returns the recolourable collection for the colored and solid modes (the
         artist an animation updates in place across frames), and `None` otherwise.
         """
@@ -156,16 +166,17 @@ class Plotter:
         artist = None
         # TODO: check that values/bc are provided for intended mode
         if mode is PlotMode.MESH:
-            plot_mesh(ax, mesh)
+            plot_mesh(ax, mesh, space=space, subdivisions=subdivisions)
         elif mode is PlotMode.BOUNDARY:
-            plot_boundary(ax, mesh)
+            plot_boundary(ax, mesh, space=space, subdivisions=subdivisions)
         elif mode is PlotMode.COLORED:
             cmap_name = cmap if cmap is not None else 'viridis'
             if clim is not None and idx not in self.cbar_infos:
                 self.cbar_infos[idx] = setup_colorbar(ax, clim, label, cmap_name, log_scale, colorbar)
             cbar_info, artist = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
                                              label=label, cmap_name=cmap_name, log_scale=log_scale,
-                                             colorbar=colorbar, contour=contour)
+                                             colorbar=colorbar, contour=contour,
+                                             space=space, subdivisions=subdivisions)
             self.cbar_infos[idx] = cbar_info
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)

@@ -63,26 +63,24 @@ Two approaches measured and rejected, so they are not proposed again:
 ## 3. Open-Ended Suggestions & Future Ideas
 
 **Numerics**
-- 💡 **Finish P2: 3D, plotting, adaptivity.** The 2D P2 path shipped; three pieces are still open.
-  **3D P2** wants a `QuadraticTetrahedralElement` (ten nodes) and the edge/face numbering to match.
-  The `Element` base and the `FunctionSpace` node set generalize, but the 3D shape functions and
-  connectivity are not written. **Plotting and `deformed_mesh`** read the vertex DOFs and drop the
-  edge-midpoint values, so a P2 field draws as its P1 restriction; a display-subdivision pass would
-  show the quadratic bump. **Adaptive refinement** is P1-only (the residual estimator is 2D-P1), so
-  a *refined* P2 solve is unsupported.
+- 💡 **Finish P2: 3D, deformed geometry, adaptivity.** The 2D P2 path shipped; three pieces are
+  still open. **3D P2** wants a `QuadraticTetrahedralElement` (ten nodes) and the edge/face numbering
+  to match. The `Element` base and the `FunctionSpace` node set generalize, but the 3D shape functions
+  and connectivity are not written. **`deformed_mesh`** reads the vertex DOFs and drops the
+  edge-midpoint displacements, so a P2 displacement warp draws as its P1 restriction (field plotting
+  itself is now P2-aware via `FunctionSpace.tessellation`). **Adaptive refinement** is P1-only (the
+  residual estimator is 2D-P1), so a *refined* P2 solve is unsupported.
 - 💡 **Curved (isoparametric) elements: follow-ups.** The core shipped:
   `IsoparametricTriangleElement` (a geometry map differentiated over all nodes, per quadrature
   point), `Circle` / `Arc` curves carried through `PSLG` -> `RuppertsAlgorithm` ->
   `Mesh.boundary_curves`, boundary-node projection in `p2_connectivity`, curvature-aware Ruppert and
-  red-green refinement, a curved `MassForm`, and validation (`tests/test_convergence_curved.py` area
-  fidelity and the P2 rate; `tests/test_curved_meshing.py` the pipeline and the Kirsch stress
-  concentration). Three pieces are left. **P2-aware curved-boundary plotting**: the plot layer draws
-  the P1 restriction (straight edges), so a curved boundary does not yet render as curved; sampling
-  the boundary element map would draw it, and this is the missing half of a `curved_elements` gallery
-  demo. **SVG Beziers**: `svg.py` still flattens cubics to line segments, so arbitrary traced artwork
-  gets no curve; retaining the control points would feed `PSLG` a curve. **3D curved elements** and
-  **`fem/io.py` curve serialization** (a saved mesh currently drops its curves) are the remaining
-  gaps.
+  red-green refinement, a curved `MassForm`, P2-aware plotting (`FunctionSpace.tessellation` through
+  `Plotter.plot(..., space=...)`, with the `curved_elements` gallery demo), and validation
+  (`tests/test_convergence_curved.py` area fidelity and the P2 rate; `tests/test_curved_meshing.py`
+  the pipeline and the Kirsch stress concentration). Three follow-ups are left. **SVG Beziers**:
+  `svg.py` still flattens cubics to line segments, so arbitrary traced artwork gets no curve;
+  retaining the control points would feed `PSLG` a curve. **3D curved elements** and **`fem/io.py`
+  curve serialization** (a saved mesh currently drops its curves) are the remaining gaps.
 - 💡 **Mixed (u-p) formulation, to remove volumetric locking near nu -> 0.5.** The linear triangle
   has one constant strain per element, which cannot represent deviatoric and volumetric deformation
   independently. As `nu` approaches incompressibility the element gets artificially stiff, worst in

@@ -251,6 +251,61 @@ def p2_connectivity(
     return element_nodes, node_coords, boundary_nodes
 
 
+def _reference_subtriangulation(subdivisions: int) -> tuple[FloatArray, IntArray]:
+    '''Uniform split of the reference triangle into `subdivisions**2` sub-triangles.
+
+    Returns `(points, triangles)`: the barycentric lattice `{(i/k, j/k): i + j <= k}`
+    in reference `(xi, eta)` coordinates, and a structured triangulation of it. Sampling
+    a P2 element's shape functions at this lattice traces the element's true (curved)
+    image; the triangles tessellate it into the flat pieces matplotlib can draw.
+    '''
+    if subdivisions < 1:
+        raise ValueError(f'subdivisions must be at least 1, got {subdivisions}')
+    k = subdivisions
+    index: dict[tuple[int, int], int] = {}
+    points: list[tuple[float, float]] = []
+    for j in range(k + 1):
+        for i in range(k - j + 1):
+            index[(i, j)] = len(points)
+            points.append((i / k, j / k))
+    triangles: list[list[int]] = []
+    for j in range(k):
+        for i in range(k - j):
+            triangles.append([index[(i, j)], index[(i + 1, j)], index[(i, j + 1)]])
+            if i < k - j - 1:   # the downward triangle filling the gap above
+                triangles.append(
+                    [index[(i + 1, j)], index[(i + 1, j + 1)], index[(i, j + 1)]])
+    return np.array(points, dtype=float), np.array(triangles, dtype=int)
+
+
+@dataclass(frozen=True)
+class PlotTessellation:
+    '''A curved element space sampled into flat sub-triangles for display.
+
+    `points`/`triangles` are a fine straight-sided triangulation whose vertices sit on
+    the true element geometry, so matplotlib draws a curved boundary as a chord chain
+    fine enough to read as smooth. `interpolate` samples a per-node field at the same
+    points, so a P2 field shows its within-element curvature instead of being flattened
+    to one triangle per element. A display tessellation only: it adds no error to the
+    solve, it just controls how faithfully the computed geometry and field are drawn.
+    '''
+    points: FloatArray            # (n_el * n_sub, spatial)
+    triangles: IntArray           # (n_el * n_ref_tris, 3) into `points`
+    _sample: FloatArray           # (n_sub, N) shape functions at the reference sub-points
+    _element_nodes: IntArray      # (n_el, N) global node index per element
+
+    def interpolate(self, nodal: FloatArray) -> FloatArray:
+        '''Sample a per-node field at the tessellation points, aligned with `points`.
+
+        `nodal` is one value (or component vector) per space node; the result is the
+        field evaluated at every sub-point through the same shape functions the geometry
+        used, so a quadratic field is drawn quadratically within each element.
+        '''
+        vals = np.asarray(nodal)[self._element_nodes]              # (n_el, N[, comp])
+        sampled = np.einsum('sn,en...->es...', self._sample, vals)  # (n_el, n_sub[, comp])
+        return sampled.reshape(-1, *sampled.shape[2:])
+
+
 class FunctionSpace:
     '''A finite element space over `mesh`: an element, its node numbering, and
     `n_components` DOFs per node. P1 numbers DOFs on the mesh vertices; P2 adds a
@@ -378,6 +433,40 @@ class FunctionSpace:
     def boundary_geometry(self) -> ElementGeometry:
         '''The same, for the boundary facets: embedded elements, so a wider grad_phi.'''
         return self.boundary_type.geometry(self.node_coords[self.boundary_nodes])
+
+    # -- display tessellation -----------------------------------------------
+
+    def tessellation(self, subdivisions: int = 3) -> PlotTessellation:
+        '''Sample every element into `subdivisions**2` flat sub-triangles on its true
+        geometry, for a plot that follows a curved boundary and a P2 field.
+
+        Each element's shape functions are evaluated at a reference sub-lattice and
+        mapped through the element's own nodes, the same geometry map `Element.geometry`
+        integrates over, so boundary sub-points land on the true curve and interior ones
+        stay flat. See `PlotTessellation`.
+        '''
+        ref_points, ref_triangles = _reference_subtriangulation(subdivisions)
+        sample = self.element_type.shape_values(ref_points)       # (n_sub, N)
+        element_nodes = np.asarray(self.element_nodes)
+        coords = self.node_coords[element_nodes]                  # (n_el, N, spatial)
+        points = np.einsum('sn,end->esd', sample, coords)         # (n_el, n_sub, spatial)
+        n_el, n_sub = points.shape[0], points.shape[1]
+        points = points.reshape(n_el * n_sub, -1)
+        offsets = (np.arange(n_el) * n_sub)[:, None, None]
+        triangles = (ref_triangles[None] + offsets).reshape(-1, 3)
+        return PlotTessellation(points, triangles, sample, element_nodes)
+
+    def boundary_polylines(self, subdivisions: int = 3) -> FloatArray:
+        '''`(n_facets, subdivisions + 1, spatial)` boundary facets on their true curve.
+
+        Each boundary facet sampled through the boundary element's geometry map, so a
+        curved facet draws as a smooth polyline; a straight facet comes back as a
+        straight sampled line.
+        '''
+        xi = np.linspace(0.0, 1.0, subdivisions + 1)[:, None]     # (k+1, 1)
+        sample = self.boundary_type.shape_values(xi)              # (k+1, boundary_N)
+        facet_coords = self.node_coords[self.boundary_nodes]      # (n_facets, boundary_N, spatial)
+        return np.einsum('sn,end->esd', sample, facet_coords)
 
     @property
     def element_volumes(self) -> FloatArray:

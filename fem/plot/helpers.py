@@ -3,6 +3,7 @@ highlights, colored fields, surfaces, arrows, and colorbars. Boundary conditions
 picture with a vocabulary of their own and live in `fem.plot.bc`.
 """
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import matplotlib
@@ -11,6 +12,9 @@ import matplotlib.cm as cm
 from matplotlib.colorbar import Colorbar
 from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.tri import Triangulation
+
+if TYPE_CHECKING:
+    from fem.space import FunctionSpace
 
 
 @dataclass(frozen=True)
@@ -27,13 +31,67 @@ class ColorbarInfo:
     bar: Colorbar | None
 
 
-def plot_mesh(ax, mesh, color='black', linewidth=0.2):
-    ax.triplot(mesh.vertices[:, 0], mesh.vertices[:, 1], mesh.elements, color=color, linewidth=linewidth)
+def _tessellates_field(space):
+    """Whether `space`'s element carries a within-element field to sub-sample (P2+)."""
+    return space is not None and getattr(space.element_type, 'SHAPE_DEGREE', 1) > 1
 
 
-def plot_boundary(ax, mesh, color='black', linewidth=1.0):
-    for seg in mesh.boundary:
-        ax.plot(mesh.vertices[seg, 0], mesh.vertices[seg, 1], color=color, linewidth=linewidth)
+def _curved_boundary(space, mesh):
+    """Whether the boundary genuinely bends: a curved element over a mesh with curves."""
+    return (space is not None
+            and getattr(space.element_type, 'GEOMETRY_DEGREE', 1) > 1
+            and mesh.boundary_curves is not None)
+
+
+def plot_mesh(ax, mesh, color='black', linewidth=0.2,
+              space: 'FunctionSpace | None' = None, subdivisions=3):
+    """The mesh wireframe. With a curved `space`, interior edges stay straight while the
+    boundary edges bow to follow their true curve."""
+    if _curved_boundary(space, mesh):
+        assert space is not None
+        _plot_curved_wireframe(ax, mesh, space, subdivisions, color, linewidth)
+    else:
+        ax.triplot(mesh.vertices[:, 0], mesh.vertices[:, 1], mesh.elements,
+                   color=color, linewidth=linewidth)
+
+
+def _plot_curved_wireframe(ax, mesh, space: 'FunctionSpace', subdivisions, color, linewidth):
+    from matplotlib.collections import LineCollection
+    # Only boundary edges curve, so draw the straight interior edges directly and leave
+    # the boundary to the curved polylines: a straight chord over the curve would double
+    # the domain edge.
+    boundary_keys = {tuple(sorted((int(f[0]), int(f[1])))) for f in mesh.boundary}
+    interior = np.array(
+        [e for e in mesh.edges if (int(e[0]), int(e[1])) not in boundary_keys])
+    if len(interior):
+        ax.add_collection(
+            LineCollection(mesh.vertices[interior], colors=color, linewidths=linewidth))
+    for line in space.boundary_polylines(subdivisions):
+        ax.plot(line[:, 0], line[:, 1], color=color, linewidth=linewidth)
+
+
+def plot_boundary(ax, mesh, color='black', linewidth=1.0,
+                  space: 'FunctionSpace | None' = None, subdivisions=3):
+    """The domain outline. On a mesh carrying analytic curves it follows them: through the
+    curved element map when a `space` is given, else by sampling the curve directly (the
+    most faithful outline available for a mesh-only figure)."""
+    if mesh.boundary_curves is None:
+        for seg in mesh.boundary:
+            ax.plot(mesh.vertices[seg, 0], mesh.vertices[seg, 1], color=color, linewidth=linewidth)
+        return
+    if _curved_boundary(space, mesh):
+        assert space is not None
+        for line in space.boundary_polylines(subdivisions):
+            ax.plot(line[:, 0], line[:, 1], color=color, linewidth=linewidth)
+        return
+    ts = np.linspace(0.0, 1.0, subdivisions + 1)[:, None]
+    for facet, curve in zip(mesh.boundary, mesh.boundary_curves):
+        a, b = mesh.vertices[facet[0]], mesh.vertices[facet[1]]
+        if curve is None:
+            ax.plot([a[0], b[0]], [a[1], b[1]], color=color, linewidth=linewidth)
+        else:
+            pts = np.asarray(curve.project(a + ts * (b - a)))
+            ax.plot(pts[:, 0], pts[:, 1], color=color, linewidth=linewidth)
 
 
 def plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode='vertices'):
@@ -70,24 +128,41 @@ def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False, c
 
 
 def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridis', log_scale=False,
-                 colorbar=True, contour=None):
+                 colorbar=True, contour=None, space: 'FunctionSpace | None' = None, subdivisions=3):
     if cbar_info is None:
         cbar_info = setup_colorbar(ax, (min(values), max(values)), label, cmap_name, log_scale, colorbar)
 
-    triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
+    # With a P2 space and a per-node field, draw on a fine tessellation of each element,
+    # so a quadratic field shows its within-element curvature and a curved boundary its
+    # true shape, rather than one flat triangle per element. Otherwise the P1 path: the
+    # mesh's own triangles, coloured per-vertex or per-element.
+    tess = None
+    if _tessellates_field(space):
+        assert space is not None
+        if np.asarray(values).shape[0] == space.n_nodes:
+            tess = space.tessellation(subdivisions)
+    if tess is not None:
+        triangulation = Triangulation(tess.points[:, 0], tess.points[:, 1],
+                                      triangles=tess.triangles)
+        field = tess.interpolate(values)
+    else:
+        triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1],
+                                      triangles=mesh.elements)
+        field = values
     # The collection is returned so an animation can recolour it in place across frames
     # rather than clearing the axes and rebuilding it; its array is per-face, which
     # `face_values` below matches for either a per-vertex or a per-element field.
-    collection = ax.tripcolor(triangulation, values, cmap=cbar_info.cmap, norm=cbar_info.norm)
+    collection = ax.tripcolor(triangulation, field, cmap=cbar_info.cmap, norm=cbar_info.norm)
 
     if contour:
         # Isolines over the flat colouring: the level sets of the field (a potential's
         # equipotentials, say). tricontour needs a continuous per-vertex field, so an
         # element-constant one is projected to the vertices first. `levels=contour`
         # lets matplotlib choose that many "nice" values, which stays legible on a
-        # skewed field where an even split would bunch them.
-        nodal = np.asarray(values)
-        if nodal.shape == (len(mesh.elements),):
+        # skewed field where an even split would bunch them. On the tessellation the
+        # field is already per-point, so it is used as is.
+        nodal = np.asarray(field)
+        if tess is None and nodal.shape == (len(mesh.elements),):
             from fem.space import FunctionSpace
             nodal = FunctionSpace(mesh).element_to_vertex(nodal)
         ax.tricontour(triangulation, nodal, levels=contour, colors='black',
