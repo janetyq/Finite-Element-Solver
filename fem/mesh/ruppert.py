@@ -119,10 +119,12 @@ class RuppertsAlgorithm:
         self.segments = np.array([sorted(seg) for seg in pslg.segments])
         self.segment_loops = np.array(getattr(pslg, 'loop_ids',
                                               np.zeros(len(self.segments), dtype=int)))
-        # Analytic curve each loop lies on, if any: a split point on such a loop is
-        # projected onto the curve rather than left at the chord midpoint, so refinement
-        # rounds the outline. Carried onto the output mesh's boundary facets too.
-        self.loop_curves = dict(getattr(pslg, 'loop_curves', {}))
+        # Per-segment analytic curve, aligned with `self.segments`. A split point on a
+        # curved segment is projected onto the curve rather than left at the chord
+        # midpoint, so refinement rounds the outline; halves inherit their parent's
+        # curve, and it is carried onto the matching boundary facet of the output mesh.
+        self.segment_curves = list(getattr(pslg, 'segment_curves', None)
+                                   or [None] * len(self.segments))
         self.triangulation = Delaunay(self.vertices)
         self._incremental = False
         self.min_angle = min_angle
@@ -447,16 +449,27 @@ class RuppertsAlgorithm:
 
         boundary = get_boundary_from_vertices_elements(elements)
         self.boundary_loops = self._trace_boundary_to_loops(boundary, used, renumbered)
-        boundary_curves = self._boundary_curves(self.boundary_loops)
+        boundary_curves = self._trace_boundary_to_curves(boundary, used, renumbered)
         return Mesh(self.vertices[used], elements, boundary, boundary_curves)
 
-    def _boundary_curves(self, boundary_loops):
-        '''The analytic curve each boundary facet lies on, or None if the PSLG had no
-        curves. Aligned with the facets `_enclosed_mesh` builds, so an isoparametric
-        space can put its boundary nodes on the true curve.'''
-        if not self.loop_curves:
+    def _trace_boundary_to_curves(self, boundary, used, renumbered):
+        '''The analytic curve each boundary facet lies on, or None if no segment has one.
+
+        A boundary facet inherits the curve of the (possibly split) input segment whose
+        endpoints it matches, so an isoparametric space can place its boundary nodes on
+        the true curve. Built the same way as `_trace_boundary_to_loops`; only the
+        curved segments are entered.
+        '''
+        if not any(curve is not None for curve in self.segment_curves):
             return None
-        return [self.loop_curves.get(int(loop)) for loop in boundary_loops]
+        is_used = np.zeros(len(self.vertices), dtype=bool)
+        is_used[used] = True
+        curve_of_edge = {}
+        for (start, end), curve in zip(self.segments, self.segment_curves):
+            if curve is not None and is_used[start] and is_used[end]:
+                key = tuple(sorted((int(renumbered[start]), int(renumbered[end]))))
+                curve_of_edge[key] = curve
+        return [curve_of_edge.get(tuple(sorted(int(v) for v in facet))) for facet in boundary]
 
     def _trace_boundary_to_loops(self, boundary, used, renumbered):
         '''The input loop each boundary facet came from, or -1 if none did.
@@ -570,14 +583,16 @@ class RuppertsAlgorithm:
         return self._enclosed_mesh()
 
     def del_segment(self, segment):
-        '''Remove `segment`, returning the loop it belonged to.'''
+        '''Remove `segment`, returning the `(loop_id, curve)` it belonged to.'''
         segment_idx = np.where((self.segments == segment).all(axis=1))[0][0]
         loop_id = int(self.segment_loops[segment_idx])
+        curve = self.segment_curves[segment_idx]
         self.segments = np.delete(self.segments, segment_idx, axis=0)
         self.segment_loops = np.delete(self.segment_loops, segment_idx)
+        del self.segment_curves[segment_idx]
         self._encroached = np.delete(self._encroached, segment_idx)
         self._circles = None
-        return loop_id
+        return loop_id, curve
 
     def _perturb(self, circumcenter, triangle):
         '''Nudge an inserted circumcenter a hair off its exact position.
@@ -604,12 +619,13 @@ class RuppertsAlgorithm:
         self._encroached |= self._circles_containing(vertex)
         self.vertices = np.append(self.vertices, [vertex], axis=0)
 
-    def add_segment(self, segment, loop_id=0):
+    def add_segment(self, segment, loop_id=0, curve=None):
         # A new circle has no history to carry forward, so it is scanned against
         # every vertex placed so far. Its own endpoints lie on it, not inside.
         encroached = self._is_encroached(segment)
         self.segments = np.append(self.segments, [segment], axis=0)
         self.segment_loops = np.append(self.segment_loops, loop_id)
+        self.segment_curves.append(curve)
         self._encroached = np.append(self._encroached, encroached)
         self._circles = None
 
@@ -650,17 +666,16 @@ class RuppertsAlgorithm:
     def split_segment(self, segment):
         new_vertex_idx = len(self.vertices)
         new_segments = [[segment[0], new_vertex_idx], [segment[1], new_vertex_idx]]
-        # Halves inherit the loop, so a boundary facet can still be traced back to
-        # the outline it came from however many times it has been split.
-        loop_id = self.del_segment(segment)
+        # Halves inherit the loop and the curve, so a boundary facet can still be traced
+        # back to the outline it came from however many times it has been split.
+        loop_id, curve = self.del_segment(segment)
         split = self._split_point(segment)
-        # On a curved loop the midpoint is projected onto the true curve, so each split
-        # moves the outline toward the circle rather than only halving a chord. A smooth
-        # loop has no sharp corner, so this never fights the shell splitting above.
-        curve = self.loop_curves.get(loop_id)
+        # On a curved segment the midpoint is projected onto the true curve, so each
+        # split moves the outline toward the curve rather than only halving a chord. A
+        # smooth curve has no sharp corner, so this never fights the shell splitting.
         if curve is not None:
             split = np.asarray(curve.project(split))
         self.add_vertex(split)
-        self.add_segment(new_segments[0], loop_id)
-        self.add_segment(new_segments[1], loop_id)
+        self.add_segment(new_segments[0], loop_id, curve)
+        self.add_segment(new_segments[1], loop_id, curve)
         return new_segments

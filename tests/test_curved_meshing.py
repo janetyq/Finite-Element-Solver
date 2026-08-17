@@ -12,7 +12,7 @@ from fem.boundary import BCType, BoundaryConditions
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.forms import LinearElasticForm
 from fem.materials import LinearElasticMaterial
-from fem.mesh.curves import Circle
+from fem.mesh.curves import Arc, Circle
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.svg import PSLG
@@ -70,6 +70,33 @@ def test_red_green_refinement_keeps_the_boundary_on_the_curve():
     assert len(refined.boundary) > len(mesh.boundary)
     rim_r = np.hypot(*refined.vertices[refined.boundary_idxs].T)
     assert np.abs(rim_r - radius).max() < 1e-9
+
+
+def test_per_segment_curve_tags_only_the_arc_of_a_mixed_outline():
+    """A loop that is part straight, part arc (a filleted corner) curves only its arc
+    segments: the projection follows the arc but leaves the straight edges alone."""
+    radius = 0.2
+    cx, cy = 1 - radius, 1 - radius
+    theta = np.linspace(0.0, np.pi / 2, 6)   # rounds the top-right corner of a unit square
+    arc_points = np.column_stack([cx + radius * np.cos(theta), cy + radius * np.sin(theta)])
+    points = np.array([[0.0, 0.0], [1.0, 0.0], *arc_points.tolist(), [0.0, 1.0]])
+
+    arc = Arc([cx, cy], radius, 0.0, np.pi / 2)
+    point_curves = [None, None, *([arc] * len(arc_points)), None]
+    pslg = PSLG.from_loops([points], curves=[point_curves])
+
+    # Only the segments between consecutive arc points carry the curve.
+    assert sum(c is not None for c in pslg.segment_curves) == len(arc_points) - 1
+
+    mesh = RuppertsAlgorithm(pslg, min_angle=30, max_area=0.02).refine()
+    curved = [facet for facet, curve in zip(mesh.boundary, mesh.boundary_curves)
+              if curve is not None]
+    assert curved, "no boundary facet inherited the arc"
+    for facet in curved:
+        r = np.hypot(mesh.vertices[facet, 0] - cx, mesh.vertices[facet, 1] - cy)
+        assert np.all(np.abs(r - radius) < 1e-9)
+    # A square corner is untouched: straight edges are not projected onto the arc.
+    assert np.hypot(*mesh.vertices.T).min() < 1e-12   # (0, 0) is still exactly a vertex
 
 
 def _kirsch_peak_sigma_xx(element_type, segments):

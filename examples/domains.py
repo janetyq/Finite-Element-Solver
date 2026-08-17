@@ -15,7 +15,7 @@ none of this reaches the per-commit gate either.
 """
 import numpy as np
 
-from fem.mesh.curves import Circle
+from fem.mesh.curves import Arc, Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import create_rect_mesh
 from fem.mesh.svg import PSLG
@@ -200,8 +200,13 @@ def l_bracket_pslg(arm: float = 4.0, width: float = 1.2, fillet_radius: float = 
 
     Clamp the top of the vertical limb (`on_plane(1, arm)`) and load the tip of the
     horizontal one (`on_plane(0, arm)`); the concentration then sits at the inner corner.
+
+    With a fillet, the arc segments carry an `Arc` curve (the straight edges do not), so
+    an isoparametric solve reads a true circular fillet and refinement rounds it, rather
+    than the polygonal arc being a source of its own small stress ripples.
     """
     outline = [(0.0, 0.0), (arm, 0.0), (arm, width)]
+    point_curves = [None, None, None]
     if fillet_radius > 0:
         # Round the re-entrant corner: an arc of radius r centred at (width+r, width+r),
         # bulging into the notch to add material. It runs from A = (width+r, width) on the
@@ -211,10 +216,13 @@ def l_bracket_pslg(arm: float = 4.0, width: float = 1.2, fillet_radius: float = 
         theta = np.linspace(1.5 * np.pi, np.pi, n_fillet)
         arc = np.column_stack([width + r + r * np.cos(theta), width + r + r * np.sin(theta)])
         outline.extend(map(tuple, arc))
+        point_curves.extend([Arc([width + r, width + r], r, np.pi, 1.5 * np.pi)] * n_fillet)
     else:
         outline.append((width, width))
+        point_curves.append(None)
     outline.extend([(width, arm), (0.0, arm)])
-    return PSLG.from_loops([np.array(outline)])
+    point_curves.extend([None, None])
+    return PSLG.from_loops([np.array(outline)], curves=[point_curves])
 
 
 def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,
