@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from fem.mesh.ruppert import create_rect_mesh
+from fem.mesh.structured import create_rect_mesh
 from fem.plot.plotter import Plotter
 
 

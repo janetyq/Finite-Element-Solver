@@ -130,17 +130,59 @@ class Mesh:
         )
 
     @cached_property
+    def _edge_table(self) -> tuple[IntArray, IntArray]:
+        '''Unique edges and the elements meeting at each, grouped in one pass.
+
+        Returns `(edges, edge_elements)`. `edges` is the (n_edges, 2) array of
+        sorted vertex pairs; `edge_elements` is the (n_edges, 2) element indices
+        sharing each edge, with -1 in the second slot of a boundary edge (one
+        element). The whole connectivity is grouped with one `np.unique` and an
+        `argsort`, rather than a Python loop per element.
+
+        Lazy, like its connectivity siblings: a P1 solve with no refinement or
+        estimation never reads `edges`/`edge_elements`, so the build is skipped.
+        '''
+        node_pairs = _edge_node_pairs(self.elements.shape[1])
+        n_pairs = len(node_pairs)
+        edge_rows = np.sort(self.elements[:, node_pairs].reshape(-1, 2), axis=1)
+        owners = np.repeat(np.arange(len(self.elements)), n_pairs)
+        edges, inverse = np.unique(edge_rows, axis=0, return_inverse=True)
+        inverse = inverse.reshape(-1)
+
+        # Sorting the inverse lines each edge's rows up contiguously; the counts
+        # (1 for a boundary edge, 2 for an interior one) say where each starts.
+        owners_by_edge = owners[np.argsort(inverse, kind='stable')]
+        counts = np.bincount(inverse, minlength=len(edges))
+        starts = np.zeros(len(edges), dtype=int)
+        starts[1:] = np.cumsum(counts)[:-1]
+
+        edge_elements = np.full((len(edges), 2), -1, dtype=int)
+        edge_elements[:, 0] = owners_by_edge[starts]
+        interior = counts >= 2
+        edge_elements[interior, 1] = owners_by_edge[starts[interior] + 1]
+        return edges, edge_elements
+
+    @cached_property
     def edge_to_elements(self) -> dict[Edge, list[int]]:
         '''Map each sorted edge to the indices of elements that contain it.
 
         Interior edges map to exactly two elements; boundary edges to one.
         '''
-        mapping: dict[Edge, list[int]] = {}
-        for e_idx, element in enumerate(self.elements):
-            for pair in itertools.combinations(sorted(element), 2):
-                edge: Edge = pair  # type: ignore[assignment]
-                mapping.setdefault(edge, []).append(e_idx)
-        return mapping
+        edges, edge_elements = self._edge_table
+        return {
+            (int(v0), int(v1)): [int(e) for e in elems if e >= 0]
+            for (v0, v1), elems in zip(edges, edge_elements)
+        }
+
+    @cached_property
+    def edge_elements(self) -> IntArray:
+        '''(n_edges, 2) element indices meeting at each edge in `edges`.
+
+        The second column is -1 where the edge has a single element (a boundary
+        edge), so `edge_elements[:, 1] >= 0` masks the interior edges. This is
+        the batched form the residual estimator jumps the flux across.
+        '''
+        return self._edge_table[1]
 
     @cached_property
     def element_diameters(self) -> FloatArray:
@@ -171,13 +213,6 @@ class Mesh:
         simplices, which the constructor guarantees (quadratic elements carry
         midside nodes, so pairing every node would invent edges that don't
         exist).
-
-        Lazy, matching its connectivity siblings: only `p2_connectivity` reads
-        it, so a P1 solve (and every transient or refinement mesh) never pays
-        the edge extraction.
         '''
-        pairs = self.elements[:, _edge_node_pairs(self.elements.shape[1])]  # (n_el, n_pairs, 2)
-        # Sort each pair so (v0, v1) has v0 < v1, then dedup. np.unique returns
-        # the surviving rows lexicographically sorted.
-        return np.unique(np.sort(pairs.reshape(-1, 2), axis=1), axis=0)
+        return self._edge_table[0]
 

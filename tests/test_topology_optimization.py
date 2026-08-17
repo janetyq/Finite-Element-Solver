@@ -12,7 +12,7 @@ from fem.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
 from fem.solve import LinearSolve
 from fem.space import FunctionSpace
-from fem.numerics import calculate_smoothing_matrix
+from fem.topology import calculate_smoothing_matrix
 from fem.regions import on_plane
 from fem.equations import LinearElastic
 from fem.topology import TopologyOptimizer

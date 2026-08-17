@@ -16,7 +16,7 @@ from scipy.linalg import expm
 
 from fem.boundary import BoundaryConditions, BCType
 from fem.integrators import ThetaMethod
-from fem.mesh.ruppert import create_rect_mesh
+from fem.mesh.structured import create_rect_mesh
 from fem.problem import heat
 from fem.regions import everywhere
 

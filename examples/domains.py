@@ -16,7 +16,7 @@ none of this reaches the per-commit gate either.
 import numpy as np
 
 from fem.mesh.mesh import Mesh
-from fem.mesh.ruppert import create_rect_mesh
+from fem.mesh.structured import create_rect_mesh
 from fem.mesh.svg import PSLG
 
 
