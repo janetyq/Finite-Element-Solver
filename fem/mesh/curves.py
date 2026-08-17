@@ -12,6 +12,7 @@ refinement are both a projection of the straight midpoint onto the curve.
 from typing import Protocol, runtime_checkable
 
 import numpy as np
+from numpy.polynomial import polynomial as P
 
 from fem.typing import FloatArray
 
@@ -89,3 +90,70 @@ class Arc:
     def __repr__(self) -> str:
         return (f'Arc(center={self.center.tolist()}, radius={self.radius}, '
                 f'start_angle={self.start_angle}, end_angle={self.end_angle})')
+
+
+class CubicBezier:
+    '''A cubic Bezier curve through control points P0..P3, `B(t)` for `t` in [0, 1].
+
+    The boundary curve a traced SVG path carries: `read_svg_to_pslg` keeps a path's
+    cubic control points and tags the segments sampled from it with one of these, so
+    meshing rounds the outline to the true curve instead of the sampled chords.
+    '''
+
+    def __init__(
+        self, p0: FloatArray | list[float], p1: FloatArray | list[float],
+        p2: FloatArray | list[float], p3: FloatArray | list[float],
+    ) -> None:
+        self.controls = np.asarray([p0, p1, p2, p3], dtype=float)   # (4, 2)
+        if self.controls.shape != (4, 2):
+            raise ValueError(f'a cubic Bezier needs four 2D control points, got {self.controls.shape}')
+        c0, c1, c2, c3 = self.controls
+        # Power-basis coefficients: B(t) = a[0] + a[1] t + a[2] t^2 + a[3] t^3.
+        self._a = np.array([
+            c0,
+            3.0 * (c1 - c0),
+            3.0 * (c0 - 2.0 * c1 + c2),
+            c3 - 3.0 * c2 + 3.0 * c1 - c0,
+        ])   # (4, 2), rows a0..a3
+
+    def _eval(self, t: FloatArray) -> FloatArray:
+        '''B(t) at parameters `t` (any shape) -> `(..., 2)`.'''
+        t = np.asarray(t, dtype=float)
+        powers = np.stack([np.ones_like(t), t, t**2, t**3], axis=-1)   # (..., 4)
+        return powers @ self._a
+
+    def sample(self, n: int) -> FloatArray:
+        '''`n` points along the curve at evenly spaced parameters, endpoints included.'''
+        return self._eval(np.linspace(0.0, 1.0, n))
+
+    def project(self, points: FloatArray) -> FloatArray:
+        '''Nearest point on the curve to each of `points`: `(..., 2) -> (..., 2)`.
+
+        The nearest parameter solves `(B(t) - q).B'(t) = 0`, a quintic in `t`; its real
+        roots in [0, 1], together with the endpoints, are the candidates, and the closest
+        is returned. Clamping to [0, 1] via the endpoints mirrors `Arc`: a point past an
+        end snaps to the nearer end rather than to an extrapolation of the curve.
+        '''
+        p = np.asarray(points, dtype=float)
+        flat = p.reshape(-1, 2)
+        ax, ay = self._a[:, 0], self._a[:, 1]              # power coeffs, low -> high
+        dax = np.array([ax[1], 2 * ax[2], 3 * ax[3]])      # B_x'(t) coeffs
+        day = np.array([ay[1], 2 * ay[2], 3 * ay[3]])
+        out = np.empty_like(flat)
+        for i, q in enumerate(flat):
+            cx, cy = ax.copy(), ay.copy()
+            cx[0] -= q[0]
+            cy[0] -= q[1]
+            # d/dt |B - q|^2 / 2 = (B_x - q_x) B_x' + (B_y - q_y) B_y', degree 5.
+            f = P.polytrim(P.polyadd(P.polymul(cx, dax), P.polymul(cy, day)), tol=1e-12)
+            candidates = [0.0, 1.0]
+            if len(f) >= 2:
+                roots = P.polyroots(f)
+                real = roots[np.abs(roots.imag) < 1e-9].real
+                candidates.extend(real[(real >= 0.0) & (real <= 1.0)].tolist())
+            pts = self._eval(np.array(candidates))          # (k, 2)
+            out[i] = pts[np.argmin(np.sum((pts - q) ** 2, axis=1))]
+        return out.reshape(p.shape)
+
+    def __repr__(self) -> str:
+        return f'CubicBezier({self.controls.tolist()})'

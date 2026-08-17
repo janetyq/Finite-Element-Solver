@@ -5,10 +5,18 @@ A loop is returned without a repeated closing vertex -- the wraparound in
 `read_svg_to_list_of_path_points` has to preserve regardless of whether the
 artwork's own last segment happens to land exactly back on its start point.
 """
+from pathlib import Path
+
 import numpy as np
 import pytest
 
+from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
+from fem.mesh.curves import CubicBezier
+from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.svg import douglas_peucker, read_svg_to_list_of_path_points, read_svg_to_pslg
+from fem.space import FunctionSpace
+
+CLOUD_SVG = str(Path(__file__).resolve().parents[1] / 'files' / 'cloud.svg')
 
 
 def _write_svg(tmp_path, d):
@@ -62,3 +70,54 @@ def test_a_closed_curve_simplifies_and_meshes_without_a_degenerate_chord(tmp_pat
 
     pslg = read_svg_to_pslg(svg_file, tolerance=0.01)
     pslg.validate()  # raises on a zero-length or duplicated vertex
+
+
+def test_bezier_segments_keep_a_cubic_curve_and_lines_stay_straight(tmp_path):
+    """A cubic path segment tags its segments with a `CubicBezier`; a `Line` tags `None`,
+    so meshing rounds the cubic and leaves the straight edge alone."""
+    svg_file = _write_svg(tmp_path, 'M0,0 C0,4 4,4 4,0 L4,-3 L0,-3 Z')
+    pslg = read_svg_to_pslg(svg_file, tolerance=0.01)
+
+    curved = [c for c in pslg.segment_curves if isinstance(c, CubicBezier)]
+    assert curved, 'the cubic contributed no curved segments'
+    # Every curved segment's endpoints lie on its own cubic (they were sampled from it).
+    for seg, curve in zip(pslg.segments, pslg.segment_curves):
+        if curve is None:
+            continue
+        ends = pslg.vertices[seg]
+        assert np.max(np.linalg.norm(curve.project(ends) - ends, axis=1)) < 1e-9
+    # The two straight edges (and the closing edge) carry no curve.
+    assert sum(c is None for c in pslg.segment_curves) >= 2
+
+
+def test_a_nearly_flat_cubic_collapses_to_a_chord_but_keeps_its_curve(tmp_path):
+    """Douglas-Peucker drops the samples of a barely-curved cubic, yet the surviving
+    chord keeps the `CubicBezier`, so refinement can still recover the true shape."""
+    # Sagitta ~0.05 across a span of 4: well under the simplification tolerance.
+    svg_file = _write_svg(tmp_path, 'M0,0 C1.33,0.05 2.67,0.05 4,0 L4,-3 L0,-3 Z')
+    pslg = read_svg_to_pslg(svg_file, tolerance=0.05)
+
+    curved = [c for c in pslg.segment_curves if isinstance(c, CubicBezier)]
+    assert len(curved) == 1, 'the flat cubic should collapse to a single curved chord'
+
+
+def test_a_traced_cubic_outline_meshes_onto_its_true_curve():
+    """End to end: meshing `cloud.svg` and building an isoparametric space places the
+    boundary midside nodes on the true cubics, where straight P2 leaves them on chords."""
+    pslg = read_svg_to_pslg(CLOUD_SVG, tolerance=0.01)
+    assert any(isinstance(c, CubicBezier) for c in pslg.segment_curves)
+    mesh = RuppertsAlgorithm(pslg, min_angle=20, max_area=0.03 * pslg.area()).refine()
+    assert mesh.boundary_curves is not None
+
+    def max_midside_distance(element_type):
+        space = FunctionSpace(mesh, element_type, n_components=1)
+        worst = 0.0
+        for facet_nodes, curve in zip(space.boundary_nodes, mesh.boundary_curves):
+            if curve is None:
+                continue
+            midside = space.node_coords[facet_nodes[2]]
+            worst = max(worst, float(np.linalg.norm(curve.project(midside) - midside)))
+        return worst
+
+    assert max_midside_distance(IsoparametricTriangleElement) < 1e-9
+    assert max_midside_distance(QuadraticTriangleElement) > 1e-2
