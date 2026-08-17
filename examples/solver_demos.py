@@ -488,25 +488,23 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # the true rim value would still mean extrapolating to the boundary rather than
     # sampling near it.
 
-    # Two figures rather than one: five panels of a 2:1 plate and a chart do not share a
-    # sensible aspect ratio, and a grid that size thumbnails to nothing legible.
-    built = Plotter(1, 2, title='From an outline to a solvable mesh', panel_aspect=2.0)
-    built.plot(mesh, mode='mesh', idx=(0, 0),
-               title=f'{len(mesh.elements)} triangles\n'
-                     f'(adaptively refined from {n_initial})')
-    # The input segments over the triangulation, rather than the outline in a panel of
-    # its own: four corners and a polygonalised circle is an almost empty picture alone,
-    # and drawn here it shows which of them the mesher kept and which it split. Fixed
-    # data from the original PSLG, so it overlays the refined mesh as validly as it did
-    # the coarse one.
-    built.get_ax((0, 0)).add_collection(LineCollection(
+    # One figure, three plots: the whole pipeline in a row. The first plot folds the mesh,
+    # its input outline, and the conditions together, since a 2:1 plate at this zoom has
+    # room for all three; the second is the stress it drives; the third is the chart. The
+    # plate panels sit at 2:1 and the chart takes the third cell at whatever shape is left.
+    figure = Plotter(1, 3, figsize=(14.0, 3.6),
+                     title='From an outline to a stress concentration')
+    figure.plot(mesh, mode='bc', bc=bc, idx=(0, 0),
+                title=f'{len(mesh.elements)} triangles (refined from {n_initial}), '
+                      'with conditions')
+    # The input segments over the triangulation: which of the outline the mesher kept and
+    # which it split. Fixed PSLG data, so it overlays the refined mesh as validly as the
+    # coarse one it started from.
+    figure.get_ax((0, 0)).add_collection(LineCollection(
         rupperts.vertices[rupperts.segments], colors='blue', linewidths=1.0))
-    built.plot(mesh, mode='bc', bc=bc, idx=(0, 1), title='Boundary conditions')
-
-    plotter = Plotter(1, 2, title='Stress concentration around a hole', panel_aspect=3.0)
-    plotter.plot(mesh, sigma_xx, mode='colored', idx=(0, 0), label='sigma_xx',
-                 title=f'{len(mesh.elements)} triangles after adaptive refinement')
-    ax = plotter.chart_ax(idx=(0, 1), xlabel='y', ylabel='sigma_xx / applied')
+    figure.plot(mesh, sigma_xx, mode='colored', idx=(0, 1), label='sigma_xx',
+                title='Stress concentration (sigma_xx)')
+    ax = figure.chart_ax(idx=(0, 2), xlabel='y', ylabel='sigma_xx / applied')
     # Drawn as two runs, below the hole and above it. One run joins them straight
     # across the gap, which reads as a stress the hole does not have.
     below = y_strip < height/2
@@ -535,25 +533,17 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # added more of its own.
     rim_facets = int(np.sum(rupperts.boundary_loops == 1))
     return DemoResult(
-        [Figure(built,
-                f'Left: the mesh after adaptive refinement, with the outline it started '
-                f'from in blue: {n_initial} triangles from a deliberately coarse '
-                f'uniform pass, grown to {len(mesh.elements)} by putting the rest where '
-                f'the residual estimator found the most error. Right: where the '
-                f'conditions went. The rim and the long edges carry none, which is not '
-                f'an omission but the natural condition of the weak form: an edge '
-                f'nothing is said about is traction-free. Every one of these is written '
-                f'against coordinates rather than vertex numbers, which lets '
-                f'them be placed on a mesh no one laid out by hand, including the one '
-                f'adaptive refinement rebuilds several times over.',
-                'built'),
-         Figure(plotter,
-                f'A plate pulled from the right, with the hole left traction-free. The '
-                f'stress crowds into the material either side of the hole and relaxes '
-                f'to the applied value within about a diameter, peaking at {peak:.1f}x '
-                f'the applied stress, just above the classic Kirsch factor of 3x that '
-                f'holds for a hole in an infinite plate.',
-                'stress', thumbnail=True)],
+        [Figure(figure,
+                f'The whole pipeline in one row. Left: the mesh after adaptive refinement, '
+                f'grown from {n_initial} triangles to {len(mesh.elements)} by putting '
+                f'elements where the residual estimator found the most error, with the '
+                f'input outline in blue and the conditions drawn on it; the rim and long '
+                f'edges carry none, which is not an omission but the natural (traction-'
+                f'free) condition of the weak form. Middle: the stress sigma_xx, crowding '
+                f'into the material either side of the hole and relaxing to the applied '
+                f'value within about a diameter. Right: that stress along a strip through '
+                f'the hole centre, peaking at {peak:.1f}x the applied value, just above the '
+                f'classic Kirsch factor of 3 for a hole in an infinite plate.')],
         text=(f'outline points           {len(pslg.vertices)}  '
               f'(rectangle + polygonalised rim)\n'
               f'initial elements         {n_initial}\n'

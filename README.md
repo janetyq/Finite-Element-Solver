@@ -214,18 +214,14 @@ machine precision; the third stiffens as the stretch grows, which small strain c
 
 ### From an outline to a stress concentration
 
-The one demo that runs the whole pipeline. A plate with a hole is meshed from its
-outline, given roller and traction conditions (the rim is left traction-free, which is
-the natural condition of the weak form), then adaptively refined toward the stress at
-the rim.
-
-![Plate-with-hole mesh, outline, and boundary conditions](images/stress_concentration_mesh.png)
-
+The one demo that runs the whole pipeline, in one row. A plate with a hole is meshed from
+its outline, given roller and traction conditions (the rim is left traction-free, the
+natural condition of the weak form), then adaptively refined toward the stress at the rim.
 The stress crowds into the material either side of the hole and relaxes to the applied
 value within about a diameter, peaking just above the classic Kirsch factor of 3 that
 holds for a hole in an infinite plate (a finite plate reads a little higher).
 
-![Stress concentration at the hole, against the Kirsch factor](images/stress_concentration.png)
+![Refined mesh with conditions, the stress field, and the peak against the Kirsch factor](images/stress_concentration.png)
 
 ### Buckling analysis
 
