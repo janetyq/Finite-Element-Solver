@@ -43,6 +43,11 @@ class Element:
     N: ClassVar[int]
     SHAPE_DEGREE: ClassVar[int]                    # polynomial degree of the shape functions
     SUB_TYPE: ClassVar[type['Element'] | None]     # element of a boundary facet
+    # Degree of the geometry map x(xi) = sum_i N_i(xi) x_i. 1 is an affine
+    # (straight-sided) simplex, whose Jacobian is constant per element; a higher degree
+    # is a curved (isoparametric) element, whose Jacobian varies point to point. All the
+    # simplices default to affine; a curved element type raises it.
+    GEOMETRY_DEGREE: ClassVar[int] = 1
 
     @classmethod
     def reference_dim(cls) -> int:
@@ -115,11 +120,13 @@ class Element:
         caller integrating a higher-degree form (a mass matrix, a variable
         coefficient) passes a rule of the degree it needs.
 
-        The geometry map is affine and subparametric: the Jacobian is built from the
-        `n_corners` simplex corners alone, while the field's shape functions may be
-        higher order. So the Jacobian is constant per element and only the reference
-        shape gradients differ between quadrature points. P1 falls out as the case
-        where the corners are all the nodes and the gradients are constant.
+        An affine element (`GEOMETRY_DEGREE == 1`) is subparametric: the Jacobian is
+        built from the `n_corners` simplex corners alone, while the field's shape
+        functions may be higher order. So the Jacobian is constant per element and only
+        the reference shape gradients differ between quadrature points, and P1 falls out
+        as the case where the corners are all the nodes. A curved (isoparametric)
+        element differentiates the full geometry map instead, so its Jacobian varies
+        between quadrature points; see `_affine_geometry` and `_curved_geometry`.
         '''
         X = np.asarray(element_vertices, dtype=np.float64)
         if X.ndim != 3 or X.shape[1] != cls.N:
@@ -129,9 +136,37 @@ class Element:
             )
         rule = rule if rule is not None else cls.quadrature(cls.default_quadrature_degree())
 
-        # Columns of J are the edge vectors from corner 0, so J maps the reference
-        # simplex onto the element: (n_elements, spatial_dim, reference_dim). Only the
-        # corners enter; the affine map does not see the higher-order nodes.
+        dshape = cls.shape_gradients(rule.points)   # (n_qp, N, reference_dim)
+        shape = cls.shape_values(rule.points)       # (n_qp, N)
+
+        if cls.GEOMETRY_DEGREE == 1:
+            grad_phi, weight_detJ = cls._affine_geometry(X, dshape, rule.weights)
+        else:
+            grad_phi, weight_detJ = cls._curved_geometry(X, dshape, rule.weights)
+
+        return ElementGeometry(
+            element_type=cls,
+            rule=rule,
+            shape=shape,
+            grad_phi=grad_phi,
+            weight_detJ=weight_detJ,
+            # (n_el, n_qp, spatial): where each quadrature point lands in space,
+            # interpolated through the shape functions (the geometry map itself), for a
+            # form or load that samples a coefficient or source there.
+            points=np.einsum('qn,ens->eqs', shape, X),
+        )
+
+    @classmethod
+    def _affine_geometry(
+        cls, X: FloatArray, dshape: FloatArray, weights: FloatArray,
+    ) -> tuple[FloatArray, FloatArray]:
+        '''`(grad_phi, weight_detJ)` for a straight-sided (affine) element.
+
+        Columns of J are the edge vectors from corner 0, so J maps the reference simplex
+        onto the element: `(n_elements, spatial_dim, reference_dim)`. Only the corners
+        enter, so J is constant per element and only the reference shape gradients differ
+        between quadrature points. The fast path P1 and subparametric P2 take.
+        '''
         corners = X[:, :cls.n_corners()]
         J = np.swapaxes(corners[:, 1:] - corners[:, :1], 1, 2)
         spatial_dim, reference_dim = J.shape[1], J.shape[2]
@@ -152,24 +187,48 @@ class Element:
             gram = np.swapaxes(J, 1, 2) @ J
             scale = np.sqrt(np.abs(np.linalg.det(gram)))
 
-        dshape = cls.shape_gradients(rule.points)   # (n_qp, N, reference_dim)
-        shape = cls.shape_values(rule.points)       # (n_qp, N)
-        return ElementGeometry(
-            element_type=cls,
-            rule=rule,
-            shape=shape,
-            # (n_qp, N, r) @ (n_el, r, s) -> (n_el, n_qp, N, s): the reference shape
-            # gradients mapped through each element's inverse Jacobian.
-            grad_phi=np.einsum('qnr,ers->eqns', dshape, J_inv),
-            # (n_el, n_qp): the reference weight at each point times the element's
-            # measure scale. The reference weights sum to 1/d!, so this sums over
-            # points to `scale / d!`, the closed-form element volume.
-            weight_detJ=scale[:, None] * rule.weights[None, :],
-            # (n_el, n_qp, spatial): where each quadrature point lands in space,
-            # interpolated through the shape functions, for a form or load that
-            # samples a coefficient or source there.
-            points=np.einsum('qn,ens->eqs', shape, X),
-        )
+        # (n_qp, N, r) @ (n_el, r, s) -> (n_el, n_qp, N, s): the reference shape
+        # gradients mapped through each element's constant inverse Jacobian.
+        grad_phi = np.einsum('qnr,ers->eqns', dshape, J_inv)
+        # (n_el, n_qp): the reference weight at each point times the element's measure
+        # scale. The reference weights sum to 1/d!, so this sums over points to
+        # `scale / d!`, the closed-form element volume.
+        weight_detJ = scale[:, None] * weights[None, :]
+        return grad_phi, weight_detJ
+
+    @classmethod
+    def _curved_geometry(
+        cls, X: FloatArray, dshape: FloatArray, weights: FloatArray,
+    ) -> tuple[FloatArray, FloatArray]:
+        '''`(grad_phi, weight_detJ)` for a curved (isoparametric) element.
+
+        The geometry map `x(xi) = sum_i N_i(xi) x_i` is differentiated over all N nodes,
+        not just the corners, so the Jacobian varies from one quadrature point to the
+        next. The determinant and inverse are therefore taken per (element, point),
+        which numpy broadcasts over the leading two axes.
+        '''
+        # (n_qp, N, r) x (n_el, N, s) -> (n_el, n_qp, spatial, reference): dx/dxi at
+        # each point, the same J layout as the affine case with a quadrature axis added.
+        J = np.einsum('qnr,ens->eqsr', dshape, X)
+        spatial_dim, reference_dim = J.shape[2], J.shape[3]
+
+        if spatial_dim == reference_dim:
+            J_inv = np.linalg.inv(J)                        # (n_el, n_qp, r, s)
+            scale = np.abs(np.linalg.det(J))                # (n_el, n_qp)
+        else:
+            # An embedded curved facet (a curved boundary edge in 2D) has a tall J that
+            # varies along the facet; the pseudo-inverse and Gram determinant are the
+            # per-point form of the affine embedded case above, giving the true
+            # arc-length measure and tangent.
+            J_inv = np.linalg.pinv(J)                       # (n_el, n_qp, r, s)
+            gram = np.swapaxes(J, -1, -2) @ J
+            scale = np.sqrt(np.abs(np.linalg.det(gram)))    # (n_el, n_qp)
+
+        # (n_qp, N, r) x (n_el, n_qp, r, s) -> (n_el, n_qp, N, s): reference shape
+        # gradients mapped through each point's own inverse Jacobian.
+        grad_phi = np.einsum('qnr,eqrs->eqns', dshape, J_inv)
+        weight_detJ = scale * weights[None, :]
+        return grad_phi, weight_detJ
 
 
 class LinearElement(Element):
@@ -322,6 +381,47 @@ class QuadraticTriangleElement(Element):
         return g
 
 
+class IsoparametricLineElement(QuadraticLineElement):
+    '''Curved 3-node line element: the boundary facet of an isoparametric triangle.
+
+    Same quadratic shape functions as `QuadraticLineElement`, but the geometry map is
+    quadratic too, so when the midpoint node lies off the chord the facet follows the
+    true curve. Its embedded Jacobian varies along the facet, giving the correct
+    arc-length measure and tangent for a boundary (traction, Robin) integral.
+    '''
+    GEOMETRY_DEGREE = 2
+
+    @classmethod
+    def default_quadrature_degree(cls) -> int:
+        '''Higher than the straight facet's rule: the curved map is not polynomial.'''
+        return 4
+
+
+class IsoparametricTriangleElement(QuadraticTriangleElement):
+    '''Curved (isoparametric) quadratic triangle: quadratic field and quadratic geometry.
+
+    The field shape functions are `QuadraticTriangleElement`'s, unchanged; only the
+    geometry map is raised to quadratic. With the edge-midpoint nodes on a curved
+    boundary placed on the true curve rather than the chord, the element's boundary edge
+    bends to follow it and its Jacobian varies within the element. Meant for the elements
+    on a curved boundary, with straight interior elements elsewhere.
+    '''
+    GEOMETRY_DEGREE = 2
+    SUB_TYPE = IsoparametricLineElement
+
+    @classmethod
+    def default_quadrature_degree(cls) -> int:
+        '''A higher rule than the straight P2 stiffness needs.
+
+        The curved geometry map makes the integrand non-polynomial (the inverse Jacobian
+        is rational in the reference coordinates), so the degree-2 rule exact for a
+        straight P2 stiffness no longer integrates it accurately. Degree 4 keeps the
+        quadrature error below the discretization error; the curved MMS test confirms the
+        rate is not quadrature-limited.
+        '''
+        return 4
+
+
 @dataclass(frozen=True)
 class ElementGeometry:
     '''Shape values, shape-function gradients, and quadrature weights for one mesh.
@@ -368,6 +468,17 @@ class ElementGeometry:
     @property
     def spatial_dim(self) -> int:
         return self.grad_phi.shape[-1]
+
+    @property
+    def is_affine(self) -> bool:
+        '''Whether the geometry map is affine, so the Jacobian is constant per element.
+
+        True for straight-sided simplices, where `det J` does not vary within an element
+        and the mass matrix is a reference matrix scaled by volume. A curved
+        (isoparametric) element has a varying Jacobian, so that shortcut no longer holds
+        and the mass matrix has to be integrated by quadrature.
+        '''
+        return self.element_type.GEOMETRY_DEGREE == 1
 
     @property
     def volumes(self) -> FloatArray:
