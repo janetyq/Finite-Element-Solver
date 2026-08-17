@@ -7,6 +7,7 @@ import numpy as np
 from functools import partial
 
 from matplotlib.collections import LineCollection
+from matplotlib.lines import Line2D
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.backends import IterativeBackend
@@ -20,8 +21,9 @@ from fem.convergence import (
 )
 from fem.elements import QuadraticTriangleElement
 from fem.estimators import residual_estimator
+from fem.forms import MaskedMassForm
 from fem.space import FunctionSpace
-from fem.regions import everywhere, on_plane, in_box, intersect
+from fem.regions import everywhere, on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
@@ -37,8 +39,8 @@ from fem.modal import ModalSolver
 
 from demo_registry import Demo, DemoResult, Figure
 from domains import (
-    airfoil_channel_pslg, beam, column, l_bracket_pslg, plate_with_hole_pslg, square,
-    tuning_fork_pslg,
+    airfoil_channel_pslg, beam, column, heatsink_pslg, l_bracket_pslg, plate_with_hole_pslg,
+    square, tuning_fork_pslg,
 )
 
 np.set_printoptions(suppress=True)
@@ -793,63 +795,270 @@ def demo_elasticity_models(mesh, stretch=0.5):
               f'minimised elastic energy: {energy_solver.energy(energy_u):.4g}'),
     )
 
-def demo_heat_equation(mesh):
-    """Animate transient heat diffusion from a hot bump initial condition."""
-    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
-    heat_center = np.max(mesh.vertices, axis=0)
-    u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.5*min(w, h)) + 300
+def _heatsink_film(mesh):
+    """The convective film: every boundary but the heated bottom edge (the surfaces above
+    the base, plus the base's two sides down to the corners)."""
+    w = float(np.max(mesh.vertices[:, 0]))
+    return union(in_box([None, 1e-6], [None, None]), on_plane(0, 0.0), on_plane(0, w))
 
-    # Empty on purpose, and stated rather than left as a `None` default: every edge is
-    # insulated, which is why the plate levels off at the mean of its initial state
-    # instead of cooling towards anything.
+
+def _heatsink_bc(mesh, add_base, kappa, u_ambient):
+    """The boundary spec: `add_base(bc)` on the bottom edge, a Robin film everywhere else."""
     bc = BoundaryConditions()
+    add_base(bc)
+    bc.add_robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
+    return bc
 
-    # dt sized to the bump's decay, not to a round number: the corner bump loses 99% of
-    # its contrast by t=0.4, so a run that long is three quarters flat square. Over
-    # t=0.08 the same 40 frames spread the decay out and still reach near-uniform.
-    solution = ThetaMethod(dt=0.002, steps=40).run(heat(mesh, bc=bc), u_initial.copy())
-    u_values = solution.u
-    t_values = solution.t
 
-    # One animated panel, not two. The second was the same field as a 3D surface, and
-    # `plot_trisurf` re-tessellates the whole mesh every frame; it was the single most
-    # expensive thing in a gallery build, for a second view of a field the snapshots
-    # below already show at six times.
-    # A transient problem is posed by two things, and the initial state is the one that
-    # decides what the picture looks like.
-    setup = Plotter(1, 2)
+def _steady_heatsink(mesh, bc, kappa, u_ambient):
+    """Steady heat field for `bc` (a base condition plus a Robin film).
+
+    Returns (u, heat_shed), where heat_shed is the convective loss through the film,
+    kappa * integral_film (u - u_ambient). At steady state that equals the heat entering
+    the base, so it is the sink's dissipation.
+    """
+    solver = Solver(mesh, Poisson(source=0), bc)
+    u = solver.solve().u
+    # The convective loss, read off the same region-restricted boundary mass a Robin
+    # condition assembles, so it is the exact discrete integral of (u - u_ambient).
+    resolved = bc.resolve(solver.space.nodes, 1)
+    film_mass = solver.space.assemble(
+        MaskedMassForm(1, resolved.robin[0].facet_mask), boundary=True)
+    heat_shed = kappa * float(np.asarray(film_mass @ (u - u_ambient)).sum())
+    return u, heat_shed
+
+
+def _solid_block(width, height, target_area):
+    """A structured mesh of a solid `width` x `height` block, at roughly `target_area` per
+    element so it matches a Ruppert's mesh built to the same cap."""
+    nx = max(2, round(width / np.sqrt(target_area)))
+    ny = max(2, round(height / np.sqrt(target_area)))
+    return create_rect_mesh(corners=[[0.0, 0.0], [width, height]], resolution=(nx, ny))
+
+
+def _mesh_area(mesh):
+    """Total area of a triangle mesh: its material, per unit depth."""
+    tri = np.asarray(mesh.vertices)[np.asarray(mesh.elements)]
+    e1, e2 = tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]
+    return float(np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum() / 2)
+
+
+def _fin_efficiency(kappa, u_ambient, u_hot, thickness, lengths):
+    """Fin efficiency for a single straight fin at each length, computed and from theory.
+
+    Efficiency is the heat a fin sheds over what it would shed with all of it at the base
+    temperature: eta = shed / (kappa * A_fin * (u_hot - u_ambient)), A_fin = 2L + t the
+    convecting surface (two sides and the tip, per unit depth). Beam theory gives
+    eta = tanh(m*Lc)/(m*Lc), with m = sqrt(2*kappa/(k*t)) and the corrected length
+    Lc = L + t/2 standing in for the convecting tip.
+    """
+    def add_hot(bc):
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), u_hot)
+
+    m = np.sqrt(2 * kappa / thickness)      # conductivity k = 1
+    eta_fem, eta_theory = [], []
+    for length in lengths:
+        ny = max(10, round(10 * length / thickness))    # ~10 elements across the thickness
+        fin = create_rect_mesh(corners=[[0.0, 0.0], [thickness, length]], resolution=(10, ny))
+        _, shed = _steady_heatsink(fin, _heatsink_bc(fin, add_hot, kappa, u_ambient),
+                                   kappa, u_ambient)
+        area = 2 * length + thickness
+        eta_fem.append(shed / (kappa * area * (u_hot - u_ambient)))
+        lc = length + thickness / 2
+        eta_theory.append(float(np.tanh(m * lc) / (m * lc)))
+    return np.array(lengths), np.array(eta_fem), np.array(eta_theory)
+
+
+def _mark_base(ax, width, kind):
+    """Draw the base condition just below the domain, off the coloured field so it does not
+    clash with the warm colormap: upward arrows for a Neumann heat flux, a bar for a held
+    Dirichlet temperature. The Robin film (every other surface) is left to the legend."""
+    y0 = -0.22
+    if kind == 'flux':
+        xs = np.linspace(0.1 * width, 0.9 * width, 8)
+        ax.quiver(xs, np.full_like(xs, y0), np.zeros_like(xs), np.ones_like(xs),
+                  color='red', angles='xy', scale_units='xy', scale=1 / 0.17, width=0.010,
+                  headwidth=4, headlength=5, clip_on=False, zorder=6)
+    else:
+        ax.plot([0.05 * width, 0.95 * width], [y0, y0], color='tab:blue', lw=4,
+                solid_capstyle='round', clip_on=False, zorder=6)
+    ax.set_ylim(bottom=y0 - 0.12)
+
+
+def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0,
+                       flux=40.0, fin_lengths=(0.4, 0.8, 1.4, 2.0, 2.8),
+                       min_angle=28, max_area_fraction=0.0004):
+    """A finned heatsink: warm it from a cold start (the transient heat equation), then
+    measure how much better it dissipates than a solid block, and check the fins against
+    beam theory."""
+    # The heat equation is Poisson's operator integrated in time (see fem.problem.heat).
+    # The shape earns its keep: a square plate has nowhere for the heat to go, so only its
+    # contrast fades; a heatsink conducts heat up its fins and sheds it, which is a shape
+    # worth measuring. The mesh is built here because it is part of what the demo says.
+    pslg = heatsink_pslg()
+    pslg.validate()
+    target_area = max_area_fraction * pslg.area()
+    mesh = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=target_area).refine()
+    width = float(np.max(mesh.vertices[:, 0]))
+    height = float(np.max(mesh.vertices[:, 1]))
+    # The naive baseline: a solid block of the same bounding box. The fins carve channels
+    # out of it, trading metal for surface area.
+    block = _solid_block(width, height, target_area)
+    metal_ratio = _mesh_area(mesh) / _mesh_area(block)
+
+    # -- the transient: warm the sink from a cold start --------------------------------
+    # The bottom face is held hot (a chip beneath the base); every other surface is a
+    # convective film, du/dn + kappa*(u - u_ambient) = 0, so a fin sheds heat and cools
+    # toward its tip. A cold start at ambient makes the run a warm-up: the base energizes
+    # at the first step and the front climbs the fins to a steady gradient.
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(1, 0.0), u_hot)
+    bc.add_robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
+    u_initial = np.full(len(mesh.vertices), u_ambient)
+    solution = ThetaMethod(dt=dt, steps=steps).run(heat(mesh, bc=bc), u_initial)
+    u_values, t_values = solution.u, solution.t
+
+    # -- effectiveness: block vs finned, posed two ways --------------------------------
+    # Fixed power: the same heat flux into each base (a chip of fixed wattage); compare the
+    # base temperature. Fixed temperature: each base held hot; compare the heat shed. The
+    # thermal resistance R = (base rise)/power is the shape's property either way.
+    def add_flux(bc):
+        bc.add(BCType.NEUMANN, on_plane(1, 0.0), [flux])
+
+    def add_hot(bc):
+        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), u_hot)
+
+    bc_block_p = _heatsink_bc(block, add_flux, kappa, u_ambient)
+    bc_fin_p = _heatsink_bc(mesh, add_flux, kappa, u_ambient)
+    bc_block_t = _heatsink_bc(block, add_hot, kappa, u_ambient)
+    bc_fin_t = _heatsink_bc(mesh, add_hot, kappa, u_ambient)
+
+    power = flux * width
+    u_block_p, _ = _steady_heatsink(block, bc_block_p, kappa, u_ambient)
+    u_fin_p, _ = _steady_heatsink(mesh, bc_fin_p, kappa, u_ambient)
+    r_block = (float(u_block_p.max()) - u_ambient) / power
+    r_fin = (float(u_fin_p.max()) - u_ambient) / power
+
+    u_block_t, q_block = _steady_heatsink(block, bc_block_t, kappa, u_ambient)
+    u_fin_t, q_fin = _steady_heatsink(mesh, bc_fin_t, kappa, u_ambient)
+    effectiveness = q_fin / q_block
+
+    # One colour scale across all four (ambient to the block's fixed-power peak), so the
+    # panels compare directly, one shared bar per row on the right.
+    clim = (u_ambient, max(float(u_block_p.max()), u_hot))
+    comparison = Plotter(2, 2, panel_aspect=1.6, axis_labels=False, figsize=(10.5, 7.2),
+                         title='Heatsink vs a solid block of the same size')
+    comparison.plot(block, u_block_p, mode='colored', idx=(0, 0), cmap='inferno', clim=clim,
+                    colorbar=False,
+                    title=f'Same power in: solid block\nbase +{u_block_p.max()-u_ambient:.0f} C  '
+                          f'(R = {r_block:.2f})')
+    comparison.plot(mesh, u_fin_p, mode='colored', idx=(0, 1), cmap='inferno', clim=clim,
+                    label='temperature',
+                    title=f'Same power in: finned\nbase +{u_fin_p.max()-u_ambient:.0f} C  '
+                          f'(R = {r_fin:.2f})')
+    comparison.plot(block, u_block_t, mode='colored', idx=(1, 0), cmap='inferno', clim=clim,
+                    colorbar=False,
+                    title=f'Base held at {u_hot:.0f}: solid block\nsheds Q = {q_block:.0f}')
+    comparison.plot(mesh, u_fin_t, mode='colored', idx=(1, 1), cmap='inferno', clim=clim,
+                    label='temperature',
+                    title=f'Base held at {u_hot:.0f}: finned\nsheds Q = {q_fin:.0f}  '
+                          f'({effectiveness:.1f}x on {metal_ratio:.2f}x the metal)')
+    # Mark only the base, and off the coloured field so nothing clashes with the warm
+    # colormap: upward arrows below the base for the Neumann heat flux (fixed-power row), a
+    # bar for the held Dirichlet base (fixed-temperature row). The Robin film is every
+    # other surface, named in the legend rather than traced over the fins.
+    for idx, kind in (((0, 0), 'flux'), ((0, 1), 'flux'), ((1, 0), 'held'), ((1, 1), 'held')):
+        _mark_base(comparison.get_ax(idx), width, kind)
+        comparison.get_ax(idx).tick_params(left=False, bottom=False,
+                                           labelleft=False, labelbottom=False)
+    comparison.fig.legend(handles=[
+        Line2D([], [], color='red', marker='^', linestyle='', markersize=9,
+               label='Neumann: heat flux into the base'),
+        Line2D([], [], color='tab:blue', lw=4, label='Dirichlet: base held hot'),
+        Line2D([], [], color='tab:orange', lw=3, label='Robin: film on all other surfaces'),
+    ], loc='outside lower center', ncol=3, frameon=False, fontsize='small')
+
+    # -- validation: fin efficiency against beam theory --------------------------------
+    # thickness matches the sink's own fins (heatsink_pslg's fin_width default).
+    lengths, eta_fem, eta_theory = _fin_efficiency(
+        kappa, u_ambient, u_hot, thickness=0.22, lengths=fin_lengths)
+    m_fin = np.sqrt(2 * kappa / 0.22)
+    efficiency = Plotter(1, 1, title='Fin efficiency against beam theory')
+    ax = efficiency.chart_ax(xlabel='fin length L', ylabel='fin efficiency (heat shed / ideal)')
+    dense = np.linspace(min(lengths), max(lengths), 100)
+    dense_lc = dense + 0.22 / 2
+    ax.plot(dense, np.tanh(m_fin * dense_lc) / (m_fin * dense_lc), '-', color='tab:red',
+            alpha=0.6, label='theory  tanh(mL)/mL')
+    ax.plot(lengths, eta_fem, 'o', color='tab:blue', label='computed')
+    ax.axvline(1.4, color='0.6', ls=':', label="this sink's fins (L = 1.4)")
+    ax.set_title('Longer fins shed more, but run less efficiently')
+    ax.grid(alpha=0.3)
+    ax.legend()
+
+    # -- the transient figures ---------------------------------------------------------
+    # One scale across the row (ambient to the heated base), a warm colormap for a warming
+    # shape, and one shared bar on the last panel.
+    n_shown = 4
+    snapshots = Plotter(1, n_shown, panel_aspect=1.6,
+                        title='Heatsink warming: heat climbing the fins')
+    for panel, i in enumerate(np.linspace(0, len(u_values) - 1, n_shown).astype(int)):
+        snapshots.plot(mesh, u_values[i], mode='colored', idx=(0, panel),
+                       label='temperature', cmap='inferno', clim=(u_ambient, u_hot),
+                       colorbar=(panel == n_shown - 1), title=f't={t_values[i]:.2f}')
+
+    animation = Plotter(1, 1, title='Heatsink warming up')
+    animation.plot_animation(mesh, u_values, mode='colored', label='temperature',
+                             cmap='inferno', cbar_lims=(u_ambient, u_hot),
+                             titles=[f't={t:.2f}' for t in t_values], idx=(0, 0))
+
+    setup = Plotter(1, 2, title='How the heatsink is posed')
     setup.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
     setup.plot(mesh, u_initial, mode='colored', idx=(0, 1), label='temperature',
-               title=f'Initial condition u(x, 0)\n{u_initial.min():.1f} - {u_initial.max():.1f}')
+               cmap='inferno', clim=(u_ambient, u_hot),
+               title=f'Initial condition u(x, 0) = {u_ambient:.0f}')
 
-    animation = Plotter(1, 1, title='Heat Equation')
-    animation.plot_animation(mesh, u_values, mode='colored', label='temperature',
-                             titles=[f't={t:.3f}' for t in t_values], idx=(0, 0))
-
-    # The animation renders only on show(), so the diffusion needs a still form too;
-    # otherwise this demo contributes nothing to a saved gallery.
-    # One scale across the six, spanning the whole run. Renormalized per panel, a field
-    # losing 70% of its contrast drew as six near-identical squares under a caption
-    # promising it approaches uniform; the decay was in the colorbars and nowhere else.
-    span = (float(np.min(u_values)), float(np.max(u_values)))
-    snapshots = Plotter(2, 3, title='Heat Equation: diffusion from the corner')
-    for panel, i in enumerate(np.linspace(0, len(u_values) - 1, 6).astype(int)):
-        snapshots.plot(mesh, u_values[i], mode='colored', idx=divmod(panel, 3),
-                       label='temperature', title=f't={t_values[i]:.3f}', clim=span)
-
+    tip = float(u_values[-1].min())
+    eta_here = float(eta_fem[np.argmin(np.abs(lengths - 1.4))])
     return DemoResult([
-        Figure(animation, 'Crank-Nicolson diffusion of the corner bump.', 'animation'),
+        Figure(comparison,
+               'The finned sink against a solid block of the same bounding box, posed two '
+               'ways. Top, the same heat flux into each base (a chip of fixed power): the '
+               f'block runs {u_block_p.max()-u_ambient:.0f} C above ambient, the finned sink '
+               f'only {u_fin_p.max()-u_ambient:.0f} C, roughly halving the thermal resistance '
+               f'(R {r_block:.2f} -> {r_fin:.2f}). Bottom, each base held at {u_hot:.0f}: the '
+               f'finned sink sheds {effectiveness:.1f}x the heat, on {metal_ratio:.2f}x the '
+               'metal, because the fins trade material for surface area. This is why '
+               'heatsinks have fins instead of being solid.',
+               'comparison', thumbnail=True),
         Figure(snapshots,
-               'The same run sampled at six times: the corner bump spreads and the '
-               'plate approaches a uniform temperature.', 'snapshots'),
+               'The same finned sink warming from a cold start, the transient heat equation '
+               'stepped in time. The base is held hot underneath and the fins shed to '
+               'ambient through a Robin film, so the warming front climbs each fin and '
+               f'settles into the fin gradient, hot at the root and about {tip:.0f} at the tips.',
+               'snapshots'),
+        Figure(efficiency,
+               'Fin efficiency, the heat a fin sheds over what it would shed with all of it '
+               'at the base temperature, against the beam-theory law tanh(mL)/(mL). The '
+               'computed fins track it closely. Efficiency falls as fins lengthen, because a '
+               "long fin runs cold toward the tip and carries less of its share: this sink's "
+               f'fins (L = 1.4) sit near {eta_here:.0%}, trading efficiency for the extra '
+               'surface area that does the cooling.',
+               'efficiency'),
+        Figure(animation, 'Crank-Nicolson warming of the heatsink, base to fin tips.',
+               'animation'),
         Figure(setup,
-               'A hot bump in one corner of a plate whose every edge is insulated. '
-               'du/dn = 0 is not an omission but the condition the weak form imposes '
-               'where nothing else is written, and here it means no heat can leave, '
-               'so the total is conserved and the plate must level off at the mean of '
-               'where it started rather than cooling towards anything.',
+               'The bottom face is held at a fixed hot temperature (a chip beneath the '
+               'base); every other surface carries a Robin film, du/dn + kappa*(u - '
+               'u_ambient) = 0, shedding heat to ambient. The sink starts cold at ambient, '
+               'so the transient is a warm-up to the steady dissipating state.',
                'conditions', setup=True),
-    ])
+    ], text=(f'thermal resistance R (base rise per unit power):\n'
+             f'  solid block   {r_block:.3f}\n'
+             f'  finned sink   {r_fin:.3f}   ({r_block/r_fin:.1f}x lower)\n'
+             f'heat shed with the base held {u_hot:.0f} (ambient {u_ambient:.0f}):\n'
+             f'  solid block   {q_block:.1f}\n'
+             f'  finned sink   {q_fin:.1f}   ({effectiveness:.1f}x, on {metal_ratio:.2f}x the metal)\n'
+             f'fin efficiency at L = 1.4:  {eta_here:.2f}  (beam theory close)'))
 
 def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     """Animate wave propagation from a bump initial condition, plus a grid of late snapshots."""
@@ -1484,7 +1693,11 @@ ACCURACY = 'Accuracy & performance'
 
 DEMOS = [
     Demo('poisson', demo_poisson_equation, section=SOLVING, domain=partial(square, 80)),
-    Demo('heat', demo_heat_equation, section=SOLVING, domain=square),
+    # Builds its own heatsink and a solid-block baseline (the shape is part of what it
+    # shows), so it takes no domain. The smoke run loosens the size cap, takes a few steps,
+    # and sweeps only two fin lengths for the efficiency check.
+    Demo('heat', demo_heat_equation, section=SOLVING,
+         smoke_kwargs={'max_area_fraction': 0.03, 'steps': 4, 'fin_lengths': (0.8, 2.0)}),
     Demo('heat_3d', demo_heat_3d, section=SOLVING, smoke_kwargs={'steps': 3, 'n': 5}),
     Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
     Demo('robin', demo_robin_bc, section=SOLVING, domain=partial(square, 80)),

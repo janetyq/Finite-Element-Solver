@@ -74,6 +74,30 @@ def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float
     return PSLG.from_loops([outline, hole])
 
 
+def heatsink_pslg(width: float = 3.0, base_height: float = 0.5, fin_height: float = 1.4,
+                  fin_width: float = 0.22, n_fins: int = 7, margin: float = 0.18) -> PSLG:
+    """A finned heatsink cross-section (a comb) as a single-outline PSLG.
+
+    A `width` x `base_height` base slab carries `n_fins` fins of `fin_width` x
+    `fin_height` standing on top, evenly spaced and kept `margin` clear of the ends. The
+    bottom edge is the heated face (a chip beneath it); every other edge is a surface
+    that sheds heat, so a solver reads the whole top and sides as a convective film.
+    """
+    span = width - 2 * margin
+    pitch = (span - fin_width) / (n_fins - 1) if n_fins > 1 else 0.0
+    lefts = margin + pitch * np.arange(n_fins)
+
+    # Traced counter-clockwise: the bottom edge, up the right side, then the top from
+    # right to left, going up and over each fin, and finally down the left side.
+    outline = [(0.0, 0.0), (width, 0.0), (width, base_height)]
+    for x_l in lefts[::-1]:
+        x_r = x_l + fin_width
+        outline += [(x_r, base_height), (x_r, base_height + fin_height),
+                    (x_l, base_height + fin_height), (x_l, base_height)]
+    outline.append((0.0, base_height))
+    return PSLG.from_loops([np.array(outline)])
+
+
 def _naca4_outline(camber: float, camber_pos: float, thickness: float, n: int,
                    te_trim: float = 0.05) -> np.ndarray:
     """A NACA 4-digit airfoil as a closed loop of points, unit chord along +x.
