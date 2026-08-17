@@ -200,11 +200,33 @@ class MassForm:
     n_components: int = 1
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        if not geometry.is_affine:
+            return self._curved_element_matrices(geometry)
         # The reference matrix is the same for every element of a type, so the
         # only per-element quantity is the measure it scales by.
         reference = geometry.element_type.reference_mass_matrix()
         block = np.kron(reference, np.eye(self.n_components))
         return geometry.volumes[:, None, None] * block
+
+    def _curved_element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        '''Mass matrices integrated by quadrature, for a curved (isoparametric) element.
+
+        `det J` varies within a curved element, so the reference-matrix-times-volume
+        shortcut no longer holds; the consistent mass `int phi_i phi_j det J` is summed
+        at the quadrature points instead. The n-component block is the same per-node
+        interleaving as `np.kron(scalar, I)`, entry `(c*a+d, c*b+e)` carrying the scalar
+        `M[a, b]` when `d == e`.
+        '''
+        scalar = np.einsum(
+            'qi,qj,eq->eij', geometry.shape, geometry.shape, geometry.weight_detJ)
+        c = self.n_components
+        if c == 1:
+            return scalar
+        n_el, n_nodes, _ = scalar.shape
+        block = np.zeros((n_el, n_nodes * c, n_nodes * c))
+        for d in range(c):
+            block[:, d::c, d::c] = scalar
+        return block
 
 
 @dataclass(frozen=True)

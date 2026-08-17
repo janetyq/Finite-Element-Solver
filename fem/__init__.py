@@ -23,6 +23,7 @@ __version__ = "0.1.0"
 import logging
 
 from fem.mesh.mesh import Mesh
+from fem.mesh.curves import Arc, Circle, Curve
 from fem.space import FunctionSpace
 from fem.mesh.structured import create_rect_mesh
 from fem.elements import (
@@ -31,6 +32,8 @@ from fem.elements import (
     LinearTetrahedralElement,
     QuadraticLineElement,
     QuadraticTriangleElement,
+    IsoparametricLineElement,
+    IsoparametricTriangleElement,
 )
 from fem.boundary import BoundaryConditions, BCType, ResolvedBC
 from fem.regions import (
@@ -86,6 +89,9 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
     "Mesh",
+    "Arc",
+    "Circle",
+    "Curve",
     "FunctionSpace",
     "create_rect_mesh",
     "LinearLineElement",
@@ -93,6 +99,8 @@ __all__ = [
     "LinearTetrahedralElement",
     "QuadraticLineElement",
     "QuadraticTriangleElement",
+    "IsoparametricLineElement",
+    "IsoparametricTriangleElement",
     "BoundaryConditions",
     "BCType",
     "ResolvedBC",

@@ -4,6 +4,7 @@ from functools import cached_property
 
 import numpy as np
 
+from fem.mesh.curves import Curve
 from fem.typing import Elements, FloatArray, IntArray, Vertices
 
 Edge = tuple[int, int]
@@ -29,12 +30,24 @@ class Mesh:
         vertices: Vertices | Sequence[Sequence[float]],
         elements: Elements | Sequence[Sequence[int]],
         boundary: Elements | Sequence[Sequence[int]],
+        boundary_curves: Sequence[Curve | None] | None = None,
     ) -> None:
         self.vertices: Vertices = np.array(vertices)
         self.elements: Elements = np.array(elements)  # vertex indices per element
         self.boundary: Elements = np.array(boundary)  # vertex indices per facet
         self._validate()
         self.boundary_idxs: IntArray = np.unique(self.boundary.ravel())
+        # Optional analytic curve each boundary facet lies on (or None), aligned with
+        # `boundary` rows. None (the default) is a fully straight-sided mesh; a curved
+        # (isoparametric) space reads these to put its boundary nodes on the true curve.
+        self.boundary_curves: list[Curve | None] | None = (
+            list(boundary_curves) if boundary_curves is not None else None
+        )
+        if self.boundary_curves is not None and len(self.boundary_curves) != len(self.boundary):
+            raise ValueError(
+                f'boundary_curves has {len(self.boundary_curves)} entries but the mesh '
+                f'has {len(self.boundary)} boundary facets'
+            )
 
     def _validate(self) -> None:
         '''Reject malformed topology at the source with a named error.
@@ -116,17 +129,24 @@ class Mesh:
         vertices: Vertices,
         elements: Elements,
         boundary: Elements,
+        boundary_curves: Sequence[Curve | None] | None = None,
     ) -> 'Mesh':
         '''A new mesh over the given topology.
 
         The seam remeshers build through, so that refinement and coarsening name
-        what they are doing rather than reaching for the constructor.
+        what they are doing rather than reaching for the constructor. A remesher that
+        keeps its boundary on the same curves passes the (remapped) `boundary_curves`;
+        omitting them yields a straight-sided mesh, since the new facets are otherwise
+        unrelated to the old ones' curves.
         '''
-        return Mesh(vertices, elements, boundary)
+        return Mesh(vertices, elements, boundary, boundary_curves)
 
     def copy(self) -> 'Mesh':
-        return self.with_topology(
-            self.vertices.copy(), self.elements.copy(), self.boundary.copy()
+        # Same topology, so the per-facet curve association carries unchanged.
+        # `with_topology` builds a different topology and so does not carry it.
+        curves = list(self.boundary_curves) if self.boundary_curves is not None else None
+        return Mesh(
+            self.vertices.copy(), self.elements.copy(), self.boundary.copy(), curves
         )
 
     @cached_property

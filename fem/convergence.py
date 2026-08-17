@@ -24,11 +24,18 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import BCType, BoundaryConditions
-from fem.elements import ElementGeometry, QuadraticTriangleElement
+from fem.elements import (
+    Element,
+    ElementGeometry,
+    IsoparametricTriangleElement,
+    QuadraticTriangleElement,
+)
 from fem.equations import LinearElastic, Poisson
 from fem.forms import DiffusionForm, LaplacianForm, LinearElasticForm, LinearForm
+from fem.geometry import get_boundary_from_vertices_elements
 from fem.integrators import ThetaMethod
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import create_rect_mesh
 from fem.problem import LinearProblem, heat
@@ -397,6 +404,110 @@ def solve_elastic_mms_p2(n: int) -> MMSSolve:
 def elastic_p2_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
     """Solve the manufactured elasticity problem on P2 per resolution, coarsest first."""
     return [solve_elastic_mms_p2(n) for n in sorted(resolutions)]
+
+
+# --- curved (isoparametric) elements on an annulus ------------------------------
+#
+# The manufactured u = sin(x) sin(y), the same smooth field as the Poisson study but
+# with inhomogeneous Dirichlet data, solved on an annulus whose two rims are true
+# circles. Straight P2 approximates each rim by a chain of chords, so a geometry error
+# of order h^2 caps its accuracy however high the element order. Isoparametric P2 puts
+# its boundary edge nodes on the true circle and recovers the O(h^3) rate. That gap,
+# the geometry floor against the recovered rate, is what test_convergence_curved.py
+# asserts, and it is the payoff curved elements exist to deliver.
+
+ANNULUS_INNER, ANNULUS_OUTER = 1.0, 2.0
+
+
+def create_annulus_mesh(
+    inner_radius: float, outer_radius: float, n_radial: int, n_theta: int,
+) -> Mesh:
+    """Structured triangle mesh of the annulus, with its rims attached as `Circle`s.
+
+    `n_radial` nodes across the radial direction and `n_theta` sectors around. The
+    inner and outer boundary facets carry a `Circle`, so a curved space places their
+    midside nodes on the true rim rather than at the chord midpoint.
+    """
+    rings = np.arange(n_radial)
+    radii = inner_radius + (outer_radius - inner_radius) * (rings / (n_radial - 1))
+    thetas = 2 * np.pi * np.arange(n_theta) / n_theta
+    r, t = np.meshgrid(radii, thetas, indexing="ij")
+    vertices = np.column_stack([(r * np.cos(t)).ravel(), (r * np.sin(t)).ravel()])
+
+    def node(ring: int, sector: int) -> int:
+        return ring * n_theta + sector % n_theta
+
+    elements = []
+    for ring in range(n_radial - 1):
+        for sector in range(n_theta):
+            a, b = node(ring, sector), node(ring, sector + 1)
+            c, d = node(ring + 1, sector + 1), node(ring + 1, sector)
+            elements.extend([[a, b, c], [a, c, d]])
+    elements = np.array(elements)
+
+    boundary = get_boundary_from_vertices_elements(elements)
+    inner_curve = Circle([0.0, 0.0], inner_radius)
+    outer_curve = Circle([0.0, 0.0], outer_radius)
+    midradius = 0.5 * (inner_radius + outer_radius)
+    boundary_curves = [
+        inner_curve if float(np.hypot(*vertices[facet[0]])) < midradius else outer_curve
+        for facet in boundary
+    ]
+    return Mesh(vertices, elements, boundary, boundary_curves)
+
+
+def annulus_exact(points: FloatArray) -> FloatArray:
+    """The manufactured u = sin(x) sin(y), sampled at `points` (any leading axes)."""
+    return np.sin(points[..., 0]) * np.sin(points[..., 1])
+
+
+def annulus_gradient(points: FloatArray) -> FloatArray:
+    """grad u of the manufactured solution, broadcasting over any leading axes."""
+    x, y = points[..., 0], points[..., 1]
+    return np.stack([np.cos(x) * np.sin(y), np.sin(x) * np.cos(y)], axis=-1)
+
+
+def annulus_source(point: FloatArray) -> list[float]:
+    """f = -laplacian(u) = 2 sin(x) sin(y)."""
+    return [2.0 * np.sin(point[0]) * np.sin(point[1])]
+
+
+def solve_annulus_mms(
+    n: int, element_type: type[Element] = IsoparametricTriangleElement,
+) -> MMSSolve:
+    """Solve the manufactured annulus problem on a P2 space of `element_type`.
+
+    `element_type` is `IsoparametricTriangleElement` (curved boundary, the accurate
+    solve) or `QuadraticTriangleElement` (straight facets, the geometry floor), so one
+    function measures both. `n` sets the radial resolution; the angular count scales
+    with it to keep triangle aspect ratios bounded.
+    """
+    mesh = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
+
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), lambda p: [float(annulus_exact(np.asarray(p)))])
+    solver = Solver(mesh, Poisson(source=annulus_source), bc, element_type=element_type)
+    solution = solver.solve()
+    assert isinstance(solution, FieldSolution)
+    space = solver.space
+
+    exact = annulus_exact(space.node_coords)
+    return MMSSolve(
+        h=(ANNULUS_OUTER - ANNULUS_INNER) / (n - 1),
+        mesh=mesh,
+        u=solution.u,
+        exact=exact,
+        l2_error=l2_norm(space, solution.u - exact),
+        h1_error=h1_seminorm_error(space, solution.u, annulus_gradient, degree=4),
+    )
+
+
+def annulus_convergence(
+    resolutions: tuple[int, ...],
+    element_type: type[Element] = IsoparametricTriangleElement,
+) -> list[MMSSolve]:
+    """Solve the manufactured annulus problem per resolution, coarsest first."""
+    return [solve_annulus_mms(n, element_type) for n in sorted(resolutions)]
 
 
 # --- quadrature-sampled load vs the nodal shortcut ------------------------------

@@ -235,6 +235,16 @@ reach a given accuracy with fewer degrees of freedom.
 
 ![P1 vs P2 accuracy and cost](images/higher_order.png)
 
+Curved (isoparametric) boundary elements take this a step further. On a boundary that
+carries an analytic curve (a `Circle` or `Arc`), an `IsoparametricTriangleElement`
+places its edge-midpoint node on the true curve and differentiates the full geometry
+map, so the element's boundary edge bends to follow it instead of cutting a chord.
+Meshing carries the curve through, so Ruppert's split points and red-green refinement
+project onto it and a circular hole stays round under refinement rather than becoming a
+finer polygon. On an annulus the meshed area then converges at the element's own order
+rather than the polygonal $O(h^2)$, and a coarsely sampled hole recovers the Kirsch
+stress concentration that a straight facet under-resolves.
+
 ### Adaptive refinement
 
 Adaptive refinement re-solves and splits wherever an a posteriori error estimator finds
@@ -427,7 +437,6 @@ uv run python examples/make_readme_figures.py   # rewrites the figures in images
 
 - **Broaden the physics**: thermoelasticity, plasticity, fluids (Stokes / Navier-Stokes),
   electrostatics, advection-diffusion, Neo-Hookean
-- **Curved (isoparametric) elements**: boundary elements that follow the true curve
 - **Differentiable / adjoint solve**: inverse problems, design and shape optimization,
   goal-oriented refinement
 - **Standard formats**: STL and OBJ meshes, Gmsh `.msh` import, VTK/ParaView `.vtu` export

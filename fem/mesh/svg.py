@@ -183,15 +183,38 @@ def _find_crossing_segments(vertices, segments):
     return tuple(found[0]) if len(found) else None
 
 
+def _loop_point_curves(spec, n_points):
+    '''Normalize a loop's curve spec to one entry per point.
+
+    `None` is a straight loop; a single `Curve` puts the whole loop on it (a circular
+    hole); a sequence gives one curve, or `None`, per point, for an outline that is part
+    straight and part arc (a filleted corner).
+    '''
+    if spec is None:
+        return [None] * n_points
+    if isinstance(spec, (list, tuple, np.ndarray)):
+        if len(spec) != n_points:
+            raise ValueError(f'per-point curves must have {n_points} entries, got {len(spec)}')
+        return list(spec)
+    return [spec] * n_points
+
+
 class PSLG:
     '''A planar straight-line graph: vertices, plus the segments a mesh must respect.
 
     `loop_ids` says which closed outline each segment came from, so a caller can
     tell an obstacle's boundary from an enclosing box's after meshing. It is all
     zeros unless the graph was built by `from_loops`.
+
+    `segment_curves` is the analytic `Curve` (or `None`) each segment samples, aligned
+    with `segments`. A segment on a curve has its split points projected onto it during
+    meshing, and the curve is carried onto the output mesh's matching boundary facet, so
+    refinement rounds the outline instead of only subdividing its chords. All `None` for
+    a straight-line outline, the default. Per segment rather than per loop, so an outline
+    that is part straight and part arc (a filleted corner) can curve only its arc.
     '''
 
-    def __init__(self, vertices, segments=None, loop_ids=None):
+    def __init__(self, vertices, segments=None, loop_ids=None, segment_curves=None):
         self.vertices = vertices
         if segments is None:
             self.segments = np.array([[i, (i + 1) % len(vertices)] for i in range(len(vertices))])
@@ -199,24 +222,38 @@ class PSLG:
             self.segments = np.asarray(segments)
         self.loop_ids = (np.zeros(len(self.segments), dtype=int) if loop_ids is None
                          else np.asarray(loop_ids))
+        self.segment_curves = (list(segment_curves) if segment_curves is not None
+                               else [None] * len(self.segments))
 
     @classmethod
-    def from_loops(cls, loops):
+    def from_loops(cls, loops, curves=None):
         '''A PSLG spanning several closed outlines.
 
         What each loop *means* is decided when meshing, by the even-odd rule: a
         loop inside another is a hole, a loop beside it is a separate piece. So
         the caller draws the outlines and does not also have to label them.
+
+        `curves` is an optional per-loop entry, each either `None` (a straight outline),
+        a single `Curve` (the whole loop samples it, as a circular hole does), or a
+        per-point sequence tagging which `Curve` each point came from (for an outline
+        that is part straight, part arc). A segment lies on a curve only when both its
+        endpoints were sampled from that same curve, so the chord joining a straight run
+        to an arc stays straight.
         '''
-        vertices, segments, loop_ids = [], [], []
+        vertices, segments, loop_ids, segment_curves = [], [], [], []
         for loop_id, loop in enumerate(loops):
             points = np.asarray(loop, dtype=float)
+            n = len(points)
             offset = len(vertices)
             vertices.extend(points.tolist())
-            segments.extend([[offset + i, offset + (i + 1) % len(points)]
-                             for i in range(len(points))])
-            loop_ids.extend([loop_id] * len(points))
-        return cls(np.array(vertices), np.array(segments), np.array(loop_ids))
+            point_curves = _loop_point_curves(curves[loop_id] if curves is not None else None, n)
+            for i in range(n):
+                segments.append([offset + i, offset + (i + 1) % n])
+                loop_ids.append(loop_id)
+                a, b = point_curves[i], point_curves[(i + 1) % n]
+                # A segment curves only where both endpoints came from the same curve.
+                segment_curves.append(a if (a is not None and a is b) else None)
+        return cls(np.array(vertices), np.array(segments), np.array(loop_ids), segment_curves)
 
     def loops(self):
         '''The vertices of each closed outline, in order.'''
@@ -295,4 +332,5 @@ class PSLG:
         for i in range(4):
             self.segments = np.append(self.segments, [[num_vertices + i, num_vertices + (i + 1) % 4]], axis=0)
             self.loop_ids = np.append(self.loop_ids, box_loop)
+            self.segment_curves.append(None)   # the box edges are straight
 
