@@ -7,6 +7,7 @@ import numpy as np
 from functools import partial
 
 from matplotlib.collections import LineCollection
+from matplotlib.lines import Line2D
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.backends import IterativeBackend
@@ -801,16 +802,21 @@ def _heatsink_film(mesh):
     return union(in_box([None, 1e-6], [None, None]), on_plane(0, 0.0), on_plane(0, w))
 
 
-def _steady_heatsink(mesh, add_base, kappa, u_ambient):
-    """Steady heat field with `add_base(bc)` on the bottom edge and a Robin film elsewhere.
+def _heatsink_bc(mesh, add_base, kappa, u_ambient):
+    """The boundary spec: `add_base(bc)` on the bottom edge, a Robin film everywhere else."""
+    bc = BoundaryConditions()
+    add_base(bc)
+    bc.add_robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
+    return bc
+
+
+def _steady_heatsink(mesh, bc, kappa, u_ambient):
+    """Steady heat field for `bc` (a base condition plus a Robin film).
 
     Returns (u, heat_shed), where heat_shed is the convective loss through the film,
     kappa * integral_film (u - u_ambient). At steady state that equals the heat entering
     the base, so it is the sink's dissipation.
     """
-    bc = BoundaryConditions()
-    add_base(bc)
-    bc.add_robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
     solver = Solver(mesh, Poisson(source=0), bc)
     u = solver.solve().u
     # The convective loss, read off the same region-restricted boundary mass a Robin
@@ -854,7 +860,8 @@ def _fin_efficiency(kappa, u_ambient, u_hot, thickness, lengths):
     for length in lengths:
         ny = max(10, round(10 * length / thickness))    # ~10 elements across the thickness
         fin = create_rect_mesh(corners=[[0.0, 0.0], [thickness, length]], resolution=(10, ny))
-        _, shed = _steady_heatsink(fin, add_hot, kappa, u_ambient)
+        _, shed = _steady_heatsink(fin, _heatsink_bc(fin, add_hot, kappa, u_ambient),
+                                   kappa, u_ambient)
         area = 2 * length + thickness
         eta_fem.append(shed / (kappa * area * (u_hot - u_ambient)))
         lc = length + thickness / 2
@@ -905,14 +912,19 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     def add_hot(bc):
         bc.add(BCType.DIRICHLET, on_plane(1, 0.0), u_hot)
 
+    bc_block_p = _heatsink_bc(block, add_flux, kappa, u_ambient)
+    bc_fin_p = _heatsink_bc(mesh, add_flux, kappa, u_ambient)
+    bc_block_t = _heatsink_bc(block, add_hot, kappa, u_ambient)
+    bc_fin_t = _heatsink_bc(mesh, add_hot, kappa, u_ambient)
+
     power = flux * width
-    u_block_p, _ = _steady_heatsink(block, add_flux, kappa, u_ambient)
-    u_fin_p, _ = _steady_heatsink(mesh, add_flux, kappa, u_ambient)
+    u_block_p, _ = _steady_heatsink(block, bc_block_p, kappa, u_ambient)
+    u_fin_p, _ = _steady_heatsink(mesh, bc_fin_p, kappa, u_ambient)
     r_block = (float(u_block_p.max()) - u_ambient) / power
     r_fin = (float(u_fin_p.max()) - u_ambient) / power
 
-    u_block_t, q_block = _steady_heatsink(block, add_hot, kappa, u_ambient)
-    u_fin_t, q_fin = _steady_heatsink(mesh, add_hot, kappa, u_ambient)
+    u_block_t, q_block = _steady_heatsink(block, bc_block_t, kappa, u_ambient)
+    u_fin_t, q_fin = _steady_heatsink(mesh, bc_fin_t, kappa, u_ambient)
     effectiveness = q_fin / q_block
 
     # One colour scale across all four (ambient to the block's fixed-power peak), so the
@@ -935,6 +947,18 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
                     label='temperature',
                     title=f'Base held at {u_hot:.0f}: finned\nsheds Q = {q_fin:.0f}  '
                           f'({effectiveness:.1f}x on {metal_ratio:.2f}x the metal)')
+    # Mark where each panel takes its conditions: heat into the base (a Neumann flux on the
+    # fixed-power row, a held Dirichlet temperature on the fixed-temperature row) and the
+    # Robin film it leaves through.
+    for idx, m, panel_bc in (((0, 0), block, bc_block_p), ((0, 1), mesh, bc_fin_p),
+                             ((1, 0), block, bc_block_t), ((1, 1), mesh, bc_fin_t)):
+        comparison.overlay_supports(m, panel_bc, idx=idx)
+    comparison.fig.legend(handles=[
+        Line2D([], [], color='red', lw=3, label='Neumann: heat flux into the base'),
+        Line2D([], [], marker='o', linestyle='', color='tab:blue',
+               label='Dirichlet: base held hot'),
+        Line2D([], [], color='tab:orange', lw=3, label='Robin: convective film'),
+    ], loc='outside lower center', ncol=3, frameon=False, fontsize='small')
 
     # -- validation: fin efficiency against beam theory --------------------------------
     # thickness matches the sink's own fins (heatsink_pslg's fin_width default).
