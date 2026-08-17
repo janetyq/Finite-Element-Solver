@@ -3,7 +3,7 @@
     uv run python examples/cli.py list
     uv run python examples/cli.py run poisson
     uv run python examples/cli.py run poisson --save images/poisson.png
-    uv run python examples/cli.py run poisson --mesh files/mesh_40x40.json
+    uv run python examples/cli.py run poisson --mesh path/to/mesh.json
     uv run python examples/cli.py gallery
 """
 import argparse
