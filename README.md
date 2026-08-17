@@ -16,83 +16,10 @@ free-vibration (modal) analysis, and SIMP topology optimization.
 
 The [gallery](https://janetyq.github.io/Finite-Element-Solver/) renders every demo
 beside the code that produced it, rebuilt automatically on each push to `main`, so it
-always reflects the current demos. The figures in this README are committed PNGs, a
-curated subset of the same renders. They are refreshed by hand, not in CI: after
-changing a demo, regenerate them and commit the result.
+always reflects the current demos. The figures below are a curated subset of the same
+renders.
 
-```bash
-uv run python examples/make_readme_figures.py   # rewrites the figures in images/
-```
-
-## Installation
-
-The project uses [uv](https://docs.astral.sh/uv/) for environment and dependency
-management. `uv sync` creates a project-local `.venv`, installs the `fem` package in
-editable mode, and pins exact versions in `uv.lock`.
-
-```bash
-uv sync   # core solver, SVG-outline and 3D tetrahedral meshing, and dev tools (pytest)
-```
-
-Prefer plain pip? It is a standard `pyproject.toml` package:
-```bash
-pip install -e .
-```
-
-## Quick Start
-
-```python
-from fem import create_rect_mesh, BoundaryConditions, BCType, Solver, Poisson, Plotter
-from fem.regions import everywhere
-
-mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))  # geometry only
-
-# The source term f is data of the equation; the boundary conditions describe only the
-# boundary, and do so geometrically, so the same `bc` is valid on any mesh, including
-# one produced by adaptive refinement.
-equation = Poisson(source=1)
-bc = BoundaryConditions()
-bc.add(BCType.DIRICHLET, everywhere(), 0)
-
-# Solver picks the element type off the connectivity and derives the DOFs per node from
-# the equation, so it builds its own FunctionSpace over the mesh.
-solution = Solver(mesh, equation, bc).solve()
-
-plotter = Plotter(title="Poisson")
-plotter.plot(mesh, solution.u, mode="surface")
-plotter.show()
-```
-
-A solution is a typed dataclass, so its fields are attributes rather than string keys.
-An elastic solve returns an `ElasticSolution`, which carries the recovered stress and
-strain as full tensors and derives the scalar measures on demand:
-
-```python
-solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
-
-solution.u                 # (n_vertices * n_components,) displacement
-solution.stress            # (n_elements, 3, 3) Cauchy stress tensors
-solution.von_mises         # (n_elements,) equivalent stress, the usual plot
-solution.principal_stress  # (n_elements, 3) principal values, ascending
-solution.compliance        # (n_elements,) strain energy per element
-```
-
-The tensors are stored and the scalars computed, not the other way round. A reduction
-to one number is a choice, and reducing at construction would fix which question the
-result can answer. `fem/invariants.py` holds those reductions; each is
-rotation-invariant, which a norm taken over the packed Voigt components used in
-assembly is not.
-
-## Running the demos
-
-Runnable demos live in `examples/` (run from the repo root) behind a small CLI:
-```bash
-uv run python examples/cli.py list          # see every available demo
-uv run python examples/cli.py run poisson   # run one by name
-uv run python examples/cli.py gallery       # render them all as a browsable site
-```
-
-Each section below shows one demo's output. The captions in the gallery carry the full
+Each section shows one demo's output. The captions in the gallery carry the full
 detail; here the aim is a tour of what the solver does.
 
 ---
@@ -322,6 +249,80 @@ from, and refining the mesh is what lowers it.
 
 ---
 
+## Quick Start
+
+```python
+from fem import create_rect_mesh, BoundaryConditions, BCType, Solver, Poisson, Plotter
+from fem.regions import everywhere
+
+mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))  # geometry only
+
+# The source term f is data of the equation; the boundary conditions describe only the
+# boundary, and do so geometrically, so the same `bc` is valid on any mesh, including
+# one produced by adaptive refinement.
+equation = Poisson(source=1)
+bc = BoundaryConditions()
+bc.add(BCType.DIRICHLET, everywhere(), 0)
+
+# Solver picks the element type off the connectivity and derives the DOFs per node from
+# the equation, so it builds its own FunctionSpace over the mesh.
+solution = Solver(mesh, equation, bc).solve()
+
+plotter = Plotter(title="Poisson")
+plotter.plot(mesh, solution.u, mode="surface")
+plotter.show()
+```
+
+A solution is a typed dataclass, so its fields are attributes rather than string keys.
+An elastic solve returns an `ElasticSolution`, which carries the recovered stress and
+strain as full tensors and derives the scalar measures on demand:
+
+```python
+solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
+
+solution.u                 # (n_vertices * n_components,) displacement
+solution.stress            # (n_elements, 3, 3) Cauchy stress tensors
+solution.von_mises         # (n_elements,) equivalent stress, the usual plot
+solution.principal_stress  # (n_elements, 3) principal values, ascending
+solution.compliance        # (n_elements,) strain energy per element
+```
+
+The tensors are stored and the scalars computed, not the other way round. A reduction
+to one number is a choice, and reducing at construction would fix which question the
+result can answer. `fem/invariants.py` holds those reductions; each is
+rotation-invariant, which a norm taken over the packed Voigt components used in
+assembly is not.
+
+## Installation
+
+The project uses [uv](https://docs.astral.sh/uv/) for environment and dependency
+management. `uv sync` creates a project-local `.venv`, installs the `fem` package in
+editable mode, and pins exact versions in `uv.lock`.
+
+```bash
+uv sync   # core solver, SVG-outline and 3D tetrahedral meshing, and dev tools (pytest)
+```
+
+Prefer plain pip? It is a standard `pyproject.toml` package:
+```bash
+pip install -e .
+```
+
+## Running demos and tests
+
+Runnable demos live in `examples/` (run from the repo root) behind a small CLI:
+```bash
+uv run python examples/cli.py list          # see every available demo
+uv run python examples/cli.py run poisson   # run one by name
+uv run python examples/cli.py gallery       # render them all as a browsable site
+```
+
+The test suite:
+```bash
+uv run pytest
+```
+`uv run ruff check` and `uv run pyright` gate CI alongside the tests.
+
 ## Project Structure
 
 A solve is a composition assembled from parts, not a method looked up by PDE name, so
@@ -377,13 +378,13 @@ examples/            # runnable demo scripts, the CLI, and the gallery builder
 files/               # example SVG outlines
 ```
 
-## Running Tests
+The figures in this README are committed PNGs, a curated subset of the gallery's
+renders, refreshed by hand rather than in CI. After changing a demo, regenerate them
+and commit the result:
 
 ```bash
-uv run pytest
+uv run python examples/make_readme_figures.py   # rewrites the figures in images/
 ```
-
-`uv run ruff check` and `uv run pyright` gate CI alongside the tests.
 
 ## Methods
 
@@ -411,21 +412,18 @@ uv run pytest
 
 ## Roadmap
 
-The composition model is designed so most of what remains is additive. See
-`BACKLOG.md` for the full list and `ARCHITECTURE.md` for the object model.
+`BACKLOG.md` tracks the detailed open work; this is the direction.
 
-- **Finish the P2 story.** The 2D quadratic element, the quadrature layer, and variable
-  coefficients have landed. Still open: a 3D P2 tetrahedron, plotting a quadratic
-  field's edge values rather than its P1 restriction, and adaptive refinement on a P2
-  mesh (the residual estimator is 2D-P1).
-- **Mixed (u-p) formulation** for near-incompressible elasticity, to remove the
-  volumetric locking a displacement-only element shows as $\nu \to 0.5$.
-- **More PDEs and materials**: thermal expansion, transport equations, fluid mechanics;
-  Neo-Hookean hyperelasticity is stubbed against the existing Newton solver.
-- **Time-varying loads and boundary data.** Sources and BC values are functions of
-  position only today.
-- **A hand-rolled geometric two-grid preconditioner**, to drop the `pyamg` dependency
-  behind the same backend seam.
+- **Broaden the physics**: thermoelasticity, plasticity, fluids (Stokes / Navier-Stokes),
+  electrostatics, advection-diffusion, Neo-Hookean
+- **Curved (isoparametric) elements**: boundary elements that follow the true curve
+- **Differentiable / adjoint solve**: inverse problems, design and shape optimization,
+  goal-oriented refinement
+- **Standard formats**: STL and OBJ meshes, Gmsh `.msh` import, VTK/ParaView `.vtu` export
+- **Standard benchmark suite**: NAFEMS, Cook's membrane, plate-with-hole, L-shaped
+  singularity, Euler columns
+- **Finish the core**: 3D P2 with P2-aware plotting and adaptivity, mixed (u-p) for
+  near-incompressibility, time-varying loads, two-grid preconditioner
 
 ## References
 
