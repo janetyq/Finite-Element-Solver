@@ -122,6 +122,7 @@ class Plotter:
         cmap: str | None = None,
         log_scale: bool = False,
         colorbar: bool = True,
+        contour: int | None = None,
     ) -> Any:
         """Draw `values` on `mesh` into the subplot at `idx`.
 
@@ -138,7 +139,8 @@ class Plotter:
         the frames of one panel; this is the same thing across panels.
 
         `cmap` selects the colormap (default 'viridis'); `log_scale` uses logarithmic
-        normalization.
+        normalization. `contour=n` overlays n isolines of the field on the colored
+        panel (the level sets of a scalar, e.g. a potential's equipotentials).
 
         Returns the recolourable collection for the colored and solid modes (the
         artist an animation updates in place across frames), and `None` otherwise.
@@ -163,7 +165,7 @@ class Plotter:
                 self.cbar_infos[idx] = setup_colorbar(ax, clim, label, cmap_name, log_scale, colorbar)
             cbar_info, artist = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
                                              label=label, cmap_name=cmap_name, log_scale=log_scale,
-                                             colorbar=colorbar)
+                                             colorbar=colorbar, contour=contour)
             self.cbar_infos[idx] = cbar_info
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)

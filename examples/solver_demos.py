@@ -27,6 +27,7 @@ from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
+from fem.mesh.refinement import RedGreenRefiner
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
@@ -35,7 +36,10 @@ from fem.buckling import BucklingSolver
 from fem.modal import ModalSolver
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import beam, column, plate_with_hole_pslg, square, tuning_fork_pslg
+from domains import (
+    airfoil_channel_pslg, beam, column, l_bracket_pslg, plate_with_hole_pslg, square,
+    tuning_fork_pslg,
+)
 
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
@@ -85,6 +89,65 @@ def demo_poisson_equation(mesh):
                'the way round.',
                'conditions', setup=True),
     ])
+
+def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=6.0,
+                        n_points=80, min_angle=20, max_area_fraction=0.002):
+    """Potential flow over a NACA airfoil: Laplace's equation for the velocity potential,
+    with the wing a no-flux streamline the flow accelerates over."""
+    # An ideal (incompressible, irrotational) flow has a velocity potential phi with
+    # v = grad(phi) and div(v) = 0, so phi solves Laplace's equation. The wing carries no
+    # flow through it, which is exactly the natural (zero-flux) condition of the weak
+    # form: say nothing on its surface and it becomes a streamline the flow parts around.
+    # A potential difference across the channel drives the flow; the walls are no-flux too.
+    pslg = airfoil_channel_pslg(length, height, chord, angle_of_attack, n_points=n_points)
+    pslg.validate()
+    mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
+                             max_area=max_area_fraction * pslg.area()).refine()
+
+    equation = Poisson(source=0)   # Laplace: no sources in the flow
+    bc = BoundaryConditions()
+    # phi rises from inlet to outlet, so v = grad(phi) runs left to right. The wing and
+    # the walls take no condition, which is the no-flux streamline that makes this a flow
+    # *over* the wing rather than through it.
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)      # inlet (left)
+    bc.add(BCType.DIRICHLET, on_plane(0, length), 1.0)   # outlet (right)
+
+    solver = Solver(mesh, equation, bc)
+    solution = solver.solve()
+    velocity = solver.space.gradient(solution.u)         # v = grad(phi), per element
+    speed = np.linalg.norm(velocity, axis=1)
+    # Ideal flow with no Kutta condition predicts a near-singular velocity where the
+    # airfoil edges are sharp, which would swamp the colour scale. Clip it to a high
+    # percentile so the flow over the wing, the point of the figure, stays legible.
+    cap = float(np.percentile(speed, 96))
+
+    conditions = Plotter(panel_aspect=1.8)
+    conditions.plot(mesh, mode='bc', bc=bc)
+
+    plotter = Plotter(1, 2, title='Potential flow over an airfoil', panel_aspect=1.8)
+    plotter.plot(mesh, solution.u, mode='colored', idx=(0, 0), label='velocity potential',
+                 title='Potential and its equipotentials', contour=22)
+    plotter.plot(mesh, speed, mode='colored', idx=(0, 1), label='flow speed', clim=(0.0, cap),
+                 title='Flow speed (clipped near the edges)')
+    return DemoResult([
+        Figure(plotter,
+               'Ideal (irrotational, incompressible) flow over a NACA 2412 airfoil at a '
+               f'{angle_of_attack:g}-degree angle of attack, generated from the standard '
+               'formula rather than a data file. Left: the velocity potential phi (Laplace) '
+               'with its equipotentials, which crowd over the upper surface where the flow '
+               'speeds up. Right: the flow speed, faster over the top than the bottom, with '
+               'stagnation near the leading and trailing edges. The wing takes no condition '
+               'at all: a free surface is the no-flux streamline of the weak form, so the '
+               'flow parts around it. The speed is clipped near the sharp edges, where ideal '
+               'flow with no Kutta condition predicts an unphysical velocity spike.',
+               'flow'),
+        Figure(conditions,
+               'A potential difference across the channel (phi = 0 at the inlet, 1 at the '
+               'outlet) drives the flow left to right; the walls and the wing surface take '
+               'nothing, which is the no-flux condition that makes them streamlines.',
+               'conditions', setup=True),
+    ])
+
 
 def _plot_study(ax, study, label, colour, reference_order, xlabel):
     """One measured curve plus the power law it is being held to."""
@@ -477,6 +540,117 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
               f'hole diameter / height   {2*radius/height:.2f}\n'
               f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)'),
     )
+
+def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=200.0, nu=0.3,
+                 min_angle=28, max_area_fraction=0.012, n_rounds=14, refine_fraction=0.9):
+    """Load an L-bracket and read the stress at its inner corner: a sharp re-entrant
+    corner is a stress singularity whose peak climbs without bound as the mesh refines,
+    while a fillet gives a finite, converged value. This is why real parts round their
+    inner corners."""
+    # The re-entrant corner is where the two limbs meet. There the exact elastic stress
+    # is genuinely infinite (it grows like r^(-0.46) into the corner), so no mesh
+    # resolves it: refine and the computed peak just keeps climbing. Rounding the corner
+    # with a fillet removes the singularity, and the peak settles on a real number. The
+    # demo shows both halves: the fields side by side, and the corner peak against mesh
+    # size for each, one curve climbing and one levelling off.
+    equation = LinearElastic(E, nu)
+    corner = np.array([width, width])
+
+    def make_bc():
+        bc = BoundaryConditions()
+        bc.add(BCType.DIRICHLET, on_plane(1, arm), [0, 0])        # clamp the top of the upright limb
+        bc.add(BCType.NEUMANN, on_plane(0, arm), [0, -traction])  # pull the horizontal tip down
+        return bc
+
+    def corner_peak(mesh, von_mises):
+        # The von Mises peak near the inner corner alone, kept clear of the clamp's own
+        # concentration at the far top so the comparison is about the corner.
+        centroids = mesh.vertices[mesh.elements].mean(axis=1)
+        near = np.linalg.norm(centroids - corner, axis=1) < 0.8 * width
+        return float(von_mises[near].max())
+
+    def refine_and_track(fillet):
+        """Adaptively refine one bracket, recording the corner peak each round.
+
+        The refinement loop is `AdaptiveRefinement`'s, unrolled here so the corner peak
+        can be read off every intermediate mesh rather than only the last: the sequence
+        of peaks is the point, not just the final field.
+        """
+        pslg = l_bracket_pslg(arm, width, fillet_radius=fillet, n_fillet=20)
+        pslg.validate()
+        mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
+                                 max_area=max_area_fraction * pslg.area()).refine()
+        solver = Solver(mesh, equation, make_bc())
+        refiner = RedGreenRefiner(solver.mesh)
+        estimator = residual_estimator(equation)
+        solution = solver.solve()
+        sizes, peaks = [], []
+        for _ in range(n_rounds):
+            sizes.append(len(solver.mesh.elements))
+            peaks.append(corner_peak(solver.mesh, solution.von_mises))
+            residuals = estimator.estimate(solver)
+            refine_idxs = np.flatnonzero(residuals >= refine_fraction * residuals.max())
+            solver.remesh(refiner.refine([int(i) for i in refine_idxs]))
+            solution = solver.solve()
+        sizes.append(len(solver.mesh.elements))
+        peaks.append(corner_peak(solver.mesh, solution.von_mises))
+        return solver.mesh, solution, np.array(sizes), np.array(peaks)
+
+    sharp_mesh, sharp, sharp_sizes, sharp_peaks = refine_and_track(0.0)
+    round_mesh, rounded, round_sizes, round_peaks = refine_and_track(fillet_radius)
+
+    conditions = Plotter(panel_aspect=1.0)
+    conditions.plot(sharp_mesh, mode='bc', bc=make_bc())
+
+    # Independent colour scales: the sharp peak dwarfs the filleted one, so a shared scale
+    # would wash the fillet's own concentration to a single flat colour. The titles carry
+    # the numbers the comparison rests on.
+    fields = Plotter(1, 2, title='An L-bracket under a tip load')
+    for i, (name, mesh, solution, peaks) in enumerate((
+            ('Sharp corner', sharp_mesh, sharp, sharp_peaks),
+            (f'Fillet r = {fillet_radius:g}', round_mesh, rounded, round_peaks))):
+        fields.plot(solution.deformed_mesh(), solution.von_mises, mode='colored', idx=(0, i),
+                    label='von Mises stress',
+                    title=f'{name}\n{len(mesh.elements)} elements, corner peak {peaks[-1]:.0f}')
+
+    sweep = Plotter(1, 1, title='The corner peak against mesh refinement')
+    ax = sweep.chart_ax(xlabel='elements', ylabel='von Mises at the inner corner')
+    ax.semilogx(sharp_sizes, sharp_peaks, 'o-', color='tab:red', label='sharp (singular)')
+    ax.semilogx(round_sizes, round_peaks, 'o-', color='tab:blue',
+                label=f'fillet r = {fillet_radius:g} (converges)')
+    ax.set_title('Sharp corner keeps climbing; the fillet settles')
+    ax.grid(True, which='both', alpha=0.3)
+    ax.legend()
+
+    reduction = 100 * (1 - round_peaks[-1] / sharp_peaks[-1])
+    return DemoResult([
+        Figure(fields,
+               'The same bracket, clamped at the top and pulled down at the horizontal '
+               'tip, with a sharp inner corner (left) and a filleted one (right). Stress '
+               'crowds into the re-entrant corner; the fillet spreads it over a radius and '
+               f'cuts the peak by about {reduction:.0f}% at this resolution. The colour '
+               'scales are independent, since the sharp peak would otherwise flatten the '
+               "fillet's own concentration to nothing.",
+               'fields', thumbnail=True),
+        Figure(sweep,
+               'The corner von Mises peak as the mesh is adaptively refined into the '
+               'corner. The sharp corner is a true stress singularity, so its peak climbs '
+               'without bound and never converges: the "stress" there is a property of the '
+               'mesh, not of the part. The fillet removes the singularity, and its peak '
+               'settles on a finite value. This is the whole reason real parts round their '
+               'inner corners.',
+               'singularity'),
+        Figure(conditions,
+               'The upright limb is clamped at the top; a downward traction pulls the '
+               'horizontal tip. Everything else, the inner corner included, is '
+               'traction-free.',
+               'conditions', setup=True),
+    ], text=(f'corner von Mises peak (sharp)   {sharp_peaks[-1]:.1f}  '
+             f'over {sharp_sizes[-1]} elements, still climbing\n'
+             f'corner von Mises peak (fillet)  {round_peaks[-1]:.1f}  '
+             f'over {round_sizes[-1]} elements, converged\n'
+             f'reduction from the fillet       {reduction:.0f}%'))
+
 
 def demo_elastic_3d(n=17):
     """Bend a 3D cantilever beam of tetrahedra, drawn as its boundary surface."""
@@ -1290,6 +1464,11 @@ DEMOS = [
     Demo('heat_3d', demo_heat_3d, section=SOLVING, smoke_kwargs={'steps': 3, 'n': 5}),
     Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
     Demo('robin', demo_robin_bc, section=SOLVING, domain=partial(square, 80)),
+    # Builds its own airfoil-in-a-channel from the NACA formula (the meshing is part of
+    # what it shows), so it takes no domain. The smoke run loosens the size cap and
+    # coarsens the airfoil, which together are all of its cost.
+    Demo('potential_flow', demo_potential_flow, section=SOLVING,
+         smoke_kwargs={'n_points': 40, 'max_area_fraction': 0.02}),
 
     # A cantilever is a beam. On the square this used to load, the "bending" was a
     # square bulging sideways, and the stress concentration had nowhere to run to.
@@ -1306,6 +1485,11 @@ DEMOS = [
     # max_area_fraction alone, since they're independent knobs on top of it.
     Demo('stress_concentration', demo_stress_concentration, section=SOLIDS,
          smoke_kwargs={'max_area_fraction': 0.05, 'refinement_iters': 3, 'refinement_budget': 200}),
+    # Builds its own L-brackets (sharp and filleted) from outlines, so it takes no
+    # domain. Its cost is the two adaptive-refinement chains, so the smoke run coarsens
+    # the mesh and takes only a couple of rounds.
+    Demo('bracket', demo_bracket, section=SOLIDS,
+         smoke_kwargs={'max_area_fraction': 0.08, 'n_rounds': 2}),
     # Builds its own box: the only 3D domain, and the tet count is what sets the
     # cost, so the smoke run takes a coarser one.
     Demo('elastic_3d', demo_elastic_3d, section=SOLIDS, smoke_kwargs={'n': 5}),

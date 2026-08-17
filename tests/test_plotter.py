@@ -117,6 +117,23 @@ def test_colorbar_carries_the_quantity_it_shows(mesh):
     plotter.close()
 
 
+def test_contour_overlays_isolines_on_a_colored_panel(mesh):
+    """`contour=n` draws level-set isolines over the flat colouring; without it the
+    panel carries only the tripcolor collection."""
+    values = np.linspace(0.0, 1.0, len(mesh.vertices))
+
+    plain = Plotter(1, 1)
+    plain.plot(mesh, values, mode='colored')
+    with_lines = Plotter(1, 1)
+    with_lines.plot(mesh, values, mode='colored', contour=6)
+
+    assert len(with_lines.axs[0, 0].collections) > len(plain.axs[0, 0].collections), (
+        'contour=6 added no isoline collections over the colored panel'
+    )
+    plain.close()
+    with_lines.close()
+
+
 def test_colorbar_matches_the_height_of_the_panel_it_annotates():
     """Constrained layout sizes a colorbar to the subplot *cell*; `set_aspect('equal')`
     then shrinks the axes inside that cell. On a flat domain the bar ended up around

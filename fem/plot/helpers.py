@@ -70,7 +70,7 @@ def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False, c
 
 
 def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridis', log_scale=False,
-                 colorbar=True):
+                 colorbar=True, contour=None):
     if cbar_info is None:
         cbar_info = setup_colorbar(ax, (min(values), max(values)), label, cmap_name, log_scale, colorbar)
 
@@ -79,6 +79,19 @@ def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridi
     # rather than clearing the axes and rebuilding it; its array is per-face, which
     # `face_values` below matches for either a per-vertex or a per-element field.
     collection = ax.tripcolor(triangulation, values, cmap=cbar_info.cmap, norm=cbar_info.norm)
+
+    if contour:
+        # Isolines over the flat colouring: the level sets of the field (a potential's
+        # equipotentials, say). tricontour needs a continuous per-vertex field, so an
+        # element-constant one is projected to the vertices first. `levels=contour`
+        # lets matplotlib choose that many "nice" values, which stays legible on a
+        # skewed field where an even split would bunch them.
+        nodal = np.asarray(values)
+        if nodal.shape == (len(mesh.elements),):
+            from fem.space import FunctionSpace
+            nodal = FunctionSpace(mesh).element_to_vertex(nodal)
+        ax.tricontour(triangulation, nodal, levels=contour, colors='black',
+                      linewidths=0.5, alpha=0.5)
     return cbar_info, collection
 
 

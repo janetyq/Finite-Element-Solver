@@ -43,11 +43,14 @@ FIGURES: list[tuple[str, str]] = [
     ('regions', 'regions.png'),
     # Solving PDEs
     ('poisson-fields', 'poisson.png'),
+    ('potential_flow-flow', 'potential_flow.png'),
     ('heat-snapshots', 'heat.png'),
     ('wave-snapshots', 'wave.png'),
     ('robin-sweep', 'robin.png'),
     # Solids & structures
     ('linear_elastic-fields', 'linear_elastic.png'),
+    ('bracket-fields', 'bracket.png'),
+    ('bracket-singularity', 'bracket_singularity.png'),
     ('elasticity_models-stress', 'elasticity_models.png'),
     ('stress_concentration-built', 'stress_concentration_mesh.png'),
     ('stress_concentration-stress', 'stress_concentration.png'),
