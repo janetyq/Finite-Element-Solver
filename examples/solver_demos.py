@@ -649,7 +649,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
               f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)'),
     )
 
-def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=200.0, nu=0.3,
+def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, nu=0.3,
                  min_angle=28, max_area_fraction=0.003, n_rounds=18, refine_fraction=0.9):
     """Load an L-bracket and read the stress at its inner corner: a sharp re-entrant
     corner is a stress singularity whose peak climbs without bound as the mesh refines,
@@ -1404,6 +1404,9 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                          f'({i+1} half-wave{"s" if i else ""})')
         # The pin/load glyphs, on the deformed shape so the load rides the moving end.
         modes.overlay_supports(mesh, pinned_bc, idx=(0, i), coords=shape.vertices)
+        # Drop the x ticks: on these tall, thin columns the labels only collide, and the
+        # y axis already carries the scale (as on the modal modes plot).
+        modes.get_ax((0, i)).tick_params(axis='x', labelbottom=False, bottom=False)
     _share_panel_limits(modes, n_modes)
     modes.fig.supxlabel(
         'Blue triangles: the pinned ends, held sideways but free to rotate.\n'
