@@ -206,16 +206,20 @@ def _mesh_zoom_inset(ax, mesh, box, loc=(0.57, 0.57, 0.42, 0.42)):
         spine.set_edgecolor('0.35')
     ax.indicate_inset_zoom(inset, edgecolor='0.35', linewidth=0.8, alpha=0.9)
 
-def demo_outline_zoo(min_angle=28, max_area_fraction=0.0008, interactive=False):
+def demo_outline_zoo(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0.001,
+                     interactive=False):
     """Mesh four closed outlines, traced and generated, and solve the same Poisson 'dome'
     on each, to show one pipeline (simplify, Ruppert refine, solve) turning any shape into
     a domain a PDE runs on."""
     # --interactive first opens a slider to explore the Douglas-Peucker simplification on
-    # the California outline; the zoo itself simplifies the traced SVGs at a fixed tolerance.
+    # the California outline; the zoo itself simplifies the traced SVGs at `svg_tolerance`.
+    # That tolerance is finer than the default so the coastline keeps its real detail (the
+    # raw trace has ~1700 points); Ruppert's cost is superlinear in the point count, so the
+    # smoke run overrides it coarse rather than paying for detail nothing checks.
     if interactive:
         simplify_curve(get_curve_from_svg(DEFAULT_SVG_FILE), interactive=True)
 
-    shapes = _zoo_shapes()
+    shapes = _zoo_shapes(svg_tolerance)
     plotter = Plotter(2, 2, axis_labels=False, figsize=(10.5, 10.0),
                       title="One pipeline, any outline: Douglas-Peucker, Ruppert's, solve")
     rows = ['outline        pts  triangles  min angle']
@@ -262,18 +266,18 @@ def demo_outline_zoo(min_angle=28, max_area_fraction=0.0008, interactive=False):
                "curves; the gear bore is a hole by the even-odd rule; the star's notches "
                'are corners sharper than the bound, which Ruppert meets at the input '
                'angle. The mesh is drawn fine enough that the fields read smooth, not as '
-               "a resolution ceiling: the inset zooms into California's mesh, and "
-               'refinement (see the adaptive-refinement demo) drives it as fine as '
-               'wanted.')],
+               "a resolution ceiling: the inset zooms into California's mesh, which "
+               'resolves the traced coastline and its offshore islands, and refinement '
+               '(see the adaptive-refinement demo) drives it finer still.')],
         text='\n'.join(rows))
 
 
 DEMOS = [
     # Builds its own outlines, so it takes no domain. The smoke run loosens the area cap
-    # to a handful of triangles per shape, which still exercises every generator and the
-    # traced-SVG simplify -> Ruppert -> solve path.
+    # and coarsens the SVG tolerance (Ruppert's cost is superlinear in input points), so
+    # it still exercises every generator and the simplify -> Ruppert -> solve path cheaply.
     Demo('outline_zoo', demo_outline_zoo, section='Meshing a domain',
-         smoke_kwargs={'max_area_fraction': 0.04}),
+         smoke_kwargs={'svg_tolerance': 0.005, 'max_area_fraction': 0.04}),
     # Builds its own two meshes (a structured grid and a Ruppert's mesh) so it takes no
     # domain. The smoke run shrinks both to a handful of triangles.
     Demo('regions', demo_regions, section='Meshing a domain',

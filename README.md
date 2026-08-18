@@ -37,8 +37,9 @@ boundary, tallest where the domain is widest and pinched to zero at every edge a
 Each shape makes a different demand. California meshes as disconnected islands, the
 cloud's boundary follows its true Bezier curves, the gear bore is a hole by the even-odd
 rule, and the star's notches stay sharp. The meshes are drawn fine enough that the fields
-read smooth, not as a resolution ceiling; the inset zooms into California's mesh, and
-adaptive refinement drives it as fine as the error demands.
+read smooth, not as a resolution ceiling; the inset zooms into California's mesh, which
+resolves the traced coastline and its offshore islands, and adaptive refinement drives it
+finer still.
 
 ![Four outlines meshed and Poisson-solved: California with a mesh zoom inset, a cloud, a gear, and a star](images/mesh_zoo.png)
 
