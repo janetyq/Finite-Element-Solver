@@ -108,8 +108,8 @@ def demo_poisson_equation(mesh):
                'conditions', setup=True),
     ])
 
-def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=6.0,
-                        n_points=80, min_angle=20, max_area_fraction=0.002):
+def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
+                        n_points=120, min_angle=20, max_area_fraction=0.0004):
     """Potential flow over a NACA airfoil: Laplace's equation for the velocity potential,
     with the wing a no-flux streamline the flow accelerates over."""
     # An ideal (incompressible, irrotational) flow has a velocity potential phi with
