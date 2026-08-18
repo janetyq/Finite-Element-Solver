@@ -39,7 +39,7 @@ def test_interactive_is_rejected_where_there_is_no_such_mode(monkeypatch, capsys
     assert exit_info.value.code != 0
     message = capsys.readouterr().err
     assert 'has no interactive mode' in message
-    assert 'mesh_from_svg' in message
+    assert 'outline_zoo' in message
 
 
 @pytest.fixture(autouse=True)

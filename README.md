@@ -26,13 +26,22 @@ detail; here the aim is a tour of what the solver does.
 
 ## Meshing a domain
 
-A structured grid is one line (`create_rect_mesh`), but most domains are not grids. An
-SVG outline becomes a mesh in two steps, left to right below: Douglas-Peucker simplifies
-the traced curve (Ruppert's cost grows steeply in the point count), then Ruppert's
-algorithm refines it into a triangulation that honours a minimum-angle bound and an area
-cap.
+A structured grid is one line (`create_rect_mesh`), but most domains are not grids.
+Meshing here is a means to an end, the domain a solve needs, so the pipeline is short:
+any closed outline, traced from an SVG or generated, becomes a planar straight-line
+graph, is simplified with Douglas-Peucker where it was traced densely (Ruppert's cost
+grows steeply in the point count), then triangulated by Ruppert's algorithm to a
+minimum-angle and maximum-area bound. Below, four outlines run that pipeline and then
+carry the same solve: the Poisson "dome" of $-\nabla^2 u = 1$ with $u = 0$ on the
+boundary, tallest where the domain is widest and pinched to zero at every edge and hole.
+Each shape makes a different demand. California meshes as disconnected islands, the
+cloud's boundary follows its true Bezier curves, the gear bore is a hole by the even-odd
+rule, and the star's notches stay sharp. The meshes are drawn fine enough that the fields
+read smooth, not as a resolution ceiling; the inset zooms into California's mesh, which
+resolves the traced coastline and its offshore islands, and adaptive refinement drives it
+finer still.
 
-![From an SVG outline to a mesh: simplify, then triangulate](images/mesh_from_svg.png)
+![Four outlines meshed and Poisson-solved: California with a mesh zoom inset, a cloud, a gear, and a star](images/mesh_zoo.png)
 
 Boundary conditions are placed by *position*, not by vertex index, so the same
 specification lands on the same physical patch on any triangulation of the domain. Below,
