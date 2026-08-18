@@ -1395,7 +1395,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     # one glyph-and-colour key below all of them (fig.supxlabel) rather than per panel.
     pinned_solution, pinned_loads = solve_buckling(mesh, pinned(length), length)
     pinned_bc = pinned(length)
-    modes = Plotter(1, n_modes, figsize=(2.4 * n_modes, 6.6), axis_labels=False,
+    modes = Plotter(1, n_modes, figsize=(3.2 * n_modes, 6.0), axis_labels=False,
                     title='Buckling modes of a pinned-pinned column')
     for i in range(n_modes):
         shape, colour = buckled(pinned_solution, i, length)
