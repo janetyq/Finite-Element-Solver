@@ -31,14 +31,16 @@ Meshing here is a means to an end, the domain a solve needs, so the pipeline is 
 any closed outline, traced from an SVG or generated, becomes a planar straight-line
 graph, is simplified with Douglas-Peucker where it was traced densely (Ruppert's cost
 grows steeply in the point count), then triangulated by Ruppert's algorithm to a
-minimum-angle and maximum-area bound. Below, six outlines run that pipeline and then
+minimum-angle and maximum-area bound. Below, four outlines run that pipeline and then
 carry the same solve: the Poisson "dome" of $-\nabla^2 u = 1$ with $u = 0$ on the
 boundary, tallest where the domain is widest and pinched to zero at every edge and hole.
-Different shapes make different demands. California meshes as disconnected islands, the
-cloud's boundary follows its true Bezier curves, the gear bore and the letter's counter
-are holes by the even-odd rule, and the star's notches stay sharp.
+Each shape makes a different demand. California meshes as disconnected islands, the
+cloud's boundary follows its true Bezier curves, the gear bore is a hole by the even-odd
+rule, and the star's notches stay sharp. The meshes are drawn fine enough that the fields
+read smooth, not as a resolution ceiling; the inset zooms into California's mesh, and
+adaptive refinement drives it as fine as the error demands.
 
-![Six outlines meshed and Poisson-solved: California, a cloud, a star, a gear, a heart, and the letter e](images/mesh_zoo.png)
+![Four outlines meshed and Poisson-solved: California with a mesh zoom inset, a cloud, a gear, and a star](images/mesh_zoo.png)
 
 Boundary conditions are placed by *position*, not by vertex index, so the same
 specification lands on the same physical patch on any triangulation of the domain. Below,

@@ -24,7 +24,7 @@ from fem.regions import everywhere, on_plane
 from fem.solver import Solver
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import beam, gear_pslg, glyph_pslg, heart_pslg, star_pslg
+from domains import beam, gear_pslg, star_pslg
 
 # Resolved against the repo rather than the working directory: the input files ship
 # with the project, so a demo should not depend on where it was launched from. Output
@@ -175,36 +175,56 @@ def _zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE):
     """The outlines the zoo meshes, as (name, PSLG) pairs.
 
     California and the cloud are traced from `files/*.svg` and simplified on the way in;
-    the rest are generated (`domains.py`). Each puts a different demand on the mesher:
-    disconnected islands, a curved boundary, sharp corners, repeated teeth around a bore,
-    a smooth curve, and a glyph with a counter.
+    the star and gear are generated (`domains.py`). Each puts a different demand on the
+    mesher: disconnected islands, a curved boundary, sharp reentrant corners, and
+    repeated teeth around a circular bore.
     """
     return [
         ('California', read_svg_to_pslg(DEFAULT_SVG_FILE, tolerance=svg_tolerance)),
         ('Cloud', read_svg_to_pslg(CLOUD_SVG_FILE, tolerance=svg_tolerance)),
-        ('Star', star_pslg()),
         ('Gear', gear_pslg()),
-        ('Heart', heart_pslg()),
-        ("Letter 'e'", glyph_pslg('e')),
+        ('Star', star_pslg()),
     ]
 
-def demo_outline_zoo(min_angle=28, max_area_fraction=0.003, interactive=False):
-    """Mesh a variety of closed outlines, traced and generated, and solve the same Poisson
-    'dome' on each, to show one pipeline (simplify, Ruppert refine, solve) turning any
-    shape into a domain a PDE runs on."""
+def _mesh_zoom_inset(ax, mesh, u, clim, box, loc=(0.6, 0.02, 0.4, 0.4)):
+    """Overlay a zoomed inset on `ax` revealing the triangulation over `box`.
+
+    `box` is `(x0, x1, y0, y1)` in data coordinates. The main panels are drawn fine
+    enough that the field reads smooth, which can look like a resolution ceiling; the
+    inset shows the actual mesh under one of them, so the density reads as a display
+    choice rather than a limit.
+    """
+    vertices = np.asarray(mesh.vertices)
+    triangles = np.asarray(mesh.elements)
+    inset = ax.inset_axes(loc)
+    inset.tripcolor(vertices[:, 0], vertices[:, 1], triangles,
+                    facecolors=u[triangles].mean(axis=1), cmap='viridis',
+                    vmin=clim[0], vmax=clim[1])
+    plot_mesh(inset, mesh, color='0.15', linewidth=0.3)
+    inset.set_xlim(box[0], box[1])
+    inset.set_ylim(box[2], box[3])
+    inset.set_aspect('equal')
+    inset.set_xticks([])
+    inset.set_yticks([])
+    for spine in inset.spines.values():
+        spine.set_edgecolor('0.35')
+    ax.indicate_inset_zoom(inset, edgecolor='0.35', linewidth=0.8, alpha=0.9)
+
+def demo_outline_zoo(min_angle=28, max_area_fraction=0.0008, interactive=False):
+    """Mesh four closed outlines, traced and generated, and solve the same Poisson 'dome'
+    on each, to show one pipeline (simplify, Ruppert refine, solve) turning any shape into
+    a domain a PDE runs on."""
     # --interactive first opens a slider to explore the Douglas-Peucker simplification on
     # the California outline; the zoo itself simplifies the traced SVGs at a fixed tolerance.
     if interactive:
         simplify_curve(get_curve_from_svg(DEFAULT_SVG_FILE), interactive=True)
 
     shapes = _zoo_shapes()
-    ncols = 3
-    nrows = -(-len(shapes) // ncols)
-    plotter = Plotter(nrows, ncols, axis_labels=False, figsize=(13.5, 9.0),
+    plotter = Plotter(2, 2, axis_labels=False, figsize=(10.5, 10.0),
                       title="One pipeline, any outline: Douglas-Peucker, Ruppert's, solve")
     rows = ['outline        pts  triangles  min angle']
     for k, (name, pslg) in enumerate(shapes):
-        idx = divmod(k, ncols)
+        idx = divmod(k, 2)
         pslg.validate()
         mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=max_area_fraction * pslg.area()).refine()
@@ -214,22 +234,28 @@ def demo_outline_zoo(min_angle=28, max_area_fraction=0.003, interactive=False):
         bc.add(BCType.DIRICHLET, everywhere(), 0)
         u = Solver(mesh, Poisson(source=1.0), bc).solve().u
         # A colour scale per cell (the domains differ in size by orders of magnitude) and
-        # no colorbar: the shape is the point, not the amplitude. The wireframe over it is
-        # the mesh the field was solved on.
-        plotter.plot(mesh, u, mode='colored', idx=idx, colorbar=False,
-                     clim=(0.0, float(u.max())), empty=True,
-                     title=f'{name}: {len(mesh.elements)} triangles')
-        plot_mesh(plotter.get_ax(idx), mesh, color='white', linewidth=0.15)
+        # no colorbar: the shape is the point, not the amplitude. A whisper of a wireframe
+        # keeps the mesh present without turning the field into a net.
+        clim = (0.0, float(u.max()))
+        plotter.plot(mesh, u, mode='colored', idx=idx, colorbar=False, clim=clim,
+                     empty=True, title=f'{name}: {len(mesh.elements)} triangles')
+        plot_mesh(plotter.get_ax(idx), mesh, color='0.9', linewidth=0.1)
+        if name == 'California':
+            # Reveal the real mesh under the smooth field, zoomed into the central coast.
+            v = np.asarray(mesh.vertices)
+            lo, hi = v.min(axis=0), v.max(axis=0)
+            span = hi - lo
+            box = (lo[0] + 0.06 * span[0], lo[0] + 0.32 * span[0],
+                   lo[1] + 0.42 * span[1], lo[1] + 0.70 * span[1])
+            _mesh_zoom_inset(plotter.get_ax(idx), mesh, u, clim, box)
         worst = calculate_triangle_min_angle(
             np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
         rows.append(f'{name:<14}{len(pslg.vertices):>4}{len(mesh.elements):>10}'
                     f'{worst:>8.0f}')
-    for k in range(len(shapes), nrows * ncols):     # blank any trailing cell
-        plotter.get_ax(divmod(k, ncols)).axis('off')
 
     return DemoResult([
         Figure(plotter,
-               'Six outlines through one pipeline. Each becomes a planar straight-line '
+               'Four outlines through one pipeline. Each becomes a planar straight-line '
                'graph, is simplified with Douglas-Peucker where it was traced densely '
                "(California, cloud), then triangulated by Ruppert's algorithm to a "
                'minimum-angle and maximum-area bound. On each mesh the same Poisson '
@@ -237,10 +263,12 @@ def demo_outline_zoo(min_angle=28, max_area_fraction=0.003, interactive=False):
                'boundary: tallest where the domain is widest and pinched to zero at every '
                'edge and hole. The outlines make different demands. California meshes as '
                "disconnected islands; the cloud's boundary follows its true Bezier "
-               "curves; the gear bore and the letter's counter are holes by the even-odd "
-               "rule; the star's notches and the heart's cusp are corners sharper than "
-               'the bound, which Ruppert meets at the input angle. The wireframe over '
-               'each field is the mesh it was solved on.')],
+               "curves; the gear bore is a hole by the even-odd rule; the star's notches "
+               'are corners sharper than the bound, which Ruppert meets at the input '
+               'angle. The mesh is drawn fine enough that the fields read smooth, not as '
+               "a resolution ceiling: the inset zooms into California's mesh, and "
+               'refinement (see the adaptive-refinement demo) drives it as fine as '
+               'wanted.')],
         text='\n'.join(rows))
 
 
