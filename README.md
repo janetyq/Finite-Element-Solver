@@ -168,13 +168,6 @@ the way a constant-strain triangle does.
 
 <p align="center"><img src="images/buckling.png" height="400" alt="Buckling modes of a pinned-pinned column"></p>
 
-The demo checks itself against Euler's column theory three ways: the modes rise as
-$n^2$, the four classic end conditions recover their effective-length factors ($K = 2$
-cantilever, $1$ pinned-pinned, $0.5$ fixed-fixed, $\approx 0.7$ fixed-pinned) to within
-a couple of percent, and the critical load falls as $1/L^2$.
-
-<p align="center"><img src="images/buckling_laws.png" width="780" alt="Buckling validated against Euler's 1/L^2 law and effective-length factors"></p>
-
 ### Modal (free-vibration) analysis
 
 The same eigen-machinery, a different pencil. Free vibration solves
@@ -185,13 +178,6 @@ base. Its low modes come in pairs; the one whose tines swing oppositely leaves t
 still and rings, which is "the voice".
 
 <p align="center"><img src="images/modal.png" width="780" alt="A tuning fork's natural modes and their pitches"></p>
-
-With real SI steel properties the frequencies come out in Hz: the voice lands near
-concert A, and sweeping the tine length tracks the Euler-Bernoulli $1/L^2$ tuning law,
-sitting a little below the ideal-tine line because a real fork's base yields where beam
-theory assumes a rigid clamp.
-
-<p align="center"><img src="images/modal_law.png" width="780" alt="Modal analysis against Euler-Bernoulli beam theory"></p>
 
 ### Topology optimization
 

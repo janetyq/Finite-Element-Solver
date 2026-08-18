@@ -717,9 +717,13 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=200.0, 
     for i, (name, mesh, solution, peaks) in enumerate((
             ('Sharp corner', sharp_mesh, sharp, sharp_peaks),
             (f'Fillet r = {fillet_radius:g}', round_mesh, rounded, round_peaks))):
-        fields.plot(solution.deformed_mesh(), solution.von_mises, mode='colored', idx=(0, i),
+        deformed = solution.deformed_mesh()
+        fields.plot(deformed, solution.von_mises, mode='colored', idx=(0, i),
                     label='von Mises stress',
                     title=f'{name}\n{len(mesh.elements)} elements, corner peak {peaks[-1]:.0f}')
+        # Clamp and tip-load glyphs read off the undeformed mesh, drawn at the deformed
+        # positions so the load follows the tip it pulls on.
+        fields.overlay_supports(mesh, make_bc(), idx=(0, i), coords=deformed.vertices)
 
     sweep = Plotter(1, 1, title='The corner peak against mesh refinement')
     ax = sweep.chart_ax(xlabel='elements', ylabel='von Mises at the inner corner')
