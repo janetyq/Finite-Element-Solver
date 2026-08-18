@@ -81,7 +81,7 @@ Two approaches measured and rejected, so they are not proposed again:
   `tests/test_curved_meshing.py` the pipeline and the Kirsch stress concentration; `tests/test_svg.py`
   the traced-outline round trip). Two follow-ups are left. **3D curved elements** and **`fem/io.py`
   curve serialization** (a saved mesh currently drops its curves) are the remaining gaps. `files/cloud.svg`
-  now meshes and solves in the `outline_zoo` demo, so its Bezier boundary carries through the pipeline
+  now meshes and solves in the `outline_to_mesh` demo, so its Bezier boundary carries through the pipeline
   there; a dedicated *close-up* contrasting the curved boundary against its chord polygon (the isoparametric
   payoff) still belongs beside `curved_elements`, unbuilt. Quadratic Beziers (degree-elevate to cubic) and
   elliptical arcs (`EllipseArc`) are unbuilt but unused by the bundled assets.

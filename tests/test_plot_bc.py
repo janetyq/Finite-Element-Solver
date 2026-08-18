@@ -120,7 +120,8 @@ def test_a_fully_constrained_boundary_claims_nothing_is_natural(mesh):
 
 
 def test_repeated_conditions_of_one_kind_get_one_legend_entry(mesh):
-    """`robin` sweeps the same kind of condition over several regions."""
+    """A sweep repeats one kind of condition over several regions; the legend folds them
+    into a single entry."""
     bc = BoundaryConditions()
     for side in (0.0, 1.0):
         bc.add(BCType.DIRICHLET, on_plane(0, side), 0.0)
