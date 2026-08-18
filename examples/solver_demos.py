@@ -1412,7 +1412,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
         'Blue triangles: the pinned ends, held sideways but free to rotate.\n'
         'Red arrow: the compressive load.\n'
         'Colour: sideways deflection; its sign and amplitude are arbitrary.',
-        fontsize='small')
+        fontsize='medium')
 
     # -- 2. Effective length: the same column, four ways to hold its ends ---------------
     measured = {}
@@ -1597,7 +1597,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
     _share_panel_limits(modes, n_shown)
     modes.fig.supxlabel(
         'Colour: sideways (transverse) displacement of the mode. Its sign and amplitude '
-        'are arbitrary; the pattern of motion is what is physical.', fontsize='small')
+        'are arbitrary; the pattern of motion is what is physical.', fontsize='medium')
 
     # -- 2. The voice, flexing: the mode as motion rather than a frozen shape -----------
     transverse = solution.modes[voice].reshape(-1, 2)[:n_v, 0]

@@ -166,7 +166,7 @@ generalized eigenproblem $K \phi = -\lambda K_g \phi$ gives the critical load fa
 and mode shapes. The column is meshed with P2 elements, which do not lock in bending
 the way a constant-strain triangle does.
 
-<p align="center"><img src="images/buckling.png" height="400" alt="Buckling modes of a pinned-pinned column"></p>
+<p align="center"><img src="images/buckling.png" height="450" alt="Buckling modes of a pinned-pinned column"></p>
 
 ### Modal (free-vibration) analysis
 
