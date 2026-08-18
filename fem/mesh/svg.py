@@ -1,5 +1,6 @@
 import re
 import xml.etree.ElementTree as ET
+from collections import defaultdict
 
 import numpy as np
 import svg.path  # pyright: ignore[reportMissingImports]
@@ -168,71 +169,62 @@ def read_svg_to_list_of_path_points(svg_file):
     return [points for points, _ in _read_svg_loops(svg_file)]
 
 def douglas_peucker(points, epsilon):
+    '''Simplify a polyline, dropping points within `epsilon` of the kept chords.
+
+    Returns an Nx2 array (n < N) in the input order, endpoints kept. Keeps the point
+    furthest from the chord between the current endpoints and recurses on each side
+    until every dropped point lies within `epsilon`. A thin wrapper over
+    `_simplify_indices` so the two share one implementation; use that form to carry
+    per-point data through the simplification.
     '''
-    Simplifies a curve by reducing the number of points while preserving the overall shape.
-
-    Input:
-        points - Nx2 array of points describing the path of a curve (in order)
-        epsilon - the distance from a line between two points at which a point will be kept
-    
-    Output:
-        a nx2 array of points describing a simplified curve using the Douglas-Peucker algorithm, n < N
-
-    The algorithm recursively keeps points that are furthest away from the line segment between pairs of points
-    and stops when the furthest points are less than epsilon distance away
-    '''
-    if len(points) <= 2:
-        return points
-
-    def perp_distance(start, end, point):
-        se_vector = start - end
-        sp_vector = start - point
-        # The 2D cross product written out: np.cross on 2-vectors is deprecated in
-        # NumPy 2 and slated for removal.
-        cross = se_vector[0]*sp_vector[1] - se_vector[1]*sp_vector[0]
-        return np.abs(cross) / np.linalg.norm(se_vector)
-
-    furthest_dist = 0
-    furthest_p_idx = None
-    start, end = points[0], points[-1]
-    for p_idx, point in enumerate(points[1:-1], start=1):
-        dist = perp_distance(start, end, point)
-        if dist > furthest_dist:
-            furthest_dist = dist
-            furthest_p_idx = p_idx
-    
-    # furthest_p_idx stays None when no interior point beat furthest_dist, which
-    # a collinear run does; the recursion below would slice with None+1.
-    if furthest_p_idx is None or furthest_dist < epsilon:
-        return np.array([start, end])
-    else:
-        return np.concatenate([douglas_peucker(points[:furthest_p_idx+1], epsilon)[:-1], douglas_peucker(points[furthest_p_idx:], epsilon)])
+    points = np.asarray(points, dtype=float)
+    return points[_simplify_indices(points, epsilon)]
 
 
 def _simplify_indices(points, epsilon):
     '''Douglas-Peucker on an open polyline, returning the sorted indices it keeps.
 
-    The index-returning form of `douglas_peucker`, so a caller can carry per-point or
-    per-segment data through the simplification: which point survives, not just where it
-    lands. The endpoints are always kept.
+    The index-returning core `douglas_peucker` wraps, so a caller can carry per-point
+    or per-segment data through the simplification: which point survives, not just
+    where it lands. The endpoints are always kept.
+
+    Iterative, over an explicit stack rather than recursion, so a densely sampled
+    outline cannot overflow the interpreter's recursion limit however deep the splits
+    go. Each split's furthest-point search is vectorised over the span it examines.
     '''
     points = np.asarray(points, dtype=float)
     n = len(points)
     if n <= 2:
         return list(range(n))
 
-    def recurse(lo, hi):
+    keep = np.zeros(n, dtype=bool)
+    keep[0] = keep[-1] = True
+    stack = [(0, n - 1)]
+    while stack:
+        lo, hi = stack.pop()
+        if hi - lo < 2:
+            continue
         start, end = points[lo], points[hi]
-        furthest_dist, furthest = 0.0, None
-        for k in range(lo + 1, hi):
-            dist = _perp_distance(start, end, points[k])
-            if dist > furthest_dist:
-                furthest_dist, furthest = dist, k
-        if furthest is None or furthest_dist < epsilon:
-            return [lo, hi]
-        return recurse(lo, furthest)[:-1] + recurse(furthest, hi)
-
-    return recurse(0, n - 1)
+        interior = points[lo + 1:hi]
+        edge = end - start
+        length = float(np.hypot(edge[0], edge[1]))
+        if length == 0.0:
+            # A zero-length chord (start == end): fall back to distance from start,
+            # matching `_perp_distance`, so a closed sub-span still simplifies.
+            dists = np.hypot(interior[:, 0] - start[0], interior[:, 1] - start[1])
+        else:
+            dists = np.abs(edge[0] * (start[1] - interior[:, 1])
+                           - edge[1] * (start[0] - interior[:, 0])) / length
+        k = int(np.argmax(dists))
+        # Split only on a point strictly off the chord and at least epsilon away, so a
+        # collinear run (every distance zero) keeps just its endpoints, even at
+        # epsilon 0, where dividing the recursion at it would loop.
+        if dists[k] > 0.0 and dists[k] >= epsilon:
+            furthest = lo + 1 + k
+            keep[furthest] = True
+            stack.append((lo, furthest))
+            stack.append((furthest, hi))
+    return np.flatnonzero(keep).tolist()
 
 
 def _fold_segment_curves(seg_curves, keep, n):
@@ -279,33 +271,85 @@ def read_svg_to_pslg(svg_file, tolerance=0.005):
     return PSLG.from_loops(loops, segment_curves=segment_curves)
 
 
-def _find_crossing_segments(vertices, segments):
-    '''The first pair of segments that properly cross, or None.
+def _candidate_segment_pairs(lo, hi):
+    '''Segment index pairs `(i, j)` with `i < j` whose bounding boxes may overlap.
 
-    Pairs sharing an endpoint are allowed to touch there, so they are skipped.
-    Compares every pair, which is quadratic in the input size (the outline, not
-    the mesh refined from it).
+    A uniform grid keyed on a segment's bounding-box cells: two segments are a
+    candidate only where they share a cell. Two crossing segments have overlapping
+    boxes and so always share a cell, meaning no crossing is dropped, so the grid is a
+    speed knob only. The cell size is the larger of twice the median segment box (each
+    short segment then lands in about one cell) and the extent over sqrt(n) (so one
+    long segment cannot cover unboundedly many cells).
     '''
+    n = len(lo)
+    diag = np.hypot(hi[:, 0] - lo[:, 0], hi[:, 1] - lo[:, 1])
+    nonzero = diag[diag > 0]
+    extent = float(np.max(hi.max(axis=0) - lo.min(axis=0)))
+    cell = max(2.0 * float(np.median(nonzero)) if len(nonzero) else 0.0,
+               extent / max(1.0, np.sqrt(n)))
+    if cell <= 0.0:
+        cell = 1.0   # every box is a point at one location; one cell holds them all
+
+    origin = lo.min(axis=0)
+    cell_lo = np.floor((lo - origin) / cell).astype(np.int64)
+    cell_hi = np.floor((hi - origin) / cell).astype(np.int64)
+
+    buckets = defaultdict(list)
+    for i in range(n):
+        for cx in range(cell_lo[i, 0], cell_hi[i, 0] + 1):
+            for cy in range(cell_lo[i, 1], cell_hi[i, 1] + 1):
+                buckets[(cx, cy)].append(i)
+
+    pairs = set()
+    for members in buckets.values():
+        for a in range(len(members)):
+            for b in range(a + 1, len(members)):
+                pairs.add((members[a], members[b]))   # members are ascending, so i < j
+    return pairs
+
+
+def _find_crossing_segments(vertices, segments):
+    '''The lexicographically first pair of segments that properly cross, or None.
+
+    A proper crossing puts each segment's endpoints strictly on opposite sides of the
+    other; a pair sharing an endpoint touches there and is skipped. Only pairs a
+    spatial grid finds sharing a bounding-box cell are tested (`_candidate_segment_pairs`),
+    so a spread-out outline costs about linear time rather than comparing every pair.
+    The worst case (every box over one cell) matches the old all-pairs scan.
+    '''
+    vertices = np.asarray(vertices, dtype=float)
+    segments = np.asarray(segments)
+    if len(segments) < 2:
+        return None
+
     starts, ends = vertices[segments[:, 0]], vertices[segments[:, 1]]
+    lo = np.minimum(starts, ends)
+    hi = np.maximum(starts, ends)
+
+    candidates = _candidate_segment_pairs(lo, hi)
+    if not candidates:
+        return None
+    pairs = np.array(sorted(candidates))
+    i, j = pairs[:, 0], pairs[:, 1]
 
     def side_of(line_start, line_end, point):
         '''Sign of which side of a directed line each point falls on.'''
-        return ((line_end[..., 0] - line_start[..., 0]) * (point[..., 1] - line_start[..., 1])
-                - (line_end[..., 1] - line_start[..., 1]) * (point[..., 0] - line_start[..., 0]))
+        return ((line_end[:, 0] - line_start[:, 0]) * (point[:, 1] - line_start[:, 1])
+                - (line_end[:, 1] - line_start[:, 1]) * (point[:, 0] - line_start[:, 0]))
 
-    rows, cols = np.asarray(starts[:, None]), np.asarray(starts[None, :])
-    row_ends, col_ends = ends[:, None], ends[None, :]
     # A proper crossing puts each segment's endpoints on opposite sides of the other.
-    straddles_row = (side_of(rows, row_ends, cols) > 0) != (side_of(rows, row_ends, col_ends) > 0)
-    straddles_col = (side_of(cols, col_ends, rows) > 0) != (side_of(cols, col_ends, row_ends) > 0)
-    crossing = straddles_row & straddles_col
+    straddles_i = (side_of(starts[i], ends[i], starts[j]) > 0) != (side_of(starts[i], ends[i], ends[j]) > 0)
+    straddles_j = (side_of(starts[j], ends[j], starts[i]) > 0) != (side_of(starts[j], ends[j], ends[i]) > 0)
+    shares_endpoint = (segments[i][:, :, None] == segments[j][:, None, :]).any(axis=(1, 2))
+    crossing = straddles_i & straddles_j & ~shares_endpoint
 
-    shares_endpoint = (segments[:, None, :, None] == segments[None, :, None, :]).any(axis=(2, 3))
-    crossing &= ~shares_endpoint
-    crossing &= np.triu(np.ones_like(crossing), k=1).astype(bool)
-
-    found = np.argwhere(crossing)
-    return tuple(found[0]) if len(found) else None
+    hits = np.flatnonzero(crossing)
+    if not len(hits):
+        return None
+    # `pairs` is lexicographically sorted, so the first crossing is the lex-min pair,
+    # matching the row-major order the old all-pairs scan returned.
+    first = hits[0]
+    return int(i[first]), int(j[first])
 
 
 def _loop_point_curves(spec, n_points):

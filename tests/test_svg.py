@@ -10,10 +10,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import sys
+
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.mesh.curves import CubicBezier
 from fem.mesh.ruppert import RuppertsAlgorithm
-from fem.mesh.svg import douglas_peucker, read_svg_to_list_of_path_points, read_svg_to_pslg
+from fem.mesh.svg import (
+    _find_crossing_segments,
+    _simplify_indices,
+    douglas_peucker,
+    read_svg_to_list_of_path_points,
+    read_svg_to_pslg,
+)
 from fem.space import FunctionSpace
 
 CLOUD_SVG = str(Path(__file__).resolve().parents[1] / 'files' / 'cloud.svg')
@@ -121,3 +129,78 @@ def test_a_traced_cubic_outline_meshes_onto_its_true_curve():
 
     assert max_midside_distance(IsoparametricTriangleElement) < 1e-9
     assert max_midside_distance(QuadraticTriangleElement) > 1e-2
+
+
+def test_douglas_peucker_matches_its_index_form():
+    """`douglas_peucker` is a thin wrapper over `_simplify_indices`, so it returns
+    exactly the kept points, in order."""
+    rng = np.random.default_rng(1)
+    for _ in range(20):
+        points = np.cumsum(rng.standard_normal((rng.integers(3, 60), 2)), axis=0)
+        eps = float(rng.uniform(0.05, 2.0))
+        keep = _simplify_indices(points, eps)
+        assert np.array_equal(douglas_peucker(points, eps), points[keep])
+        assert keep[0] == 0 and keep[-1] == len(points) - 1   # endpoints always kept
+        assert keep == sorted(set(keep))                      # sorted, no duplicates
+
+
+def test_douglas_peucker_is_iterative_and_survives_a_deep_split():
+    """The simplifier uses an explicit stack, so a densely sampled outline whose splits
+    nest thousands deep cannot overflow the interpreter's recursion limit."""
+    # A curve of increasing curvature forces very unbalanced splits, the recursion's
+    # worst case; 4000 points would blow a recursion-limited implementation.
+    t = np.linspace(0, 1, 4000)
+    points = np.column_stack([t, t ** 8])
+    original = sys.getrecursionlimit()
+    sys.setrecursionlimit(200)
+    try:
+        simplified = douglas_peucker(points, 1e-9)
+    finally:
+        sys.setrecursionlimit(original)
+    assert 2 < len(simplified) < len(points)
+
+
+def _crossing_by_all_pairs(vertices, segments):
+    '''The reference the grid must match: the old quadratic all-pairs scan, returning
+    the lexicographically first properly crossing pair.'''
+    vertices, segments = np.asarray(vertices, float), np.asarray(segments)
+
+    def side(a, b, p):
+        return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+
+    for i in range(len(segments)):
+        for j in range(i + 1, len(segments)):
+            if set(segments[i]) & set(segments[j]):
+                continue
+            ai, bi = vertices[segments[i]]
+            aj, bj = vertices[segments[j]]
+            if ((side(ai, bi, aj) > 0) != (side(ai, bi, bj) > 0)
+                    and (side(aj, bj, ai) > 0) != (side(aj, bj, bi) > 0)):
+                return (i, j)
+    return None
+
+
+def test_grid_crossing_detection_matches_the_all_pairs_reference():
+    """The spatial-grid crossing search is a speed knob only: on random segment soups
+    it returns exactly the pair the old all-pairs scan would."""
+    rng = np.random.default_rng(7)
+    for _ in range(200):
+        n = int(rng.integers(2, 25))
+        vertices = rng.uniform(0, 10, size=(2 * n, 2))
+        segments = np.arange(2 * n).reshape(n, 2)
+        expected = _crossing_by_all_pairs(vertices, segments)
+        got = _find_crossing_segments(vertices, segments)
+        assert got == expected
+
+
+def test_grid_crossing_finds_a_crossing_among_far_apart_clusters():
+    """A long spanning segment plus a distant crossing pair: the grid must still find
+    the crossing even though the two clusters share no small cell."""
+    vertices = np.array([
+        [-100.0, 0.0], [100.0, 0.001],   # a long, near-horizontal spanning segment
+        [0.0, -1.0], [0.0, 1.0],         # a short vertical segment that it crosses
+        [50.0, 50.0], [51.0, 50.0],      # a far-off pair of parallel, non-crossing segments
+        [50.0, 51.0], [51.0, 51.0],
+    ])
+    segments = np.array([[0, 1], [2, 3], [4, 5], [6, 7]])
+    assert _find_crossing_segments(vertices, segments) == (0, 1)
