@@ -269,3 +269,104 @@ def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,
         [stem_width / 2, 0.0],                   # down the stem to the base
     ])
     return PSLG.from_loops([outline])
+
+
+# The extra shapes the outline-zoo demo meshes and solves on, alongside the traced
+# `files/*.svg` outlines. Each is generated rather than traced, and each is chosen to
+# put a different demand on the mesher: a star for sharp corners, a gear for repeated
+# teeth and a hole, a heart for a smooth curve, a glyph for text with a counter.
+
+
+def star_pslg(points: int = 5, outer_radius: float = 1.0, inner_radius: float = 0.42,
+              center: tuple[float, float] = (0.0, 0.0)) -> PSLG:
+    """A `points`-pointed star as a single straight-line loop.
+
+    Radii alternate between `outer_radius` at the tips and `inner_radius` at the notches,
+    so the reentrant notches are the sharp corners Ruppert's meets at the input angle
+    rather than refining away.
+    """
+    angles = np.pi / 2 + np.linspace(0, 2 * np.pi, 2 * points, endpoint=False)
+    radii = np.where(np.arange(2 * points) % 2 == 0, outer_radius, inner_radius)
+    outline = np.column_stack([center[0] + radii * np.cos(angles),
+                               center[1] + radii * np.sin(angles)])
+    return PSLG.from_loops([outline])
+
+
+def gear_pslg(teeth: int = 12, root_radius: float = 0.7, tooth_height: float = 0.22,
+              tooth_fraction: float = 0.5, bore_radius: float = 0.28,
+              bore_segments: int = 32, center: tuple[float, float] = (0.0, 0.0)) -> PSLG:
+    """A spur gear with a circular bore, as two loops (rim and hole).
+
+    Each of `teeth` sectors carries one tooth: the radius steps from `root_radius` out to
+    `root_radius + tooth_height` over the middle `tooth_fraction` of the sector and back,
+    with radial flanks. The bore loop carries a `Circle`, so an isoparametric solve reads
+    a true round hole and refinement rounds it; under the even-odd rule it is a hole in
+    the gear rather than a second part.
+    """
+    tip_radius = root_radius + tooth_height
+    pitch = 2 * np.pi / teeth
+    gap = 0.5 * (1 - tooth_fraction) * pitch     # root arc either side of each tooth
+    outline = []
+    for i in range(teeth):
+        base = i * pitch
+        # (root, base) -> (root, base+gap): the valley; then radial flank up, the tip
+        # land, and the next flank down is the following sector's opening edge.
+        for radius, angle in ((root_radius, base), (root_radius, base + gap),
+                              (tip_radius, base + gap), (tip_radius, base + pitch - gap)):
+            outline.append((center[0] + radius * np.cos(angle),
+                            center[1] + radius * np.sin(angle)))
+
+    bore_angles = np.linspace(0, 2 * np.pi, bore_segments, endpoint=False)
+    bore = np.column_stack([center[0] + bore_radius * np.cos(bore_angles),
+                            center[1] + bore_radius * np.sin(bore_angles)])
+    return PSLG.from_loops([np.array(outline), bore],
+                           curves=[None, Circle(list(center), bore_radius)])
+
+
+def heart_pslg(scale: float = 1.0, center: tuple[float, float] = (0.0, 0.0),
+               n: int = 96) -> PSLG:
+    """A heart outline as a single smooth loop, sampled from the classic curve.
+
+    `x = 16 sin^3 t`, `y = 13 cos t - 5 cos 2t - 2 cos 3t - cos 4t`, normalized to a unit
+    height about `center` and scaled by `scale`. Sampled densely enough that the boundary
+    reads as smooth without an analytic curve behind it.
+    """
+    t = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    x = 16 * np.sin(t) ** 3
+    y = 13 * np.cos(t) - 5 * np.cos(2 * t) - 2 * np.cos(3 * t) - np.cos(4 * t)
+    pts = np.column_stack([x, y])
+    pts = pts - pts.mean(axis=0)
+    pts = pts / (pts[:, 1].max() - pts[:, 1].min()) * scale
+    return PSLG.from_loops([pts + np.asarray(center)])
+
+
+def glyph_pslg(char: str = 'e', tolerance: float = 0.01,
+               center: tuple[float, float] = (0.0, 0.0)) -> PSLG:
+    """A single text glyph as a PSLG, its counter (the hole in an 'e' or 'a') included.
+
+    The glyph outline comes from matplotlib's bundled font, flattened to polygons and
+    simplified with Douglas-Peucker against its own extent. A letter with a counter comes
+    back as two loops, which the even-odd rule reads as an outline with a hole, the same
+    way a gear bore is a hole.
+    """
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.textpath import TextPath
+
+    from fem.mesh.svg import douglas_peucker
+
+    path = TextPath((0, 0), char, size=1, prop=FontProperties(weight='bold'))
+    loops = []
+    for polygon in path.to_polygons(closed_only=True):
+        loop = np.asarray(polygon, dtype=float)
+        if len(loop) > 1 and np.allclose(loop[0], loop[-1]):
+            loop = loop[:-1]             # drop the repeated close; from_loops wraps
+        extent = float(np.max(loop.max(axis=0) - loop.min(axis=0)))
+        loop = douglas_peucker(loop, tolerance * extent)
+        if len(loop) >= 3:
+            loops.append(loop)
+
+    stacked = np.vstack(loops)
+    span = float(np.max(stacked.max(axis=0) - stacked.min(axis=0)))
+    mid = 0.5 * (stacked.max(axis=0) + stacked.min(axis=0))
+    loops = [(loop - mid) / span + np.asarray(center) for loop in loops]
+    return PSLG.from_loops(loops)
