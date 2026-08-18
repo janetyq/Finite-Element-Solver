@@ -23,6 +23,11 @@ dependencies = [
     # pure Python with no dependencies of its own, so gating it bought nothing and cost
     # a skipped test plus two demos that could not run on a default install.
     "svg.path",
+    # Standard mesh formats (fem.io): one adapter maps Mesh to and from meshio's
+    # points/cells model, which reads and writes ~40 formats (Gmsh .msh in, VTK
+    # .vtu out, plus .obj/.off/.stl). Base rather than an extra: it is numpy-only
+    # and is now the sole path for any non-native mesh file.
+    "meshio",
 ]
 
 # Development tooling (installed by default with `uv sync`)

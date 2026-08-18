@@ -142,3 +142,42 @@ def get_boundary_from_vertices_elements(elements):
         for facet in itertools.combinations(sorted(element), len(element) - 1)
     )
     return [list(facet) for facet, count in facet_counts.items() if count == 1]
+
+
+def _point_on_facet(points, facet, atol):
+    '''Boolean mask over `points`: which lie on the single simplex `facet`.
+
+    `facet` is (k, spatial) with k its node count (1 point, 2 segment, 3 triangle).
+    A point is on the facet when it is within `atol` of the facet's affine hull and
+    inside it, tested by barycentric weights no less than -atol. Distance to the hull
+    and the in-simplex test come from one small least-squares fit of the point in the
+    facet's own basis, so the same code serves a segment and a triangle.
+    '''
+    v0 = facet[0]
+    rel = points - v0                                    # (N, spatial)
+    if len(facet) == 1:
+        return np.linalg.norm(rel, axis=1) <= atol
+    basis = facet[1:] - v0                               # (k-1, spatial)
+    # Barycentric weights of v1..v_{k-1}: solve the normal equations for the point's
+    # projection onto the affine hull. v0's weight is whatever the others leave.
+    coeffs = np.linalg.solve(basis @ basis.T, basis @ rel.T).T   # (N, k-1)
+    residual = np.linalg.norm(rel - coeffs @ basis, axis=1)      # distance to the hull
+    w0 = 1.0 - coeffs.sum(axis=1)
+    inside = (w0 >= -atol) & np.all(coeffs >= -atol, axis=1)
+    return (residual <= atol) & inside
+
+
+def nodes_on_facets(points, facet_coords, atol):
+    '''Boolean mask over `points`: which lie on any facet in `facet_coords`.
+
+    `facet_coords` is (n_facets, k, spatial). Straight facets place every P1 corner
+    and P2 midside node exactly on the facet, so a tight `atol` selects those nodes
+    and nothing else. This is what lets a tag-based region pick up the edge DOFs a P2
+    space adds, the same way a coordinate region does.
+    '''
+    points = np.asarray(points, dtype=float)
+    facet_coords = np.asarray(facet_coords, dtype=float)
+    on_any = np.zeros(len(points), dtype=bool)
+    for facet in facet_coords:
+        on_any |= _point_on_facet(points, facet, atol)
+    return on_any

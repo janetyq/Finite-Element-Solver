@@ -97,3 +97,73 @@ def test_rejects_boundary_facet_of_wrong_width():
             elements=[[0, 1, 2]],
             boundary=[[0, 1, 2]],  # a triangle's facet is an edge (2 nodes), not 3
         )
+
+
+# --- physical-group tags -----------------------------------------------------
+
+def _tagged_square() -> Mesh:
+    """The two-triangle square with the left edge (3--0) tagged "inlet" (id 3)."""
+    return Mesh(
+        vertices=[[0, 0], [1, 0], [1, 1], [0, 1]],
+        elements=[[0, 1, 2], [0, 2, 3]],
+        boundary=[[0, 1], [1, 2], [2, 3], [3, 0]],
+        facet_tags=[0, 0, 0, 3],
+        cell_tags=[1, 1],
+        tag_names={1: "domain", 3: "inlet"},
+    )
+
+
+def test_rejects_facet_tags_of_wrong_length():
+    with pytest.raises(ValueError, match='facet_tags'):
+        Mesh(
+            vertices=[[0, 0], [1, 0], [1, 1], [0, 1]],
+            elements=[[0, 1, 2], [0, 2, 3]],
+            boundary=[[0, 1], [1, 2], [2, 3], [3, 0]],
+            facet_tags=[3, 4],  # 2 tags for 4 facets
+        )
+
+
+def test_rejects_cell_tags_of_wrong_length():
+    with pytest.raises(ValueError, match='cell_tags'):
+        Mesh(
+            vertices=[[0, 0], [1, 0], [1, 1], [0, 1]],
+            elements=[[0, 1, 2], [0, 2, 3]],
+            boundary=[[0, 1], [1, 2], [2, 3], [3, 0]],
+            cell_tags=[1],  # 1 tag for 2 elements
+        )
+
+
+def test_facets_and_cells_with_tag_accept_name_or_id():
+    mesh = _tagged_square()
+    assert np.array_equal(mesh.facets_with_tag("inlet"), mesh.facets_with_tag(3))
+    assert np.array_equal(mesh.facets_with_tag("inlet"), [3])
+    assert np.array_equal(mesh.cells_with_tag("domain"), [0, 1])
+
+
+def test_tag_lookup_errors_are_specific():
+    mesh = _tagged_square()
+    with pytest.raises(ValueError, match="unknown tag name"):
+        mesh.facets_with_tag("nope")
+    with pytest.raises(ValueError, match="no facet carries tag"):
+        mesh.facets_with_tag("domain")  # a cell tag, not a facet tag
+    plain = _two_triangle_square()
+    with pytest.raises(ValueError, match="no facet tags"):
+        plain.facets_with_tag(1)
+
+
+def test_on_tag_selects_the_tagged_edge_nodes():
+    """The region picks exactly the boundary vertices on the tagged edge."""
+    mesh = _tagged_square()
+    selected = np.flatnonzero(mesh.on_tag("inlet")(mesh.vertices))
+    assert np.allclose(mesh.vertices[selected, 0], 0.0)   # the x=0 edge
+    assert set(selected.tolist()) == {0, 3}
+
+
+def test_copy_carries_tags():
+    mesh = _tagged_square()
+    clone = mesh.copy()
+    assert np.array_equal(clone.facet_tags, mesh.facet_tags)
+    assert np.array_equal(clone.cell_tags, mesh.cell_tags)
+    assert clone.tag_names == mesh.tag_names
+    clone.facet_tags[0] = 9  # a real copy, not a shared view
+    assert mesh.facet_tags[0] == 0

@@ -204,8 +204,17 @@ anything. Each item below is an implementation of a seam that already exists.
   internals rather than demanding annotations. Annotating the internals (`refinement`, `ruppert`,
   `energies`, `plot`) would let the mode step up.
 - 💡 **pre-commit hooks** (ruff + whitespace) so the CI checks run locally before each commit.
-- 💡 **Mesh formats.** `fem/io.py` writes meshes as JSON; `.off` / `.obj` export would make them
-  loadable by standard tools.
+- 💡 **Physical-group tags: two follow-ups.** `Mesh` now carries `cell_tags` / `facet_tags` and
+  `tag_names` from meshio's physical groups (`fem/io.py`), with `Mesh.on_tag` turning a facet tag
+  into a geometric region a boundary condition can use (P2-complete, survives refinement). Two pieces
+  are left. **Materials by subdomain**: `cells_with_tag` exposes the tagged elements, but no material
+  or source path consumes them yet, so a multi-material import still needs a coordinate predicate.
+  **Tags through refinement**: `with_topology` drops the tags (new facets are unrelated to the old
+  ids), so a refined imported mesh loses its groups; a curvature-style carry that maps a child facet
+  to its parent's tag would keep them.
+- 💡 **Solution export to VTU/XDMF.** Solutions save to a private `.npz` (`fem/io.py`). Writing the
+  fields as point data on a `.vtu`/`.xdmf` would let results open in ParaView, reusing the meshio
+  adapter already in place.
 
 ---
 
