@@ -1,30 +1,30 @@
-"""Meshing demos: turning a shape into a triangulation, and naming parts of it.
+"""Meshing demos: turning outlines into triangulations, and solving on them.
 
 Run via the shared CLI:
 
     uv run python examples/cli.py list
-    uv run python examples/cli.py run mesh_from_svg
+    uv run python examples/cli.py run outline_zoo
 """
 import json
 from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 from matplotlib.widgets import Slider
 
 from fem.boundary import BoundaryConditions, BCType
-from fem.equations import LinearElastic
+from fem.equations import LinearElastic, Poisson
 from fem.geometry import calculate_triangle_min_angle
 from fem.plot.plotter import Plotter
+from fem.plot.helpers import plot_mesh
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.svg import PSLG, read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker
-from fem.regions import on_plane
+from fem.regions import everywhere, on_plane
 from fem.solver import Solver
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import beam
+from domains import beam, gear_pslg, star_pslg
 
 # Resolved against the repo rather than the working directory: the input files ship
 # with the project, so a demo should not depend on where it was launched from. Output
@@ -36,12 +36,6 @@ CLOUD_SVG_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'cloud.svg'
 # bounding-box extent. Ruppert's cost grows steeply in point count, so simplifying
 # first is what keeps the demo interactive.
 DEFAULT_SIMPLIFICATION_TOLERANCE = 0.005
-
-# Ruppert's: any triangle whose area exceeds this fraction of the outline's total area
-# gets its circumcenter inserted. The angle bound controls element *shape* but says
-# nothing about size, so without this a large region comes back as a handful of
-# enormous triangles.
-DEFAULT_MAX_AREA_FRACTION = 0.005
 
 def demo_regions(length=4.0, height=1.0, n_structured=60, min_angle=30,
                  max_area_fraction=0.0009, E=200.0, nu=0.3, traction=0.5):
@@ -177,114 +171,114 @@ def simplify_curve(curve, save_file='douglas_peucker_output.json',
 
     return douglas_peucker(curve, slider.val)
 
-def demo_douglas_peucker(svg_file=CLOUD_SVG_FILE, tolerances=(0.005, 0.02, 0.05, 0.15)):
-    """Simplify a curve with Douglas-Peucker at a few tolerances, to show what the
-    parameter does to the outline before it ever reaches Ruppert's algorithm."""
-    curve = get_curve_from_svg(svg_file)
-    d = max(np.max(curve, axis=0) - np.min(curve, axis=0))
-    closed_curve = close_ring(curve)
+def _zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE):
+    """The outlines the zoo meshes, as (name, PSLG) pairs.
 
-    plotter = Plotter(1, len(tolerances), title='Douglas-Peucker at increasing tolerance')
-    for i, tolerance in enumerate(tolerances):
-        simplified = close_ring(douglas_peucker(curve, tolerance * d))
-        ax = plotter.get_ax((0, i))
-        ax.plot(closed_curve[:, 0], closed_curve[:, 1], color='gray', linewidth=1.0)
-        ax.plot(simplified[:, 0], simplified[:, 1], 'b-o', markersize=3)
-        ax.set_title(f'tolerance={tolerance} ({len(simplified) - 1} pts)')
+    California and the cloud are traced from `files/*.svg` and simplified on the way in;
+    the star and gear are generated (`domains.py`). Each puts a different demand on the
+    mesher: disconnected islands, a curved boundary, sharp reentrant corners, and
+    repeated teeth around a circular bore.
+    """
+    return [
+        ('California', read_svg_to_pslg(DEFAULT_SVG_FILE, tolerance=svg_tolerance)),
+        ('Cloud', read_svg_to_pslg(CLOUD_SVG_FILE, tolerance=svg_tolerance)),
+        ('Gear', gear_pslg()),
+        ('Star', star_pslg()),
+    ]
 
-    return DemoResult([
-        Figure(plotter,
-               f'The same {len(curve)}-point outline simplified at four tolerances, each '
-               "a fraction of the outline's extent. A looser tolerance keeps only points "
-               'far enough from the line between their neighbours, which is why the '
-               'rounder parts of the cloud are the first detail to go.',
-               'tolerances'),
-    ])
+def _mesh_zoom_inset(ax, mesh, box, loc=(0.57, 0.57, 0.42, 0.42)):
+    """Overlay a zoomed inset on `ax` revealing the bare triangulation over `box`.
 
-def rupperts_mesh(pslg, min_angle=20, max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
-    """Triangulate a PSLG with Ruppert's algorithm; returns (mesh, algorithm)."""
-    pslg.validate()
-    max_area = None
-    if max_area_fraction is not None:
-        max_area = max_area_fraction * pslg.area()
-    rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=max_area)
-    return rupperts.refine(), rupperts
+    `box` is `(x0, x1, y0, y1)` in data coordinates. The main panels are drawn fine
+    enough that the field reads smooth, which can look like a resolution ceiling; the
+    inset shows the actual mesh under one of them, so the density reads as a display
+    choice rather than a limit. Drawn on white rather than over the field, so the lines
+    stay legible where the near-boundary field is dark.
+    """
+    inset = ax.inset_axes(loc)
+    plot_mesh(inset, mesh, color='0.2', linewidth=0.35)
+    inset.set_xlim(box[0], box[1])
+    inset.set_ylim(box[2], box[3])
+    inset.set_aspect('equal')
+    inset.set_xticks([])
+    inset.set_yticks([])
+    for spine in inset.spines.values():
+        spine.set_edgecolor('0.35')
+    ax.indicate_inset_zoom(inset, edgecolor='0.35', linewidth=0.8, alpha=0.9)
 
-def _draw_rupperts_mesh(plotter, idx, mesh, rupperts, min_angle):
-    """Draw the triangulation and its input segments on one panel; return the caption
-    fragment describing what came out (how many outlines and triangles, and the angle
-    bound the mesh actually held to)."""
-    plotter.plot(mesh, mode='mesh', idx=idx, title='Triangulated mesh')
-    ax = plotter.get_ax(idx)
-    # One collection rather than a plot call per segment: an outline that has been
-    # refined runs to hundreds of them.
-    ax.add_collection(LineCollection(rupperts.vertices[rupperts.segments],
-                                     colors='blue', linewidths=1.0))
-    outlines = len(np.unique(rupperts.segment_loops))
-    # An input corner sharper than the bound keeps its own angle, so read the
-    # bound off the mesh rather than claiming the one that was asked for.
-    worst = calculate_triangle_min_angle(
-        np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
-    held = (f'every angle at least {min_angle} degrees' if worst >= min_angle else
-            f'every angle at least {min_angle} degrees bar the input corners already '
-            f'sharper than that, the worst {worst:.0f}')
-    noun = 'outline' if outlines == 1 else 'outlines'
-    return (f"Ruppert's refinement of {outlines} {noun} (blue) into {len(mesh.elements)} "
-            f'triangles, {held}')
+def demo_outline_zoo(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0.001,
+                     interactive=False):
+    """Mesh four closed outlines, traced and generated, and solve the same Poisson 'dome'
+    on each, to show one pipeline (simplify, Ruppert refine, solve) turning any shape into
+    a domain a PDE runs on."""
+    # --interactive first opens a slider to explore the Douglas-Peucker simplification on
+    # the California outline; the zoo itself simplifies the traced SVGs at `svg_tolerance`.
+    # That tolerance is finer than the default so the coastline keeps its real detail (the
+    # raw trace has ~1700 points); Ruppert's cost is superlinear in the point count, so the
+    # smoke run overrides it coarse rather than paying for detail nothing checks.
+    if interactive:
+        simplify_curve(get_curve_from_svg(DEFAULT_SVG_FILE), interactive=True)
 
-def demo_mesh_from_svg(svg_file=DEFAULT_SVG_FILE, tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE,
-                       interactive=False, min_angle=20,
-                       max_area_fraction=DEFAULT_MAX_AREA_FRACTION):
-    """Turn an SVG drawing into a mesh: simplify each outline with Douglas-Peucker, then
-    triangulate with Ruppert's algorithm."""
-    # --interactive opens a slider previewing the simplification tolerance on the largest
-    # outline; the tolerance used for meshing is always `tolerance` (per-loop, via
-    # read_svg_to_pslg).
-    # The two steps are one demo because the first exists for the second: Ruppert's cost
-    # is superlinear in the point count it is handed, and an SVG outline traced at screen
-    # resolution has thousands. Simplification is what makes the triangulation finish.
-    curve = get_curve_from_svg(svg_file)
-    simplified = simplify_curve(curve, tolerance=tolerance, interactive=interactive)
-    pslg = read_svg_to_pslg(svg_file, tolerance=tolerance)
-    mesh, rupperts = rupperts_mesh(pslg, min_angle=min_angle,
-                                   max_area_fraction=max_area_fraction)
-
-    # The two stages side by side: the simplified outline handed to Ruppert's (left) and
-    # the triangulation it returns (right). `panel_aspect` matches the outline's own
-    # width:height so the two tall panels fill the figure rather than floating in it.
-    plotter = Plotter(1, 2, title='From an SVG outline to a mesh', axis_labels=False,
-                      panel_aspect=0.86)
-    ax = plotter.get_ax((0, 0))
-    ax.set_title('Douglas-Peucker simplification')
-    ax.set_aspect('equal')
-    closed_curve = close_ring(curve)
-    closed_simplified = close_ring(simplified)
-    ax.plot(closed_curve[:, 0], closed_curve[:, 1], color='gray', linewidth=1.0,
-            label=f'original ({len(curve)} pts)')
-    ax.plot(closed_simplified[:, 0], closed_simplified[:, 1], 'b-',
-            label=f'simplified ({len(simplified)} pts)')
-    ax.legend(loc='lower left', fontsize=8, frameon=False)
-    mesh_caption = _draw_rupperts_mesh(plotter, (0, 1), mesh, rupperts, min_angle)
+    shapes = _zoo_shapes(svg_tolerance)
+    plotter = Plotter(2, 2, axis_labels=False, figsize=(10.5, 10.0),
+                      title="One pipeline, any outline: Douglas-Peucker, Ruppert's, solve")
+    rows = ['outline        pts  triangles  min angle']
+    for k, (name, pslg) in enumerate(shapes):
+        idx = divmod(k, 2)
+        pslg.validate()
+        mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
+                                 max_area=max_area_fraction * pslg.area()).refine()
+        # The Poisson "dome": a unit source pinned to zero on every boundary, so the
+        # field is a picture of the domain itself, tallest where it is widest.
+        bc = BoundaryConditions()
+        bc.add(BCType.DIRICHLET, everywhere(), 0)
+        u = Solver(mesh, Poisson(source=1.0), bc).solve().u
+        # A colour scale per cell (the domains differ in size by orders of magnitude) and
+        # no colorbar: the shape is the point, not the amplitude. A whisper of a wireframe
+        # keeps the mesh present without turning the field into a net.
+        clim = (0.0, float(u.max()))
+        plotter.plot(mesh, u, mode='colored', idx=idx, colorbar=False, clim=clim,
+                     empty=True, title=f'{name}: {len(mesh.elements)} triangles')
+        plot_mesh(plotter.get_ax(idx), mesh, color='0.9', linewidth=0.1)
+        if name == 'California':
+            # Reveal the real mesh under the smooth field, zoomed onto the San Francisco
+            # Bay, where the traced coastline is most intricate.
+            v = np.asarray(mesh.vertices)
+            lo, hi = v.min(axis=0), v.max(axis=0)
+            span = hi - lo
+            box = (lo[0] + 0.11 * span[0], lo[0] + 0.23 * span[0],
+                   lo[1] + 0.48 * span[1], lo[1] + 0.62 * span[1])
+            _mesh_zoom_inset(plotter.get_ax(idx), mesh, box)
+        worst = calculate_triangle_min_angle(
+            np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
+        rows.append(f'{name:<14}{len(pslg.vertices):>4}{len(mesh.elements):>10}'
+                    f'{worst:>8.0f}')
 
     return DemoResult([
         Figure(plotter,
-               f'Left: the largest outline reduced from {len(curve)} points to '
-               f'{len(simplified)} by Douglas-Peucker, at a tolerance set as a fraction of '
-               f"the outline's extent (Ruppert's cost grows steeply in the point count). "
-               f'Right: {mesh_caption}. The mesh covers what the outlines enclose and '
-               f'nothing else, and carries the {len(mesh.boundary)} boundary edges a solver '
-               'needs to put conditions on.'),
-    ])
+               'Four outlines through one pipeline. Each becomes a planar straight-line '
+               'graph, is simplified with Douglas-Peucker where it was traced densely '
+               "(California, cloud), then triangulated by Ruppert's algorithm to a "
+               'minimum-angle and maximum-area bound. On each mesh the same Poisson '
+               'problem is solved, the dome of -div(grad u) = 1 with u = 0 on the '
+               'boundary: tallest where the domain is widest and pinched to zero at every '
+               'edge and hole. The outlines make different demands. California meshes as '
+               "disconnected islands; the cloud's boundary follows its true Bezier "
+               "curves; the gear bore is a hole by the even-odd rule; the star's notches "
+               'are corners sharper than the bound, which Ruppert meets at the input '
+               'angle. The mesh is drawn fine enough that the fields read smooth, not as '
+               "a resolution ceiling: the inset zooms into California's mesh, which "
+               'resolves the traced coastline and its offshore islands, and refinement '
+               '(see the adaptive-refinement demo) drives it finer still.')],
+        text='\n'.join(rows))
 
 
 DEMOS = [
-    # Both mesh to a size cap, which is what makes the figures worth looking at and
-    # also most of their cost; the smoke run only needs the code paths. Loosen the cap
-    # and nothing else: simplifying the outline further is not reliably cheaper,
-    # because it sharpens corners, and refinement spends extra elements around those.
-    Demo('mesh_from_svg', demo_mesh_from_svg, section='Meshing a domain',
-         smoke_kwargs={'max_area_fraction': 0.05}),
-    Demo('douglas_peucker', demo_douglas_peucker, section='Meshing a domain'),
+    # Builds its own outlines, so it takes no domain. The smoke run loosens the area cap
+    # and coarsens the SVG tolerance (Ruppert's cost is superlinear in input points), so
+    # it still exercises every generator and the simplify -> Ruppert -> solve path cheaply.
+    Demo('outline_zoo', demo_outline_zoo, section='Meshing a domain',
+         smoke_kwargs={'svg_tolerance': 0.005, 'max_area_fraction': 0.04}),
     # Builds its own two meshes (a structured grid and a Ruppert's mesh) so it takes no
     # domain. The smoke run shrinks both to a handful of triangles.
     Demo('regions', demo_regions, section='Meshing a domain',
