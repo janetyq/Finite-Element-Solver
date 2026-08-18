@@ -109,9 +109,10 @@ def demo_poisson_equation(mesh):
     ])
 
 def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
-                        n_points=120, min_angle=20, max_area_fraction=0.0004):
+                        n_points=80, min_angle=20, max_area_fraction=0.0015):
     """Potential flow over a NACA airfoil: Laplace's equation for the velocity potential,
-    with the wing a no-flux streamline the flow accelerates over."""
+    with the wing a no-flux streamline the flow accelerates over. Solved with quadratic
+    (P2) elements, so the recovered flow speed is smooth without a very fine mesh."""
     # An ideal (incompressible, irrotational) flow has a velocity potential phi with
     # v = grad(phi) and div(v) = 0, so phi solves Laplace's equation. The wing carries no
     # flow through it, which is exactly the natural (zero-flux) condition of the weak
@@ -130,10 +131,12 @@ def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)      # inlet (left)
     bc.add(BCType.DIRICHLET, on_plane(0, length), 1.0)   # outlet (right)
 
-    solver = Solver(mesh, equation, bc)
+    solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
     solution = solver.solve()
-    velocity = solver.space.gradient(solution.u)         # v = grad(phi), per element
-    speed = np.linalg.norm(velocity, axis=1)
+    # v = grad(phi). The per-element gradient is constant on each triangle; nodal_flux
+    # recovers a continuous per-node field from it, which the P2 tessellation then draws
+    # smoothly, so the speed reads as a field rather than a mosaic of flat triangles.
+    speed = np.linalg.norm(solution.nodal_flux(), axis=1)   # (n_nodes,)
     # Ideal flow with no Kutta condition predicts a near-singular velocity where the
     # airfoil edges are sharp, which would swamp the colour scale. Clip it to a high
     # percentile so the flow over the wing, the point of the figure, stays legible.
@@ -142,11 +145,13 @@ def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     conditions = Plotter(panel_aspect=1.8)
     conditions.plot(mesh, mode='bc', bc=bc)
 
+    # `space=solution.space` opts both panels onto the P2 tessellation: the potential
+    # shows its within-element curvature and the recovered speed draws smoothly.
     plotter = Plotter(1, 2, title='Potential flow over an airfoil', panel_aspect=1.8)
     plotter.plot(mesh, solution.u, mode='colored', idx=(0, 0), label='velocity potential',
-                 title='Potential and its equipotentials', contour=22)
+                 title='Potential and its equipotentials', contour=22, space=solution.space)
     plotter.plot(mesh, speed, mode='colored', idx=(0, 1), label='flow speed', clim=(0.0, cap),
-                 title='Flow speed (clipped near the edges)')
+                 title='Flow speed (clipped near the edges)', space=solution.space)
     return DemoResult([
         Figure(plotter,
                'Ideal (irrotational, incompressible) flow over a NACA 2412 airfoil at a '

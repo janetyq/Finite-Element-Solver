@@ -97,7 +97,7 @@ def _two_triangle_square() -> Mesh:
 
 def test_shared_vertex_combines_the_values_of_its_elements():
     space = FunctionSpace(_two_triangle_square())
-    values = space.element_to_vertex(np.array([10.0, 20.0]))
+    values = space.recover_nodal(np.array([10.0, 20.0]))
 
     # Both triangles have the same area, so the weighting reduces to the mean.
     assert values[0] == 15.0
@@ -114,8 +114,8 @@ def test_projection_does_not_depend_on_element_ordering():
     reversed_mesh = Mesh(
         vertices=mesh.vertices, elements=mesh.elements[::-1], boundary=mesh.boundary,
     )
-    forward = FunctionSpace(mesh).element_to_vertex(np.array([10.0, 20.0]))
-    backward = FunctionSpace(reversed_mesh).element_to_vertex(np.array([20.0, 10.0]))
+    forward = FunctionSpace(mesh).recover_nodal(np.array([10.0, 20.0]))
+    backward = FunctionSpace(reversed_mesh).recover_nodal(np.array([20.0, 10.0]))
     assert np.allclose(forward, backward)
 
 
@@ -124,7 +124,7 @@ def test_constant_element_field_is_reproduced_at_every_vertex(make_unit_square):
     constant at every vertex, whatever the valence and whatever the weighting."""
     space = FunctionSpace(make_unit_square(6))
     constant = np.full(len(space.mesh.elements), 3.5)
-    assert np.allclose(space.element_to_vertex(constant), 3.5)
+    assert np.allclose(space.recover_nodal(constant), 3.5)
 
 
 def test_projection_weights_by_element_volume():
@@ -142,7 +142,7 @@ def test_projection_weights_by_element_volume():
     areas = space.element_volumes
     np.testing.assert_allclose(areas, [0.5, 0.05])
 
-    values = space.element_to_vertex(np.array([10.0, 20.0]))
+    values = space.recover_nodal(np.array([10.0, 20.0]))
     expected = (10.0 * areas[0] + 20.0 * areas[1]) / areas.sum()
 
     np.testing.assert_allclose(values[0], expected)
@@ -152,4 +152,4 @@ def test_projection_weights_by_element_volume():
 def test_projection_rejects_a_field_of_the_wrong_length(make_unit_square):
     space = FunctionSpace(make_unit_square(4))
     with pytest.raises(ValueError, match='one value per element'):
-        space.element_to_vertex(np.zeros(3))
+        space.recover_nodal(np.zeros(3))

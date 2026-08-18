@@ -17,7 +17,7 @@ Effort: 🟢 low · 🟡 medium · 🔴 high.
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize the Newton direction (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Post-proc | Poisson flux, transient derived fields | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Post-proc | Transient derived fields (steady flux/stress recovery shipped) | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Design | Nodal L2 projection option; lazy plot / `pyamg` imports | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
@@ -138,18 +138,16 @@ Two approaches measured and rejected, so they are not proposed again:
 
 **Post-processing coverage**
 
-The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3), but only elasticity recovers
-anything. Each item below is an implementation of a seam that already exists.
+The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3). Steady solves now recover
+their derived fields through one seam: `Equation.derived_field` names the field (Poisson's gradient,
+elasticity's stress, `fem.postprocess.DerivedField`), the typed `Solution` carries it per element
+(`ScalarFieldSolution.flux`, `ElasticSolution.stress`), and `FunctionSpace.recover_nodal` turns it into
+a continuous per-node field for smooth output, P2 plotting, and the recovery estimator. The remaining
+gap is the transient path.
 
-- 💡 **Poisson flux `-∇u`.** The natural derived field for the scalar family, and the quantity a
-  residual error estimator needs. `FunctionSpace.gradient` already computes the gradient; what is
-  missing is the packaging, and it needs a **new** result shape, not the existing one.
-  `RecoversElasticFields` returns strain, stress, and compliance, none of which a scalar field has,
-  so that protocol abstracts over linear-vs-energy *elasticity* rather than over physics. Expect a
-  sibling capability with its own bundle, and a `Solution` subclass to carry it; the reusable part is
-  the pattern, not the protocol.
 - 💡 **Derived fields for transient solves.** `TransientSolution` carries a per-step series of `u`
-  and nothing derived from it, so a time-stepped heat problem has no flux history.
+  and nothing derived from it, so a time-stepped heat problem has no flux history. The steady seam
+  (`DerivedField` + `recover_nodal`) is the piece to lift onto each step.
 - 💡 **Plane stress as an alternative 2D reduction.** 2D elasticity is plane strain throughout, now
   named rather than implicit (`LinearElasticMaterial.out_of_plane_stress`, and the matching
   `out_of_plane_stress` on the energy densities). Plane stress (a thin plate free to contract in z,
@@ -160,11 +158,12 @@ anything. Each item below is an implementation of a seam that already exists.
 
 **Design / maintainability**
 
-- 💡 **Nodal L2 projection option for `element_to_vertex`.** `FunctionSpace.element_to_vertex`
-  weights by element measure, the defensible projection and the reason the space (not the mesh) owns
-  it. The stricter choice is the mass-matrix L2 projection (solve `M u = ∫ f φ`), more accurate on a
-  graded mesh at the cost of a solve. Worth adding only if a nodal-output consumer needs the
-  accuracy; plotting does not.
+- 💡 **Nodal L2 projection option for `recover_nodal`.** `FunctionSpace.recover_nodal` recovers a
+  per-element field to the nodes by volume-weighted averaging, the shipped default and the reason the
+  space (not the mesh) owns it. The stricter choice is the mass-matrix L2 projection (solve
+  `M u = ∫ f φ`), more accurate on a graded mesh at the cost of a solve, and a higher-fidelity flux
+  than the averaging recovery for the same seam. Worth adding as a `method=` option only if a
+  nodal-output consumer needs the accuracy; plotting and the error estimator do not.
 - 💡 **Lazy plot and `pyamg` imports for headless use.** `fem/__init__.py` re-exports `Plotter` /
   `PlotMode`, and `fem.backends` imports `pyamg` at module scope, so `import fem` always pulls in a
   plotting backend and `pyamg`. Making both edges lazy would let the package import without them.

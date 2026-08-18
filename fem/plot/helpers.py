@@ -164,7 +164,7 @@ def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridi
         nodal = np.asarray(field)
         if tess is None and nodal.shape == (len(mesh.elements),):
             from fem.space import FunctionSpace
-            nodal = FunctionSpace(mesh).element_to_vertex(nodal)
+            nodal = FunctionSpace(mesh).recover_nodal(nodal)
         ax.tricontour(triangulation, nodal, levels=contour, colors='black',
                       linewidths=0.5, alpha=0.5)
     return cbar_info, collection
@@ -194,7 +194,7 @@ def solid_face_values(mesh, values):
     values = np.asarray(values)
     if values.shape == (len(mesh.elements),):
         from fem.space import FunctionSpace
-        values = FunctionSpace(mesh).element_to_vertex(values)
+        values = FunctionSpace(mesh).recover_nodal(values)
     return values[np.asarray(mesh.boundary)].mean(axis=1)
 
 
@@ -221,7 +221,7 @@ def plot_surface(ax, mesh, values, clim=None):
         # has to be projected first. The projection is volume-weighted and lives
         # on the space, which is cheap to build; nothing assembles until asked.
         from fem.space import FunctionSpace
-        values = FunctionSpace(mesh).element_to_vertex(values)
+        values = FunctionSpace(mesh).recover_nodal(values)
     else:
         raise ValueError(f'Invalid values shape: {values.shape}')
     triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1], triangles=mesh.elements)
