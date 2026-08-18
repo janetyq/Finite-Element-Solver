@@ -3,7 +3,7 @@
 Run via the shared CLI:
 
     uv run python examples/cli.py list
-    uv run python examples/cli.py run outline_zoo
+    uv run python examples/cli.py run outline_to_mesh
 """
 import json
 from pathlib import Path
@@ -206,8 +206,8 @@ def _mesh_zoom_inset(ax, mesh, box, loc=(0.57, 0.57, 0.42, 0.42)):
         spine.set_edgecolor('0.35')
     ax.indicate_inset_zoom(inset, edgecolor='0.35', linewidth=0.8, alpha=0.9)
 
-def demo_outline_zoo(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0.001,
-                     interactive=False):
+def demo_outline_to_mesh(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0.001,
+                         interactive=False):
     """Mesh four closed outlines, traced and generated, and solve the same Poisson 'dome'
     on each, to show one pipeline (simplify, Ruppert refine, solve) turning any shape into
     a domain a PDE runs on."""
@@ -277,7 +277,7 @@ DEMOS = [
     # Builds its own outlines, so it takes no domain. The smoke run loosens the area cap
     # and coarsens the SVG tolerance (Ruppert's cost is superlinear in input points), so
     # it still exercises every generator and the simplify -> Ruppert -> solve path cheaply.
-    Demo('outline_zoo', demo_outline_zoo, section='Meshing a domain',
+    Demo('outline_to_mesh', demo_outline_to_mesh, section='Meshing a domain',
          smoke_kwargs={'svg_tolerance': 0.005, 'max_area_fraction': 0.04}),
     # Builds its own two meshes (a structured grid and a Ruppert's mesh) so it takes no
     # domain. The smoke run shrinks both to a handful of triangles.

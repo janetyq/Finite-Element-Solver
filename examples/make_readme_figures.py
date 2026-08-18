@@ -39,13 +39,11 @@ IMAGES = REPO_ROOT / 'images'
 # named demo runs once even when the README shows two of its figures.
 FIGURES: list[tuple[str, str]] = [
     # Meshing a domain
-    ('outline_zoo', 'mesh_zoo.png'),
+    ('outline_to_mesh', 'outline_to_mesh.png'),
     ('regions', 'regions.png'),
     # Solving PDEs
-    ('poisson-fields', 'poisson.png'),
     ('potential_flow-flow', 'potential_flow.png'),
     ('heat-comparison', 'heatsink_comparison.png'),
-    ('heat-snapshots', 'heat.png'),
     ('heat-efficiency', 'heatsink_efficiency.png'),
     ('wave-snapshots', 'wave.png'),
     # Solids & structures
