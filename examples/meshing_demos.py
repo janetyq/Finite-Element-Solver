@@ -186,21 +186,17 @@ def _zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE):
         ('Star', star_pslg()),
     ]
 
-def _mesh_zoom_inset(ax, mesh, u, clim, box, loc=(0.6, 0.02, 0.4, 0.4)):
-    """Overlay a zoomed inset on `ax` revealing the triangulation over `box`.
+def _mesh_zoom_inset(ax, mesh, box, loc=(0.57, 0.57, 0.42, 0.42)):
+    """Overlay a zoomed inset on `ax` revealing the bare triangulation over `box`.
 
     `box` is `(x0, x1, y0, y1)` in data coordinates. The main panels are drawn fine
     enough that the field reads smooth, which can look like a resolution ceiling; the
     inset shows the actual mesh under one of them, so the density reads as a display
-    choice rather than a limit.
+    choice rather than a limit. Drawn on white rather than over the field, so the lines
+    stay legible where the near-boundary field is dark.
     """
-    vertices = np.asarray(mesh.vertices)
-    triangles = np.asarray(mesh.elements)
     inset = ax.inset_axes(loc)
-    inset.tripcolor(vertices[:, 0], vertices[:, 1], triangles,
-                    facecolors=u[triangles].mean(axis=1), cmap='viridis',
-                    vmin=clim[0], vmax=clim[1])
-    plot_mesh(inset, mesh, color='0.15', linewidth=0.3)
+    plot_mesh(inset, mesh, color='0.2', linewidth=0.35)
     inset.set_xlim(box[0], box[1])
     inset.set_ylim(box[2], box[3])
     inset.set_aspect('equal')
@@ -245,9 +241,9 @@ def demo_outline_zoo(min_angle=28, max_area_fraction=0.0008, interactive=False):
             v = np.asarray(mesh.vertices)
             lo, hi = v.min(axis=0), v.max(axis=0)
             span = hi - lo
-            box = (lo[0] + 0.06 * span[0], lo[0] + 0.32 * span[0],
-                   lo[1] + 0.42 * span[1], lo[1] + 0.70 * span[1])
-            _mesh_zoom_inset(plotter.get_ax(idx), mesh, u, clim, box)
+            box = (lo[0] + 0.08 * span[0], lo[0] + 0.22 * span[0],
+                   lo[1] + 0.47 * span[1], lo[1] + 0.65 * span[1])
+            _mesh_zoom_inset(plotter.get_ax(idx), mesh, box)
         worst = calculate_triangle_min_angle(
             np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
         rows.append(f'{name:<14}{len(pslg.vertices):>4}{len(mesh.elements):>10}'
