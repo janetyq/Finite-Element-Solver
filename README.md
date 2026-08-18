@@ -41,7 +41,7 @@ read smooth, not as a resolution ceiling; the inset zooms into California's mesh
 resolves the traced coastline and its offshore islands, and adaptive refinement drives it
 finer still.
 
-<img src="images/outline_to_mesh.png" height="250" alt="Four outlines meshed and Poisson-solved: California with a mesh zoom inset, a cloud, a gear, and a star">
+<p align="center"><img src="images/outline_to_mesh.png" height="400" alt="Four outlines meshed and Poisson-solved: California with a mesh zoom inset, a cloud, a gear, and a star"></p>
 
 Boundary conditions are placed by *position*, not by vertex index, so the same
 specification lands on the same physical patch on any triangulation of the domain. Below,
@@ -51,7 +51,7 @@ each, and the two deflect the same. That is what lets a condition be written onc
 survive whatever remeshing happens after, including adaptive refinement rebuilding the
 mesh several times over.
 
-<img src="images/regions.png" height="250" alt="One cantilever solved on a structured grid and an unstructured mesh of the same beam">
+<p align="center"><img src="images/regions.png" width="780" alt="One cantilever solved on a structured grid and an unstructured mesh of the same beam"></p>
 
 ## Solving PDEs
 
@@ -72,7 +72,7 @@ zero-flux condition of the weak form. Say nothing on its surface and it becomes 
 streamline the flow parts around. The equipotentials crowd over the upper surface, where
 the flow speeds up.
 
-<img src="images/potential_flow.png" width="740" alt="Potential flow: equipotentials and flow speed over a NACA airfoil">
+<p align="center"><img src="images/potential_flow.png" width="780" alt="Potential flow: equipotentials and flow speed over a NACA airfoil"></p>
 
 ### Heat equation
 
@@ -92,7 +92,7 @@ textbook $\tanh(mL)/(mL)$ law, falling as fins lengthen because a long fin runs 
 toward the tip, so these fins sit near 40%. The fins trade material for surface area,
 which is why a heatsink is finned rather than solid.
 
-<img src="images/heatsink_comparison.png" height="250" alt="Heatsink vs a solid block: fixed power (the block overheats) and fixed base temperature (the fins shed more)"> <img src="images/heatsink_efficiency.png" height="250" alt="Fin efficiency against the tanh(mL)/(mL) beam-theory law">
+<p align="center"><img src="images/heatsink_comparison.png" height="340" alt="Heatsink vs a solid block: fixed power (the block overheats) and fixed base temperature (the fins shed more)"> <img src="images/heatsink_efficiency.png" height="340" alt="Fin efficiency against the tanh(mL)/(mL) beam-theory law"></p>
 
 ### Wave equation
 
@@ -101,7 +101,7 @@ time, so it is integrated with Newmark's average-acceleration method rather than
 theta-method used for the first-order systems. A pulse released from rest spreads out,
 reflects off the free boundary the same way up, and interferes with itself.
 
-<img src="images/wave.png" height="250" alt="Wave reflection and interference, second half of the run">
+<p align="center"><img src="images/wave.png" height="400" alt="Wave reflection and interference, second half of the run"></p>
 
 ## Solids & structures
 
@@ -116,7 +116,7 @@ cantilever under the same clamp-and-load, solved with an AMG-preconditioned
 conjugate-gradient backend where a direct factorization's fill-in starts to hurt, and
 drawn as its boundary surface.
 
-<img src="images/linear_elastic.png" height="250" alt="Linear elasticity: a 2D cantilever and a 3D tetrahedral one under the same clamp-and-load">
+<p align="center"><img src="images/linear_elastic.png" width="780" alt="Linear elasticity: a 2D cantilever and a 3D tetrahedral one under the same clamp-and-load"></p>
 
 One solve, one stress tensor, several rotation-invariant questions: von Mises,
 mean normal stress, the Tresca measure, and the largest tensile principal value are
@@ -134,7 +134,7 @@ the sharp corner climbs without bound (its "stress" is a property of the mesh, n
 part); the fillet converges. This is the whole reason real parts round their inner
 corners.
 
-<img src="images/bracket.png" height="250" alt="L-bracket von Mises stress: sharp corner vs filleted"> <img src="images/bracket_singularity.png" height="250" alt="Corner stress peak vs mesh refinement: sharp climbs, fillet converges">
+<p align="center"><img src="images/bracket.png" height="280" alt="L-bracket von Mises stress: sharp corner vs filleted"> <img src="images/bracket_singularity.png" height="280" alt="Corner stress peak vs mesh refinement: sharp climbs, fillet converges"></p>
 
 ### Three ways to solve the same stretch
 
@@ -143,7 +143,7 @@ physics reached by Newton on the elastic energy that system is the stationary po
 and a finite-strain (Green-Lagrange) solve. The first two agree in displacement to
 machine precision; the third stiffens as the stretch grows, which small strain cannot.
 
-<img src="images/elasticity_models.png" height="250" alt="Linear, energy-minimisation, and finite-strain solves of one stretch">
+<p align="center"><img src="images/elasticity_models.png" width="780" alt="Linear, energy-minimisation, and finite-strain solves of one stretch"></p>
 
 ### From an outline to a stress concentration
 
@@ -154,7 +154,7 @@ The stress crowds into the material either side of the hole and relaxes to the a
 value within about a diameter, peaking just above the classic Kirsch factor of 3 that
 holds for a hole in an infinite plate (a finite plate reads a little higher).
 
-<img src="images/stress_concentration.png" width="740" alt="Refined mesh with conditions, the stress field, and the peak against the Kirsch factor">
+<p align="center"><img src="images/stress_concentration.png" width="780" alt="Refined mesh with conditions, the stress field, and the peak against the Kirsch factor"></p>
 
 ### Buckling analysis
 
@@ -166,14 +166,14 @@ generalized eigenproblem $K \phi = -\lambda K_g \phi$ gives the critical load fa
 and mode shapes. The column is meshed with P2 elements, which do not lock in bending
 the way a constant-strain triangle does.
 
-<img src="images/buckling.png" height="250" alt="Buckling modes of a pinned-pinned column">
+<p align="center"><img src="images/buckling.png" height="400" alt="Buckling modes of a pinned-pinned column"></p>
 
 The demo checks itself against Euler's column theory three ways: the modes rise as
 $n^2$, the four classic end conditions recover their effective-length factors ($K = 2$
 cantilever, $1$ pinned-pinned, $0.5$ fixed-fixed, $\approx 0.7$ fixed-pinned) to within
 a couple of percent, and the critical load falls as $1/L^2$.
 
-<img src="images/buckling_laws.png" height="250" alt="Buckling validated against Euler's 1/L^2 law and effective-length factors">
+<p align="center"><img src="images/buckling_laws.png" width="780" alt="Buckling validated against Euler's 1/L^2 law and effective-length factors"></p>
 
 ### Modal (free-vibration) analysis
 
@@ -184,14 +184,14 @@ frequencies. A steel tuning fork is meshed from its own outline and held at the 
 base. Its low modes come in pairs; the one whose tines swing oppositely leaves the stem
 still and rings, which is "the voice".
 
-<img src="images/modal.png" height="250" alt="A tuning fork's natural modes and their pitches">
+<p align="center"><img src="images/modal.png" width="780" alt="A tuning fork's natural modes and their pitches"></p>
 
 With real SI steel properties the frequencies come out in Hz: the voice lands near
 concert A, and sweeping the tine length tracks the Euler-Bernoulli $1/L^2$ tuning law,
 sitting a little below the ideal-tine line because a real fork's base yields where beam
 theory assumes a rigid clamp.
 
-<img src="images/modal_law.png" height="250" alt="Modal analysis against Euler-Bernoulli beam theory">
+<p align="center"><img src="images/modal_law.png" width="780" alt="Modal analysis against Euler-Bernoulli beam theory"></p>
 
 ### Topology optimization
 
@@ -205,7 +205,7 @@ the optimized truss comes out only about 1.6x as compliant as the fully solid bl
 half the material. What it removed was near the neutral axis, where the material was
 barely resisting the bending.
 
-<img src="images/topology_optimization.png" height="250" alt="Solid beam vs the optimized half-material arch, compared by compliance">
+<p align="center"><img src="images/topology_optimization.png" height="400" alt="Solid beam vs the optimized half-material arch, compared by compliance"></p>
 
 The [gallery's topology page](https://janetyq.github.io/Finite-Element-Solver/topology_optimization.html)
 plays the SIMP iterations frame by frame, from an even grey to the black-and-white truss.
@@ -220,7 +220,7 @@ $h$, quarter the error) for a scalar unknown and a coupled vector one alike; in 
 order is the theta-method's to choose, first at backward Euler and second at
 Crank-Nicolson. Every rate here also runs as an assertion in the test suite.
 
-<img src="images/convergence.png" height="250" alt="Convergence rates in space and time">
+<p align="center"><img src="images/convergence.png" width="780" alt="Convergence rates in space and time"></p>
 
 ### Higher-order elements
 
@@ -228,7 +228,7 @@ P2 (quadratic) triangles carry edge-midpoint DOFs that let the solution curve wi
 element. On the same meshes they are third order in $L^2$ where P1 is second, and
 reach a given accuracy with fewer degrees of freedom.
 
-<img src="images/higher_order.png" height="250" alt="P1 vs P2 accuracy and cost">
+<p align="center"><img src="images/higher_order.png" width="780" alt="P1 vs P2 accuracy and cost"></p>
 
 Curved (isoparametric) boundary elements take this a step further. On a boundary that
 carries an analytic curve (a `Circle` or `Arc`), an `IsoparametricTriangleElement`
@@ -251,7 +251,7 @@ dimension-general). Below, refinement driven by the residual estimator on a peak
 Poisson source concentrates the mesh where the solution is hardest to approximate, and
 the estimated error drops sharply.
 
-<img src="images/refinement.png" height="250" alt="Adaptive refinement on a peaked source">
+<p align="center"><img src="images/refinement.png" width="780" alt="Adaptive refinement on a peaked source"></p>
 
 ### Representation error
 
@@ -261,7 +261,7 @@ P1 mesh, the slow inner rings come through but the fast outer ones break up into
 triangulation. That representation error is the floor every solver on this mesh starts
 from, and refining the mesh is what lowers it.
 
-<img src="images/l2_projection.png" height="250" alt="The target sin(40 r^2) beside its L2 projection onto a coarse P1 mesh">
+<p align="center"><img src="images/l2_projection.png" width="780" alt="The target sin(40 r^2) beside its L2 projection onto a coarse P1 mesh"></p>
 
 ---
 

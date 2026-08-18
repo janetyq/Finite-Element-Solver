@@ -650,7 +650,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     )
 
 def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=200.0, nu=0.3,
-                 min_angle=28, max_area_fraction=0.006, n_rounds=14, refine_fraction=0.9):
+                 min_angle=28, max_area_fraction=0.003, n_rounds=18, refine_fraction=0.9):
     """Load an L-bracket and read the stress at its inner corner: a sharp re-entrant
     corner is a stress singularity whose peak climbs without bound as the mesh refines,
     while a fillet gives a finite, converged value. This is why real parts round their
@@ -759,57 +759,6 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=200.0, 
              f'over {round_sizes[-1]} elements, converged\n'
              f'reduction from the fillet       {reduction:.0f}%'))
 
-
-def demo_robin_bc(mesh):
-    """Cool a heated plate through a convective boundary, sweeping the Robin coefficient."""
-    # du/dn + kappa*(u - u_ambient) = 0: heat generated inside escapes through a boundary
-    # film, and kappa says how freely. The other two condition types are its limits:
-    # kappa -> 0 is insulated (Neumann) and kappa -> infinity pins u to ambient
-    # (Dirichlet), so the sweep ends on a Dirichlet solve the last Robin panel should
-    # already look like.
-    u_ambient = 300.0
-    equation = Poisson(source=50.0)
-    kappas = [0.5, 5.0, 500.0]
-
-    # The sweep varies kappa, not where it applies, so one conditions figure covers all
-    # three: the whole boundary is a film, and each result panel's title says how free
-    # a one.
-    first = BoundaryConditions()
-    first.add_robin(everywhere(), kappa=kappas[0], g=kappas[0]*u_ambient)
-    conditions = Plotter()
-    conditions.plot(mesh, mode='bc', bc=first)
-
-    solves = []
-    for kappa in kappas:
-        bc = BoundaryConditions()
-        bc.add_robin(everywhere(), kappa=kappa, g=kappa*u_ambient)
-        solves.append((f'kappa={kappa:g}', Solver(mesh, equation, bc).solve().u))
-
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), u_ambient)
-    solves.append(('Dirichlet limit', Solver(mesh, equation, bc).solve().u))
-
-    # One scale across the sweep, which is what the demo is claiming with. Renormalized
-    # per panel the four look alike and the reader has to compare colorbar ticks; shared,
-    # the plate visibly cools towards ambient as kappa rises, and the last two are the
-    # same picture, which is the claim that the Robin limit is the Dirichlet solve.
-    span = (min(float(u.min()) for _, u in solves), max(float(u.max()) for _, u in solves))
-    plotter = Plotter(1, len(solves), title='Robin BCs: convective cooling')
-    for i, (name, u) in enumerate(solves):
-        plotter.plot(mesh, u, mode='colored', idx=(0, i), label='temperature',
-                     title=f'{name}\n{u.min():.1f} - {u.max():.1f}', clim=span)
-    return DemoResult([
-        Figure(plotter,
-               'Convective cooling at three film coefficients, all four on one colour '
-               'scale, so the plate is seen to cool towards ambient as the film opens '
-               'up. The last Robin panel and the Dirichlet solve beside it are the same '
-               'picture and agree to the digit: the limit, computed both ways.',
-               'sweep'),
-        Figure(conditions,
-               'Robin the whole way round, at the first of the three coefficients. Only '
-               'kappa changes across the sweep; where the condition applies does not.',
-               'conditions', setup=True),
-    ])
 
 def demo_elasticity_models(mesh, stretch=0.5):
     """Stretch one clamped block three ways: a linear solve, the same physics by energy
@@ -1788,7 +1737,6 @@ DEMOS = [
          smoke_kwargs={'max_area_fraction': 0.03, 'steps': 4, 'fin_lengths': (0.8, 2.0)}),
     Demo('heat_3d', demo_heat_3d, section=SOLVING, smoke_kwargs={'steps': 3, 'n': 5}),
     Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
-    Demo('robin', demo_robin_bc, section=SOLVING, domain=partial(square, 80)),
     # Builds its own airfoil-in-a-channel from the NACA formula (the meshing is part of
     # what it shows), so it takes no domain. The smoke run loosens the size cap and
     # coarsens the airfoil, which together are all of its cost.
