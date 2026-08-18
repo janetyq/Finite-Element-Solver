@@ -65,7 +65,7 @@ different story on a domain with a hole.
 
 An ideal (incompressible, irrotational) flow has a velocity potential $\phi$ with
 $\mathbf{v} = \nabla\phi$, so $\phi$ solves Laplace's equation (Poisson with $f = 0$).
-The obstacle here is a NACA 2412 airfoil at a 6-degree angle of attack, generated from
+The obstacle here is a NACA 2412 airfoil at a 12-degree angle of attack, generated from
 the standard formula rather than a data file. A potential difference drives the flow
 left to right; the wing carries no flow through it, which is exactly the natural
 zero-flux condition of the weak form. Say nothing on its surface and it becomes a
