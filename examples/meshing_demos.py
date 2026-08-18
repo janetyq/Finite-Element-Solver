@@ -241,12 +241,13 @@ def demo_outline_zoo(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0.001
                      empty=True, title=f'{name}: {len(mesh.elements)} triangles')
         plot_mesh(plotter.get_ax(idx), mesh, color='0.9', linewidth=0.1)
         if name == 'California':
-            # Reveal the real mesh under the smooth field, zoomed into the central coast.
+            # Reveal the real mesh under the smooth field, zoomed onto the San Francisco
+            # Bay, where the traced coastline is most intricate.
             v = np.asarray(mesh.vertices)
             lo, hi = v.min(axis=0), v.max(axis=0)
             span = hi - lo
-            box = (lo[0] + 0.08 * span[0], lo[0] + 0.22 * span[0],
-                   lo[1] + 0.47 * span[1], lo[1] + 0.65 * span[1])
+            box = (lo[0] + 0.11 * span[0], lo[0] + 0.23 * span[0],
+                   lo[1] + 0.48 * span[1], lo[1] + 0.62 * span[1])
             _mesh_zoom_inset(plotter.get_ax(idx), mesh, box)
         worst = calculate_triangle_min_angle(
             np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
