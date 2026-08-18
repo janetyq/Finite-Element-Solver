@@ -63,8 +63,14 @@ from fem.problem import (
     heat,
     wave,
 )
-from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve, EigenSolve
-from fem.backends import DirectBackend, IterativeBackend, rigid_body_modes
+from fem.solve import (
+    BacktrackingLineSearch,
+    LinearSolve,
+    NewtonSolve,
+    EigenSolve,
+    TangentRegularization,
+)
+from fem.backends import DirectBackend, IterativeBackend, MinresBackend, rigid_body_modes
 from fem.integrators import ThetaMethod, NewmarkMethod
 from fem.solution import (
     Solution,
@@ -128,9 +134,11 @@ __all__ = [
     "LinearSolve",
     "NewtonSolve",
     "BacktrackingLineSearch",
+    "TangentRegularization",
     "EigenSolve",
     "DirectBackend",
     "IterativeBackend",
+    "MinresBackend",
     "rigid_body_modes",
     "ThetaMethod",
     "NewmarkMethod",

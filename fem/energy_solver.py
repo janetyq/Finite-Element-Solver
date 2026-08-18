@@ -15,12 +15,13 @@ import logging
 
 import numpy as np
 
+from fem.backends import Backend
 from fem.boundary import BoundaryConditions
 from fem.equations import LinearElastic
 from fem.forms import EnergyForm
 from fem.mesh.mesh import Mesh
 from fem.problem import EnergyProblem
-from fem.solve import BacktrackingLineSearch, NewtonSolve
+from fem.solve import BacktrackingLineSearch, NewtonSolve, TangentRegularization
 from fem.solution import ElasticSolution, Solution
 from fem.space import FunctionSpace
 from fem.typing import DofVector, SparseMatrix
@@ -36,6 +37,7 @@ class EnergySolver:
         mesh: Mesh,
         equation: LinearElastic,
         boundary_conditions: BoundaryConditions | None = None,
+        backend: Backend | None = None,
     ) -> None:
         if not isinstance(equation, LinearElastic):
             raise ValueError(
@@ -56,6 +58,12 @@ class EnergySolver:
         self.boundary_conditions = (
             boundary_conditions if boundary_conditions is not None else BoundaryConditions()
         )
+        # The linear-algebra backend for each Newton tangent solve. The St-Venant-Kirchhoff
+        # Hessian is indefinite near the seed, so an iterative backend must be indefinite-
+        # capable (MinresBackend, not the SPD-only CG). solve() pairs any backend with the
+        # regularization that keeps each step a descent direction. Direct by default, which
+        # handles the indefinite tangent unaided.
+        self.backend = backend
         # Derived, never passed: the component count follows from the equation's
         # field and the mesh, so a space that disagrees with the equation it is
         # solving is not constructible here.
@@ -114,7 +122,16 @@ class EnergySolver:
         # Line-searched: the St-Venant–Kirchhoff energy is non-convex, so a full Newton
         # step from this seed can raise the energy and diverge. Backtracking on Π(u)
         # keeps each step a descent, at no cost near the solution where alpha = 1.
-        newton = NewtonSolve(max_iters=max_iters, line_search=BacktrackingLineSearch())
+        # An iterative backend is paired with the regularization that keeps each step a
+        # descent direction on the indefinite tangent; the direct default needs neither and
+        # is left unregularized, so its path (and the recorded results) are unchanged.
+        regularization = TangentRegularization() if self.backend is not None else None
+        newton = NewtonSolve(
+            max_iters=max_iters,
+            line_search=BacktrackingLineSearch(),
+            backend=self.backend,
+            regularization=regularization,
+        )
         u = newton.solve(problem, u0=u)
         # The energy form recovers Cauchy stress from the same derivative chain
         # Newton just used, so the nonlinear path reports the stress state the

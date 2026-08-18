@@ -18,12 +18,13 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
+from scipy.sparse import eye_array
 from scipy.sparse.linalg import ArpackNoConvergence, eigsh
 
 from fem.backends import Backend
 from fem.problem import Problem, SupportsEnergy
 from fem.system import DiscreteSystem
-from fem.typing import DofIndices, DofVector, FloatArray, Operator
+from fem.typing import Constraints, DofIndices, DofVector, FloatArray, Operator
 
 
 class SolveStrategy(Protocol):
@@ -76,6 +77,41 @@ class BacktrackingLineSearch:
         return u + alpha * step
 
 
+@dataclass(frozen=True)
+class TangentRegularization:
+    '''Shift a Newton tangent by tau*I until the step is a descent direction.
+
+    Near a saddle the energy Hessian is indefinite, and a plain Newton step can point
+    uphill: no length of it decreases the energy, so a line search stalls at a vanishing
+    step. Adding a positive multiple of the identity, `(H + tau I) du = -r`, lifts the
+    smallest eigenvalue; for tau large enough the shifted tangent is positive-definite and
+    the step approaches steepest descent, which always descends. tau escalates geometrically
+    from a small fraction of the tangent's diagonal scale, and the first shift that yields a
+    descent step is taken.
+
+    A positive-definite tangent is never shifted (its first, tau=0 step already descends),
+    so the usual case, and every `LinearProblem`, keeps plain Newton and its quadratic rate.
+
+    Descent is judged by `r_free . step < 0`, the condition for the energy merit a
+    globalized `NewtonSolve` minimises, so this targets energy-minimising (`SupportsEnergy`)
+    Newton, the nonlinear path here. The escalation also retries when the backend reports a
+    breakdown, so it composes with an indefinite-capable iterative backend (`MinresBackend`);
+    an SPD-only backend (CG) is not made reliable on an indefinite tangent by it, since CG's
+    failure there is not always signalled.
+    '''
+    max_shifts: int = 20
+    base_factor: float = 1e-6
+    growth: float = 10.0
+
+    def schedule(self, diagonal_scale: float):
+        '''The tau values to try in order: 0 first (plain Newton), then escalating shifts.'''
+        yield 0.0
+        tau = self.base_factor * diagonal_scale
+        for _ in range(self.max_shifts):
+            yield tau
+            tau *= self.growth
+
+
 class NewtonSolve:
     '''Newton's method on r(u) = 0, re-factoring the tangent each iteration.
 
@@ -91,6 +127,13 @@ class NewtonSolve:
     non-convex energy (St-Venant–Kirchhoff under compression) converges from a seed a
     full step would send diverging. The line search is a no-op where the full step
     already works, including every `LinearProblem`, whose exact step passes at alpha = 1.
+
+    `backend` selects the linear algebra for each tangent solve (direct by default). A
+    nonlinear tangent is indefinite away from a convex minimum, so an iterative backend for
+    it must handle that: `MinresBackend`, not the SPD-only CG `IterativeBackend`.
+    `regularization` (a `TangentRegularization`) steers each step to a descent direction by
+    shifting an indefinite tangent; without it, an indefinite tangent falls back to the full
+    step (line-search globalization only).
     '''
 
     def __init__(
@@ -98,10 +141,14 @@ class NewtonSolve:
         max_iters: int = 100,
         tol: float = 1e-6,
         line_search: BacktrackingLineSearch | None = None,
+        backend: Backend | None = None,
+        regularization: TangentRegularization | None = None,
     ) -> None:
         self.max_iters = max_iters
         self.tol = tol
         self.line_search = line_search
+        self.backend = backend
+        self.regularization = regularization
 
     def solve(self, problem: Problem, u0: DofVector | None = None) -> DofVector:
         free, fixed, fixed_values = problem.constraints
@@ -110,13 +157,48 @@ class NewtonSolve:
 
         step_constraints = (free, fixed, np.zeros(len(fixed)))
         for _ in range(self.max_iters):
-            system = DiscreteSystem(problem.tangent(u), step_constraints)
             residual = problem.residual(u)
-            step = system.solve(-residual)
+            step = self._compute_step(problem, u, residual, free, step_constraints)
             if np.linalg.norm(step) < self.tol:
                 break
             u = self._advance(problem, free, u, step, residual)
         return u
+
+    def _compute_step(
+        self, problem: Problem, u: DofVector, residual: DofVector,
+        free: DofIndices, step_constraints: Constraints,
+    ) -> DofVector:
+        '''The Newton increment, optionally regularized to a descent direction.
+
+        Plain Newton solves `H du = -r` once. With a `regularization`, `H` is shifted by
+        `tau*I` and re-solved, escalating tau until the step descends (`r_free . step < 0`),
+        so an indefinite tangent still yields a usable direction and an SPD-only backend
+        stays safe. A positive-definite tangent is accepted at the first (tau=0) shift, so
+        the common case pays no extra solve.
+        '''
+        H = problem.tangent(u)
+        rhs = -residual
+        if self.regularization is None:
+            return DiscreteSystem(H, step_constraints, self.backend).solve(rhs)
+
+        identity = eye_array(H.shape[0], format='csr')
+        diagonal_scale = float(np.abs(H.diagonal()).mean()) or 1.0
+        step = None
+        for tau in self.regularization.schedule(diagonal_scale):
+            operator = H if tau == 0.0 else H + tau * identity
+            try:
+                step = DiscreteSystem(operator, step_constraints, self.backend).solve(rhs)
+            except RuntimeError:
+                # An SPD-only backend (CG) breaks down on a still-indefinite shift; escalate.
+                continue
+            if float(residual[free] @ step[free]) < 0.0:
+                return step
+        if step is None:
+            raise RuntimeError(
+                'Newton could not solve even the most regularized tangent: the backend '
+                'rejected every shift. Use DirectBackend, or widen the regularization.'
+            )
+        return step
 
     def _advance(
         self, problem: Problem, free: DofIndices, u: DofVector, step: DofVector,
@@ -128,7 +210,8 @@ class NewtonSolve:
         merit, slope = self._merit(problem, free, step, residual)
         # An indefinite tangent can leave the Newton step non-descent (slope >= 0), where
         # backtracking cannot help; fall back to the full step rather than stalling at a
-        # vanishing alpha. Making the tangent SPD there is the open globalization work.
+        # vanishing alpha. A TangentRegularization (when configured) already steers the step
+        # to descent upstream, so this fallback is the last resort of the unregularized path.
         if slope >= 0:
             return u + step
         return self.line_search.search(merit, u, step, slope)
