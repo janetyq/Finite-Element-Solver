@@ -35,7 +35,7 @@ from fem.materials import LinearElasticMaterial
 from fem.problem import Problem
 from fem.space import FunctionSpace
 from fem.system import DiscreteSystem
-from fem.typing import DofVector, ElementField, FloatArray
+from fem.typing import BoolArray, DofVector, ElementField, FloatArray, IntArray
 
 
 def _element_dof_vectors(space: FunctionSpace, vector: DofVector) -> FloatArray:
@@ -105,6 +105,173 @@ class PointValue:
         e = np.zeros_like(np.asarray(u, dtype=float))
         e[self.dof] = 1.0
         return e
+
+
+# -- stress-based quantities of interest ---------------------------------------
+#
+# The adjoint load for a stress functional is the stress-recovery map run backward.
+# The forward map is `s = D B u_e` per element (in-plane Voigt stress from element
+# displacements); a stress measure `m(s)` then aggregates over elements. The adjoint
+# load is `∂J/∂u = Σ_e (∂agg/∂m_e)(∂m_e/∂s_e)(D_e B_e)`, scattered to the global DOFs.
+# Only the plane-strain 2D case is handled, the setting the elastic demos use.
+#
+# Scope: these supply `∂J/∂u` (the adjoint load) for a fixed material. Used with
+# `SensitivityAnalysis` over a parameter the stress does not explicitly depend on (an
+# applied load, or a design whose stress is read off a fixed reference material), the
+# gradient is complete. Over a parameter the stress *does* depend on directly (the same
+# modulus the measure evaluates the stress with), there is an additional explicit term
+# `∂J/∂p` the adjoint pass does not add; that coupling, the basis of stress-constrained
+# design, is a documented follow-up (see BACKLOG.md).
+
+
+def _element_dof_indices(space: FunctionSpace) -> IntArray:
+    '''(n_elements, N*n_components) global DOF index of each element's local DOFs.
+
+    The interleaved node-major order `_element_dof_vectors` gathers in, so a per-element
+    vector in that order scatters back through these indices.
+    '''
+    nc = space.n_components
+    nodes = np.asarray(space.element_nodes)
+    return (nodes[:, :, None] * nc + np.arange(nc)).reshape(len(nodes), -1)
+
+
+@dataclass(frozen=True)
+class _VonMisesStress:
+    '''Per-element von Mises stress and its derivative with respect to `u`, plane strain.
+
+    Shared machinery for the stress quantities of interest. `region` optionally restricts
+    attention to a subset of elements (a mask over all elements); the aggregation weights
+    are volume-weighted over whatever the region selects.
+
+    Plane strain: `sigma_zz = nu (sigma_xx + sigma_yy)`, so von Mises is a function of the
+    three in-plane Voigt components alone, and its gradient carries the `sigma_zz`
+    dependence through the chain rule. `evaluate` and `derivative` are consistent by
+    construction (both from `Q = von_mises^2`), which the finite-difference test pins.
+    '''
+    space: FunctionSpace
+    material: LinearElasticMaterial
+    region: BoolArray | None = None
+
+    def _DB(self) -> FloatArray:
+        '''(n_elements, 3, N*nc): the map `u_e -> in-plane Voigt stress`, D_e B_e.'''
+        from fem.forms import strain_displacement
+        geometry = self.space.geometry
+        B = strain_displacement(geometry.grad_phi[:, 0])                 # (n_el, 3, N*nc)
+        D = self.material.constitutive_matrices(geometry.reference_dim, geometry.n_elements)
+        return np.einsum('est,etk->esk', D, B)
+
+    def _voigt_stress(self, u: DofVector) -> FloatArray:
+        u_el = _element_dof_vectors(self.space, u)                       # (n_el, N*nc)
+        return np.einsum('esk,ek->es', self._DB(), u_el)                 # (n_el, 3): xx, yy, xy
+
+    def von_mises(self, u: DofVector) -> ElementField:
+        s = self._voigt_stress(u)
+        return np.sqrt(np.maximum(self._Q(s), 0.0))
+
+    def _Q(self, s: FloatArray) -> ElementField:
+        '''von Mises squared from the in-plane Voigt stress, plane strain.'''
+        sxx, syy, sxy = s[:, 0], s[:, 1], s[:, 2]
+        szz = self.material.nu * (sxx + syy)
+        return sxx**2 + syy**2 + szz**2 - sxx * syy - syy * szz - szz * sxx + 3.0 * sxy**2
+
+    def _dvm_du(self, u: DofVector) -> tuple[ElementField, FloatArray]:
+        '''Per-element `(von_mises, d(von_mises)/d u_e)`; the latter is `(n_el, N*nc)`.'''
+        DB = self._DB()
+        s = np.einsum('esk,ek->es', DB, _element_dof_vectors(self.space, u))
+        sxx, syy, sxy = s[:, 0], s[:, 1], s[:, 2]
+        nu = self.material.nu
+        szz = nu * (sxx + syy)
+        vm = np.sqrt(np.maximum(self._Q(s), 0.0))
+
+        # dQ/ds through sigma_zz = nu(sxx + syy).
+        dQ = np.empty_like(s)
+        dQ[:, 0] = 2 * sxx - syy - szz + nu * (2 * szz - syy - sxx)
+        dQ[:, 1] = 2 * syy - sxx - szz + nu * (2 * szz - sxx - syy)
+        dQ[:, 2] = 6.0 * sxy
+        # dvm/ds = dQ/ds / (2 vm); at vm = 0, dQ/ds is also 0, so the gradient is 0 there.
+        safe = vm > 0
+        dvm_ds = np.zeros_like(s)
+        dvm_ds[safe] = dQ[safe] / (2.0 * vm[safe, None])
+        dvm_du = np.einsum('esk,es->ek', DB, dvm_ds)                     # (n_el, N*nc)
+        return vm, dvm_du
+
+    def _weights(self) -> FloatArray:
+        '''Volume weights over the region, summing to 1 (a volume-weighted mean).'''
+        volumes = self.space.element_volumes
+        mask = np.ones(len(volumes), dtype=bool) if self.region is None else np.asarray(self.region)
+        w = np.where(mask, volumes, 0.0)
+        return w / w.sum()
+
+    def _scatter(self, per_element_load: FloatArray, n_dofs: int) -> DofVector:
+        '''Scatter per-element DOF loads `(n_el, N*nc)` into a global `(n_dofs,)` vector.'''
+        dofs = _element_dof_indices(self.space)
+        load = np.zeros(n_dofs)
+        np.add.at(load, dofs.ravel(), per_element_load.ravel())
+        return load
+
+
+@dataclass(frozen=True)
+class MeanStress:
+    '''Volume-weighted mean von Mises stress over a region (all elements by default).
+
+    A smooth, differentiable stress measure. Not self-adjoint: the adjoint load is the
+    stress-recovery map run backward, so the adjoint solve reads how each design change
+    moves the mean stress.
+    '''
+    space: FunctionSpace
+    material: LinearElasticMaterial
+    region: BoolArray | None = None
+    self_adjoint: bool = False
+
+    def _stress(self) -> _VonMisesStress:
+        return _VonMisesStress(self.space, self.material, self.region)
+
+    def value(self, problem: Problem, u: DofVector) -> float:
+        stress = self._stress()
+        return float(stress._weights() @ stress.von_mises(u))
+
+    def dJ_du(self, problem: Problem, u: DofVector) -> DofVector:
+        stress = self._stress()
+        _, dvm_du = stress._dvm_du(u)
+        per_element = stress._weights()[:, None] * dvm_du
+        return stress._scatter(per_element, len(np.asarray(u)))
+
+
+@dataclass(frozen=True)
+class SoftMaxStress:
+    '''A smooth approximation of the peak von Mises stress: the volume-weighted p-norm.
+
+    `J = (Σ_e w_e vm_e^p)^{1/p}` with `w_e` the volume weights over the region. As `p`
+    grows this approaches the maximum, but stays differentiable, so it is the usual stand-
+    in for a peak-stress constraint (a true max is not differentiable). `p = 8` is a
+    common default: large enough to track the peak, small enough to stay well conditioned.
+    '''
+    space: FunctionSpace
+    material: LinearElasticMaterial
+    region: BoolArray | None = None
+    p: float = 8.0
+    self_adjoint: bool = False
+
+    def _stress(self) -> _VonMisesStress:
+        return _VonMisesStress(self.space, self.material, self.region)
+
+    def value(self, problem: Problem, u: DofVector) -> float:
+        stress = self._stress()
+        w = stress._weights()
+        vm = stress.von_mises(u)
+        return float((w @ vm**self.p) ** (1.0 / self.p))
+
+    def dJ_du(self, problem: Problem, u: DofVector) -> DofVector:
+        stress = self._stress()
+        w = stress._weights()
+        vm, dvm_du = stress._dvm_du(u)
+        total = float(w @ vm**self.p)
+        if total <= 0.0:
+            return np.zeros(len(np.asarray(u)))
+        # dJ/dvm_e = J^{1-p} w_e vm_e^{p-1}, then chain through dvm_e/du.
+        dJ_dvm = total ** (1.0 / self.p - 1.0) * w * vm ** (self.p - 1.0)
+        per_element = dJ_dvm[:, None] * dvm_du
+        return stress._scatter(per_element, len(np.asarray(u)))
 
 
 # -- parameterizations ---------------------------------------------------------

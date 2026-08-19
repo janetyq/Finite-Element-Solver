@@ -90,6 +90,8 @@ from fem.sensitivity import (
     SensitivityAnalysis,
     Compliance,
     PointValue,
+    MeanStress,
+    SoftMaxStress,
     DensityField,
     ModulusField,
 )
@@ -166,6 +168,8 @@ __all__ = [
     "SensitivityAnalysis",
     "Compliance",
     "PointValue",
+    "MeanStress",
+    "SoftMaxStress",
     "DensityField",
     "ModulusField",
     "DesignOptimizer",
