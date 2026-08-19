@@ -12,6 +12,7 @@ everything from the mesh-independent specification rather than carrying stale
 indices across a refinement.
 """
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -26,6 +27,9 @@ from fem.solution import ElasticSolution, Solution
 from fem.space import FunctionSpace
 from fem.typing import DofVector, SparseMatrix
 
+if TYPE_CHECKING:
+    from fem.elements import Element
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +42,7 @@ class EnergySolver:
         equation: LinearElastic,
         boundary_conditions: BoundaryConditions | None = None,
         backend: Backend | None = None,
+        element_type: 'type[Element] | None' = None,
     ) -> None:
         if not isinstance(equation, LinearElastic):
             raise ValueError(
@@ -68,7 +73,8 @@ class EnergySolver:
         # field and the mesh, so a space that disagrees with the equation it is
         # solving is not constructible here.
         self.n_components = self.equation.field.components_for(mesh.spatial_dim)
-        self.space = FunctionSpace(mesh, n_components=self.n_components)
+        self.element_type = element_type
+        self.space = FunctionSpace(mesh, element_type, n_components=self.n_components)
         # The equation names its own material law; this facade only asks for it.
         self.form = EnergyForm(equation.energy_density())
         # The most recent solve, so an adaptive-refinement estimator can read it.
@@ -83,7 +89,7 @@ class EnergySolver:
         resolves them per solve.
         '''
         self.mesh = mesh
-        self.space = FunctionSpace(mesh, n_components=self.n_components)
+        self.space = FunctionSpace(mesh, self.element_type, n_components=self.n_components)
 
     def problem(self) -> EnergyProblem:
         '''The composition for the current mesh: space + energy form + constraints.
