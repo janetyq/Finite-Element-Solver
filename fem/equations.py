@@ -16,14 +16,14 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from fem.energies import SmallStrain, StVenantKirchhoff
-from fem.estimators import GradientFlux, StressFlux
 from fem.fields import FieldShape, Scalar, Vector
 from fem.forms import EnergyDensity, Form, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
+from fem.postprocess import GradientField, StressField
 from fem.typing import ElementField, FieldValue
 
 if TYPE_CHECKING:
-    from fem.estimators import Flux
+    from fem.postprocess import DerivedField
 
 
 class Equation:
@@ -68,17 +68,15 @@ class Equation:
             'solved by minimising an energy. Use Solver.'
         )
 
-    def flux(self) -> Flux:
-        '''The flux an error estimator jumps or recovers for this equation.
+    def derived_field(self) -> 'DerivedField | None':
+        '''The derived field this equation recovers, or None if it has none.
 
-        Names the physics (Poisson's gradient, elasticity's stress) that
-        `fem.estimators` builds a per-element indicator from, the estimator analogue
-        of `operator`. Only defined where an estimator exists; the base raises.
+        Names the physics (Poisson's gradient, elasticity's stress) that post-processing
+        recovers to nodes and `fem.estimators` builds a per-element indicator from, the
+        post-processing analogue of `operator`. None where no such field is defined (a
+        pure projection), so a caller dispatches on it without catching.
         '''
-        raise NotImplementedError(
-            f'{type(self).__name__} has no error-estimator flux, so adaptive '
-            'refinement is not defined for it.'
-        )
+        return None
 
 
 class Projection(Equation):
@@ -91,9 +89,9 @@ class Projection(Equation):
 class Poisson(Equation):
     '''Poisson equation (K u = b).'''
 
-    def flux(self) -> Flux:
-        '''The diffusion flux the estimators work from: the field gradient ∇u.'''
-        return GradientFlux()
+    def derived_field(self) -> 'DerivedField':
+        '''The diffusion flux to recover and estimate from: the field gradient ∇u.'''
+        return GradientField()
 
 
 class StrainMeasure(Enum):
@@ -163,10 +161,10 @@ class LinearElastic(Equation):
         }[self.kinematics]
         return density(self.E, self.nu)
 
-    def flux(self) -> Flux:
-        '''The elastic flux the estimators work from: the in-plane Cauchy stress.
+    def derived_field(self) -> 'DerivedField':
+        '''The elastic flux to recover and estimate from: the in-plane Cauchy stress.
 
-        Carries the masked Neumann/free boundary residual as well, the term that
-        lets a traction-free stress concentration register (see `fem.estimators`).
+        Carries the masked Neumann/free boundary residual as well, the term that lets a
+        traction-free stress concentration register (see `fem.postprocess`).
         '''
-        return StressFlux()
+        return StressField()

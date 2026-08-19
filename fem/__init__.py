@@ -75,6 +75,7 @@ from fem.integrators import ThetaMethod, NewmarkMethod
 from fem.solution import (
     Solution,
     FieldSolution,
+    ScalarFieldSolution,
     ElasticSolution,
     BucklingSolution,
     ModalSolution,
@@ -144,6 +145,7 @@ __all__ = [
     "NewmarkMethod",
     "Solution",
     "FieldSolution",
+    "ScalarFieldSolution",
     "ElasticSolution",
     "BucklingSolution",
     "ModalSolution",

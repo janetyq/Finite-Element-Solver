@@ -510,12 +510,14 @@ class FunctionSpace:
 
     # -- projections between element and nodal fields -----------------------
 
-    def element_to_vertex(self, values: ElementField) -> VertexField:
-        '''Project a per-element field onto the nodes, weighted by element volume.
+    def recover_nodal(self, values: ElementField) -> VertexField:
+        '''Recover a continuous nodal field from a per-element one, weighted by volume.
 
-        A P1 solve produces element-constant derived quantities (stress, an error
-        estimate, a density), while plotting and nodal output want a value per vertex.
-        So the values of the elements meeting at a node have to be combined.
+        The volume-weighted nodal average: a per-element (element-constant, generally
+        discontinuous) derived quantity such as a flux, stress, or error estimate is
+        turned into one continuous value per node by combining the elements meeting
+        there. This is the Zienkiewicz-Zhu recovery the error estimator measures against
+        and the smooth field nodal output and P2 plotting draw.
 
         Takes a per-element scalar `(n_elements,)` or a per-element array
         `(n_elements, *component_shape)`, such as a flux tensor, and returns the
