@@ -434,3 +434,69 @@ def test_warp_tessellates_the_deformed_configuration():
     plotter.plot(mesh, space.node_coords[:, 0], mode='colored', space=space, warp=displacement)
     assert plotter.get_ax().has_data()
     plotter.close()
+
+
+# -- a Solution supplies its own space, so P2 rendering needs no space= ---------
+
+
+def _p2_scalar_solution(n=5):
+    """A ScalarFieldSolution on a P2 space, so its per-node field needs the space to draw."""
+    from fem.solution import ScalarFieldSolution
+    mesh, space = _p2_square(n)
+    u = space.node_coords[:, 0] ** 2
+    return ScalarFieldSolution(mesh, 1, u, flux=np.zeros((len(mesh.elements), 2)),
+                               element_type=QuadraticTriangleElement), space
+
+
+def test_a_solution_supplies_its_own_space():
+    """Passing the solution draws its P2 field faithfully with no `space=`: the same
+    per-node field on the bare mesh (no space) is rejected, so the solution is what
+    carried the space that made it renderable."""
+    solution, space = _p2_scalar_solution()
+    field = solution.u                                         # length n_nodes
+
+    plotter = Plotter(1, 1)
+    plotter.plot(solution, field, mode='colored', idx=(0, 0))
+    assert plotter.get_ax((0, 0)).has_data()
+    plotter.close()
+
+    with pytest.raises(ValueError):
+        Plotter(1, 1).plot(solution.mesh, field, mode='colored')   # bare mesh, no space
+
+
+def test_an_explicit_space_overrides_the_solutions():
+    """A `space=` passed alongside a solution wins, so a caller can still draw the field
+    on a different discretization."""
+    solution, space = _p2_scalar_solution()
+    plotter = Plotter(1, 1)
+    plotter.plot(solution, solution.u, mode='colored', idx=(0, 0), space=space)
+    assert plotter.get_ax((0, 0)).has_data()
+    plotter.close()
+
+
+def test_warp_true_deforms_by_the_solutions_own_displacement():
+    """`warp=True` with a solution draws the field on the shape deformed by that
+    solution's displacement, so an elastic field lands on the warped body with no explicit
+    displacement array."""
+    from fem.solution import ElasticSolution
+    mesh, space = _p2_square()
+    vspace = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
+    u = np.column_stack([0.1 * vspace.node_coords[:, 1],
+                         -0.05 * vspace.node_coords[:, 0]]).ravel()
+    n_el = len(mesh.elements)
+    solution = ElasticSolution(mesh, 2, u, strain=np.zeros((n_el, 3, 3)),
+                               stress=np.zeros((n_el, 3, 3)), compliance=np.zeros(n_el),
+                               element_type=QuadraticTriangleElement)
+
+    plotter = Plotter(1, 1)
+    plotter.plot(solution, solution.nodal_von_mises(), mode='colored', idx=(0, 0), warp=True)
+    assert plotter.get_ax((0, 0)).has_data()
+    plotter.close()
+
+
+def test_warp_true_needs_a_solution_not_a_bare_mesh():
+    """`warp=True` has no displacement to read off a raw mesh, so it is rejected rather
+    than silently drawing the undeformed shape."""
+    mesh, space = _p2_square()
+    with pytest.raises(ValueError, match='warp=True needs a Solution'):
+        Plotter(1, 1).plot(mesh, space.node_coords[:, 0], mode='colored', space=space, warp=True)
