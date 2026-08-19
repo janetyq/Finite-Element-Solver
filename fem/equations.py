@@ -165,6 +165,8 @@ class LinearElastic(Equation):
         '''The elastic flux to recover and estimate from: the in-plane Cauchy stress.
 
         Carries the masked Neumann/free boundary residual as well, the term that lets a
-        traction-free stress concentration register (see `fem.postprocess`).
+        traction-free stress concentration register (see `fem.postprocess`). It also holds
+        the small-strain form, so the recovery estimator can sample stress at quadrature
+        points for a P2 solution.
         '''
-        return StressField()
+        return StressField(LinearElasticForm(LinearElasticMaterial(self.E, self.nu)))

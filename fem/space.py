@@ -604,6 +604,30 @@ class FunctionSpace:
         projected = spsolve(self._nodal_mass_matrix, load.reshape(self.n_nodes, -1))
         return np.asarray(projected).reshape(self.n_nodes, *trailing)
 
+    def project_to_nodal(self, values_qp: FloatArray, geometry: ElementGeometry) -> VertexField:
+        '''L2-project a per-quadrature-point field onto the continuous nodal space.
+
+        `values_qp` is `(n_elements, n_qp, *component_shape)`, a field sampled at
+        `geometry`'s quadrature points. Solves `M q = b` with `b_i = Σ_e Σ_q w_eq φ_i(x_eq)
+        f_eq`, the L2 projection of that field, recovering each trailing component against
+        the shared scalar mass matrix.
+
+        This generalizes `recover_nodal('l2')` from an element-constant field to one that
+        varies within the element, which is what a P2 derived field (a flux linear per
+        element) needs. `geometry` must be the space's own geometry so its shape functions
+        and node numbering line up with the nodal space `M` is built on.
+        '''
+        values_qp = np.asarray(values_qp, dtype=float)
+        trailing = values_qp.shape[2:]
+        nodes = self.element_nodes
+        n_local = nodes.shape[1]
+        # b[e, n, ...] = Σ_q weight_detJ[e,q] shape[q,n] f[e,q,...]
+        contrib = np.einsum('eq,qn,eq...->en...', geometry.weight_detJ, geometry.shape, values_qp)
+        load = np.zeros((self.n_nodes, *trailing))
+        np.add.at(load, nodes.ravel(), contrib.reshape(len(nodes) * n_local, *trailing))
+        projected = spsolve(self._nodal_mass_matrix, load.reshape(self.n_nodes, -1))
+        return np.asarray(projected).reshape(self.n_nodes, *trailing)
+
     @cached_property
     def _nodal_mass_matrix(self) -> SparseMatrix:
         '''The scalar (n_nodes x n_nodes) consistent mass matrix, for L2 nodal recovery.
