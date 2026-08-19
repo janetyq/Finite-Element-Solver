@@ -20,7 +20,7 @@ from fem.convergence import (
     poisson_p2_convergence, solve_annulus_mms, solve_load_comparison, theta_convergence,
 )
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.estimators import recovery_estimator, residual_estimator
+from fem.estimators import goal_oriented_estimator, recovery_estimator, residual_estimator
 from fem.forms import MaskedMassForm
 from fem.space import FunctionSpace
 from fem.regions import everywhere, on_plane, in_box, intersect, union
@@ -1856,6 +1856,54 @@ def demo_heat_3d(steps=20, n=17):
         'the interior is not directly visible, but the same diffusion reaches it.')])
 
 
+def demo_goal_oriented_refinement(resolution=14, target=(0.72, 0.72), max_triangles=900):
+    """Refine a mesh for one quantity of interest, not the global error: a point value,
+    and how the goal-oriented mesh concentrates where the global one does not."""
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    equation = Poisson(source=lambda p: 1.0)
+
+    def refined(estimator_for):
+        mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(resolution, resolution))
+        solver = Solver(mesh, equation, bc)
+        solver.solve()
+        # The point value to resolve: the solution at the node nearest `target`.
+        node = int(np.argmin(np.linalg.norm(solver.space.node_coords - np.asarray(target), axis=1)))
+        AdaptiveRefinement(
+            solver, estimator_for(solver, PointValue(node)),
+            max_triangles=max_triangles, max_iters=8,
+        ).run()
+        return solver.mesh
+
+    goal_mesh = refined(lambda solver, qoi: goal_oriented_estimator(equation, qoi))
+    # The global recovery estimator ignores the goal, so it takes the QoI only to share
+    # the closure signature; refinement follows the whole-domain error instead.
+    global_mesh = refined(lambda solver, qoi: recovery_estimator(equation))
+
+    comparison = Plotter(1, 2, figsize=(7.4, 3.9),
+                         title='Refining for a point value, versus for the whole field')
+    comparison.plot(global_mesh, mode='mesh', idx=(0, 0),
+                    title=f'Global estimator: {len(global_mesh.elements)} triangles')
+    comparison.plot(goal_mesh, mode='mesh', idx=(0, 1),
+                    title=f'Goal-oriented: {len(goal_mesh.elements)} triangles')
+    for idx in ((0, 0), (0, 1)):
+        comparison.get_ax(idx).plot(*target, 'o', color='crimson', markersize=7,
+                                    markeredgecolor='white', markeredgewidth=1.0, zorder=5)
+
+    return DemoResult([
+        Figure(comparison,
+               'The same Poisson problem refined two ways to a similar triangle budget. '
+               'Left: the global recovery estimator spreads refinement across the domain, '
+               'blind to what the answer is for. Right: the goal-oriented estimator refines '
+               'for the solution value at the marked point (crimson), packing triangles '
+               'around it and the region that most influences it, and leaving the rest '
+               'coarse. The dual (adjoint) solution is the influence function of that '
+               'point value, and weighting the residual by it is what steers the mesh.',
+               'comparison'),
+    ], text=(f'global estimator refined to        {len(global_mesh.elements)} triangles\n'
+             f'goal-oriented estimator refined to {len(goal_mesh.elements)} triangles'))
+
+
 SOLVING = 'Solving PDEs'
 SOLIDS = 'Solids & structures'
 ACCURACY = 'Accuracy & performance'
@@ -1941,4 +1989,8 @@ DEMOS = [
          smoke_kwargs={'resolutions': (3, 5)}),
     Demo('quadrature_load', demo_quadrature_load, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21)}),
+    # Two adaptive-refinement chains (goal-oriented and global) from a coarse mesh; the
+    # smoke run keeps the mesh small and caps the triangle budget so both chains are short.
+    Demo('goal_oriented_refinement', demo_goal_oriented_refinement, section=ACCURACY,
+         smoke_kwargs={'resolution': 8, 'max_triangles': 200}),
 ]
