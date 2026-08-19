@@ -34,6 +34,9 @@ from fem.mesh.refinement import RedGreenRefiner
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
+from fem.sensitivity import Compliance, PointValue, SensitivityAnalysis
+from fem.design import DesignOptimizer, SIMPModel
+from fem.topology import calculate_smoothing_matrix
 from fem.energy_solver import EnergySolver
 from fem.buckling import BucklingSolver
 from fem.modal import ModalSolver
@@ -1339,6 +1342,101 @@ def demo_topology_optimization(mesh, iters=60):
              f'compliance, optimized (50% material)  {compliance_opt:.4f}\n'
              f'ratio                                 {ratio:.2f}x'))
 
+
+def demo_design_sensitivity(mesh, iters=40):
+    """Optimize a cantilever with the general design driver, and show the adjoint
+    sensitivity field it runs on: which elements matter most, for two different goals."""
+    E, nu = 200.0, 0.4
+    w = float(np.max(mesh.vertices[:, 0]))
+    h = float(np.max(mesh.vertices[:, 1]))
+    aspect = w / h
+
+    # A cantilever: clamp the left edge, pull the free right tip down. Homogeneous
+    # supports, so the compliance adjoint is the forward solve itself (lambda = u).
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
+    # A load band over the central third of the free edge rather than a point: wide enough
+    # to land on a boundary edge on any mesh, so the demo also runs on the coarse smoke one.
+    bc.add(BCType.NEUMANN, intersect(on_plane(0, w), in_box([None, 0.33 * h], [None, 0.67 * h])),
+           [0.0, -1.0])
+
+    space = FunctionSpace(mesh, n_components=2)
+    radius = 0.06 * h
+    model = SIMPModel(space, base_E=E, nu=nu, bc=bc, penalty=3.0,
+                      sensitivity_filter=calculate_smoothing_matrix(mesh, radius))
+
+    # The two adjoint sensitivity fields, computed on a uniform half-dense structure: one
+    # per objective, before any optimization. Each says d(objective)/d(density) per
+    # element, so it maps where material most changes that particular output.
+    rho0 = np.full(len(space.element_nodes), 0.5)
+    problem = model.problem(rho0)
+    analysis = SensitivityAnalysis(problem)
+    u0 = analysis.solve_forward()
+    density = model.parameterization(rho0)
+
+    tip_dof = _tip_vertical_dof(space, w)
+    # Magnitude, since the tip sensitivity is signed (adding material can move the tip
+    # either way locally); the magnitude is "how much this element steers the tip".
+    compliance_field = -analysis.gradient(Compliance(), density, u0)
+    tip_field = np.abs(analysis.gradient(PointValue(tip_dof), density, u0))
+
+    sensitivity = Plotter(2, 1, figsize=(6.5, 4.6),
+                          title='Adjoint sensitivity: which elements matter')
+    sensitivity.plot(mesh, compliance_field, mode='colored', idx=(0, 0), label='dC/drho',
+                     title='For total stiffness (compliance)')
+    sensitivity.plot(mesh, tip_field, mode='colored', idx=(1, 0), label='|du_tip/drho|',
+                     title='For the tip deflection alone')
+
+    # Then optimize: the general DesignOptimizer minimizes compliance over the density,
+    # its gradient supplied by the same adjoint core the fields above visualize.
+    design = DesignOptimizer(model, Compliance(), volume_frac=0.5, iters=iters,
+                             move=0.2).solve()
+    solid = Solver(mesh, LinearElastic(E, nu), bc).solve()
+    compliance_solid = float(solid.compliance.sum())
+    compliance_opt = float(design.objective[-1])
+    ratio = compliance_opt / compliance_solid
+
+    result = Plotter(panel_aspect=aspect, title='Optimized cantilever')
+    result.plot(mesh, design.rho[-1], mode='colored', label='density',
+                title=f'50% material, compliance {compliance_opt:.3g} ({ratio:.2f}x solid)')
+
+    conditions = Plotter(panel_aspect=aspect)
+    conditions.plot(mesh, mode='bc', bc=bc)
+
+    return DemoResult([
+        Figure(sensitivity,
+               'The adjoint gradient as a field, computed on the uniform half-dense beam '
+               'before any optimization. Top: how much each element affects the total '
+               'compliance, the stiffness of the whole structure. Bottom: how much each '
+               'element affects the tip deflection specifically. The two light up '
+               'different regions, which is the point of the adjoint: one solve answers '
+               '"which inputs matter for this output", and the output can be anything.',
+               'sensitivity'),
+        Figure(result,
+               'The cantilever optimized to minimum compliance under a 50% volume budget '
+               'by the general DesignOptimizer, whose descent direction is the compliance '
+               f'sensitivity field above. The result is {ratio:.2f}x as compliant as the '
+               'fully solid block on half the material.',
+               'result', thumbnail=True),
+        Figure(conditions,
+               'A cantilever: the left edge clamped, a downward load on the middle of the '
+               'free right edge.',
+               'conditions', setup=True),
+    ], text=(f'compliance, solid (100% material)     {compliance_solid:.4f}\n'
+             f'compliance, optimized (50% material)  {compliance_opt:.4f}\n'
+             f'ratio                                 {ratio:.2f}x'))
+
+
+def _tip_vertical_dof(space, width):
+    """The vertical DOF of the loaded free-end node nearest mid-height, for the point QoI."""
+    coords = space.node_coords
+    on_tip = np.isclose(coords[:, 0], width)
+    mid = np.median(coords[:, 1])
+    candidates = np.where(on_tip)[0]
+    node = int(candidates[np.argmin(np.abs(coords[candidates, 1] - mid))])
+    return node * space.n_components + 1
+
+
 def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                   sweep_lengths=(16.0, 20.0, 28.0, 40.0)):
     """Find the loads at which a slender column buckles and the shapes it buckles into,
@@ -1815,6 +1913,11 @@ DEMOS = [
     # members. The smoke run keeps the mesh but takes only a few iterations.
     Demo('topology_optimization', demo_topology_optimization, section=SOLIDS,
          domain=partial(beam, 4.0, 1.0, 160), smoke_kwargs={'iters': 3}),
+    # The general design driver over the adjoint core, on a 3:1 cantilever. Leads with the
+    # sensitivity field (the adjoint's own output) before the optimized result. Smoke runs
+    # a coarse beam for a few iterations.
+    Demo('design_sensitivity', demo_design_sensitivity, section=SOLIDS,
+         domain=partial(beam, 3.0, 1.0, 120), smoke_kwargs={'iters': 3}),
 
     # Meshed deliberately coarse: the point is the resolution limit, so it runs where
     # sin(40 r^2)'s slow inner rings still resolve but the fast outer ones alias into the
