@@ -96,9 +96,12 @@ class ScalarFieldSolution(FieldSolution):
         return cls(space.mesh, space.n_components, u,
                    flux=space.gradient(u), element_type=space.element_type)
 
-    def nodal_flux(self) -> FloatArray:
-        '''(n_nodes, spatial_dim) continuous flux recovered from the per-element gradient.'''
-        return self.space.recover_nodal(self.flux)
+    def nodal_flux(self, method: str = 'average') -> FloatArray:
+        '''(n_nodes, spatial_dim) continuous flux recovered from the per-element gradient.
+
+        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.recover_nodal`.
+        '''
+        return self.space.recover_nodal(self.flux, method=method)
 
 
 @dataclass(frozen=True, eq=False)
@@ -143,22 +146,29 @@ class ElasticSolution(FieldSolution):
         '''Von Mises equivalent stress per element: the usual scalar to plot.'''
         return invariants.von_mises(self.stress)
 
-    def nodal_stress(self) -> FloatArray:
-        '''(n_nodes, 3, 3) continuous stress recovered from the per-element tensor.'''
-        return self.space.recover_nodal(self.stress)
+    def nodal_stress(self, method: str = 'average') -> FloatArray:
+        '''(n_nodes, 3, 3) continuous stress recovered from the per-element tensor.
 
-    def nodal_strain(self) -> FloatArray:
-        '''(n_nodes, 3, 3) continuous strain recovered from the per-element tensor.'''
-        return self.space.recover_nodal(self.strain)
+        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.recover_nodal`.
+        '''
+        return self.space.recover_nodal(self.stress, method=method)
 
-    def nodal_von_mises(self) -> FloatArray:
+    def nodal_strain(self, method: str = 'average') -> FloatArray:
+        '''(n_nodes, 3, 3) continuous strain recovered from the per-element tensor.
+
+        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.recover_nodal`.
+        '''
+        return self.space.recover_nodal(self.strain, method=method)
+
+    def nodal_von_mises(self, method: str = 'average') -> FloatArray:
         '''(n_nodes,) von Mises stress at the nodes, the smooth field to plot.
 
         Recover-then-reduce: the stress tensor is recovered to the nodes first, then the
         von Mises scalar formed there. Reducing first and averaging the per-element von
         Mises is a different, less faithful number, since the reduction is nonlinear.
+        `method` is the tensor recovery (`'average'` or `'l2'`).
         '''
-        return invariants.von_mises(self.nodal_stress())
+        return invariants.von_mises(self.nodal_stress(method=method))
 
     @property
     def pressure(self) -> ElementField:
