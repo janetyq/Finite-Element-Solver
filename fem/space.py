@@ -516,6 +516,30 @@ class FunctionSpace:
         '''
         return self.geometry.gradients(u[self.element_nodes])[:, 0]
 
+    def element_field_hessian(self, u_elements: FloatArray) -> FloatArray:
+        '''(n_elements, spatial, spatial[, n_components]) physical Hessian of a field.
+
+        The second derivatives `d2u / dx_i dx_j`, constant per element for a straight
+        (affine) element: the reference Hessian of the shape functions mapped through the
+        constant inverse Jacobian, `H_phys = J^-T H_ref J^-1`. Zero for P1, the curvature
+        a P2 field carries, and what a strong-form residual (a Laplacian or a stress
+        divergence) needs. `u_elements` is `(n_elements, N)` for a scalar field or
+        `(n_elements, N, n_components)` for a vector one.
+
+        Straight-sided only: a curved (isoparametric) element has a varying Jacobian, so
+        its physical Hessian picks up a first-derivative term this omits. The residual
+        estimator that uses it is already restricted to straight 2D meshes.
+        '''
+        d = self.spatial_dim
+        corners = self.node_coords[self.element_nodes[:, :d + 1]]   # (n_el, d+1, d)
+        # J[e, i, r] = d x_i / d xi_r: the columns are the edge vectors from corner 0.
+        jacobian = np.swapaxes(corners[:, 1:] - corners[:, :1], 1, 2)
+        jac_inv = np.linalg.inv(jacobian)                          # jac_inv[e, r, i] = d xi_r / d x_i
+        h_ref = self.element_type.shape_hessians(np.zeros((1, d)))[0]   # (N, r, r), constant
+        # H_phys[e, a, i, j] = J^-1[e, r, i] H_ref[a, r, s] J^-1[e, s, j]
+        h_phys = np.einsum('eri,ars,esj->eaij', jac_inv, h_ref, jac_inv)
+        return np.einsum('eaij,ea...->eij...', h_phys, np.asarray(u_elements, dtype=float))
+
     # -- projections between element and nodal fields -----------------------
 
     def recover_nodal(self, values: ElementField, method: str = 'average') -> VertexField:

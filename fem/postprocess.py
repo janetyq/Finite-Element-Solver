@@ -57,6 +57,16 @@ class DerivedField(Protocol):
         '''
         ...
 
+    def divergence(self, solution: FieldSolution) -> FloatArray:
+        '''(n_elements, n_components) divergence of the flux, constant per straight element.
+
+        The strong-form interior residual is `source + div(flux)`: for Poisson,
+        `f + div(grad u) = f + laplacian(u)`; for elasticity, `b + div(sigma)`. It is
+        identically zero for a P1 element (a constant flux has no divergence), which is
+        why the P1 residual estimator drops it; a P2 flux varies, so div is a real term.
+        '''
+        ...
+
     def boundary_residual(
         self, flux_e0: FloatArray, outward_normal: FloatArray,
         neumann: FloatArray, free: BoolArray,
@@ -99,6 +109,18 @@ class GradientField:
         u_elements = solution.u[solution.space.element_nodes]   # (n_el, N)
         grad = geometry.gradients(u_elements)                  # (n_el, n_qp, d)
         return grad[:, :, None, :]                             # (n_el, n_qp, 1, d)
+
+    def divergence(self, solution: FieldSolution) -> FloatArray:
+        from fem.solution import ScalarFieldSolution
+        if not isinstance(solution, ScalarFieldSolution):
+            raise TypeError(
+                'the diffusion flux needs a scalar solution carrying grad u; '
+                f'got {type(solution).__name__}'
+            )
+        space = solution.space
+        hessian = space.element_field_hessian(solution.u[space.element_nodes])   # (n_el, d, d)
+        laplacian = np.einsum('eii->e', hessian)               # div(grad u)
+        return laplacian[:, None]                              # (n_el, 1)
 
     def boundary_residual(
         self, flux_e0: FloatArray, outward_normal: FloatArray,
@@ -145,6 +167,29 @@ class StressField:
         space = solution.space
         u_elements = solution.u.reshape(-1, space.n_components)[space.element_nodes]
         return self.form.stress_field(geometry, u_elements)   # (n_el, n_qp, d, d)
+
+    def divergence(self, solution: FieldSolution) -> FloatArray:
+        from fem.materials import Enu_to_Lame
+        from fem.solution import ElasticSolution
+        if not isinstance(solution, ElasticSolution):
+            raise TypeError(
+                'the elastic flux needs a displacement solution; got a bare FieldSolution'
+            )
+        if self.form is None:
+            raise ValueError(
+                'StressField needs its elastic form to take the stress divergence; '
+                'build it through Equation.derived_field'
+            )
+        space = solution.space
+        u_elements = solution.u.reshape(-1, space.n_components)[space.element_nodes]
+        hessian = space.element_field_hessian(u_elements)      # (n_el, d, d, n_comp)
+        # Navier form of div(sigma): (lambda + mu) grad(div u) + mu laplacian(u).
+        # grad(div u)_i = sum_k d2 u_k / dx_i dx_k = sum_k H[i, k, k];
+        # laplacian(u)_i = sum_j H[j, j, i]. Both read off the per-component Hessian.
+        mu, lamb = Enu_to_Lame(self.form.material.E, self.form.material.nu)
+        grad_div = np.einsum('eikk->ei', hessian)
+        laplacian = np.einsum('ejji->ei', hessian)
+        return (np.asarray(lamb) + np.asarray(mu))[..., None] * grad_div + np.asarray(mu)[..., None] * laplacian
 
     def boundary_residual(
         self, flux_e0: FloatArray, outward_normal: FloatArray,

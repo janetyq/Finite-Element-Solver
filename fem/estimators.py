@@ -9,10 +9,11 @@ it lives here rather than on `Equation`: the equation only names its physics
 Two families share one seam and one physics hook:
 
 - **Residual** (`ResidualEstimator`): measures how badly the computed field fails
-  the PDE, through an interior term (the source it does not balance), an
-  interior-edge jump (the flux discontinuity between neighbours), and a boundary
-  term (the applied traction the discrete flux does not match). A direct check of
-  equilibrium, it needs the mesh's edge normals, so it is 2D-only for now.
+  the PDE, through an interior term (the strong residual `source + div(flux)` the
+  field leaves unbalanced), an interior-edge jump (the flux discontinuity between
+  neighbours), and a boundary term (the applied traction the discrete flux does not
+  match). A direct check of equilibrium, it needs the mesh's edge normals, so it is
+  2D-only for now. It drives P1 and P2 alike.
 
 - **Recovery** (`RecoveryEstimator`): the Zienkiewicz-Zhu idea. The discrete flux
   is discontinuous across elements (element-constant for P1, linear within each for
@@ -34,7 +35,14 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
+from fem.quadrature import QuadratureRule
 from fem.regions import evaluate_field
+
+# The three edge midpoints in reference coordinates, ordered opposite corner 0, 1, 2 to
+# match `element_nodes[:, 3:6]`. Sampling the flux here gives its value on each edge, the
+# per-side traction whose jump the residual estimator measures. For P1 (a constant flux)
+# any point gives the element's one value, so this reduces to the element-constant jump.
+_REFERENCE_EDGE_MIDPOINTS = np.array([[0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
 if TYPE_CHECKING:
     from fem.adaptivity import RefinableSolver
@@ -43,7 +51,7 @@ if TYPE_CHECKING:
     from fem.equations import Equation
     from fem.solution import FieldSolution
     from fem.space import FunctionSpace
-    from fem.typing import BoolArray, ElementField, FieldValue, FloatArray
+    from fem.typing import BoolArray, ElementField, FieldValue, FloatArray, IntArray
 
 
 # -- the solved-system view the flux hooks read -------------------------------
@@ -109,14 +117,19 @@ def _rotate90(edge_vec: FloatArray) -> FloatArray:
 class ResidualEstimator:
     '''Residual-based estimator: interior residual + flux jump + boundary residual.
 
-    `eta_K^2 = h_K^2 ||f||^2_K + (h_K/2) sum_edges ||[[flux.n]]||^2_e
-                                + h_K sum_(bnd edges) ||boundary residual||^2_e`
+    `eta_K^2 = h_K^2 ||f + div(flux)||^2_K + (h_K/2) sum_edges ||[[flux.n]]||^2_e
+                                           + h_K sum_(bnd edges) ||boundary residual||^2_e`
 
     The engine owns every geometric quantity (`h_K`, the edge normals, the
-    accumulation) and delegates the three physics pieces to the `flux`: the flux
-    field it jumps, and (per boundary edge) the boundary residual. The interior term
-    is the source `f` the P1 field cannot balance (`div(flux) = 0` inside a
-    constant-strain element), read at the element centroid.
+    accumulation) and delegates the physics to the `flux`: the field it jumps, its
+    divergence (the interior residual `f + div(flux)`), and the per-boundary-edge
+    residual. On P1 the flux is element-constant, so `div(flux)` is zero and the jump
+    reads one value per element; on P2 the flux varies, so the interior term carries the
+    divergence and the jump is read at the shared edge from each side.
+
+    The interior residual is read at the element centroid, and the boundary term uses the
+    element's stored (representative) traction, both exact on P1 and a light approximation
+    on P2 where those quantities vary within the element.
 
     2D only: the jump and boundary terms need edge normals. A 3D mesh would need face
     normals, which the recovery estimator sidesteps entirely.
@@ -135,9 +148,13 @@ class ResidualEstimator:
         h_K = mesh.element_diameters
         n_elements = len(mesh.elements)
 
+        # The strong-form interior residual `f + div(flux)`, read at the element centroid.
+        # `div(flux)` is zero for P1 (a constant flux), so this is `f` alone there; a P2
+        # flux varies, and its divergence is the term the linear estimator was missing.
         centroids = mesh.vertices[mesh.elements].mean(axis=1)
         f = evaluate_field(self.source, centroids, space.n_components)   # (n_el, k)
-        interior = h_K**2 * np.sum(f**2, axis=1) * space.element_volumes
+        residual = f + self.flux.divergence(ctx.solution)               # (n_el, k)
+        interior = h_K**2 * np.sum(residual**2, axis=1) * space.element_volumes
 
         jump_term = np.zeros(n_elements)
         boundary_term = np.zeros(n_elements)
@@ -147,14 +164,21 @@ class ResidualEstimator:
         edge_elements = mesh.edge_elements    # (E, 2), -1 in slot 1 on a boundary edge
         is_interior = edge_elements[:, 1] >= 0
 
-        # Interior edges, all at once: the flux is continuous in the true
-        # solution but jumps between the piecewise-constant discrete neighbours.
+        # The flux each element carries on each of its edges, gathered per global edge and
+        # side. On P2 the flux varies along the edge, so a jump read at the shared edge is
+        # sharper than one between the two elements' representative values; on P1 it is the
+        # element-constant jump unchanged.
+        edge_side_flux = self._per_side_edge_flux(space, ctx.solution, edges, edge_elements)
+
+        # Interior edges, all at once: the flux is continuous in the true solution but
+        # jumps between the discrete neighbours meeting at the edge.
         pairs = edges[is_interior]
         e0, e1 = edge_elements[is_interior, 0], edge_elements[is_interior, 1]
         edge_vecs = vertices[pairs[:, 1]] - vertices[pairs[:, 0]]              # (Ei, 2)
         edge_lens = np.linalg.norm(edge_vecs, axis=1)                         # (Ei,)
         normals = np.stack([-edge_vecs[:, 1], edge_vecs[:, 0]], axis=1) / edge_lens[:, None]
-        jumps = np.einsum('ekd,ed->ek', flux[e0] - flux[e1], normals)         # (Ei, k)
+        flux_jump = edge_side_flux[is_interior, 0] - edge_side_flux[is_interior, 1]  # (Ei, k, d)
+        jumps = np.einsum('ekd,ed->ek', flux_jump, normals)                  # (Ei, k)
         contribution = edge_lens * np.sum(jumps**2, axis=1)                   # (Ei,)
         np.add.at(jump_term, e0, (h_K[e0] / 2) * contribution / 2)
         np.add.at(jump_term, e1, (h_K[e1] / 2) * contribution / 2)
@@ -183,6 +207,44 @@ class ResidualEstimator:
 
         eta_squared = interior + jump_term + boundary_term
         return np.sqrt(np.maximum(eta_squared, 0.0))
+
+    def _per_side_edge_flux(
+        self, space: FunctionSpace, solution: FieldSolution,
+        edges: IntArray, edge_elements: IntArray,
+    ) -> FloatArray:
+        '''(n_edges, 2, k, d) the flux each side carries at each edge's midpoint.
+
+        For every element the flux is sampled at its three edge midpoints, then scattered
+        into `[edge, side]` so an interior edge holds the value from both neighbours (side
+        0 is `edge_elements[:, 0]`). A boundary edge fills only side 0. The jump term reads
+        the difference of the two sides. For P1 the samples are the element-constant flux,
+        so this is the old element-to-element jump.
+        '''
+        element_nodes = space.element_nodes
+        n_el = len(element_nodes)
+        # Sample the flux at the reference edge midpoints (slot s opposite corner s).
+        rule = QuadratureRule(_REFERENCE_EDGE_MIDPOINTS, np.ones(3), degree=2)
+        geometry = space.element_type.geometry(space.node_coords[element_nodes], rule)
+        edge_flux = self.flux.sample(solution, geometry)           # (n_el, 3, k, d)
+
+        # The global edge each (element, slot) names: the local edge opposite corner s
+        # joins the other two corners, matched into the sorted `edges` table by key.
+        corners = np.asarray(space.mesh.elements)                  # (n_el, 3)
+        slot_pairs = np.stack(
+            [corners[:, [1, 2]], corners[:, [0, 2]], corners[:, [0, 1]]], axis=1)  # (n_el, 3, 2)
+        n_vertices = len(space.mesh.vertices)
+        pair_key = (slot_pairs.min(axis=2).astype(np.int64) * n_vertices
+                    + slot_pairs.max(axis=2))                      # (n_el, 3)
+        edge_key = edges[:, 0].astype(np.int64) * n_vertices + edges[:, 1]
+        order = np.argsort(edge_key)
+        slot_edge = order[np.searchsorted(edge_key[order], pair_key.ravel())]   # (n_el*3,)
+
+        elem_of_slot = np.repeat(np.arange(n_el), 3)
+        side = (edge_elements[slot_edge, 0] != elem_of_slot).astype(int)
+        k, d = edge_flux.shape[2], edge_flux.shape[3]
+        edge_side_flux = np.zeros((len(edges), 2, k, d))
+        edge_side_flux[slot_edge, side] = edge_flux.reshape(n_el * 3, k, d)
+        return edge_side_flux
 
 
 @dataclass(frozen=True)
