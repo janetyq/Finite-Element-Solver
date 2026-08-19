@@ -655,7 +655,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     )
 
 def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, nu=0.3,
-                 min_angle=28, max_area_fraction=0.003, n_rounds=18, refine_fraction=0.9):
+                 min_angle=28, max_area_fraction=0.0015, n_rounds=18, refine_fraction=0.9):
     """Load an L-bracket and read the stress at its inner corner: a sharp re-entrant
     corner is a stress singularity whose peak climbs without bound as the mesh refines,
     while a fillet gives a finite, converged value. This is why real parts round their
@@ -750,7 +750,15 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     ax.semilogx(round_sizes, round_peaks, 'o-', color='tab:blue',
                 label=f'fillet r = {fillet_radius:g} (converges)')
     ax.set_title('Sharp corner keeps climbing; the fillet settles')
+    # The element counts span well under a decade, where a log axis crowds itself with
+    # minor labels (1.1x10^3, 1.2x10^3, ...); label a few round values across the range.
     ax.grid(True, which='both', alpha=0.3)
+    sizes_all = np.concatenate([sharp_sizes, round_sizes])
+    mantissas = np.array([1, 1.2, 1.5, 1.8, 2, 2.5, 3, 4, 5, 7])
+    nice = np.concatenate([mantissas * 10**k for k in (2, 3, 4)])
+    ticks = nice[(nice >= sizes_all.min()) & (nice <= sizes_all.max())]
+    if len(ticks) >= 2:
+        _tidy_log_axis(ax, ticks)
     ax.legend()
 
     reduction = 100 * (1 - round_peaks[-1] / sharp_peaks[-1])
