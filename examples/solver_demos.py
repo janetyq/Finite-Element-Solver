@@ -683,9 +683,10 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     def corner_peak(solution):
         # The von Mises peak near the inner corner alone, kept clear of the clamp's own
         # concentration at the far top so the comparison is about the corner. Read from the
-        # recovered nodal field (recover-then-reduce), the smooth P2 stress at the nodes.
+        # L2-recovered nodal field (recover-then-reduce), the same smooth field the panels
+        # draw, so the tracked peak and the plotted colour agree.
         space = solution.space
-        nodal_vm = solution.nodal_von_mises()
+        nodal_vm = solution.nodal_von_mises(method='l2')
         near = np.linalg.norm(space.node_coords - corner, axis=1) < 0.8 * width
         return float(nodal_vm[near].max())
 
@@ -732,15 +733,15 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     for i, (name, mesh, solution, peaks) in enumerate((
             ('Sharp corner', sharp_mesh, sharp, sharp_peaks),
             (f'Fillet r = {fillet_radius:g}', round_mesh, rounded, round_peaks))):
-        # P2-aware render: the recovered nodal von Mises drawn on the element tessellation,
-        # warped by the nodal displacement so the quadratic field shows on the deformed shape.
-        warp = solution.u.reshape(-1, 2)
-        fields.plot(mesh, solution.nodal_von_mises(), mode='colored', idx=(0, i),
-                    space=solution.space, warp=warp, label='von Mises stress',
+        # P2-aware render: passing the solution pulls its space (the tessellation), the
+        # L2-recovered nodal von Mises is the smooth field, and warp=True draws it on the
+        # deformed shape.
+        fields.plot(solution, solution.nodal_von_mises(method='l2'), mode='colored',
+                    idx=(0, i), warp=True, label='von Mises stress',
                     title=f'{name}\n{len(mesh.elements)} elements, corner peak {peaks[-1]:.0f}')
         # Clamp and tip-load glyphs read off the undeformed mesh, drawn at the deformed
         # vertex positions so the load follows the tip it pulls on.
-        deformed_vertices = mesh.vertices + warp[:len(mesh.vertices)]
+        deformed_vertices = mesh.vertices + solution.u.reshape(-1, 2)[:len(mesh.vertices)]
         fields.overlay_supports(mesh, make_bc(), idx=(0, i), coords=deformed_vertices)
 
     sweep = Plotter(1, 1, title='The corner peak against mesh refinement')
