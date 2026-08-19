@@ -459,6 +459,9 @@ class PrecomputedForm:
 class EnergyDensity(Protocol):
     '''The material law an `EnergyForm` integrates: `fem.energies` implements it.'''
 
+    energy_degree: int
+    '''Polynomial degree of W in the displacement gradient, setting the quadrature rule.'''
+
     def evaluate(self, grad_u: FloatArray) -> StrainEnergyDerivatives:
         '''Derivative chain at `(n_elements, d, d)` displacement gradients.'''
         ...
@@ -495,6 +498,16 @@ class EnergyForm:
     assembly-ready element quantities.
     '''
     energy_density: EnergyDensity
+
+    def quadrature_degree(self, shape_degree: int) -> int:
+        '''The rule degree that integrates this energy on an element of `shape_degree`.
+
+        The displacement gradient has degree `shape_degree - 1`, and the density's energy
+        is `energy_degree`-degree in it, so the energy integrand is their product. This is
+        higher than the linear stiffness's default on P2 (quartic St-VK reaches degree 4),
+        which is why the energy path asks for its own rule rather than sharing that default.
+        '''
+        return self.energy_density.energy_degree * max(0, shape_degree - 1)
 
     def _dF_dx(self, geometry: ElementGeometry, q: int) -> FloatArray:
         '''(n_el, d, d, N, d): dF/dx at quadrature point q = I ⊗ grad_phi_qᵀ.'''
