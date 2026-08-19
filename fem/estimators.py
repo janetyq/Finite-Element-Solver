@@ -15,10 +15,12 @@ Two families share one seam and one physics hook:
   equilibrium, it needs the mesh's edge normals, so it is 2D-only for now.
 
 - **Recovery** (`RecoveryEstimator`): the Zienkiewicz-Zhu idea. The discrete flux
-  is discontinuous (element-constant for P1). A recovered continuous flux `sigma*`,
-  the volume-weighted nodal average `FunctionSpace.recover_nodal` builds, is
-  much closer to the exact flux, so `eta_K = ||sigma* - sigma_h||_K` measures the
-  error. It reads no edge normals, so it is dimension-general (validated in 2D).
+  is discontinuous across elements (element-constant for P1, linear within each for
+  P2). A recovered continuous flux `sigma*`, the L2 projection onto the nodal space
+  `FunctionSpace.project_to_nodal` builds from the flux sampled at quadrature points,
+  is much closer to the exact flux, so `eta_K = ||sigma* - sigma_h||_K` measures the
+  error. It reads no edge normals, so it is dimension-general (validated in 2D), and
+  sampling per point rather than per element makes it follow a P2 solution.
 
 The one equation-specific input, shared by both, is the **`DerivedField`** (`Equation.derived_field`,
 from `fem.postprocess`): which field to jump or recover (Poisson's gradient, elasticity's
@@ -73,7 +75,10 @@ def _solved(solver: RefinableSolver) -> Solved:
         raise ValueError('the error estimator requires a solved system')
     space = solver.space
     resolved = solver.boundary_conditions.resolve(space.nodes, space.n_components)
-    is_fixed = np.zeros((len(space.mesh.vertices), space.n_components), dtype=bool)
+    # Sized by nodes, not mesh vertices: a P2 space fixes edge-midpoint DOFs too, whose
+    # indices run past the vertex count. The residual estimator reads only vertex rows,
+    # so this stays a strict generalization of the P1 mask.
+    is_fixed = np.zeros((space.n_nodes, space.n_components), dtype=bool)
     is_fixed.ravel()[resolved.fixed_idxs] = True
     return Solved(space, solution, resolved, is_fixed)
 
@@ -184,30 +189,37 @@ class ResidualEstimator:
 class RecoveryEstimator:
     '''Zienkiewicz-Zhu recovery estimator: `eta_K = ||sigma* - sigma_h||_K`.
 
-    The discrete flux `sigma_h` is element-constant (P1) and discontinuous; the
-    recovered `sigma*` is its volume-weighted nodal average, a continuous field that,
-    being superconvergent, stands in for the unknown exact flux. Their gap, integrated
-    over each element, estimates the error.
+    The discrete flux `sigma_h` is discontinuous across elements (element-constant for
+    P1, linear within each element for P2); the recovered `sigma*` is its L2 projection
+    onto the continuous nodal space, a smooth field that, being superconvergent, stands
+    in for the unknown exact flux. Their gap, integrated over each element, estimates the
+    error.
+
+    Both fields are read at the same quadrature points, at a rule that resolves the
+    higher-order one: the flux is degree `p - 1` on a degree-`p` element, so the squared
+    gap is degree `2(p - 1)`, and a degree-`2p` rule integrates it (degree 2 on P1,
+    degree 4 on P2). Sampling `sigma_h` per point rather than once per element is what
+    makes the estimate follow a P2 solution's within-element variation.
 
     Needs no edge normals, so unlike the residual estimator it is dimension-general
-    (validated in 2D). Recovery by simple averaging is biased at boundaries and
-    re-entrant corners; it still orders elements well enough to drive refinement, but
-    the effectivity there is looser (patch recovery would tighten it).
+    (validated in 2D). L2-projection recovery is biased at boundaries and re-entrant
+    corners; it still orders elements well enough to drive refinement, though the
+    effectivity there is looser (patch recovery would tighten it).
     '''
     flux: DerivedField
 
     def estimate(self, solver: RefinableSolver) -> ElementField:
         space = solver.space
         ctx = _solved(solver)                             # raises if the solver has not solved
-        sigma_h = self.flux.evaluate(ctx.solution)        # (n_el, k, d), constant per element
-        sigma_star = space.recover_nodal(sigma_h)         # (n_nodes, k, d), continuous
+        degree = 2 * space.element_type.SHAPE_DEGREE
+        geometry = space.geometry_at(degree)
+        sigma_h = self.flux.sample(ctx.solution, geometry)      # (n_el, n_qp, k, d)
+        sigma_star = space.project_to_nodal(sigma_h, geometry)  # (n_nodes, k, d), continuous
 
-        # Integrate ||sigma* - sigma_h||^2 over each element. sigma* is P1 (linear),
-        # sigma_h constant, so the integrand is quadratic, and a degree-2 rule is exact.
-        geometry = space.geometry_at(2)
+        # Integrate ||sigma* - sigma_h||^2 over each element, both fields at the same points.
         per_element = sigma_star[space.element_nodes]     # (n_el, N, k, d)
         sigma_star_qp = np.einsum('qn,en...->eq...', geometry.shape, per_element)
-        diff = sigma_star_qp - sigma_h[:, None]           # (n_el, n_qp, k, d)
+        diff = sigma_star_qp - sigma_h                    # (n_el, n_qp, k, d)
         # Pointwise squared Frobenius norm over the flux's component axes. The same for
         # every flux (a scalar gradient or a stress tensor), so the engine owns it.
         density = np.sum(diff**2, axis=(-1, -2))          # (n_el, n_qp)
