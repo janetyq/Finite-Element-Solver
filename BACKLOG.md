@@ -172,9 +172,15 @@ gap is the transient path.
   `SensitivityAnalysis`, `Compliance` / `PointValue` quantities of interest, `DensityField` /
   `ModulusField` parameterizations), a general `DesignOptimizer` over it (`fem/design.py`), and
   `TopologyOptimizer` now draws its compliance sensitivity from the core rather than a hand-written
-  formula. Design record in `attic/fem-adjoint-sensitivity-design-2026-08-18.md`. Open pieces, each
-  additive behind the same three seams: **stress-based quantities of interest** (a `MeanStress` /
-  aggregated-stress QoI, reusing the stress recovery in reverse for `∂stress/∂u`); **goal-oriented
+  formula. Design record in `attic/fem-adjoint-sensitivity-design-2026-08-18.md`; the follow-up plan
+  is `attic/fem-adjoint-followups-2026-08-19.md`. **Stress-based quantities of interest** shipped
+  (`MeanStress`, `SoftMaxStress` in `fem/sensitivity.py`): they supply the adjoint load `∂J/∂u` for a
+  fixed material, validated by finite differences. The remaining piece for stress-*constrained design*
+  is the explicit `∂J/∂p` term, since the stress `σ = D(E)Bu` depends on the design modulus directly,
+  not only through `u`; the adjoint pass adds only `−λᵀ∂R/∂p`, so the driver needs an optional
+  `∂J/∂p` from the quantity of interest (and the relaxed-stress `σ = ρ^η D0 Bu` definition topology
+  optimization uses). Best done alongside the general gradient engine below. Open pieces, each additive
+  behind the same three seams: **goal-oriented
   error estimation** (feed the adjoint field into `fem.estimators`, which already anticipates it);
   **shape parameterization** (`∂(element geometry)/∂(node)` mesh sensitivities, the one piece needing
   new geometry-derivative code); a **general gradient engine** (`scipy.optimize` SLSQP behind the
