@@ -126,6 +126,7 @@ class Plotter:
         contour: int | None = None,
         space: 'FunctionSpace | None' = None,
         subdivisions: int = 3,
+        warp: 'FloatArray | None' = None,
     ) -> Any:
         """Draw `values` on `mesh` into the subplot at `idx`.
 
@@ -145,12 +146,18 @@ class Plotter:
         normalization. `contour=n` overlays n isolines of the field on the colored
         panel (the level sets of a scalar, e.g. a potential's equipotentials).
 
-        `space` opts a P2 or curved solve into a faithful render: the mesh and colored
-        panels draw on a `subdivisions`-fine tessellation of each element, so a curved
-        boundary follows its true curve and a quadratic field shows its within-element
-        curvature instead of being flattened to one triangle. Omitted, the P1 path draws
-        the straight-sided mesh exactly as before. `values` for the colored mode must
-        then be a per-node field (length `space.n_nodes`, e.g. a solution vector).
+        `space` opts a P2 or curved solve into a faithful render: the mesh, colored,
+        surface, and arrow panels draw on a `subdivisions`-fine tessellation of each
+        element, so a curved boundary follows its true curve and a quadratic field shows
+        its within-element curvature instead of being flattened to one triangle. Omitted,
+        the P1 path draws the straight-sided mesh exactly as before. `values` for the
+        colored and surface modes must then be a per-node field (length `space.n_nodes`,
+        e.g. a solution vector); arrows take a per-node vector field.
+
+        `warp` is an optional nodal displacement `(n_nodes, spatial)` that tessellates the
+        deformed configuration, so a P2 stress field draws on the warped shape (the
+        higher-order counterpart of plotting on `deformed_mesh()`). Only meaningful with a
+        tessellating `space`.
 
         Returns the recolourable collection for the colored and solid modes (the
         artist an animation updates in place across frames), and `None` otherwise.
@@ -176,12 +183,13 @@ class Plotter:
             cbar_info, artist = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
                                              label=label, cmap_name=cmap_name, log_scale=log_scale,
                                              colorbar=colorbar, contour=contour,
-                                             space=space, subdivisions=subdivisions)
+                                             space=space, subdivisions=subdivisions, warp=warp)
             self.cbar_infos[idx] = cbar_info
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
-            plot_surface(ax, mesh, values, clim=clim)
+            plot_surface(ax, mesh, values, clim=clim, space=space,
+                         subdivisions=subdivisions, warp=warp)
         elif mode is PlotMode.SOLID:
             # The colorbar is set up on the 3D axes, after the swap: attaching it to the
             # 2D one it replaces is what left a stray bar beside a surface animation.
@@ -194,7 +202,7 @@ class Plotter:
         elif mode is PlotMode.REFINEMENT:
             plot_refinement(ax, mesh, values)
         elif mode is PlotMode.ARROWS:
-            plot_arrows(ax, mesh, values) # inside arrows, assert the correct shape
+            plot_arrows(ax, mesh, values, space=space, warp=warp)
         elif mode is PlotMode.BC:
             plot_bc(ax, mesh, bc)
             self._bc_panels.add(idx)
