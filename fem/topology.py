@@ -23,10 +23,12 @@ from scipy.sparse import csr_array
 from scipy.spatial import KDTree
 
 from fem.boundary import BoundaryConditions
+from fem.design import optimality_criteria_update
 from fem.forms import LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.problem import LinearProblem
+from fem.sensitivity import Compliance, DensityField, SensitivityAnalysis
 from fem.solution import ElasticSolution
 from fem.solve import LinearSolve, SolveStrategy
 from fem.equations import LinearElastic
@@ -76,9 +78,19 @@ def calculate_smoothing_matrix(mesh: Mesh, r: float) -> SparseMatrix:
 
 
 class Objective(Protocol):
-    '''Maps a compliance field and density to a per-element sensitivity.'''
+    '''Maps a compliance field and density to a per-element sensitivity.
+
+    `chain` is the outer derivative `dJ/d(total compliance)`: the optimizer gets the
+    per-element compliance sensitivity `dC/drho` from the adjoint core and multiplies it
+    by this scalar to form the design sensitivity, so an objective that is a function of
+    total compliance is stated by that one factor. `gradient` is the closed-form
+    per-element sensitivity, kept as the self-adjoint reference the core reproduces.
+    '''
 
     def gradient(self, compliance: ElementField, rho: ElementField, penalty: float) -> ElementField:
+        ...
+
+    def chain(self, total_compliance: float) -> float:
         ...
 
 
@@ -92,6 +104,10 @@ class MinCompliance:
         # raised rho to, hence penalty in both.
         return compliance * penalty / rho
 
+    def chain(self, total_compliance: float) -> float:
+        # J = C, so dJ/dC = 1: the design sensitivity is the compliance sensitivity.
+        return 1.0
+
 
 @dataclass(frozen=True)
 class TargetCompliance:
@@ -101,6 +117,10 @@ class TargetCompliance:
     def gradient(self, compliance: ElementField, rho: ElementField, penalty: float) -> ElementField:
         residual = compliance.sum() - self.target
         return (compliance * penalty / rho) * 2 * residual
+
+    def chain(self, total_compliance: float) -> float:
+        # J = (C - target)^2, so dJ/dC = 2 (C - target).
+        return 2.0 * (total_compliance - self.target)
 
 
 @dataclass(frozen=True, eq=False)
@@ -179,8 +199,16 @@ class TopologyOptimizer:
         self._problem = LinearProblem(
             self.space, PrecomputedForm(self._solid_stiffness), self.source, self.bc,
         )
+        # The adjoint-core parameterization, sharing the solid stiffness just built:
+        # `_solve` computes each iteration's sensitivity through it rather than from a
+        # hand-written formula. Only its density changes per iteration.
+        self._density_param = DensityField(
+            space=self.space, nu=self.nu, _K0=self._solid_stiffness,
+            rho=self.rho, penalty=self.penalty,
+        )
 
         self._last: ElasticSolution | None = None   # most recent single-iteration solve
+        self._analysis: SensitivityAnalysis | None = None  # the factored system of _last
         self.history: TopologyHistory | None = None  # the per-iteration series
 
     @property
@@ -217,13 +245,33 @@ class TopologyOptimizer:
         and solid-material element stiffness.
         '''
         stiffness = PrecomputedForm(self.dilution[:, None, None] * self._solid_stiffness)
-        u = self.strategy.solve(self._problem.with_operator(stiffness))
+        # Solved through the adjoint core so the factored system is kept for the
+        # sensitivity: compliance is self-adjoint, so the gradient reuses this forward
+        # solution as its adjoint field with no second solve. `LinearSolve` and this both
+        # eliminate the Dirichlet block through `DiscreteSystem`, so `u` is unchanged.
+        self._analysis = SensitivityAnalysis(self._problem.with_operator(stiffness))
+        u = self._analysis.solve_forward()
 
         # Stress recovery wants the diluted material itself, not the element matrices
         # it would produce: the stress in an element is D(E(rho)) times its strain.
         form = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus, self.nu))
         self._last = ElasticSolution.from_solve(self.space, u, form)
         return self._last
+
+    def _compliance_sensitivity(self, solution: ElasticSolution) -> ElementField:
+        '''The per-element compliance sensitivity `dC/drho`, from the adjoint core.
+
+        Computed through `SensitivityAnalysis` with a `Compliance` quantity of interest
+        and the `DensityField` parameterization, replacing the hand-written `p/rho * c`
+        formula with the general adjoint pass. Compliance is self-adjoint, so this reuses
+        the forward solution as its adjoint field and adds no solve. The core returns the
+        true gradient (negative, since stiffening lowers compliance); the optimizer wants
+        the positive ascent sensitivity, so the sign is flipped here.
+        '''
+        assert self._analysis is not None  # set by the _solve that produced `solution`
+        parameterization = self._density_param.with_density(self.rho)
+        gradient = self._analysis.gradient(Compliance(), parameterization, solution.u)
+        return -gradient
 
     def oc_density(
         self,
@@ -232,24 +280,13 @@ class TopologyOptimizer:
         max_iters: int = 100,
         tol: float = 1e-8,
     ) -> ElementField:
-        # sensitivity is the gradient of the compliance with respect to the density.
-        # Bisect on the Lagrange multiplier until the volume constraint is met.
-        lo, hi = 0.0, 1e15  # search interval
-        rho_new = self.rho
-        for _ in range(max_iters):
-            m = 0.5 * (lo + hi)
-            rho_new = self.rho * np.sqrt(sensitivity / m)
-            rho_new = np.clip(rho_new, self.rho - 0.1, self.rho + 0.1)  # change limit
-            rho_new = np.clip(rho_new, 1e-6, 1)
-
-            if self._volume_fraction(rho_new) < volume_frac:
-                hi = m
-            else:
-                lo = m
-
-            if hi - lo <= tol * hi:
-                break
-        return rho_new
+        # sensitivity is the ascent sensitivity (positive where adding material lowers
+        # the objective). The bisection on the Lagrange multiplier lives in
+        # `fem.design.optimality_criteria_update`, shared with `DesignOptimizer`.
+        return optimality_criteria_update(
+            self.rho, sensitivity, self.space.element_volumes, volume_frac,
+            move=0.1, max_iters=max_iters, tol=tol,
+        )
 
     def solve(self, on_iteration: Callable[[int, ElasticSolution], None] | None = None) -> TopologyHistory:
         rho_series: list[ElementField] = []
@@ -271,7 +308,8 @@ class TopologyOptimizer:
             if on_iteration is not None:
                 on_iteration(i, solution)
 
-            sensitivity = self.objective.gradient(solution.compliance, self.rho, self.penalty)
+            sensitivity = self._compliance_sensitivity(solution) * self.objective.chain(
+                solution.compliance.sum())
             smoothed = self.smoothing_matrix @ sensitivity
             self.set_rho(self.oc_density(smoothed, self.volume_frac))
 

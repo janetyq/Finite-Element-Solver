@@ -86,6 +86,14 @@ from fem.buckling import BucklingSolver
 from fem.modal import ModalSolver
 from fem.energy_solver import EnergySolver
 from fem.topology import TopologyOptimizer
+from fem.sensitivity import (
+    SensitivityAnalysis,
+    Compliance,
+    PointValue,
+    DensityField,
+    ModulusField,
+)
+from fem.design import DesignOptimizer, SIMPModel, DesignHistory, optimality_criteria_update
 from fem.adaptivity import AdaptiveRefinement
 from fem.estimators import ErrorEstimator, recovery_estimator, residual_estimator
 from fem.plot.plotter import Plotter, PlotMode
@@ -155,6 +163,15 @@ __all__ = [
     "ModalSolver",
     "EnergySolver",
     "TopologyOptimizer",
+    "SensitivityAnalysis",
+    "Compliance",
+    "PointValue",
+    "DensityField",
+    "ModulusField",
+    "DesignOptimizer",
+    "SIMPModel",
+    "DesignHistory",
+    "optimality_criteria_update",
     "AdaptiveRefinement",
     "ErrorEstimator",
     "residual_estimator",
