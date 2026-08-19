@@ -12,7 +12,7 @@ import pytest
 
 from fem.boundary import BCType, BoundaryConditions
 from fem.forms import LinearElasticForm
-from fem.backends import DirectBackend, IterativeBackend, rigid_body_modes
+from fem.backends import DirectBackend, IterativeBackend, MinresBackend, rigid_body_modes
 from fem.materials import LinearElasticMaterial
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere, on_plane
@@ -27,6 +27,19 @@ def _spd(n, seed=0):
     rng = np.random.default_rng(seed)
     M = rng.normal(size=(n, n))
     return M @ M.T + n * np.eye(n)
+
+
+def _symmetric_indefinite(n, seed=0):
+    """A symmetric, nonsingular, indefinite matrix (eigenvalues of both signs).
+
+    Built with a known spectrum through an orthogonal Q, so it is genuinely indefinite
+    (CG breaks) yet well away from singular (MINRES and a direct solve both succeed).
+    """
+    rng = np.random.default_rng(seed)
+    Q, _ = np.linalg.qr(rng.normal(size=(n, n)))
+    eigenvalues = np.linspace(-2.0, 3.0, n)
+    eigenvalues[np.abs(eigenvalues) < 0.4] = 0.7  # keep clear of zero
+    return (Q * eigenvalues) @ Q.T
 
 
 def _poisson_mms(n, backend):
@@ -191,4 +204,59 @@ def test_non_convergence_raises():
     backend = IterativeBackend(rtol=1e-14, maxiter=1)
     system = DiscreteSystem(A, (free, np.array([], dtype=int), np.array([])), backend)
     with pytest.raises(RuntimeError, match="CG failed"):
+        system.solve(np.ones(40))
+
+
+# -- MINRES: the iterative path for symmetric indefinite systems ---------------
+
+
+def test_minres_matches_direct_on_an_indefinite_system():
+    """MINRES solves a symmetric indefinite block that CG cannot, matching a direct solve."""
+    A = _symmetric_indefinite(30, seed=1)
+    b = np.linspace(-1, 1, 30)
+    free = np.arange(30)
+    constraints = (free, np.array([], dtype=int), np.array([]))
+
+    minres = DiscreteSystem(A, constraints, MinresBackend()).solve(b)
+    direct = DiscreteSystem(A, constraints, DirectBackend()).solve(b)
+    np.testing.assert_allclose(minres, direct, atol=1e-8)
+
+
+def test_minres_matches_direct_through_dirichlet_elimination():
+    """MINRES solves the free-free block of a constrained indefinite system, matching direct.
+
+    Exercises the Dirichlet-elimination path (fixed DOFs lifted to the RHS) on an
+    indefinite operator, not just the unconstrained solve above. CG is not tested here:
+    on an indefinite operator its behaviour is undefined (it may break down, stagnate, or
+    return a wrong vector), which is precisely why the indefinite path needs MINRES.
+    """
+    A = _symmetric_indefinite(24, seed=2)
+    b = np.ones(24)
+    free = np.arange(2, 24)
+    fixed = np.array([0, 1])
+    constraints = (free, fixed, np.array([0.2, -0.3]))
+
+    minres = DiscreteSystem(A, constraints, MinresBackend()).solve(b)
+    direct = DiscreteSystem(A, constraints, DirectBackend()).solve(b)
+    np.testing.assert_allclose(minres, direct, atol=1e-8)
+
+
+def test_minres_matches_direct_on_an_spd_system():
+    """MINRES also solves SPD systems (a superset of CG's domain), matching direct."""
+    A = _spd(20, seed=6)
+    b = np.linspace(2, -2, 20)
+    free = np.arange(20)
+    constraints = (free, np.array([], dtype=int), np.array([]))
+
+    minres = DiscreteSystem(A, constraints, MinresBackend()).solve(b)
+    np.testing.assert_allclose(minres, np.linalg.solve(A, b), atol=1e-8)
+
+
+def test_minres_non_convergence_raises():
+    """MINRES that cannot reach tolerance in its iteration budget fails loudly, like CG."""
+    A = _symmetric_indefinite(40, seed=7)
+    free = np.arange(40)
+    backend = MinresBackend(rtol=1e-14, maxiter=1)
+    system = DiscreteSystem(A, (free, np.array([], dtype=int), np.array([])), backend)
+    with pytest.raises(RuntimeError, match="MINRES failed"):
         system.solve(np.ones(40))

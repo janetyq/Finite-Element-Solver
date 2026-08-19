@@ -9,9 +9,9 @@ class per combination.
 
 What a caller touches, versus what is plumbing:
 
-    Use:       DirectBackend() | IterativeBackend()   <- the entire public choice
+    Use:       DirectBackend() | IterativeBackend() | MinresBackend()  <- the public choice
     Extend:    Backend, LinearSolver                  <- implement these to add one
-    Internal:  _CGSolver, _pyamg_csr                  <- never named outside here
+    Internal:  _CGSolver, _MinresSolver, _pyamg_csr   <- never named outside here
 
 `DirectBackend` LU-factors the block (`splu`) and back-substitutes: robust for any
 nonsingular system, indefinite ones included, but its fill-in on a 3D mesh grows
@@ -20,6 +20,12 @@ preconditioned conjugate gradients with an algebraic-multigrid preconditioner
 (`pyamg`); CG is SPD-only, so it is opt-in (Poisson / small-strain elasticity
 stiffness, mass, the time-stepping operators), and on a large 3D system it is O(n)
 where the direct factorization is not, the whole point of the exercise.
+
+`MinresBackend` is the iterative path for symmetric *indefinite* systems, which CG
+cannot take: MINRES needs only symmetry, not definiteness. It covers the operators
+`DirectBackend` handles but `IterativeBackend` rejects, a harmonic operator `K - w^2 M`
+above the first natural frequency or a Newton tangent away from a convex minimum, so a
+large indefinite system reaches an O(n) iterative solve rather than a direct factorization.
 
 Both `prepare` an operator into a `LinearSolver`: an object that has
 factored/preconditioned one matrix and can solve it against many right-hand sides.
@@ -41,11 +47,14 @@ from typing import Protocol
 import numpy as np
 import pyamg
 from scipy.sparse import csc_array, csr_array
-from scipy.sparse.linalg import cg, splu
+from scipy.sparse.linalg import cg, minres, splu
 
 from fem.typing import DofVector, FloatArray, Operator, Vertices
 
-__all__ = ['Backend', 'LinearSolver', 'DirectBackend', 'IterativeBackend', 'rigid_body_modes']
+__all__ = [
+    'Backend', 'LinearSolver', 'DirectBackend', 'IterativeBackend', 'MinresBackend',
+    'rigid_body_modes',
+]
 
 
 # -- the two contracts: implement both to add a backend ------------------------
@@ -105,6 +114,36 @@ class IterativeBackend:
         A_csr = _pyamg_csr(A)
         ml = pyamg.smoothed_aggregation_solver(A_csr, B=self.near_null_space)
         return _CGSolver(A_csr, ml.aspreconditioner(), self.rtol, self.maxiter)
+
+
+class MinresBackend:
+    '''MINRES for symmetric indefinite systems: the iterative path CG cannot take.
+
+    CG needs a positive-definite operator; MINRES needs only symmetry. This is the
+    iterative backend for the operators `DirectBackend` factors but `IterativeBackend`
+    (CG) rejects: a harmonic operator `K - w^2 M` above the first natural frequency, a
+    Newton tangent away from a convex minimum, or a saddle-point block. It gives the O(n)
+    iterative path a symmetric-indefinite entry rather than forcing a direct factorization
+    at 3D scale.
+
+    Unpreconditioned by default. A useful preconditioner for an indefinite system is
+    problem-specific (block/Schur for a saddle-point system; see BACKLOG.md), so it is
+    injected rather than assumed. MINRES requires any preconditioner be SPD, which a
+    block-diagonal one is; a generic ILU is not, and breaks the method's short recurrence.
+    '''
+
+    def __init__(
+        self,
+        rtol: float = 1e-10,
+        maxiter: int | None = None,
+        preconditioner: Operator | None = None,
+    ) -> None:
+        self.rtol = rtol
+        self.maxiter = maxiter
+        self.preconditioner = preconditioner
+
+    def prepare(self, A: Operator) -> LinearSolver:
+        return _MinresSolver(csr_array(A), self.preconditioner, self.rtol, self.maxiter)
 
 
 # -- near-kernel helper for the elastic AMG path -------------------------------
@@ -170,6 +209,39 @@ class _CGSolver:
                 f'CG failed to solve the free-free block: {reason}. The operator must '
                 'be symmetric positive-definite for CG; use DirectBackend for indefinite '
                 'systems (Newton tangents, energy Hessians away from a minimum).'
+            )
+        return np.asarray(x)
+
+
+class _MinresSolver:
+    '''MINRES bound to one symmetric (possibly indefinite) operator.
+
+    Holds the operator and an optional SPD preconditioner. Fails loudly, as `_CGSolver`
+    does: a silently unconverged iterate is worse than a raise.
+    '''
+
+    def __init__(
+        self, A: csr_array, preconditioner: Operator | None, rtol: float, maxiter: int | None,
+    ) -> None:
+        self._A = A
+        self._M = preconditioner
+        self._rtol = rtol
+        self._maxiter = maxiter
+
+    def solve(self, b: DofVector) -> DofVector:
+        # pyright resolves `minres` to the same-named scipy submodule, not the function
+        # (a stub quirk cg does not share); it is callable at runtime.
+        x, info = minres(  # pyright: ignore[reportCallIssue]
+            self._A, b, rtol=self._rtol, maxiter=self._maxiter, M=self._M)
+        if info != 0:
+            reason = (
+                f'did not converge in {info} iterations'
+                if info > 0 else f'illegal input or breakdown (info={info})'
+            )
+            raise RuntimeError(
+                f'MINRES failed to solve the free-free block: {reason}. MINRES needs a '
+                'symmetric operator (indefinite is allowed); check symmetry, add an SPD '
+                'preconditioner, or use DirectBackend.'
             )
         return np.asarray(x)
 
