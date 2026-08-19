@@ -20,7 +20,7 @@ from fem.convergence import (
     poisson_p2_convergence, solve_annulus_mms, solve_load_comparison, theta_convergence,
 )
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.estimators import residual_estimator
+from fem.estimators import recovery_estimator, residual_estimator
 from fem.forms import MaskedMassForm
 from fem.space import FunctionSpace
 from fem.regions import everywhere, on_plane, in_box, intersect, union
@@ -659,7 +659,12 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     """Load an L-bracket and read the stress at its inner corner: a sharp re-entrant
     corner is a stress singularity whose peak climbs without bound as the mesh refines,
     while a fillet gives a finite, converged value. This is why real parts round their
-    inner corners."""
+    inner corners.
+
+    Solved on quadratic (P2) elements: the sharp bracket on straight `QuadraticTriangleElement`,
+    the filleted one on `IsoparametricTriangleElement` so the arc is a true circle rather than
+    a polygon. The recovery estimator drives refinement (it reads the curved fillet's flux
+    correctly), and the peak is read from the recovered nodal von Mises."""
     # The re-entrant corner is where the two limbs meet. There the exact elastic stress
     # is genuinely infinite (it grows like r^(-0.46) into the corner), so no mesh
     # resolves it: refine and the computed peak just keeps climbing. Rounding the corner
@@ -675,42 +680,47 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
         bc.add(BCType.NEUMANN, on_plane(0, arm), [0, -traction])  # pull the horizontal tip down
         return bc
 
-    def corner_peak(mesh, von_mises):
+    def corner_peak(solution):
         # The von Mises peak near the inner corner alone, kept clear of the clamp's own
-        # concentration at the far top so the comparison is about the corner.
-        centroids = mesh.vertices[mesh.elements].mean(axis=1)
-        near = np.linalg.norm(centroids - corner, axis=1) < 0.8 * width
-        return float(von_mises[near].max())
+        # concentration at the far top so the comparison is about the corner. Read from the
+        # recovered nodal field (recover-then-reduce), the smooth P2 stress at the nodes.
+        space = solution.space
+        nodal_vm = solution.nodal_von_mises()
+        near = np.linalg.norm(space.node_coords - corner, axis=1) < 0.8 * width
+        return float(nodal_vm[near].max())
 
-    def refine_and_track(fillet):
+    def refine_and_track(fillet, element_type):
         """Adaptively refine one bracket, recording the corner peak each round.
 
         The refinement loop is `AdaptiveRefinement`'s, unrolled here so the corner peak
         can be read off every intermediate mesh rather than only the last: the sequence
-        of peaks is the point, not just the final field.
+        of peaks is the point, not just the final field. `element_type` is the straight
+        quadratic triangle for the sharp corner and the isoparametric one for the fillet,
+        so the arc stays a true circle through refinement.
         """
         pslg = l_bracket_pslg(arm, width, fillet_radius=fillet, n_fillet=20)
         pslg.validate()
         mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=max_area_fraction * pslg.area()).refine()
-        solver = Solver(mesh, equation, make_bc())
+        solver = Solver(mesh, equation, make_bc(), element_type=element_type)
         refiner = RedGreenRefiner(solver.mesh)
-        estimator = residual_estimator(equation)
+        estimator = recovery_estimator(equation)
         solution = solver.solve()
         sizes, peaks = [], []
         for _ in range(n_rounds):
             sizes.append(len(solver.mesh.elements))
-            peaks.append(corner_peak(solver.mesh, solution.von_mises))
+            peaks.append(corner_peak(solution))
             residuals = estimator.estimate(solver)
             refine_idxs = np.flatnonzero(residuals >= refine_fraction * residuals.max())
             solver.remesh(refiner.refine([int(i) for i in refine_idxs]))
             solution = solver.solve()
         sizes.append(len(solver.mesh.elements))
-        peaks.append(corner_peak(solver.mesh, solution.von_mises))
+        peaks.append(corner_peak(solution))
         return solver.mesh, solution, np.array(sizes), np.array(peaks)
 
-    sharp_mesh, sharp, sharp_sizes, sharp_peaks = refine_and_track(0.0)
-    round_mesh, rounded, round_sizes, round_peaks = refine_and_track(fillet_radius)
+    sharp_mesh, sharp, sharp_sizes, sharp_peaks = refine_and_track(0.0, QuadraticTriangleElement)
+    round_mesh, rounded, round_sizes, round_peaks = refine_and_track(
+        fillet_radius, IsoparametricTriangleElement)
 
     conditions = Plotter(panel_aspect=1.0)
     conditions.plot(sharp_mesh, mode='bc', bc=make_bc())
@@ -722,13 +732,16 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     for i, (name, mesh, solution, peaks) in enumerate((
             ('Sharp corner', sharp_mesh, sharp, sharp_peaks),
             (f'Fillet r = {fillet_radius:g}', round_mesh, rounded, round_peaks))):
-        deformed = solution.deformed_mesh()
-        fields.plot(deformed, solution.von_mises, mode='colored', idx=(0, i),
-                    label='von Mises stress',
+        # P2-aware render: the recovered nodal von Mises drawn on the element tessellation,
+        # warped by the nodal displacement so the quadratic field shows on the deformed shape.
+        warp = solution.u.reshape(-1, 2)
+        fields.plot(mesh, solution.nodal_von_mises(), mode='colored', idx=(0, i),
+                    space=solution.space, warp=warp, label='von Mises stress',
                     title=f'{name}\n{len(mesh.elements)} elements, corner peak {peaks[-1]:.0f}')
         # Clamp and tip-load glyphs read off the undeformed mesh, drawn at the deformed
-        # positions so the load follows the tip it pulls on.
-        fields.overlay_supports(mesh, make_bc(), idx=(0, i), coords=deformed.vertices)
+        # vertex positions so the load follows the tip it pulls on.
+        deformed_vertices = mesh.vertices + warp[:len(mesh.vertices)]
+        fields.overlay_supports(mesh, make_bc(), idx=(0, i), coords=deformed_vertices)
 
     sweep = Plotter(1, 1, title='The corner peak against mesh refinement')
     ax = sweep.chart_ax(xlabel='elements', ylabel='von Mises at the inner corner')
