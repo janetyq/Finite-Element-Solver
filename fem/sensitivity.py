@@ -172,6 +172,7 @@ class _VonMisesStress:
         '''von Mises squared from the in-plane Voigt stress, plane strain.'''
         sxx, syy, sxy = s[:, 0], s[:, 1], s[:, 2]
         szz = self.material.nu * (sxx + syy)
+        # vm^2 = 1/2[(sxx-syy)^2 + (syy-szz)^2 + (szz-sxx)^2] + 3 sxy^2, expanded.
         return sxx**2 + syy**2 + szz**2 - sxx * syy - syy * szz - szz * sxx + 3.0 * sxy**2
 
     def _dvm_du(self, u: DofVector) -> tuple[ElementField, FloatArray]:
@@ -183,12 +184,13 @@ class _VonMisesStress:
         szz = nu * (sxx + syy)
         vm = np.sqrt(np.maximum(self._Q(s), 0.0))
 
-        # dQ/ds through sigma_zz = nu(sxx + syy).
+        # dQ/ds, total derivative through sigma_zz = nu(sxx + syy): the first terms are
+        # dQ/ds at fixed szz, the nu(...) terms add (dQ/dszz)(dszz/ds) = nu * dQ/dszz.
         dQ = np.empty_like(s)
         dQ[:, 0] = 2 * sxx - syy - szz + nu * (2 * szz - syy - sxx)
         dQ[:, 1] = 2 * syy - sxx - szz + nu * (2 * szz - sxx - syy)
         dQ[:, 2] = 6.0 * sxy
-        # dvm/ds = dQ/ds / (2 vm); at vm = 0, dQ/ds is also 0, so the gradient is 0 there.
+        # dvm/ds = dQ/ds / (2 vm), since vm = sqrt(Q); at vm = 0, dQ/ds is also 0, so 0 there.
         safe = vm > 0
         dvm_ds = np.zeros_like(s)
         dvm_ds[safe] = dQ[safe] / (2.0 * vm[safe, None])
