@@ -168,6 +168,18 @@ gap is the transient path.
   Worth doing only if a headless import becomes a goal.
 
 **Features**
+- 💡 **Adjoint sensitivity: follow-ups.** The core shipped (`fem/sensitivity.py`:
+  `SensitivityAnalysis`, `Compliance` / `PointValue` quantities of interest, `DensityField` /
+  `ModulusField` parameterizations), a general `DesignOptimizer` over it (`fem/design.py`), and
+  `TopologyOptimizer` now draws its compliance sensitivity from the core rather than a hand-written
+  formula. Design record in `attic/fem-adjoint-sensitivity-design-2026-08-18.md`. Open pieces, each
+  additive behind the same three seams: **stress-based quantities of interest** (a `MeanStress` /
+  aggregated-stress QoI, reusing the stress recovery in reverse for `∂stress/∂u`); **goal-oriented
+  error estimation** (feed the adjoint field into `fem.estimators`, which already anticipates it);
+  **shape parameterization** (`∂(element geometry)/∂(node)` mesh sensitivities, the one piece needing
+  new geometry-derivative code); a **general gradient engine** (`scipy.optimize` SLSQP behind the
+  optimizer, for objectives the optimality-criteria update cannot take); and the **nonlinear tangent
+  path** (`EnergyProblem`, where the adjoint uses the Newton tangent at the converged state).
 - 💡 The README's roadmap (thermal expansion, transport, fluid mechanics, nonlinear hyperelasticity
   via the existing `EnergySolver` / `Energies` machinery) all fit the current architecture well.
   `NeohookeanEnergyDensity` is a stub: filling in its `W` and derivatives gives a nonlinear material
