@@ -12,7 +12,7 @@ from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
 from fem.elements import Element
 from fem.equations import Equation, LinearElastic
-from fem.solution import ElasticSolution, FieldSolution, Solution
+from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution, Solution
 from fem.space import FunctionSpace
 from fem.forms import RecoversElasticFields
 from fem.backends import Backend, IterativeBackend, rigid_body_modes
@@ -105,7 +105,9 @@ class Solver:
         a form that can recover derived fields additionally yields an
         ElasticSolution rather than a bare FieldSolution. The capability is asked
         for rather than the class named, so a form this facade has never heard of
-        reports its stresses through the same path.
+        reports its stresses through the same path. A scalar equation that names a
+        derived field (Poisson's flux) likewise comes back as a ScalarFieldSolution
+        carrying it; one that names none (a projection) stays a bare FieldSolution.
         '''
         logger.info('Solving steady system...')
         problem = self._steady_problem()
@@ -113,4 +115,7 @@ class Solver:
 
         if isinstance(problem.operator, RecoversElasticFields):
             return ElasticSolution.from_solve(self.space, u, problem.operator)
-        return FieldSolution(self.mesh, self.n_components, u)
+        if self.equation.derived_field() is not None:
+            return ScalarFieldSolution.from_solve(self.space, u)
+        return FieldSolution(self.mesh, self.n_components, u,
+                             element_type=self.space.element_type)

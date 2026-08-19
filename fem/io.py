@@ -30,12 +30,16 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-_SOLUTION_HEADER = ('mesh', 'n_components')
+# Header fields are handled by name rather than reflected into value arrays: `mesh` and
+# `n_components` reconstruct the geometry, and `element_type` is a class stored by name
+# (an array field cannot hold one), resolved back through `fem.elements` on load.
+_SOLUTION_HEADER = ('mesh', 'n_components', 'element_type')
 
 # npz key namespacing: solution values are user-named, so they get a prefix to
 # keep them from colliding with the mesh/component-count metadata in the same archive.
 _VALUE_PREFIX = 'value.'
 _MESH_CLASS = '__mesh_class__'
+_ELEMENT_TYPE = '__element_type__'
 _MESH_VERTICES = '__mesh_vertices__'
 _MESH_ELEMENTS = '__mesh_elements__'
 _MESH_BOUNDARY = '__mesh_boundary__'
@@ -97,6 +101,10 @@ def save_solution(solution, path='solution.npz'):
     arrays = _mesh_to_arrays(solution.mesh)
     arrays[_N_COMPONENTS] = np.asarray(solution.n_components)
     arrays[_SOLUTION_CLASS] = np.array(type(solution).__name__)
+    # A class cannot live in an array, so the element type is stored by name and
+    # resolved back through `fem.elements` on load; '' means the linear default.
+    arrays[_ELEMENT_TYPE] = np.array(
+        solution.element_type.__name__ if solution.element_type is not None else '')
     for f in dataclasses.fields(solution):
         if f.name in _SOLUTION_HEADER:
             continue
@@ -116,6 +124,7 @@ def save_solution(solution, path='solution.npz'):
 
 def load_solution(path='solution.npz'):
     '''Read a solution written by `save_solution`, reconstructing its dataclass.'''
+    import fem.elements as elements_module
     import fem.solution as solution_module
 
     with np.load(path) as data:
@@ -126,9 +135,13 @@ def load_solution(path='solution.npz'):
         mesh = _mesh_from_arrays(data)
         n_components = int(data[_N_COMPONENTS])
         cls = getattr(solution_module, str(data[_SOLUTION_CLASS]))
+        # Resolve the element type stored by name (older archives predate it, so a
+        # missing key means the linear default).
+        type_name = str(data[_ELEMENT_TYPE]) if _ELEMENT_TYPE in data else ''
+        element_type = getattr(elements_module, type_name) if type_name else None
         fields = {
             f.name: data[_VALUE_PREFIX + f.name]
             for f in dataclasses.fields(cls)
             if f.name not in _SOLUTION_HEADER
         }
-        return cls(mesh, n_components, **fields)
+        return cls(mesh, n_components, element_type=element_type, **fields)
