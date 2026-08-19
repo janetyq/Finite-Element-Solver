@@ -18,7 +18,7 @@ Effort: 🟢 low · 🟡 medium · 🔴 high.
 | Numerics | Globalize the Newton direction (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Post-proc | Transient derived fields (steady flux/stress recovery shipped) | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Design | Nodal L2 projection option; lazy plot / `pyamg` imports | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Design | Lazy plot / `pyamg` imports | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
@@ -158,12 +158,6 @@ gap is the transient path.
 
 **Design / maintainability**
 
-- 💡 **Nodal L2 projection option for `recover_nodal`.** `FunctionSpace.recover_nodal` recovers a
-  per-element field to the nodes by volume-weighted averaging, the shipped default and the reason the
-  space (not the mesh) owns it. The stricter choice is the mass-matrix L2 projection (solve
-  `M u = ∫ f φ`), more accurate on a graded mesh at the cost of a solve, and a higher-fidelity flux
-  than the averaging recovery for the same seam. Worth adding as a `method=` option only if a
-  nodal-output consumer needs the accuracy; plotting and the error estimator do not.
 - 💡 **Lazy plot and `pyamg` imports for headless use.** `fem/__init__.py` re-exports `Plotter` /
   `PlotMode`, and `fem.backends` imports `pyamg` at module scope, so `import fem` always pulls in a
   plotting backend and `pyamg`. Making both edges lazy would let the package import without them.
