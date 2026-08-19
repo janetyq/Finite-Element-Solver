@@ -437,7 +437,8 @@ class FunctionSpace:
 
     # -- display tessellation -----------------------------------------------
 
-    def tessellation(self, subdivisions: int = 3) -> PlotTessellation:
+    def tessellation(self, subdivisions: int = 3,
+                     node_coords: FloatArray | None = None) -> PlotTessellation:
         '''Sample every element into `subdivisions**2` flat sub-triangles on its true
         geometry, for a plot that follows a curved boundary and a P2 field.
 
@@ -445,11 +446,17 @@ class FunctionSpace:
         mapped through the element's own nodes, the same geometry map `Element.geometry`
         integrates over, so boundary sub-points land on the true curve and interior ones
         stay flat. See `PlotTessellation`.
+
+        `node_coords` overrides the node positions the sub-points are mapped through,
+        `(n_nodes, spatial)` like `self.node_coords`. Passing the deformed positions
+        (node coords plus a nodal displacement) tessellates the deformed configuration, so
+        a P2 field can be drawn on the warped shape rather than only the reference one.
         '''
+        coords_of = self.node_coords if node_coords is None else np.asarray(node_coords)
         ref_points, ref_triangles = _reference_subtriangulation(subdivisions)
         sample = self.element_type.shape_values(ref_points)       # (n_sub, N)
         element_nodes = np.asarray(self.element_nodes)
-        coords = self.node_coords[element_nodes]                  # (n_el, N, spatial)
+        coords = coords_of[element_nodes]                         # (n_el, N, spatial)
         points = np.einsum('sn,end->esd', sample, coords)         # (n_el, n_sub, spatial)
         n_el, n_sub = points.shape[0], points.shape[1]
         points = points.reshape(n_el * n_sub, -1)
