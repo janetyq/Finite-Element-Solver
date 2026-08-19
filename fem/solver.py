@@ -39,9 +39,8 @@ class Solver:
         # SPD; the facade forwards it to LinearSolve untouched.
         self.backend = backend
         # The element order, `None` meaning the linear element for the mesh's node
-        # count. Pass `QuadraticTriangleElement` for a P2 solve (O(h^3)); the
-        # adaptive-refinement estimator is P1-only, so a refined P2 solve is not yet
-        # supported, but a single P2 solve is.
+        # count. Pass `QuadraticTriangleElement` for a P2 solve (O(h^3)); the recovery
+        # estimator drives adaptive refinement on P2, the residual estimator on P1.
         self.element_type = element_type
         # Derived, never passed: the component count follows from the equation's
         # field and the mesh, so a space that disagrees with the equation it is

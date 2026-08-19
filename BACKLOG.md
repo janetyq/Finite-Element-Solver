@@ -12,7 +12,7 @@ Effort: 🟢 low · 🟡 medium · 🔴 high.
 |---|---|:---:|---|
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
-| Numerics | 3D P2 (`QuadraticTetrahedralElement`); P2 plotting / adaptivity | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | 3D P2 (`QuadraticTetrahedralElement`); P2 residual estimator | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Mixed (u-p) formulation for near-incompressible elasticity | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize the Newton direction (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -68,8 +68,10 @@ Two approaches measured and rejected, so they are not proposed again:
   to match. The `Element` base and the `FunctionSpace` node set generalize, but the 3D shape functions
   and connectivity are not written. **`deformed_mesh`** reads the vertex DOFs and drops the
   edge-midpoint displacements, so a P2 displacement warp draws as its P1 restriction (field plotting
-  itself is now P2-aware via `FunctionSpace.tessellation`). **Adaptive refinement** is P1-only (the
-  residual estimator is 2D-P1), so a *refined* P2 solve is unsupported.
+  itself is now P2-aware via `FunctionSpace.tessellation`). **Adaptive refinement** drives a P2 solve
+  through the recovery estimator (it samples the flux per quadrature point and recovers by L2
+  projection); the **residual estimator** is still 2D-P1 (it reads an element-constant flux and a
+  centroid source), so that estimator does not yet drive a refined P2 solve.
 - 💡 **Curved (isoparametric) elements: follow-ups.** The core shipped:
   `IsoparametricTriangleElement` (a geometry map differentiated over all nodes, per quadrature
   point), `Circle` / `Arc` curves carried through `PSLG` -> `RuppertsAlgorithm` ->

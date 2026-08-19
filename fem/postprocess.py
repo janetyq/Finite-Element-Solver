@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import numpy as np
 
 if TYPE_CHECKING:
+    from fem.elements import ElementGeometry
+    from fem.forms import LinearElasticForm
     from fem.solution import FieldSolution
     from fem.typing import BoolArray, FloatArray
 
@@ -41,6 +43,18 @@ class DerivedField(Protocol):
 
     def evaluate(self, solution: FieldSolution) -> FloatArray:
         '''(n_elements, n_components, spatial_dim) element-constant flux, read off `solution`.'''
+        ...
+
+    def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:
+        '''(n_elements, n_qp, n_components, spatial_dim) flux at `geometry`'s quadrature points.
+
+        The spatially-resolved flux, recomputed from `solution.u` at each quadrature point
+        rather than read as the one stored per-element value `evaluate` returns. A P1 flux
+        is element-constant, so it repeats across the points; a P2 flux varies linearly
+        within the element, and the recovery estimator needs that variation to measure a
+        higher-order solution's error. `geometry` is the space's geometry at whatever rule
+        the estimator chose.
+        '''
         ...
 
     def boundary_residual(
@@ -75,6 +89,17 @@ class GradientField:
             )
         return solution.flux[:, None, :]            # (n_el, 1, d)
 
+    def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:
+        from fem.solution import ScalarFieldSolution
+        if not isinstance(solution, ScalarFieldSolution):
+            raise TypeError(
+                'the diffusion flux needs a scalar solution carrying grad u; '
+                f'got {type(solution).__name__}'
+            )
+        u_elements = solution.u[solution.space.element_nodes]   # (n_el, N)
+        grad = geometry.gradients(u_elements)                  # (n_el, n_qp, d)
+        return grad[:, :, None, :]                             # (n_el, n_qp, 1, d)
+
     def boundary_residual(
         self, flux_e0: FloatArray, outward_normal: FloatArray,
         neumann: FloatArray, free: BoolArray,
@@ -89,7 +114,14 @@ class StressField:
     the residual is `||g - sigma.n||^2` over the components with a live test function there,
     the masked term that lets a traction-free stress concentration register while a pinned
     direction's reaction traction is not counted as error.
+
+    `form` is the small-strain elastic form, carried so `sample` can recompute the stress at
+    quadrature points for the P2 recovery estimator. `evaluate` and `boundary_residual` read
+    the state the solve already stored, so they need no form, and it stays optional.
     '''
+
+    def __init__(self, form: 'LinearElasticForm | None' = None) -> None:
+        self.form = form
 
     def evaluate(self, solution: FieldSolution) -> FloatArray:
         from fem.solution import ElasticSolution
@@ -98,6 +130,21 @@ class StressField:
                 'the elastic flux needs recovered stress; got a bare FieldSolution'
             )
         return solution.stress[:, :2, :2]           # (n_el, d, d)
+
+    def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:
+        from fem.solution import ElasticSolution
+        if not isinstance(solution, ElasticSolution):
+            raise TypeError(
+                'the elastic flux needs a displacement solution; got a bare FieldSolution'
+            )
+        if self.form is None:
+            raise ValueError(
+                'StressField needs its elastic form to sample stress at quadrature points; '
+                'build it through Equation.derived_field'
+            )
+        space = solution.space
+        u_elements = solution.u.reshape(-1, space.n_components)[space.element_nodes]
+        return self.form.stress_field(geometry, u_elements)   # (n_el, n_qp, d, d)
 
     def boundary_residual(
         self, flux_e0: FloatArray, outward_normal: FloatArray,
