@@ -180,8 +180,7 @@ gap is the transient path.
   not only through `u`; the adjoint pass adds only `−λᵀ∂R/∂p`, so the driver needs an optional
   `∂J/∂p` from the quantity of interest (and the relaxed-stress `σ = ρ^η D0 Bu` definition topology
   optimization uses). Best done alongside the general gradient engine below. Open pieces, each additive
-  behind the same three seams: **goal-oriented
-  error estimation** (feed the adjoint field into `fem.estimators`, which already anticipates it);
+  behind the same three seams:
   **shape parameterization** (`∂(element geometry)/∂(node)` mesh sensitivities, the one piece needing
   new geometry-derivative code); a **general gradient engine** (`scipy.optimize` SLSQP behind the
   optimizer, for objectives the optimality-criteria update cannot take); and the **nonlinear tangent

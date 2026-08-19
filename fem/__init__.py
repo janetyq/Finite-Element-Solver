@@ -97,7 +97,12 @@ from fem.sensitivity import (
 )
 from fem.design import DesignOptimizer, SIMPModel, DesignHistory, optimality_criteria_update
 from fem.adaptivity import AdaptiveRefinement
-from fem.estimators import ErrorEstimator, recovery_estimator, residual_estimator
+from fem.estimators import (
+    ErrorEstimator,
+    goal_oriented_estimator,
+    recovery_estimator,
+    residual_estimator,
+)
 from fem.plot.plotter import Plotter, PlotMode
 
 # Library-quiet by default: emit nothing unless the application configures a
@@ -180,6 +185,7 @@ __all__ = [
     "ErrorEstimator",
     "residual_estimator",
     "recovery_estimator",
+    "goal_oriented_estimator",
     "Plotter",
     "PlotMode",
 ]

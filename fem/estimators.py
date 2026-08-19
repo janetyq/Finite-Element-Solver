@@ -46,9 +46,11 @@ _REFERENCE_EDGE_MIDPOINTS = np.array([[0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
 if TYPE_CHECKING:
     from fem.adaptivity import RefinableSolver
-    from fem.boundary import ResolvedBC
+    from fem.boundary import BoundaryConditions, ResolvedBC
+    from fem.mesh.mesh import Mesh
     from fem.postprocess import DerivedField
     from fem.equations import Equation
+    from fem.sensitivity import QuantityOfInterest
     from fem.solution import FieldSolution
     from fem.space import FunctionSpace
     from fem.typing import BoolArray, ElementField, FieldValue, FloatArray, IntArray
@@ -311,3 +313,100 @@ def residual_estimator(equation: Equation) -> ResidualEstimator:
 def recovery_estimator(equation: Equation) -> RecoveryEstimator:
     '''The Zienkiewicz-Zhu recovery estimator for `equation`, from its derived field.'''
     return RecoveryEstimator(_derived_field(equation))
+
+
+# -- goal-oriented (dual-weighted) refinement ---------------------------------
+
+
+@dataclass
+class _SolvedView:
+    '''A minimal `RefinableSolver` view wrapping one solution, for the dual estimate.
+
+    The recovery estimator reads only `mesh`, `space`, `boundary_conditions`, and
+    `solution` off the solver it is handed. The dual solution is not produced by a
+    `Solver`, so this packages it into that shape to reuse the estimator unchanged; the
+    `remesh` / `solve` half of the protocol is never called on an estimate and stays a
+    stub.
+    '''
+    mesh: 'Mesh'
+    space: FunctionSpace
+    boundary_conditions: 'BoundaryConditions'
+    solution: 'FieldSolution | None'
+
+    def remesh(self, mesh: 'Mesh') -> None:
+        raise NotImplementedError('a dual view is not advanced across meshes')
+
+    def solve(self) -> FieldSolution:
+        raise NotImplementedError('a dual view wraps an existing solution')
+
+
+@dataclass(frozen=True)
+class GoalOrientedEstimator:
+    '''Dual-weighted-residual refinement: reduce the error in a quantity of interest.
+
+    A global estimator refines wherever the solution is rough; this refines where
+    refinement most improves a *specific output* `J(u)` (a point value, a reaction, an
+    aggregated stress). The indicator is the product of two recovery indicators,
+
+        eta_K = eta_K^primal(u_h) * eta_K^dual(z_h),
+
+    the standard DWR energy-norm bound on `|J(u) - J(u_h)|`: `eta^primal` measures where
+    the primal solution is inaccurate, `eta^dual` where the goal is sensitive to that
+    inaccuracy, and their product marks the elements that matter for the goal. The dual
+    (adjoint) solution `z` solves `Kᵀ z = ∂J/∂u` through `SensitivityAnalysis`, the
+    influence function of the quantity of interest.
+
+    Built from the equation (for the operator and the recoverable flux) and a
+    `QuantityOfInterest` (for the goal). Uses the recovery estimator as its base, so it is
+    dimension-general and needs no edge normals; the dual solve refactors the operator
+    once per round, which the recovery estimate then reads like any other solution.
+    '''
+    equation: Equation
+    quantity_of_interest: 'QuantityOfInterest'
+
+    def estimate(self, solver: RefinableSolver) -> ElementField:
+        from fem.problem import LinearProblem
+        from fem.sensitivity import SensitivityAnalysis
+
+        base = recovery_estimator(self.equation)
+        eta_primal = base.estimate(solver)          # reads solver.solution (the primal)
+
+        space = solver.space
+        problem = LinearProblem(
+            space, self.equation.operator(space.n_components),
+            self.equation.source, solver.boundary_conditions,
+        )
+        primal = _solved(solver).solution
+        z = SensitivityAnalysis(problem).adjoint(self.quantity_of_interest, primal.u)
+
+        dual_solution = self._package_dual(space, z, problem)
+        dual_view = _SolvedView(solver.mesh, space, solver.boundary_conditions, dual_solution)
+        eta_dual = base.estimate(dual_view)
+
+        return eta_primal * eta_dual
+
+    def _package_dual(self, space: FunctionSpace, z, problem) -> FieldSolution:
+        '''Wrap the dual DOF vector in the same typed solution a forward solve would.
+
+        The recovery estimator reads the dual's flux the same way it reads the primal's,
+        so the dual must carry recovered stress (elasticity) or gradient (a scalar field),
+        exactly as `Solver` packages a forward solve.
+        '''
+        from fem.forms import RecoversElasticFields
+        from fem.solution import ElasticSolution, ScalarFieldSolution
+
+        if isinstance(problem.operator, RecoversElasticFields):
+            return ElasticSolution.from_solve(space, z, problem.operator)
+        if self.equation.derived_field() is not None:
+            return ScalarFieldSolution.from_solve(space, z)
+        raise NotImplementedError(
+            f'{type(self.equation).__name__} names no derived field, so goal-oriented '
+            'refinement (which recovers the dual flux) is not defined for it.'
+        )
+
+
+def goal_oriented_estimator(
+    equation: Equation, quantity_of_interest: 'QuantityOfInterest',
+) -> GoalOrientedEstimator:
+    '''The dual-weighted-residual estimator for `equation` and a quantity of interest.'''
+    return GoalOrientedEstimator(equation, quantity_of_interest)
