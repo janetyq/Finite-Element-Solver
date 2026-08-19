@@ -40,7 +40,6 @@ IMAGES = REPO_ROOT / 'images'
 FIGURES: list[tuple[str, str]] = [
     # Meshing a domain
     ('outline_to_mesh', 'outline_to_mesh.png'),
-    ('regions', 'regions.png'),
     # Solving PDEs
     ('potential_flow-flow', 'potential_flow.png'),
     ('heat-comparison', 'heatsink_comparison.png'),

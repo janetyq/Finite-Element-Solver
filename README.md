@@ -26,32 +26,17 @@ detail; here the aim is a tour of what the solver does.
 
 ## Meshing a domain
 
-A structured grid is one line (`create_rect_mesh`), but most domains are not grids.
-Meshing here is a means to an end, the domain a solve needs, so the pipeline is short:
-any closed outline, traced from an SVG or generated, becomes a planar straight-line
-graph, is simplified with Douglas-Peucker where it was traced densely (Ruppert's cost
-grows steeply in the point count), then triangulated by Ruppert's algorithm to a
-minimum-angle and maximum-area bound. Below, four outlines run that pipeline and then
-carry the same solve: the Poisson "dome" of $-\nabla^2 u = 1$ with $u = 0$ on the
-boundary, tallest where the domain is widest and pinched to zero at every edge and hole.
-Each shape makes a different demand. California meshes as disconnected islands, the
-cloud's boundary follows its true Bezier curves, the gear bore is a hole by the even-odd
-rule, and the star's notches stay sharp. The meshes are drawn fine enough that the fields
-read smooth, not as a resolution ceiling; the inset zooms into California's mesh, which
-resolves the traced coastline and its offshore islands, and adaptive refinement drives it
-finer still.
+The library brings its own meshing. A full pipeline meshes any arbitrary outline, traced
+from an SVG or generated, using three algorithms: Douglas-Peucker to simplify a densely
+traced outline into fewer initial segments, Ruppert's algorithm to triangulate those
+segments to a minimum-angle and maximum-area bound, and adaptive refinement to add
+triangles where they improve solution accuracy (shown in later demos). Below, four
+outlines run the pipeline and carry the same solve: the Poisson "dome" of
+$-\nabla^2 u = 1$ with $u = 0$ on the boundary, tallest where the domain is widest and
+pinched to zero at every edge and hole. Each shape makes a different demand: disconnected
+islands, true Bezier curves, a hole by the even-odd rule, sharp notches.
 
 <p align="center"><img src="images/outline_to_mesh.png" height="400" alt="Four outlines meshed and Poisson-solved: California with a mesh zoom inset, a cloud, a gear, and a star"></p>
-
-Boundary conditions are placed by *position*, not by vertex index, so the same
-specification lands on the same physical patch on any triangulation of the domain. Below,
-one cantilever, clamped on the left and loaded on the right, is solved on a structured
-grid and an unstructured Ruppert's mesh of the same beam: the conditions resolve against
-each, and the two deflect the same. That is what lets a condition be written once and
-survive whatever remeshing happens after, including adaptive refinement rebuilding the
-mesh several times over.
-
-<p align="center"><img src="images/regions.png" width="780" alt="One cantilever solved on a structured grid and an unstructured mesh of the same beam"></p>
 
 ## Solving PDEs
 
@@ -92,7 +77,7 @@ textbook $\tanh(mL)/(mL)$ law, falling as fins lengthen because a long fin runs 
 toward the tip, so these fins sit near 40%. The fins trade material for surface area,
 which is why a heatsink is finned rather than solid.
 
-<p align="center"><img src="images/heatsink_comparison.png" height="340" alt="Heatsink vs a solid block: fixed power (the block overheats) and fixed base temperature (the fins shed more)"> <img src="images/heatsink_efficiency.png" height="340" alt="Fin efficiency against the tanh(mL)/(mL) beam-theory law"></p>
+<p align="center"><img src="images/heatsink_comparison.png" height="280" alt="Heatsink vs a solid block: fixed power (the block overheats) and fixed base temperature (the fins shed more)"> <img src="images/heatsink_efficiency.png" height="280" alt="Fin efficiency against the tanh(mL)/(mL) beam-theory law"></p>
 
 ### Wave equation
 
@@ -177,7 +162,7 @@ frequencies. A steel tuning fork is meshed from its own outline and held at the 
 base. Its low modes come in pairs; the one whose tines swing oppositely leaves the stem
 still and rings, which is "the voice".
 
-<p align="center"><img src="images/modal.png" width="780" alt="A tuning fork's natural modes and their pitches"></p>
+<p align="center"><img src="images/modal.png" width="700" alt="A tuning fork's natural modes and their pitches"></p>
 
 ### Topology optimization
 
