@@ -52,6 +52,21 @@ def test_a_poisson_solve_carries_its_flux_and_recovers_it_to_the_nodes():
     assert np.allclose(solution.nodal_flux(), solution.space.recover_nodal(solution.flux))
 
 
+def test_nodal_flux_takes_a_recovery_method():
+    """The `method` argument threads from the solution's nodal accessor to the space's
+    recovery, so a caller can ask for the L2 projection instead of the average."""
+    mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [8, 8])
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    solution = Solver(mesh, Poisson(source=1.0), bc).solve()  # varying flux (curved u)
+
+    average = solution.nodal_flux(method='average')
+    l2 = solution.nodal_flux(method='l2')
+    assert l2.shape == average.shape == (solution.space.n_nodes, 2)
+    assert np.allclose(l2, solution.space.recover_nodal(solution.flux, method='l2'))
+    assert not np.allclose(l2, average)
+
+
 def test_a_projection_stays_a_bare_field_solution():
     """A projection names no derived field, so it is not upgraded to a ScalarFieldSolution."""
     mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])

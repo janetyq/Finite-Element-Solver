@@ -49,6 +49,7 @@ from fem.typing import (
 )
 
 from scipy.sparse import csr_array
+from scipy.sparse.linalg import spsolve
 
 
 def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndices:
@@ -510,29 +511,33 @@ class FunctionSpace:
 
     # -- projections between element and nodal fields -----------------------
 
-    def recover_nodal(self, values: ElementField) -> VertexField:
-        '''Recover a continuous nodal field from a per-element one, weighted by volume.
+    def recover_nodal(self, values: ElementField, method: str = 'average') -> VertexField:
+        '''Recover a continuous nodal field from a per-element one.
 
-        The volume-weighted nodal average: a per-element (element-constant, generally
-        discontinuous) derived quantity such as a flux, stress, or error estimate is
-        turned into one continuous value per node by combining the elements meeting
-        there. This is the Zienkiewicz-Zhu recovery the error estimator measures against
-        and the smooth field nodal output and P2 plotting draw.
+        A per-element (element-constant, generally discontinuous) derived quantity such
+        as a flux, stress, or error estimate is turned into one continuous value per node.
+        This is the Zienkiewicz-Zhu recovery the error estimator measures against and the
+        smooth field nodal output and P2 plotting draw.
 
         Takes a per-element scalar `(n_elements,)` or a per-element array
-        `(n_elements, *component_shape)`, such as a flux tensor, and returns the
-        matching `(n_nodes,)` or `(n_nodes, *component_shape)`, recovering each
-        component independently. The array form is what the recovery error estimator
-        smooths a discontinuous flux with.
+        `(n_elements, *component_shape)`, such as a flux tensor, and returns the matching
+        `(n_nodes,)` or `(n_nodes, *component_shape)`, recovering each component
+        independently.
 
-        Weighted by volume rather than counted evenly: on a graded mesh a sliver and
-        the large element beside it are not equally good evidence about the field near
-        their shared node, and an unweighted mean gives them the same say. On a uniform
-        mesh the two agree exactly.
+        `method` picks the recovery:
+
+        - `'average'` (default): the volume-weighted nodal average. Local and cheap.
+          Weighted by volume rather than counted evenly, since on a graded mesh a sliver
+          and the large element beside it are not equally good evidence about the field
+          near their shared node; on a uniform mesh the two agree.
+        - `'l2'`: the global L2 projection onto the nodal space, `M q = ∫ f φ`. A mass
+          solve, more accurate on a graded mesh, and it conserves the field's integral
+          (`∫ q = ∫ f`), which the average does not. Worth its cost only where a
+          nodal-output consumer needs the fidelity.
 
         This lives on the space rather than on `Mesh` because it is a discretization
-        operation, not a geometric one: it needs the element measures, which the space
-        owns and the mesh does not.
+        operation, not a geometric one: it needs the element measures (average) or the
+        mass matrix (L2), which the space owns and the mesh does not.
         '''
         values = np.asarray(values, dtype=float)
         if len(values) != len(self.element_nodes):
@@ -540,6 +545,14 @@ class FunctionSpace:
                 f'expected one value per element ({len(self.element_nodes)}), '
                 f'got {len(values)}'
             )
+        if method == 'average':
+            return self._recover_nodal_average(values)
+        if method == 'l2':
+            return self._recover_nodal_l2(values)
+        raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
+
+    def _recover_nodal_average(self, values: FloatArray) -> VertexField:
+        '''The volume-weighted nodal average of a per-element field.'''
         nodes = self.element_nodes
         weights = self.element_volumes
         n_local = nodes.shape[1]
@@ -560,6 +573,41 @@ class FunctionSpace:
         # would divide by zero, so it keeps 0 instead.
         norms = np.where(norms > 0, norms, 1.0).reshape((-1,) + (1,) * len(trailing))
         return sums / norms
+
+    def _recover_nodal_l2(self, values: FloatArray) -> VertexField:
+        '''The L2 projection of a per-element field onto the nodal space: solve M q = b.
+
+        `b_i = ∫ f φ_i`, and with `f` element-constant that is `Σ_e f_e ∫_e φ_i`, built
+        from the same rule the mass matrix integrates with so `M⁻¹ b` is the exact
+        projection. Each trailing component is one right-hand side against the shared
+        scalar mass matrix.
+        '''
+        geometry = self.geometry
+        # The integral of each shape function over each element: (n_elements, N).
+        shape_integral = np.einsum('eq,qn->en', geometry.weight_detJ, geometry.shape)
+        nodes = self.element_nodes
+        n_local = nodes.shape[1]
+        trailing = values.shape[1:]
+
+        contrib = (shape_integral.reshape(len(values), n_local, *((1,) * len(trailing)))
+                   * values[:, None, ...])
+        load = np.zeros((self.n_nodes, *trailing))
+        np.add.at(load, nodes.ravel(), contrib.reshape(len(values) * n_local, *trailing))
+
+        projected = spsolve(self._nodal_mass_matrix, load.reshape(self.n_nodes, -1))
+        return np.asarray(projected).reshape(self.n_nodes, *trailing)
+
+    @cached_property
+    def _nodal_mass_matrix(self) -> SparseMatrix:
+        '''The scalar (n_nodes x n_nodes) consistent mass matrix, for L2 nodal recovery.
+
+        A vector space's `mass_matrix` is block-interleaved over its components, but
+        recovery projects each scalar component on its own, so it needs the one-component
+        matrix on the same nodes. Identical to `mass_matrix` when the space is scalar.
+        '''
+        if self.n_components == 1:
+            return self.mass_matrix
+        return FunctionSpace(self.mesh, self.element_type, n_components=1).mass_matrix
 
     # -- operators ----------------------------------------------------------
 
