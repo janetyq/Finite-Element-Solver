@@ -662,15 +662,29 @@ class FunctionSpace:
     # (EnergySolver's Newton loop), exactly as boundary conditions stay with the
     # caller for the bilinear path.
 
+    def _energy_geometry(self, form: EnergyForm) -> ElementGeometry:
+        '''Geometry at a rule that fully integrates `form`'s energy on this element.
+
+        The energy is a higher-degree integrand than the linear stiffness the default
+        rule is tuned for (St-Venant-Kirchhoff is quartic in the displacement gradient,
+        so degree 4 on P2). The same rule serves the energy, its gradient (the residual),
+        and its Hessian (the tangent), so the three stay consistent: the residual is the
+        exact gradient of the quadrature energy and Newton sees a matching tangent.
+        Degree 0 on P1, where the energy is element-constant, so the default rule stands.
+        '''
+        degree = max(self.element_type.default_quadrature_degree(),
+                     form.quadrature_degree(self.element_type.SHAPE_DEGREE))
+        return self.geometry_at(degree)
+
     def total_energy(self, form: EnergyForm, u: DofVector) -> float:
         '''Sum an EnergyForm's element energies at state `u`: the scalar Pi(u).'''
         u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
-        return float(form.element_energies(self.geometry, u_elements).sum())
+        return float(form.element_energies(self._energy_geometry(form), u_elements).sum())
 
     def assemble_residual(self, form: EnergyForm, u: DofVector) -> DofVector:
         '''Scatter element residuals at `u` into grad Pi(u), shape (n_dofs,).'''
         u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
-        residuals = form.element_residuals(self.geometry, u_elements)
+        residuals = form.element_residuals(self._energy_geometry(form), u_elements)
         return self._volume_vector_scatter.scatter(
             residuals.reshape(len(self.element_nodes), -1)
         )
@@ -679,7 +693,8 @@ class FunctionSpace:
         '''Scatter element tangents at `u` into grad^2 Pi(u), shape (n_dofs, n_dofs).'''
         u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
         k = self.element_type.N * self.n_components
-        tangents = form.element_tangents(self.geometry, u_elements).reshape(-1, k, k)
+        tangents = form.element_tangents(
+            self._energy_geometry(form), u_elements).reshape(-1, k, k)
         return self._assemble(tangents)
 
     # -- the scatter -------------------------------------------------------
