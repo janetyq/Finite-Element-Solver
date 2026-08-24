@@ -134,10 +134,11 @@ machine precision; the third stiffens as the stretch grows, which small strain c
 
 The one demo that runs the whole pipeline, in one row. A plate with a hole is meshed from
 its outline, given roller and traction conditions (the rim is left traction-free, the
-natural condition of the weak form), then adaptively refined toward the stress at the rim.
-The stress crowds into the material either side of the hole and relaxes to the applied
-value within about a diameter, peaking just above the classic Kirsch factor of 3 that
-holds for a hole in an infinite plate (a finite plate reads a little higher).
+natural condition of the weak form), solved on curved quadratic elements, then adaptively
+refined toward the stress at the rim. The stress crowds into the material either side of
+the hole and relaxes to the applied value within about a diameter. Read at the rim nodes
+it peaks at 3.00x the applied stress, against the classic Kirsch factor of 3 for a hole in
+an infinite plate and Howland's 3.02 for a hole a tenth of this plate's width.
 
 <p align="center"><img src="images/stress_concentration.png" width="780" alt="Refined mesh with conditions, the stress field, and the peak against the Kirsch factor"></p>
 
@@ -208,8 +209,8 @@ map, so the element's boundary edge bends to follow it instead of cutting a chor
 Meshing carries the curve through, so Ruppert's split points and red-green refinement
 project onto it and a circular hole stays round under refinement rather than becoming a
 finer polygon. On an annulus the meshed area then converges at the element's own order
-rather than the polygonal $O(h^2)$, and a coarsely sampled hole recovers the Kirsch
-stress concentration that a straight facet under-resolves.
+rather than the polygonal $O(h^2)$, and a coarsely sampled hole, read at its rim node,
+already carries most of the Kirsch stress concentration.
 
 ### Adaptive refinement
 
