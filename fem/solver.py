@@ -12,7 +12,7 @@ from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
 from fem.elements import Element
 from fem.equations import Equation, LinearElastic
-from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution, Solution
+from fem.solution import ElasticSolution, FieldSolution, Solution
 from fem.space import FunctionSpace
 from fem.forms import RecoversElasticFields
 from fem.backends import Backend, IterativeBackend, rigid_body_modes
@@ -39,8 +39,9 @@ class Solver:
         # SPD; the facade forwards it to LinearSolve untouched.
         self.backend = backend
         # The element order, `None` meaning the linear element for the mesh's node
-        # count. Pass `QuadraticTriangleElement` for a P2 solve (O(h^3)); both the
-        # recovery and residual estimators drive adaptive refinement on P2.
+        # count. Pass `QuadraticTriangleElement` for a P2 solve (O(h^3)); the
+        # adaptive-refinement estimator is P1-only, so a refined P2 solve is not yet
+        # supported, but a single P2 solve is.
         self.element_type = element_type
         # Derived, never passed: the component count follows from the equation's
         # field and the mesh, so a space that disagrees with the equation it is
@@ -104,9 +105,7 @@ class Solver:
         a form that can recover derived fields additionally yields an
         ElasticSolution rather than a bare FieldSolution. The capability is asked
         for rather than the class named, so a form this facade has never heard of
-        reports its stresses through the same path. A scalar equation that names a
-        derived field (Poisson's flux) likewise comes back as a ScalarFieldSolution
-        carrying it; one that names none (a projection) stays a bare FieldSolution.
+        reports its stresses through the same path.
         '''
         logger.info('Solving steady system...')
         problem = self._steady_problem()
@@ -114,7 +113,4 @@ class Solver:
 
         if isinstance(problem.operator, RecoversElasticFields):
             return ElasticSolution.from_solve(self.space, u, problem.operator)
-        if self.equation.derived_field() is not None:
-            return ScalarFieldSolution.from_solve(self.space, u)
-        return FieldSolution(self.mesh, self.n_components, u,
-                             element_type=self.space.element_type)
+        return FieldSolution(self.mesh, self.n_components, u)

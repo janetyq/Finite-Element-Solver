@@ -2,12 +2,7 @@
 import numpy as np
 import pytest
 
-from fem.elements import (
-    LinearLineElement,
-    LinearTetrahedralElement,
-    LinearTriangleElement,
-    QuadraticTriangleElement,
-)
+from fem.elements import LinearLineElement, LinearTetrahedralElement
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.mesh.mesh import Mesh
 from fem.space import FunctionSpace
@@ -102,7 +97,7 @@ def _two_triangle_square() -> Mesh:
 
 def test_shared_vertex_combines_the_values_of_its_elements():
     space = FunctionSpace(_two_triangle_square())
-    values = space.recover_nodal(np.array([10.0, 20.0]))
+    values = space.element_to_vertex(np.array([10.0, 20.0]))
 
     # Both triangles have the same area, so the weighting reduces to the mean.
     assert values[0] == 15.0
@@ -119,8 +114,8 @@ def test_projection_does_not_depend_on_element_ordering():
     reversed_mesh = Mesh(
         vertices=mesh.vertices, elements=mesh.elements[::-1], boundary=mesh.boundary,
     )
-    forward = FunctionSpace(mesh).recover_nodal(np.array([10.0, 20.0]))
-    backward = FunctionSpace(reversed_mesh).recover_nodal(np.array([20.0, 10.0]))
+    forward = FunctionSpace(mesh).element_to_vertex(np.array([10.0, 20.0]))
+    backward = FunctionSpace(reversed_mesh).element_to_vertex(np.array([20.0, 10.0]))
     assert np.allclose(forward, backward)
 
 
@@ -129,7 +124,7 @@ def test_constant_element_field_is_reproduced_at_every_vertex(make_unit_square):
     constant at every vertex, whatever the valence and whatever the weighting."""
     space = FunctionSpace(make_unit_square(6))
     constant = np.full(len(space.mesh.elements), 3.5)
-    assert np.allclose(space.recover_nodal(constant), 3.5)
+    assert np.allclose(space.element_to_vertex(constant), 3.5)
 
 
 def test_projection_weights_by_element_volume():
@@ -147,7 +142,7 @@ def test_projection_weights_by_element_volume():
     areas = space.element_volumes
     np.testing.assert_allclose(areas, [0.5, 0.05])
 
-    values = space.recover_nodal(np.array([10.0, 20.0]))
+    values = space.element_to_vertex(np.array([10.0, 20.0]))
     expected = (10.0 * areas[0] + 20.0 * areas[1]) / areas.sum()
 
     np.testing.assert_allclose(values[0], expected)
@@ -157,47 +152,4 @@ def test_projection_weights_by_element_volume():
 def test_projection_rejects_a_field_of_the_wrong_length(make_unit_square):
     space = FunctionSpace(make_unit_square(4))
     with pytest.raises(ValueError, match='one value per element'):
-        space.recover_nodal(np.zeros(3))
-
-
-def test_unknown_recovery_method_is_rejected(make_unit_square):
-    space = FunctionSpace(make_unit_square(4))
-    with pytest.raises(ValueError, match='unknown recovery method'):
-        space.recover_nodal(np.zeros(len(space.mesh.elements)), method='patch')
-
-
-@pytest.mark.parametrize('element_type', [LinearTriangleElement, QuadraticTriangleElement])
-def test_l2_recovery_reproduces_a_constant_field(element_type):
-    """The patch test for the L2 projection: a constant per-element field projects to
-    that same constant at every node, since the constant lies in the nodal space."""
-    mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 5])
-    space = FunctionSpace(mesh, element_type, n_components=1)
-    constant = np.full(len(mesh.elements), 3.5)
-    assert np.allclose(space.recover_nodal(constant, method='l2'), 3.5)
-
-
-def test_l2_recovery_conserves_the_field_integral():
-    """The L2 projection satisfies ∫ q = ∫ f (test against the constant 1, which the
-    nodal space represents), so the recovered field carries the per-element field's
-    integral to machine precision on any mesh."""
-    mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [10, 10])
-    mesh.vertices[:, 0] = mesh.vertices[:, 0] ** 2          # a graded mesh
-    space = FunctionSpace(mesh)
-    field = mesh.vertices[mesh.elements].mean(axis=1)[:, 0]  # varies element to element
-    exact = float((field * space.element_volumes).sum())
-
-    recovered = space.recover_nodal(field, method='l2')
-    assert space.integrate(recovered) == pytest.approx(exact, rel=1e-12)
-
-
-def test_l2_and_average_recovery_differ_on_a_varying_field():
-    """The two recoveries are genuinely different operators: the local weighted average
-    and the global mass projection agree only on a field the space reproduces exactly
-    (a constant), and differ on one that varies element to element."""
-    mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [8, 8])
-    space = FunctionSpace(mesh)
-    field = mesh.vertices[mesh.elements].mean(axis=1)[:, 0] ** 2
-
-    average = space.recover_nodal(field, method='average')
-    l2 = space.recover_nodal(field, method='l2')
-    assert not np.allclose(average, l2)
+        space.element_to_vertex(np.zeros(3))

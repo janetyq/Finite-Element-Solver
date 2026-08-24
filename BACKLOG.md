@@ -12,13 +12,13 @@ Effort: 🟢 low · 🟡 medium · 🔴 high.
 |---|---|:---:|---|
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
 | Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
-| Numerics | 3D P2 (`QuadraticTetrahedralElement`); P2 curved-element adaptivity | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | 3D P2 (`QuadraticTetrahedralElement`); P2 plotting / adaptivity | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Mixed (u-p) formulation for near-incompressible elasticity | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize the Newton direction (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Post-proc | Transient derived fields (steady flux/stress recovery shipped) | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Design | Lazy plot / `pyamg` imports | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Post-proc | Poisson flux, transient derived fields | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Design | Nodal L2 projection option; lazy plot / `pyamg` imports | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
@@ -68,27 +68,19 @@ Two approaches measured and rejected, so they are not proposed again:
   to match. The `Element` base and the `FunctionSpace` node set generalize, but the 3D shape functions
   and connectivity are not written. **`deformed_mesh`** reads the vertex DOFs and drops the
   edge-midpoint displacements, so a P2 displacement warp draws as its P1 restriction (field plotting
-  itself is now P2-aware via `FunctionSpace.tessellation`). **Adaptive refinement** drives a P2 solve
-  through either estimator: the recovery one samples the flux per quadrature point and recovers by L2
-  projection, and the residual one carries the interior `div(flux)` (from the P2 shape Hessians) and a
-  per-side edge jump. Both are for straight P2; a *curved* (isoparametric) element's varying Jacobian
-  adds a first-derivative term the residual estimator's affine field Hessian omits, so refining a
-  curved-boundary P2 solve is the remaining piece.
+  itself is now P2-aware via `FunctionSpace.tessellation`). **Adaptive refinement** is P1-only (the
+  residual estimator is 2D-P1), so a *refined* P2 solve is unsupported.
 - 💡 **Curved (isoparametric) elements: follow-ups.** The core shipped:
   `IsoparametricTriangleElement` (a geometry map differentiated over all nodes, per quadrature
   point), `Circle` / `Arc` curves carried through `PSLG` -> `RuppertsAlgorithm` ->
   `Mesh.boundary_curves`, boundary-node projection in `p2_connectivity`, curvature-aware Ruppert and
   red-green refinement, a curved `MassForm`, P2-aware plotting (`FunctionSpace.tessellation` through
-  `Plotter.plot(..., space=...)`, with the `curved_elements` gallery demo), SVG cubic Beziers
-  retained as `CubicBezier` curves through `read_svg_to_pslg` (adaptive flatness sampling, tag-aware
-  Douglas-Peucker), and validation (`tests/test_convergence_curved.py` area fidelity and the P2 rate;
-  `tests/test_curved_meshing.py` the pipeline and the Kirsch stress concentration; `tests/test_svg.py`
-  the traced-outline round trip). Two follow-ups are left. **3D curved elements** and **`fem/io.py`
-  curve serialization** (a saved mesh currently drops its curves) are the remaining gaps. `files/cloud.svg`
-  now meshes and solves in the `outline_to_mesh` demo, so its Bezier boundary carries through the pipeline
-  there; a dedicated *close-up* contrasting the curved boundary against its chord polygon (the isoparametric
-  payoff) still belongs beside `curved_elements`, unbuilt. Quadratic Beziers (degree-elevate to cubic) and
-  elliptical arcs (`EllipseArc`) are unbuilt but unused by the bundled assets.
+  `Plotter.plot(..., space=...)`, with the `curved_elements` gallery demo), and validation
+  (`tests/test_convergence_curved.py` area fidelity and the P2 rate; `tests/test_curved_meshing.py`
+  the pipeline and the Kirsch stress concentration). Three follow-ups are left. **SVG Beziers**:
+  `svg.py` still flattens cubics to line segments, so arbitrary traced artwork gets no curve;
+  retaining the control points would feed `PSLG` a curve. **3D curved elements** and **`fem/io.py`
+  curve serialization** (a saved mesh currently drops its curves) are the remaining gaps.
 - 💡 **Mixed (u-p) formulation, to remove volumetric locking near nu -> 0.5.** The linear triangle
   has one constant strain per element, which cannot represent deviatoric and volumetric deformation
   independently. As `nu` approaches incompressibility the element gets artificially stiff, worst in
@@ -142,16 +134,18 @@ Two approaches measured and rejected, so they are not proposed again:
 
 **Post-processing coverage**
 
-The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3). Steady solves now recover
-their derived fields through one seam: `Equation.derived_field` names the field (Poisson's gradient,
-elasticity's stress, `fem.postprocess.DerivedField`), the typed `Solution` carries it per element
-(`ScalarFieldSolution.flux`, `ElasticSolution.stress`), and `FunctionSpace.recover_nodal` turns it into
-a continuous per-node field for smooth output, P2 plotting, and the recovery estimator. The remaining
-gap is the transient path.
+The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3), but only elasticity recovers
+anything. Each item below is an implementation of a seam that already exists.
 
+- 💡 **Poisson flux `-∇u`.** The natural derived field for the scalar family, and the quantity a
+  residual error estimator needs. `FunctionSpace.gradient` already computes the gradient; what is
+  missing is the packaging, and it needs a **new** result shape, not the existing one.
+  `RecoversElasticFields` returns strain, stress, and compliance, none of which a scalar field has,
+  so that protocol abstracts over linear-vs-energy *elasticity* rather than over physics. Expect a
+  sibling capability with its own bundle, and a `Solution` subclass to carry it; the reusable part is
+  the pattern, not the protocol.
 - 💡 **Derived fields for transient solves.** `TransientSolution` carries a per-step series of `u`
-  and nothing derived from it, so a time-stepped heat problem has no flux history. The steady seam
-  (`DerivedField` + `recover_nodal`) is the piece to lift onto each step.
+  and nothing derived from it, so a time-stepped heat problem has no flux history.
 - 💡 **Plane stress as an alternative 2D reduction.** 2D elasticity is plane strain throughout, now
   named rather than implicit (`LinearElasticMaterial.out_of_plane_stress`, and the matching
   `out_of_plane_stress` on the energy densities). Plane stress (a thin plate free to contract in z,
@@ -162,29 +156,17 @@ gap is the transient path.
 
 **Design / maintainability**
 
+- 💡 **Nodal L2 projection option for `element_to_vertex`.** `FunctionSpace.element_to_vertex`
+  weights by element measure, the defensible projection and the reason the space (not the mesh) owns
+  it. The stricter choice is the mass-matrix L2 projection (solve `M u = ∫ f φ`), more accurate on a
+  graded mesh at the cost of a solve. Worth adding only if a nodal-output consumer needs the
+  accuracy; plotting does not.
 - 💡 **Lazy plot and `pyamg` imports for headless use.** `fem/__init__.py` re-exports `Plotter` /
   `PlotMode`, and `fem.backends` imports `pyamg` at module scope, so `import fem` always pulls in a
   plotting backend and `pyamg`. Making both edges lazy would let the package import without them.
   Worth doing only if a headless import becomes a goal.
 
 **Features**
-- 💡 **Adjoint sensitivity: follow-ups.** The core shipped (`fem/sensitivity.py`:
-  `SensitivityAnalysis`, `Compliance` / `PointValue` quantities of interest, `DensityField` /
-  `ModulusField` parameterizations), a general `DesignOptimizer` over it (`fem/design.py`), and
-  `TopologyOptimizer` now draws its compliance sensitivity from the core rather than a hand-written
-  formula. Design record in `attic/fem-adjoint-sensitivity-design-2026-08-18.md`; the follow-up plan
-  is `attic/fem-adjoint-followups-2026-08-19.md`. **Stress-based quantities of interest** shipped
-  (`MeanStress`, `SoftMaxStress` in `fem/sensitivity.py`): they supply the adjoint load `∂J/∂u` for a
-  fixed material, validated by finite differences. The remaining piece for stress-*constrained design*
-  is the explicit `∂J/∂p` term, since the stress `σ = D(E)Bu` depends on the design modulus directly,
-  not only through `u`; the adjoint pass adds only `−λᵀ∂R/∂p`, so the driver needs an optional
-  `∂J/∂p` from the quantity of interest (and the relaxed-stress `σ = ρ^η D0 Bu` definition topology
-  optimization uses). Best done alongside the general gradient engine below. Open pieces, each additive
-  behind the same three seams:
-  **shape parameterization** (`∂(element geometry)/∂(node)` mesh sensitivities, the one piece needing
-  new geometry-derivative code); a **general gradient engine** (`scipy.optimize` SLSQP behind the
-  optimizer, for objectives the optimality-criteria update cannot take); and the **nonlinear tangent
-  path** (`EnergyProblem`, where the adjoint uses the Newton tangent at the converged state).
 - 💡 The README's roadmap (thermal expansion, transport, fluid mechanics, nonlinear hyperelasticity
   via the existing `EnergySolver` / `Energies` machinery) all fit the current architecture well.
   `NeohookeanEnergyDensity` is a stub: filling in its `W` and derivatives gives a nonlinear material
@@ -218,8 +200,17 @@ gap is the transient path.
   internals rather than demanding annotations. Annotating the internals (`refinement`, `ruppert`,
   `energies`, `plot`) would let the mode step up.
 - 💡 **pre-commit hooks** (ruff + whitespace) so the CI checks run locally before each commit.
-- 💡 **Mesh formats.** `fem/io.py` writes meshes as JSON; `.off` / `.obj` export would make them
-  loadable by standard tools.
+- 💡 **Physical-group tags: two follow-ups.** `Mesh` now carries `cell_tags` / `facet_tags` and
+  `tag_names` from meshio's physical groups (`fem/io.py`), with `Mesh.on_tag` turning a facet tag
+  into a geometric region a boundary condition can use (P2-complete, survives refinement). Two pieces
+  are left. **Materials by subdomain**: `cells_with_tag` exposes the tagged elements, but no material
+  or source path consumes them yet, so a multi-material import still needs a coordinate predicate.
+  **Tags through refinement**: `with_topology` drops the tags (new facets are unrelated to the old
+  ids), so a refined imported mesh loses its groups; a curvature-style carry that maps a child facet
+  to its parent's tag would keep them.
+- 💡 **Solution export to VTU/XDMF.** Solutions save to a private `.npz` (`fem/io.py`). Writing the
+  fields as point data on a `.vtu`/`.xdmf` would let results open in ParaView, reusing the meshio
+  adapter already in place.
 
 ---
 

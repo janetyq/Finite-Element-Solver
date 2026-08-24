@@ -20,7 +20,7 @@ from fem.convergence import (
     poisson_p2_convergence, solve_annulus_mms, solve_load_comparison, theta_convergence,
 )
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.estimators import goal_oriented_estimator, recovery_estimator, residual_estimator
+from fem.estimators import residual_estimator
 from fem.forms import MaskedMassForm
 from fem.space import FunctionSpace
 from fem.regions import everywhere, on_plane, in_box, intersect, union
@@ -34,9 +34,6 @@ from fem.mesh.refinement import RedGreenRefiner
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
-from fem.sensitivity import Compliance, PointValue, SensitivityAnalysis
-from fem.design import DesignOptimizer, SIMPModel
-from fem.topology import calculate_smoothing_matrix
 from fem.energy_solver import EnergySolver
 from fem.buckling import BucklingSolver
 from fem.modal import ModalSolver
@@ -111,11 +108,10 @@ def demo_poisson_equation(mesh):
                'conditions', setup=True),
     ])
 
-def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
-                        n_points=80, min_angle=20, max_area_fraction=0.0015):
+def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=6.0,
+                        n_points=80, min_angle=20, max_area_fraction=0.002):
     """Potential flow over a NACA airfoil: Laplace's equation for the velocity potential,
-    with the wing a no-flux streamline the flow accelerates over. Solved with quadratic
-    (P2) elements, so the recovered flow speed is smooth without a very fine mesh."""
+    with the wing a no-flux streamline the flow accelerates over."""
     # An ideal (incompressible, irrotational) flow has a velocity potential phi with
     # v = grad(phi) and div(v) = 0, so phi solves Laplace's equation. The wing carries no
     # flow through it, which is exactly the natural (zero-flux) condition of the weak
@@ -134,12 +130,10 @@ def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)      # inlet (left)
     bc.add(BCType.DIRICHLET, on_plane(0, length), 1.0)   # outlet (right)
 
-    solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
+    solver = Solver(mesh, equation, bc)
     solution = solver.solve()
-    # v = grad(phi). The per-element gradient is constant on each triangle; nodal_flux
-    # recovers a continuous per-node field from it, which the P2 tessellation then draws
-    # smoothly, so the speed reads as a field rather than a mosaic of flat triangles.
-    speed = np.linalg.norm(solution.nodal_flux(), axis=1)   # (n_nodes,)
+    velocity = solver.space.gradient(solution.u)         # v = grad(phi), per element
+    speed = np.linalg.norm(velocity, axis=1)
     # Ideal flow with no Kutta condition predicts a near-singular velocity where the
     # airfoil edges are sharp, which would swamp the colour scale. Clip it to a high
     # percentile so the flow over the wing, the point of the figure, stays legible.
@@ -148,13 +142,11 @@ def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     conditions = Plotter(panel_aspect=1.8)
     conditions.plot(mesh, mode='bc', bc=bc)
 
-    # `space=solution.space` opts both panels onto the P2 tessellation: the potential
-    # shows its within-element curvature and the recovered speed draws smoothly.
     plotter = Plotter(1, 2, title='Potential flow over an airfoil', panel_aspect=1.8)
     plotter.plot(mesh, solution.u, mode='colored', idx=(0, 0), label='velocity potential',
-                 title='Potential and its equipotentials', contour=22, space=solution.space)
+                 title='Potential and its equipotentials', contour=22)
     plotter.plot(mesh, speed, mode='colored', idx=(0, 1), label='flow speed', clim=(0.0, cap),
-                 title='Flow speed (clipped near the edges)', space=solution.space)
+                 title='Flow speed (clipped near the edges)')
     return DemoResult([
         Figure(plotter,
                'Ideal (irrotational, incompressible) flow over a NACA 2412 airfoil at a '
@@ -657,17 +649,12 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
               f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)'),
     )
 
-def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, nu=0.3,
-                 min_angle=28, max_area_fraction=0.0015, n_rounds=18, refine_fraction=0.9):
+def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=200.0, nu=0.3,
+                 min_angle=28, max_area_fraction=0.006, n_rounds=14, refine_fraction=0.9):
     """Load an L-bracket and read the stress at its inner corner: a sharp re-entrant
     corner is a stress singularity whose peak climbs without bound as the mesh refines,
     while a fillet gives a finite, converged value. This is why real parts round their
-    inner corners.
-
-    Solved on quadratic (P2) elements: the sharp bracket on straight `QuadraticTriangleElement`,
-    the filleted one on `IsoparametricTriangleElement` so the arc is a true circle rather than
-    a polygon. The recovery estimator drives refinement (it reads the curved fillet's flux
-    correctly), and the peak is read from the recovered nodal von Mises."""
+    inner corners."""
     # The re-entrant corner is where the two limbs meet. There the exact elastic stress
     # is genuinely infinite (it grows like r^(-0.46) into the corner), so no mesh
     # resolves it: refine and the computed peak just keeps climbing. Rounding the corner
@@ -683,48 +670,42 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
         bc.add(BCType.NEUMANN, on_plane(0, arm), [0, -traction])  # pull the horizontal tip down
         return bc
 
-    def corner_peak(solution):
+    def corner_peak(mesh, von_mises):
         # The von Mises peak near the inner corner alone, kept clear of the clamp's own
-        # concentration at the far top so the comparison is about the corner. Read from the
-        # L2-recovered nodal field (recover-then-reduce), the same smooth field the panels
-        # draw, so the tracked peak and the plotted colour agree.
-        space = solution.space
-        nodal_vm = solution.nodal_von_mises(method='l2')
-        near = np.linalg.norm(space.node_coords - corner, axis=1) < 0.8 * width
-        return float(nodal_vm[near].max())
+        # concentration at the far top so the comparison is about the corner.
+        centroids = mesh.vertices[mesh.elements].mean(axis=1)
+        near = np.linalg.norm(centroids - corner, axis=1) < 0.8 * width
+        return float(von_mises[near].max())
 
-    def refine_and_track(fillet, element_type):
+    def refine_and_track(fillet):
         """Adaptively refine one bracket, recording the corner peak each round.
 
         The refinement loop is `AdaptiveRefinement`'s, unrolled here so the corner peak
         can be read off every intermediate mesh rather than only the last: the sequence
-        of peaks is the point, not just the final field. `element_type` is the straight
-        quadratic triangle for the sharp corner and the isoparametric one for the fillet,
-        so the arc stays a true circle through refinement.
+        of peaks is the point, not just the final field.
         """
         pslg = l_bracket_pslg(arm, width, fillet_radius=fillet, n_fillet=20)
         pslg.validate()
         mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=max_area_fraction * pslg.area()).refine()
-        solver = Solver(mesh, equation, make_bc(), element_type=element_type)
+        solver = Solver(mesh, equation, make_bc())
         refiner = RedGreenRefiner(solver.mesh)
-        estimator = recovery_estimator(equation)
+        estimator = residual_estimator(equation)
         solution = solver.solve()
         sizes, peaks = [], []
         for _ in range(n_rounds):
             sizes.append(len(solver.mesh.elements))
-            peaks.append(corner_peak(solution))
+            peaks.append(corner_peak(solver.mesh, solution.von_mises))
             residuals = estimator.estimate(solver)
             refine_idxs = np.flatnonzero(residuals >= refine_fraction * residuals.max())
             solver.remesh(refiner.refine([int(i) for i in refine_idxs]))
             solution = solver.solve()
         sizes.append(len(solver.mesh.elements))
-        peaks.append(corner_peak(solution))
+        peaks.append(corner_peak(solver.mesh, solution.von_mises))
         return solver.mesh, solution, np.array(sizes), np.array(peaks)
 
-    sharp_mesh, sharp, sharp_sizes, sharp_peaks = refine_and_track(0.0, QuadraticTriangleElement)
-    round_mesh, rounded, round_sizes, round_peaks = refine_and_track(
-        fillet_radius, IsoparametricTriangleElement)
+    sharp_mesh, sharp, sharp_sizes, sharp_peaks = refine_and_track(0.0)
+    round_mesh, rounded, round_sizes, round_peaks = refine_and_track(fillet_radius)
 
     conditions = Plotter(panel_aspect=1.0)
     conditions.plot(sharp_mesh, mode='bc', bc=make_bc())
@@ -736,16 +717,9 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     for i, (name, mesh, solution, peaks) in enumerate((
             ('Sharp corner', sharp_mesh, sharp, sharp_peaks),
             (f'Fillet r = {fillet_radius:g}', round_mesh, rounded, round_peaks))):
-        # P2-aware render: passing the solution pulls its space (the tessellation), the
-        # L2-recovered nodal von Mises is the smooth field, and warp=True draws it on the
-        # deformed shape.
-        fields.plot(solution, solution.nodal_von_mises(method='l2'), mode='colored',
-                    idx=(0, i), warp=True, label='von Mises stress',
+        fields.plot(solution.deformed_mesh(), solution.von_mises, mode='colored', idx=(0, i),
+                    label='von Mises stress',
                     title=f'{name}\n{len(mesh.elements)} elements, corner peak {peaks[-1]:.0f}')
-        # Clamp and tip-load glyphs read off the undeformed mesh, drawn at the deformed
-        # vertex positions so the load follows the tip it pulls on.
-        deformed_vertices = mesh.vertices + solution.u.reshape(-1, 2)[:len(mesh.vertices)]
-        fields.overlay_supports(mesh, make_bc(), idx=(0, i), coords=deformed_vertices)
 
     sweep = Plotter(1, 1, title='The corner peak against mesh refinement')
     ax = sweep.chart_ax(xlabel='elements', ylabel='von Mises at the inner corner')
@@ -753,15 +727,7 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     ax.semilogx(round_sizes, round_peaks, 'o-', color='tab:blue',
                 label=f'fillet r = {fillet_radius:g} (converges)')
     ax.set_title('Sharp corner keeps climbing; the fillet settles')
-    # The element counts span well under a decade, where a log axis crowds itself with
-    # minor labels (1.1x10^3, 1.2x10^3, ...); label a few round values across the range.
     ax.grid(True, which='both', alpha=0.3)
-    sizes_all = np.concatenate([sharp_sizes, round_sizes])
-    mantissas = np.array([1, 1.2, 1.5, 1.8, 2, 2.5, 3, 4, 5, 7])
-    nice = np.concatenate([mantissas * 10**k for k in (2, 3, 4)])
-    ticks = nice[(nice >= sizes_all.min()) & (nice <= sizes_all.max())]
-    if len(ticks) >= 2:
-        _tidy_log_axis(ax, ticks)
     ax.legend()
 
     reduction = 100 * (1 - round_peaks[-1] / sharp_peaks[-1])
@@ -793,6 +759,57 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
              f'over {round_sizes[-1]} elements, converged\n'
              f'reduction from the fillet       {reduction:.0f}%'))
 
+
+def demo_robin_bc(mesh):
+    """Cool a heated plate through a convective boundary, sweeping the Robin coefficient."""
+    # du/dn + kappa*(u - u_ambient) = 0: heat generated inside escapes through a boundary
+    # film, and kappa says how freely. The other two condition types are its limits:
+    # kappa -> 0 is insulated (Neumann) and kappa -> infinity pins u to ambient
+    # (Dirichlet), so the sweep ends on a Dirichlet solve the last Robin panel should
+    # already look like.
+    u_ambient = 300.0
+    equation = Poisson(source=50.0)
+    kappas = [0.5, 5.0, 500.0]
+
+    # The sweep varies kappa, not where it applies, so one conditions figure covers all
+    # three: the whole boundary is a film, and each result panel's title says how free
+    # a one.
+    first = BoundaryConditions()
+    first.add_robin(everywhere(), kappa=kappas[0], g=kappas[0]*u_ambient)
+    conditions = Plotter()
+    conditions.plot(mesh, mode='bc', bc=first)
+
+    solves = []
+    for kappa in kappas:
+        bc = BoundaryConditions()
+        bc.add_robin(everywhere(), kappa=kappa, g=kappa*u_ambient)
+        solves.append((f'kappa={kappa:g}', Solver(mesh, equation, bc).solve().u))
+
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), u_ambient)
+    solves.append(('Dirichlet limit', Solver(mesh, equation, bc).solve().u))
+
+    # One scale across the sweep, which is what the demo is claiming with. Renormalized
+    # per panel the four look alike and the reader has to compare colorbar ticks; shared,
+    # the plate visibly cools towards ambient as kappa rises, and the last two are the
+    # same picture, which is the claim that the Robin limit is the Dirichlet solve.
+    span = (min(float(u.min()) for _, u in solves), max(float(u.max()) for _, u in solves))
+    plotter = Plotter(1, len(solves), title='Robin BCs: convective cooling')
+    for i, (name, u) in enumerate(solves):
+        plotter.plot(mesh, u, mode='colored', idx=(0, i), label='temperature',
+                     title=f'{name}\n{u.min():.1f} - {u.max():.1f}', clim=span)
+    return DemoResult([
+        Figure(plotter,
+               'Convective cooling at three film coefficients, all four on one colour '
+               'scale, so the plate is seen to cool towards ambient as the film opens '
+               'up. The last Robin panel and the Dirichlet solve beside it are the same '
+               'picture and agree to the digit: the limit, computed both ways.',
+               'sweep'),
+        Figure(conditions,
+               'Robin the whole way round, at the first of the three coefficients. Only '
+               'kappa changes across the sweep; where the condition applies does not.',
+               'conditions', setup=True),
+    ])
 
 def demo_elasticity_models(mesh, stretch=0.5):
     """Stretch one clamped block three ways: a linear solve, the same physics by energy
@@ -1342,101 +1359,6 @@ def demo_topology_optimization(mesh, iters=60):
              f'compliance, optimized (50% material)  {compliance_opt:.4f}\n'
              f'ratio                                 {ratio:.2f}x'))
 
-
-def demo_design_sensitivity(mesh, iters=40):
-    """Optimize a cantilever with the general design driver, and show the adjoint
-    sensitivity field it runs on: which elements matter most, for two different goals."""
-    E, nu = 200.0, 0.4
-    w = float(np.max(mesh.vertices[:, 0]))
-    h = float(np.max(mesh.vertices[:, 1]))
-    aspect = w / h
-
-    # A cantilever: clamp the left edge, pull the free right tip down. Homogeneous
-    # supports, so the compliance adjoint is the forward solve itself (lambda = u).
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
-    # A load band over the central third of the free edge rather than a point: wide enough
-    # to land on a boundary edge on any mesh, so the demo also runs on the coarse smoke one.
-    bc.add(BCType.NEUMANN, intersect(on_plane(0, w), in_box([None, 0.33 * h], [None, 0.67 * h])),
-           [0.0, -1.0])
-
-    space = FunctionSpace(mesh, n_components=2)
-    radius = 0.06 * h
-    model = SIMPModel(space, base_E=E, nu=nu, bc=bc, penalty=3.0,
-                      sensitivity_filter=calculate_smoothing_matrix(mesh, radius))
-
-    # The two adjoint sensitivity fields, computed on a uniform half-dense structure: one
-    # per objective, before any optimization. Each says d(objective)/d(density) per
-    # element, so it maps where material most changes that particular output.
-    rho0 = np.full(len(space.element_nodes), 0.5)
-    problem = model.problem(rho0)
-    analysis = SensitivityAnalysis(problem)
-    u0 = analysis.solve_forward()
-    density = model.parameterization(rho0)
-
-    tip_dof = _tip_vertical_dof(space, w)
-    # Magnitude, since the tip sensitivity is signed (adding material can move the tip
-    # either way locally); the magnitude is "how much this element steers the tip".
-    compliance_field = -analysis.gradient(Compliance(), density, u0)
-    tip_field = np.abs(analysis.gradient(PointValue(tip_dof), density, u0))
-
-    sensitivity = Plotter(2, 1, figsize=(6.5, 4.6),
-                          title='Adjoint sensitivity: which elements matter')
-    sensitivity.plot(mesh, compliance_field, mode='colored', idx=(0, 0), label='dC/drho',
-                     title='For total stiffness (compliance)')
-    sensitivity.plot(mesh, tip_field, mode='colored', idx=(1, 0), label='|du_tip/drho|',
-                     title='For the tip deflection alone')
-
-    # Then optimize: the general DesignOptimizer minimizes compliance over the density,
-    # its gradient supplied by the same adjoint core the fields above visualize.
-    design = DesignOptimizer(model, Compliance(), volume_frac=0.5, iters=iters,
-                             move=0.2).solve()
-    solid = Solver(mesh, LinearElastic(E, nu), bc).solve()
-    compliance_solid = float(solid.compliance.sum())
-    compliance_opt = float(design.objective[-1])
-    ratio = compliance_opt / compliance_solid
-
-    result = Plotter(panel_aspect=aspect, title='Optimized cantilever')
-    result.plot(mesh, design.rho[-1], mode='colored', label='density',
-                title=f'50% material, compliance {compliance_opt:.3g} ({ratio:.2f}x solid)')
-
-    conditions = Plotter(panel_aspect=aspect)
-    conditions.plot(mesh, mode='bc', bc=bc)
-
-    return DemoResult([
-        Figure(sensitivity,
-               'The adjoint gradient as a field, computed on the uniform half-dense beam '
-               'before any optimization. Top: how much each element affects the total '
-               'compliance, the stiffness of the whole structure. Bottom: how much each '
-               'element affects the tip deflection specifically. The two light up '
-               'different regions, which is the point of the adjoint: one solve answers '
-               '"which inputs matter for this output", and the output can be anything.',
-               'sensitivity'),
-        Figure(result,
-               'The cantilever optimized to minimum compliance under a 50% volume budget '
-               'by the general DesignOptimizer, whose descent direction is the compliance '
-               f'sensitivity field above. The result is {ratio:.2f}x as compliant as the '
-               'fully solid block on half the material.',
-               'result', thumbnail=True),
-        Figure(conditions,
-               'A cantilever: the left edge clamped, a downward load on the middle of the '
-               'free right edge.',
-               'conditions', setup=True),
-    ], text=(f'compliance, solid (100% material)     {compliance_solid:.4f}\n'
-             f'compliance, optimized (50% material)  {compliance_opt:.4f}\n'
-             f'ratio                                 {ratio:.2f}x'))
-
-
-def _tip_vertical_dof(space, width):
-    """The vertical DOF of the loaded free-end node nearest mid-height, for the point QoI."""
-    coords = space.node_coords
-    on_tip = np.isclose(coords[:, 0], width)
-    mid = np.median(coords[:, 1])
-    candidates = np.where(on_tip)[0]
-    node = int(candidates[np.argmin(np.abs(coords[candidates, 1] - mid))])
-    return node * space.n_components + 1
-
-
 def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                   sweep_lengths=(16.0, 20.0, 28.0, 40.0)):
     """Find the loads at which a slender column buckles and the shapes it buckles into,
@@ -1520,7 +1442,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     # one glyph-and-colour key below all of them (fig.supxlabel) rather than per panel.
     pinned_solution, pinned_loads = solve_buckling(mesh, pinned(length), length)
     pinned_bc = pinned(length)
-    modes = Plotter(1, n_modes, figsize=(3.2 * n_modes, 6.0), axis_labels=False,
+    modes = Plotter(1, n_modes, figsize=(2.4 * n_modes, 6.6), axis_labels=False,
                     title='Buckling modes of a pinned-pinned column')
     for i in range(n_modes):
         shape, colour = buckled(pinned_solution, i, length)
@@ -1529,15 +1451,12 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                          f'({i+1} half-wave{"s" if i else ""})')
         # The pin/load glyphs, on the deformed shape so the load rides the moving end.
         modes.overlay_supports(mesh, pinned_bc, idx=(0, i), coords=shape.vertices)
-        # Drop the x ticks: on these tall, thin columns the labels only collide, and the
-        # y axis already carries the scale (as on the modal modes plot).
-        modes.get_ax((0, i)).tick_params(axis='x', labelbottom=False, bottom=False)
     _share_panel_limits(modes, n_modes)
     modes.fig.supxlabel(
         'Blue triangles: the pinned ends, held sideways but free to rotate.\n'
         'Red arrow: the compressive load.\n'
         'Colour: sideways deflection; its sign and amplitude are arbitrary.',
-        fontsize='medium')
+        fontsize='small')
 
     # -- 2. Effective length: the same column, four ways to hold its ends ---------------
     measured = {}
@@ -1722,7 +1641,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
     _share_panel_limits(modes, n_shown)
     modes.fig.supxlabel(
         'Colour: sideways (transverse) displacement of the mode. Its sign and amplitude '
-        'are arbitrary; the pattern of motion is what is physical.', fontsize='medium')
+        'are arbitrary; the pattern of motion is what is physical.', fontsize='small')
 
     # -- 2. The voice, flexing: the mode as motion rather than a frozen shape -----------
     transverse = solution.modes[voice].reshape(-1, 2)[:n_v, 0]
@@ -1856,54 +1775,6 @@ def demo_heat_3d(steps=20, n=17):
         'the interior is not directly visible, but the same diffusion reaches it.')])
 
 
-def demo_goal_oriented_refinement(resolution=14, target=(0.72, 0.72), max_triangles=900):
-    """Refine a mesh for one quantity of interest, not the global error: a point value,
-    and how the goal-oriented mesh concentrates where the global one does not."""
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    equation = Poisson(source=lambda p: 1.0)
-
-    def refined(estimator_for):
-        mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(resolution, resolution))
-        solver = Solver(mesh, equation, bc)
-        solver.solve()
-        # The point value to resolve: the solution at the node nearest `target`.
-        node = int(np.argmin(np.linalg.norm(solver.space.node_coords - np.asarray(target), axis=1)))
-        AdaptiveRefinement(
-            solver, estimator_for(solver, PointValue(node)),
-            max_triangles=max_triangles, max_iters=8,
-        ).run()
-        return solver.mesh
-
-    goal_mesh = refined(lambda solver, qoi: goal_oriented_estimator(equation, qoi))
-    # The global recovery estimator ignores the goal, so it takes the QoI only to share
-    # the closure signature; refinement follows the whole-domain error instead.
-    global_mesh = refined(lambda solver, qoi: recovery_estimator(equation))
-
-    comparison = Plotter(1, 2, figsize=(7.4, 3.9),
-                         title='Refining for a point value, versus for the whole field')
-    comparison.plot(global_mesh, mode='mesh', idx=(0, 0),
-                    title=f'Global estimator: {len(global_mesh.elements)} triangles')
-    comparison.plot(goal_mesh, mode='mesh', idx=(0, 1),
-                    title=f'Goal-oriented: {len(goal_mesh.elements)} triangles')
-    for idx in ((0, 0), (0, 1)):
-        comparison.get_ax(idx).plot(*target, 'o', color='crimson', markersize=7,
-                                    markeredgecolor='white', markeredgewidth=1.0, zorder=5)
-
-    return DemoResult([
-        Figure(comparison,
-               'The same Poisson problem refined two ways to a similar triangle budget. '
-               'Left: the global recovery estimator spreads refinement across the domain, '
-               'blind to what the answer is for. Right: the goal-oriented estimator refines '
-               'for the solution value at the marked point (crimson), packing triangles '
-               'around it and the region that most influences it, and leaving the rest '
-               'coarse. The dual (adjoint) solution is the influence function of that '
-               'point value, and weighting the residual by it is what steers the mesh.',
-               'comparison'),
-    ], text=(f'global estimator refined to        {len(global_mesh.elements)} triangles\n'
-             f'goal-oriented estimator refined to {len(goal_mesh.elements)} triangles'))
-
-
 SOLVING = 'Solving PDEs'
 SOLIDS = 'Solids & structures'
 ACCURACY = 'Accuracy & performance'
@@ -1917,6 +1788,7 @@ DEMOS = [
          smoke_kwargs={'max_area_fraction': 0.03, 'steps': 4, 'fin_lengths': (0.8, 2.0)}),
     Demo('heat_3d', demo_heat_3d, section=SOLVING, smoke_kwargs={'steps': 3, 'n': 5}),
     Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
+    Demo('robin', demo_robin_bc, section=SOLVING, domain=partial(square, 80)),
     # Builds its own airfoil-in-a-channel from the NACA formula (the meshing is part of
     # what it shows), so it takes no domain. The smoke run loosens the size cap and
     # coarsens the airfoil, which together are all of its cost.
@@ -1961,11 +1833,6 @@ DEMOS = [
     # members. The smoke run keeps the mesh but takes only a few iterations.
     Demo('topology_optimization', demo_topology_optimization, section=SOLIDS,
          domain=partial(beam, 4.0, 1.0, 160), smoke_kwargs={'iters': 3}),
-    # The general design driver over the adjoint core, on a 3:1 cantilever. Leads with the
-    # sensitivity field (the adjoint's own output) before the optimized result. Smoke runs
-    # a coarse beam for a few iterations.
-    Demo('design_sensitivity', demo_design_sensitivity, section=SOLIDS,
-         domain=partial(beam, 3.0, 1.0, 120), smoke_kwargs={'iters': 3}),
 
     # Meshed deliberately coarse: the point is the resolution limit, so it runs where
     # sin(40 r^2)'s slow inner rings still resolve but the fast outer ones alias into the
@@ -1989,8 +1856,4 @@ DEMOS = [
          smoke_kwargs={'resolutions': (3, 5)}),
     Demo('quadrature_load', demo_quadrature_load, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21)}),
-    # Two adaptive-refinement chains (goal-oriented and global) from a coarse mesh; the
-    # smoke run keeps the mesh small and caps the triangle budget so both chains are short.
-    Demo('goal_oriented_refinement', demo_goal_oriented_refinement, section=ACCURACY,
-         smoke_kwargs={'resolution': 8, 'max_triangles': 200}),
 ]

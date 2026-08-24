@@ -171,7 +171,7 @@ a { color: inherit; }
 .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
         text-decoration: none; display: flex; flex-direction: column; }
 /* `contain`, not `cover`: these figures are wide, and cropping one to a 4:3 tile
-   showed a fifth of a single panel; some are several panels across a wide strip. */
+   showed a fifth of a single panel; `robin` is four panels across 2000x500. */
 .card img, .card .thumb-text, .card .thumb-note, .card .thumb-empty {
   width: 100%; aspect-ratio: 4/3; background: #fff; display: block; }
 .card img { object-fit: contain; }

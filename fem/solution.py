@@ -11,8 +11,7 @@ The hierarchy follows the physics: a `FieldSolution` carries the unknown `u`;
 series and `WaveSolution` adds the velocity series. `save`/`load` round-trip any of
 them through `fem.io`, which reflects over the dataclass fields.
 """
-from dataclasses import dataclass, field
-from functools import cached_property
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -21,7 +20,6 @@ from fem import invariants
 from fem.typing import DofVector, ElementField, FloatArray
 
 if TYPE_CHECKING:
-    from fem.elements import Element
     from fem.forms import RecoversElasticFields
     from fem.mesh.mesh import Mesh
     from fem.space import FunctionSpace
@@ -29,28 +27,9 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, eq=False)
 class Solution:
-    '''Base: every solution knows the discretization it was computed on.
-
-    `element_type` is the element the DOFs live on (None means the linear element for
-    the mesh). It is carried because `u` is a vector of nodal DOFs whose meaning (which
-    node each entry is, P1 vs P2) is the space's, not the mesh's, so a solution is
-    under-specified without it. Keyword-only, so every existing positional construction
-    (and a P1 solve) keeps working unchanged.
-    '''
+    '''Base: every solution knows the discretization it was computed on.'''
     mesh: 'Mesh'
     n_components: int
-    element_type: 'type[Element] | None' = field(default=None, kw_only=True)
-
-    @cached_property
-    def space(self) -> 'FunctionSpace':
-        '''The `FunctionSpace` this solution's DOFs live on.
-
-        Rebuilt from `(mesh, element_type, n_components)`, whose node numbering is
-        deterministic, so it matches the space the solve used and reconstructs after
-        `load` too. Cached, so nodal recovery and P2 plotting build it once.
-        '''
-        from fem.space import FunctionSpace
-        return FunctionSpace(self.mesh, self.element_type, n_components=self.n_components)
 
     def save(self, path: str) -> None:
         from fem.io import save_solution
@@ -64,44 +43,14 @@ class Solution:
 
 @dataclass(frozen=True, eq=False)
 class FieldSolution(Solution):
-    '''A single steady field u: Projection, and the base of Poisson and elasticity.'''
+    '''A single steady field u: Projection, Poisson, and the base of elasticity.'''
     u: DofVector
 
     def deformed_mesh(self) -> 'Mesh':
-        '''The mesh displaced by u (meaningful for a vector displacement field).
-
-        A P2 field carries edge-midpoint DOFs the mesh has no vertices for, so only the
-        leading vertex DOFs move the geometry: the warp draws as its P1 restriction, the
-        same simplification `mode_mesh` and the rest of the plot layer make for P2.
-        '''
+        '''The mesh displaced by u (meaningful for a vector displacement field).'''
         mesh = self.mesh.copy()
-        n_vertices = len(mesh.vertices)
-        mesh.vertices = mesh.vertices + self.u.reshape(-1, self.n_components)[:n_vertices]
+        mesh.vertices = mesh.vertices + self.u.reshape(-1, self.n_components)
         return mesh
-
-
-@dataclass(frozen=True, eq=False)
-class ScalarFieldSolution(FieldSolution):
-    '''A scalar field plus its recovered per-element flux `grad u` (Poisson's solution).
-
-    `flux` is the element-constant gradient the solve recovers. `nodal_flux` turns it into
-    a continuous per-node field by volume-weighted averaging, the smooth flux a P2 plot or
-    a nodal consumer wants where the per-element field is piecewise-constant.
-    '''
-    flux: ElementField   # (n_elements, spatial_dim) element-constant grad u
-
-    @classmethod
-    def from_solve(cls, space: 'FunctionSpace', u: DofVector) -> 'ScalarFieldSolution':
-        '''Package a scalar solve, recovering its per-element diffusion flux grad u.'''
-        return cls(space.mesh, space.n_components, u,
-                   flux=space.gradient(u), element_type=space.element_type)
-
-    def nodal_flux(self, method: str = 'average') -> FloatArray:
-        '''(n_nodes, spatial_dim) continuous flux recovered from the per-element gradient.
-
-        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.recover_nodal`.
-        '''
-        return self.space.recover_nodal(self.flux, method=method)
 
 
 @dataclass(frozen=True, eq=False)
@@ -138,37 +87,12 @@ class ElasticSolution(FieldSolution):
         # space's element nodes, not the mesh triangles: a P2 element has six nodes.
         u_elements = np.asarray(u).reshape(-1, n_components)[space.element_nodes]
         fields = form.derived_fields(space.geometry, u_elements)
-        return cls(mesh, n_components, u, fields.strain, fields.stress, fields.compliance,
-                   element_type=space.element_type)
+        return cls(mesh, n_components, u, fields.strain, fields.stress, fields.compliance)
 
     @property
     def von_mises(self) -> ElementField:
         '''Von Mises equivalent stress per element: the usual scalar to plot.'''
         return invariants.von_mises(self.stress)
-
-    def nodal_stress(self, method: str = 'average') -> FloatArray:
-        '''(n_nodes, 3, 3) continuous stress recovered from the per-element tensor.
-
-        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.recover_nodal`.
-        '''
-        return self.space.recover_nodal(self.stress, method=method)
-
-    def nodal_strain(self, method: str = 'average') -> FloatArray:
-        '''(n_nodes, 3, 3) continuous strain recovered from the per-element tensor.
-
-        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.recover_nodal`.
-        '''
-        return self.space.recover_nodal(self.strain, method=method)
-
-    def nodal_von_mises(self, method: str = 'average') -> FloatArray:
-        '''(n_nodes,) von Mises stress at the nodes, the smooth field to plot.
-
-        Recover-then-reduce: the stress tensor is recovered to the nodes first, then the
-        von Mises scalar formed there. Reducing first and averaging the per-element von
-        Mises is a different, less faithful number, since the reduction is nonlinear.
-        `method` is the tensor recovery (`'average'` or `'l2'`).
-        '''
-        return invariants.von_mises(self.nodal_stress(method=method))
 
     @property
     def pressure(self) -> ElementField:

@@ -96,21 +96,6 @@ class Element:
         raise NotImplementedError
 
     @classmethod
-    def shape_hessians(cls, points: FloatArray) -> FloatArray:
-        '''(n_points, N, reference_dim, reference_dim) reference-coordinate second derivatives.
-
-        The symmetric Hessian of each shape function, for a strong-form residual that
-        needs the second derivatives of the discrete field (the Laplacian of a scalar,
-        the divergence of a stress). Zero for a linear element, whose field has no
-        curvature; a quadratic element overrides this with its constant Hessians.
-        '''
-        if cls.SHAPE_DEGREE == 1:
-            n_points = len(np.atleast_2d(np.asarray(points, dtype=float)))
-            r = cls.reference_dim()
-            return np.zeros((n_points, cls.N, r, r))
-        raise NotImplementedError(f'{cls.__name__} does not define shape_hessians')
-
-    @classmethod
     def reference_mass_matrix(cls) -> Matrix:
         '''Consistent mass matrix per unit measure: `int phi_i phi_j` over the
         reference simplex, divided by the simplex measure so `MassForm` recovers the
@@ -394,23 +379,6 @@ class QuadraticTriangleElement(Element):
         g[:, 5, 0] = 4 * l0 - 4 * l1
         g[:, 5, 1] = -4 * l1
         return g
-
-    # The quadratic hats have constant second derivatives, so one Hessian per node
-    # serves every point. Rows/cols are (xi, eta); each is [[d2/dxi2, d2/dxideta],
-    # [d2/detadxi, d2/deta2]], symmetric by construction.
-    _HESSIANS = np.array([
-        [[4.0, 4.0], [4.0, 4.0]],       # corner 0: l0 (2 l0 - 1)
-        [[4.0, 0.0], [0.0, 0.0]],       # corner 1: l1 (2 l1 - 1)
-        [[0.0, 0.0], [0.0, 4.0]],       # corner 2: l2 (2 l2 - 1)
-        [[0.0, 4.0], [4.0, 0.0]],       # edge m12: 4 l1 l2
-        [[0.0, -4.0], [-4.0, -8.0]],    # edge m02: 4 l0 l2
-        [[-8.0, -4.0], [-4.0, 0.0]],    # edge m01: 4 l0 l1
-    ])
-
-    @classmethod
-    def shape_hessians(cls, points: FloatArray) -> FloatArray:
-        n_points = len(np.atleast_2d(np.asarray(points, dtype=float)))
-        return np.broadcast_to(cls._HESSIANS, (n_points, 6, 2, 2))
 
 
 class IsoparametricLineElement(QuadraticLineElement):
