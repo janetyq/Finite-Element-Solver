@@ -477,9 +477,10 @@ def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
     )
 
 def _finite_plate_kt(hole_over_width: float) -> float:
-    """Stress concentration at a circular hole in a finite-width plate under tension,
-    on the gross (applied) stress: Howland's result, in Peterson's polynomial fit for
-    the net-section factor divided by the net fraction. Reads 3 for a vanishing hole."""
+    """Howland's stress concentration factor for a circular hole in a finite-width plate
+    under tension, relative to the applied (gross) stress. Peterson's polynomial fit
+    gives the factor on the net section; dividing by the net fraction of width puts it
+    on the applied stress. Reads Kirsch's 3 for a vanishing hole."""
     r = hole_over_width
     net = 3.000 - 3.140 * r + 3.667 * r**2 - 1.527 * r**3
     return net / (1.0 - r)
@@ -574,13 +575,17 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     on_rim = np.isclose(nodes[:, 0], length/2) & np.isclose(np.abs(nodes[:, 1] - height/2), radius)
     peak = float(sigma_xx[on_rim].max() / traction)
 
-    # Kirsch's factor of 3 is the infinite-plate limit, and this plate is finite: the
-    # hole removes section, which raises the stress the remaining material carries, so
-    # the exact answer sits a little above 3. Howland (1930) solved the strip of finite
-    # width with a central hole; his value at this hole/width is the reference line.
-    # The peak converges to it from below (a Galerkin solution is too stiff, so its
-    # sharpest gradient is the last thing to converge): 2.97, 3.00, 3.00, 3.03 over
-    # 624, 970, 1877 and 3301 elements. Thirty-six rounds land within a hundredth.
+    # Two reference values. Kirsch's factor of 3 is for a hole in an infinite plate.
+    # This plate is finite, and the hole removes some of its section, so the remaining
+    # material carries slightly more stress and the exact peak is a little above 3.
+    # Howland (1930) worked out that finite-width correction for a strip with a central
+    # hole; `_finite_plate_kt` gives his value at this hole/width ratio, and that is the
+    # line the measured peak is judged against.
+    #
+    # The peak converges to it from below, since a finite element solution is slightly
+    # too stiff and the steepest gradient is the last thing it resolves: 2.97, 3.00,
+    # 3.00, 3.03 over 624, 970, 1877 and 3301 elements. Thirty-six rounds is enough to
+    # agree to within a hundredth.
     hole_over_width = 2*radius / height
     finite_kt = _finite_plate_kt(hole_over_width)
 
