@@ -20,7 +20,7 @@ from fem.convergence import (
     poisson_p2_convergence, solve_annulus_mms, solve_load_comparison, theta_convergence,
 )
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.estimators import goal_oriented_estimator, recovery_estimator, residual_estimator
+from fem.estimators import goal_oriented_estimator, recovery_estimator
 from fem.forms import MaskedMassForm
 from fem.space import FunctionSpace
 from fem.regions import everywhere, on_plane, in_box, intersect, union
@@ -476,12 +476,22 @@ def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
         text='\n'.join(rows),
     )
 
-def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
+def _finite_plate_kt(hole_over_width: float) -> float:
+    """Howland's stress concentration factor for a circular hole in a finite-width plate
+    under tension, relative to the applied (gross) stress. Peterson's polynomial fit
+    gives the factor on the net section; dividing by the net fraction of width puts it
+    on the applied stress. Reads Kirsch's 3 for a vanishing hole."""
+    r = hole_over_width
+    net = 3.000 - 3.140 * r + 3.667 * r**2 - 1.527 * r**3
+    return net / (1.0 - r)
+
+
+def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
                               min_angle=25, max_area_fraction=0.01, circle_segments=16,
-                              refinement_iters=34, refinement_budget=11000):
+                              refinement_iters=36, refinement_budget=40000):
     """Take a plate with a hole from an outline through meshing, boundary conditions and
-    adaptive refinement to the stress concentration at its rim, measured against the
-    textbook factor of 3."""
+    adaptive refinement to the stress concentration at its rim, measured against
+    Kirsch's factor of 3 and the finite-width value it approaches."""
     # The one demo that runs the whole pipeline, and so the only one that builds its own
     # mesh instead of being handed one: what the outline was, what Ruppert's was asked
     # for, and where the conditions went are each part of what this is showing, and a
@@ -495,11 +505,10 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     #
     # The hole is only a coarse 16-gon here, and that is enough: `plate_with_hole_pslg`
     # tags the hole loop with a `Circle`, so Ruppert's split points and the adaptive
-    # red-green refinement below project onto the true rim rather than subdividing chords.
-    # The hole gets rounder as the mesh gets finer, instead of freezing into whatever
-    # polygon the initial sampling drew. Before curved boundaries this demo needed a
-    # 192-gon to keep the polygon ahead of the triangulation; the projection removes that
-    # need, and 16 segments now reaches the same peak (about 3.2x) from a far coarser mesh.
+    # red-green refinement below project onto the true rim rather than subdividing chords,
+    # and the isoparametric element's edge nodes sit on the circle too. The hole gets
+    # rounder as the mesh gets finer, instead of freezing into whatever polygon the
+    # initial sampling drew.
     pslg = plate_with_hole_pslg(length, height, radius, segments=circle_segments)
     pslg.validate()
     # Deliberately coarse: the angle bound constrains element shape and says nothing
@@ -534,51 +543,51 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0])
     bc.add(BCType.NEUMANN, on_plane(0, length), [traction, 0])
 
-    # Adaptive refinement, driven by this same equation's residual estimator
-    # (residual_estimator, from fem.estimators), replaces the uniform mesh above with one built
-    # by repeatedly re-solving and splitting wherever the estimator finds the most
-    # error: everything the rest of this demo plots and measures is read off the
-    # result of this loop, not off the coarse mesh it started from.
-    #
-    # Thirty-four rounds from a starting mesh this coarse spend a real share of their
-    # budget bringing the whole plate up to a baseline before they can behave like
-    # they are chasing the hole specifically; a finer starting mesh reaches that
-    # point in far fewer rounds (see BACKLOG.md), but starting coarse and letting
-    # this loop do more of the work is the trade made here. Because the rim splits
+    # Solved on the curved quadratic element, and adaptively refined by the recovery
+    # estimator (recovery_estimator, from fem.estimators), which reads the curved rim's
+    # stress correctly. The loop replaces the uniform mesh above with one built by
+    # repeatedly re-solving and splitting wherever the estimator finds the most error:
+    # everything the rest of this demo plots and measures is read off the result of
+    # this loop, not off the coarse mesh it started from. Because the rim splits
     # project onto the true circle, more refinement keeps rounding the hole rather
-    # than subdividing a fixed polygon, so the budget is now the only ceiling.
+    # than subdividing a fixed polygon, so the budget is the only ceiling.
     equation = LinearElastic(E=200, nu=0.3)
-    solver = Solver(mesh, equation, bc)
+    solver = Solver(mesh, equation, bc, element_type=IsoparametricTriangleElement)
     solution = AdaptiveRefinement(
-        solver, residual_estimator(equation),
+        solver, recovery_estimator(equation),
         max_triangles=n_initial + refinement_budget, max_iters=refinement_iters,
     ).run()
     mesh = solver.mesh
-    sigma_xx = solution.stress[:, 0, 0]
+    # The stress at the nodes, each element evaluated at its own nodes and averaged
+    # where they meet. A P2 stress varies within the element, and this reads it on the
+    # rim itself rather than at an interior sample point near it.
+    nodes = solution.space.node_coords
+    sigma_xx = solution.nodal_stress()[:, 0, 0]
 
-    centroids = mesh.vertices[mesh.elements].mean(axis=1)
     # A vertical strip through the hole's centre: the line the concentration decays
     # along, from the rim out to the far field. The geometry is known here rather than
-    # measured back off the mesh, which building the domain in the demo buys.
-    strip = np.abs(centroids[:, 0] - length/2) < 0.4*radius
-    order = np.argsort(centroids[strip, 1])
-    y_strip, ratio_strip = centroids[strip, 1][order], (sigma_xx[strip] / traction)[order]
-    peak = ratio_strip.max()
+    # measured back off the mesh, which building the domain in the demo buys. The rim
+    # crossings are nodes of the mesh (the 16-gon has a vertex at the top and bottom of
+    # the hole, and refinement keeps it), so the peak is the value at those two nodes.
+    strip = np.abs(nodes[:, 0] - length/2) < 0.25*radius
+    order = np.argsort(nodes[strip, 1])
+    y_strip, ratio_strip = nodes[strip, 1][order], (sigma_xx[strip] / traction)[order]
+    on_rim = np.isclose(nodes[:, 0], length/2) & np.isclose(np.abs(nodes[:, 1] - height/2), radius)
+    peak = float(sigma_xx[on_rim].max() / traction)
 
-    # Kirsch's factor of 3 is the infinite-plate limit, and this plate is finite, so
-    # the measured peak sits above it: the hole removes section, which raises the
-    # stress the remaining material carries. Sampled at three hole/height ratios (0.20,
-    # 0.15, 0.12) it reads 3.24, 3.16, 3.12: falling toward 3 as the hole shrinks, and
-    # cleanly enough to say so: adaptive sampling reads the peak from elements the
-    # estimator put exactly where the gradient is steepest, rather than from whichever
-    # elements a uniform cap happened to land nearby.
+    # Two reference values. Kirsch's factor of 3 is for a hole in an infinite plate.
+    # This plate is finite, and the hole removes some of its section, so the remaining
+    # material carries slightly more stress and the exact peak is a little above 3.
+    # Howland (1930) worked out that finite-width correction for a strip with a central
+    # hole; `_finite_plate_kt` gives his value at this hole/width ratio, and that is the
+    # line the measured peak is judged against.
     #
-    # Even so, only one digit of that is worth quoting. Refining further does not
-    # settle it much closer than this: 3.23, 3.24, 3.24, 3.24 over 3600, 4249, 5209 and
-    # 5614 elements. That is tighter than a uniform mesh manages at any single size
-    # (the point of putting the resolution where the gradient is steepest), but reading
-    # the true rim value would still mean extrapolating to the boundary rather than
-    # sampling near it.
+    # The peak converges to it from below, since a finite element solution is slightly
+    # too stiff and the steepest gradient is the last thing it resolves: 2.97, 3.00,
+    # 3.00, 3.03 over 624, 970, 1877 and 3301 elements. Thirty-six rounds is enough to
+    # agree to within a hundredth.
+    hole_over_width = 2*radius / height
+    finite_kt = _finite_plate_kt(hole_over_width)
 
     # One figure, three plots: the whole pipeline in a row. The first plot folds the mesh,
     # its input outline, and the conditions together, since a 2:1 plate at this zoom has
@@ -600,22 +609,25 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
     # coarse one it started from.
     ax0.add_collection(LineCollection(
         rupperts.vertices[rupperts.segments], colors='blue', linewidths=1.0, zorder=2.0))
-    figure.plot(mesh, sigma_xx, mode='colored', idx=(0, 1), label='sigma_xx',
+    # Passing the solution draws the P2 field on its own tessellation, with the rim
+    # following the true circle, rather than flattening it to one value per triangle.
+    figure.plot(solution, sigma_xx, mode='colored', idx=(0, 1), label='sigma_xx',
                 title='Stress concentration (sigma_xx)')
     ax = figure.chart_ax(idx=(0, 2), xlabel='y', ylabel='sigma_xx / applied')
     # Drawn as two runs, below the hole and above it. One run joins them straight
     # across the gap, which reads as a stress the hole does not have.
     below = y_strip < height/2
-    ax.plot(y_strip[below], ratio_strip[below], 'o-', color='tab:blue', markersize=3,
+    ax.plot(y_strip[below], ratio_strip[below], 'o-', color='tab:blue', markersize=2,
             label='through the hole centre')
-    ax.plot(y_strip[~below], ratio_strip[~below], 'o-', color='tab:blue', markersize=3)
-    ax.axhline(3.0, color='tab:red', linestyle='--', label='Kirsch: 3x at the rim')
+    ax.plot(y_strip[~below], ratio_strip[~below], 'o-', color='tab:blue', markersize=2)
+    ax.axhline(finite_kt, color='tab:red', linestyle='--',
+               label=f'finite plate (Howland): {finite_kt:.2f}x')
+    ax.axhline(3.0, color='tab:red', linestyle=':', label='infinite plate (Kirsch): 3x')
     ax.axhline(1.0, color='gray', linestyle=':', label='far field')
-    ax.set_title(f'Peak {peak:.1f}x the applied stress')
+    ax.set_title(f'Peak {peak:.2f}x the applied stress')
     ax.grid(alpha=0.3)
-    # Below the curve: the peak is what this panel exists to show, and a default-placed
-    # legend sat on top of it.
-    ax.legend(loc='lower center', fontsize='small')
+    # Beside the peak, over the flat far field, where it hides nothing.
+    ax.legend(loc='center left', fontsize='small')
 
     # Ruppert's own quality guarantee does not survive: `min_angle` bounds what
     # RuppertsAlgorithm builds, but red-green refinement bisects existing triangles
@@ -634,14 +646,17 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
         [Figure(figure,
                 f'The whole pipeline in one row. Left: the mesh after adaptive refinement, '
                 f'grown from {n_initial} triangles to {len(mesh.elements)} by putting '
-                f'elements where the residual estimator found the most error, with the '
+                f'elements where the recovery estimator found the most error, with the '
                 f'input outline in blue and the conditions drawn on it; the rim and long '
                 f'edges carry none, which is not an omission but the natural (traction-'
-                f'free) condition of the weak form. Middle: the stress sigma_xx, crowding '
-                f'into the material either side of the hole and relaxing to the applied '
-                f'value within about a diameter. Right: that stress along a strip through '
-                f'the hole centre, peaking at {peak:.1f}x the applied value, just above the '
-                f'classic Kirsch factor of 3 for a hole in an infinite plate.')],
+                f'free) condition of the weak form. Middle: the stress sigma_xx on curved '
+                f'quadratic elements, crowding into the material either side of the hole '
+                f'and relaxing to the applied value within about a diameter. Right: that '
+                f'stress along a strip through the hole centre, read at the nodes, peaking '
+                f'at {peak:.2f}x the applied value at the rim. The classic Kirsch factor of '
+                f'3 is for a hole in an infinite plate; this plate is finite, and '
+                f"Howland's value for a hole {hole_over_width:.2f} of its width is "
+                f'{finite_kt:.2f}.')],
         text=(f'outline points           {len(pslg.vertices)}  '
               f'(rectangle + polygonalised rim)\n'
               f'initial elements         {n_initial}\n'
@@ -653,8 +668,9 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.3,
               f'boundary edges           {len(mesh.boundary)}   '
               f'({rim_facets} of them the hole rim, before refinement)\n'
               f'applied traction         {traction:.3g}\n'
-              f'hole diameter / height   {2*radius/height:.2f}\n'
-              f'peak sigma_xx / applied  {peak:.2f}   (Kirsch, infinite plate: 3)'),
+              f'hole diameter / height   {hole_over_width:.2f}\n'
+              f'peak sigma_xx / applied  {peak:.2f}   '
+              f'(Howland, finite plate: {finite_kt:.2f}; Kirsch, infinite plate: 3)'),
     )
 
 def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, nu=0.3,
