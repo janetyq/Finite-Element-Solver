@@ -137,7 +137,7 @@ its outline, given roller and traction conditions (the rim is left traction-free
 natural condition of the weak form), solved on curved quadratic elements, then adaptively
 refined toward the stress at the rim. The stress crowds into the material either side of
 the hole and relaxes to the applied value within about a diameter. Read at the rim nodes
-it peaks at 3.00x the applied stress, against the classic Kirsch factor of 3 for a hole in
+it peaks at 3.03x the applied stress, against the classic Kirsch factor of 3 for a hole in
 an infinite plate and Howland's 3.02 for a hole a tenth of this plate's width.
 
 <p align="center"><img src="images/stress_concentration.png" width="780" alt="Refined mesh with conditions, the stress field, and the peak against the Kirsch factor"></p>

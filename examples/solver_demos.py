@@ -487,7 +487,7 @@ def _finite_plate_kt(hole_over_width: float) -> float:
 
 def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
                               min_angle=25, max_area_fraction=0.01, circle_segments=16,
-                              refinement_iters=20, refinement_budget=8000):
+                              refinement_iters=36, refinement_budget=40000):
     """Take a plate with a hole from an outline through meshing, boundary conditions and
     adaptive refinement to the stress concentration at its rim, measured against
     Kirsch's factor of 3 and the finite-width value it approaches."""
@@ -576,9 +576,11 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
 
     # Kirsch's factor of 3 is the infinite-plate limit, and this plate is finite: the
     # hole removes section, which raises the stress the remaining material carries, so
-    # the exact answer sits a little above 3 (Howland's finite-width value, below).
-    # The rim reading lands within about a percent of it, and further refinement moves
-    # it by less than the last digit shown.
+    # the exact answer sits a little above 3. Howland (1930) solved the strip of finite
+    # width with a central hole; his value at this hole/width is the reference line.
+    # The peak converges to it from below (a Galerkin solution is too stiff, so its
+    # sharpest gradient is the last thing to converge): 2.97, 3.00, 3.00, 3.03 over
+    # 624, 970, 1877 and 3301 elements. Thirty-six rounds land within a hundredth.
     hole_over_width = 2*radius / height
     finite_kt = _finite_plate_kt(hole_over_width)
 
