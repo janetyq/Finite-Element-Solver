@@ -3,10 +3,11 @@
 A PSLG loop that carries a `Circle` produces a mesh whose rim facets carry that circle,
 so Ruppert's split points and the red-green midpoints land on the true curve and an
 isoparametric solve reads a genuinely round boundary. The Kirsch test is the physical
-payoff: at a coarse hole sampling the curved element recovers far more of the true
-stress concentration than the straight faceted one.
+payoff: read at the rim node, a coarse hole sampling already carries most of the true
+stress concentration.
 """
 import numpy as np
+import pytest
 
 from fem.boundary import BCType, BoundaryConditions
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
@@ -99,7 +100,9 @@ def test_per_segment_curve_tags_only_the_arc_of_a_mixed_outline():
     assert np.hypot(*mesh.vertices.T).min() < 1e-12   # (0, 0) is still exactly a vertex
 
 
-def _kirsch_peak_sigma_xx(element_type, segments):
+def _kirsch_rim_sigma_xx(element_type, segments):
+    """sigma_xx at the top of the hole, read by `nodal_stress` at the rim node itself,
+    with the per-element (centroid) stress nearest the rim for comparison."""
     length, height, radius = 20.0, 10.0, 1.0
     cx, cy = length / 2, height / 2
     pslg = _plate_with_hole_pslg(length, height, radius, segments)
@@ -114,20 +117,26 @@ def _kirsch_peak_sigma_xx(element_type, segments):
     u = LinearSolve().solve(LinearProblem(space, operator, None, bc))
     solution = ElasticSolution.from_solve(space, u, operator)
 
-    distance = np.hypot(space.node_coords[:, 0] - cx, space.node_coords[:, 1] - cy)
-    on_rim = np.abs(distance - radius) < 0.05
-    rim_elements = np.flatnonzero(on_rim[space.element_nodes].any(axis=1))
-    return float(solution.stress[rim_elements, 0, 0].max())
+    xy = space.node_coords
+    top = np.flatnonzero(np.isclose(xy[:, 0], cx) & np.isclose(xy[:, 1], cy + radius))
+    assert len(top) == 1
+    rim = {method: float(solution.nodal_stress(method)[top[0], 0, 0])
+           for method in ('average', 'l2')}
+    rim_elements = np.flatnonzero((space.element_nodes == top[0]).any(axis=1))
+    rim['element'] = float(solution.stress[rim_elements, 0, 0].max())
+    return rim
 
 
-def test_curved_hole_resolves_the_stress_concentration_at_a_coarse_sampling():
-    """Kirsch: a plate with a hole under tension S carries a hoop stress ~3S at the rim.
-    At a coarse 16-gon hole the straight facets under-resolve it; the curved element,
-    reading a true circle, recovers much more of the concentration on the same mesh."""
-    straight = _kirsch_peak_sigma_xx(QuadraticTriangleElement, 16)
-    curved = _kirsch_peak_sigma_xx(IsoparametricTriangleElement, 16)
-
-    kt = 3.0
-    assert curved > straight + 0.2, f"curved {curved:.3f} not clearly above straight {straight:.3f}"
-    assert abs(curved - kt) < abs(straight - kt)
-    assert 2.4 < curved < 3.4, f"curved peak {curved:.3f} outside a sane band around Kt=3"
+@pytest.mark.parametrize('element_type', [IsoparametricTriangleElement, QuadraticTriangleElement])
+def test_hole_stress_concentration_is_read_from_the_rim(element_type):
+    """Kirsch: a plate with a hole under tension S carries a hoop stress ~3S at the rim
+    (3.14S at this hole/height of 0.2, Howland's finite-width value). On a coarse mesh
+    from a 16-gon sampling, the P2 nodal stress read at the rim node gets within about
+    12% of that, on the curved and the straight element alike. The same solution's
+    per-element (centroid) stress sits far lower, since no centroid is on the rim."""
+    reference = 3.14
+    rim = _kirsch_rim_sigma_xx(element_type, 16)
+    for method in ('average', 'l2'):
+        assert abs(rim[method] - reference) < 0.12 * reference, (method, rim[method])
+    assert abs(rim['average'] - rim['l2']) < 0.05 * reference
+    assert rim['element'] < rim['average'] - 0.3

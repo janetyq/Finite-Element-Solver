@@ -110,8 +110,11 @@ So `FunctionSpace` owns `integrate` / `mean_value` (they need the mass matrix) a
 (it needs the element measures to average a per-element field onto the nodes); a `Form` owns
 `derived_fields` (it needs `B` and `D`, or the energy's derivative chain); `Equation` owns
 `derived_field` (which physics is the recoverable flux, `fem.postprocess.DerivedField`); `Solution`
-owns the packaging (`ScalarFieldSolution.flux`, `ElasticSolution.stress`, and the `nodal_*` recoveries
-built on `recover_nodal`) and `deformed_mesh`; `invariants` owns the frame-independent reductions,
+owns the packaging (`ScalarFieldSolution.flux`, `ElasticSolution.stress`, and the `nodal_*` recoveries:
+`recover_nodal` for a per-element field, or for an elastic solution that still carries its form,
+`fields_at` evaluated at the nodes or quadrature points, so a P2 stress reaches the boundary nodes
+rather than being reduced to a per-element value first) and `deformed_mesh`; `invariants` owns the
+frame-independent reductions,
 which need only a tensor. The rule is what keeps this from being a junk drawer, and what made a
 misplacement visible when the nodal recovery was found sitting on `Mesh`, a geometry object with no
 measures to weight by.
@@ -144,10 +147,11 @@ through a form**:
   `EnergyProblem` calls. A quadratic energy has a constant tangent, so the bilinear `Form` is
   `EnergyForm`'s state-independent special case.
 - **Stress recovery is on the form**, as the `RecoversElasticFields` capability.
-  `derived_fields(geometry, u_elements)` is the mirror of `element_matrices`: the same physics
-  contracted against the solved displacement instead of assembled into a stiffness. Both elastic paths
-  implement it, so a finite-strain solve reports the stress state a small-strain one does, and two
-  implementations are what earn the protocol its place.
+  `fields_at(geometry, u_elements)` is the mirror of `element_matrices`: the same physics
+  contracted against the solved displacement instead of assembled into a stiffness, at every point of
+  the geometry's rule; `derived_fields` reduces that to one tensor per element (the element mean) plus
+  the compliance. Both elastic paths implement them, so a finite-strain solve reports the stress state
+  a small-strain one does, and two implementations are what earn the protocol its place.
 
 **Tensors, not Voigt vectors, cross the assembly boundary.** Voigt packing is valid only under the
 `Bᵀ D B` contraction it was designed for; every other operation on the packed form is wrong (reducing

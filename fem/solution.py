@@ -108,11 +108,18 @@ class ScalarFieldSolution(FieldSolution):
 class ElasticSolution(FieldSolution):
     '''A displacement field plus the stress state recovered from it.
 
-    Stress and strain are stored as tensors; the scalar measures are properties.
+    Stress and strain are stored as one tensor per element (the element mean); the
+    scalar measures are properties. `form` is the elastic form that recovered them,
+    kept so the nodal recoveries can re-evaluate the fields at the nodes and
+    quadrature points, where a P2 stress varies within the element. It is not
+    saved: a loaded solution recovers from the per-element tensors alone, exact for
+    P1 and a coarser reading for P2.
     '''
     strain: FloatArray       # (n_elements, 3, 3)
     stress: FloatArray       # (n_elements, 3, 3)
     compliance: ElementField  # (n_elements,)
+    form: 'RecoversElasticFields | None' = field(
+        default=None, kw_only=True, repr=False, metadata={'persist': False})
 
     def __post_init__(self) -> None:
         # `fem.io` rebuilds this from stored arrays without checking their rank.
@@ -139,7 +146,7 @@ class ElasticSolution(FieldSolution):
         u_elements = np.asarray(u).reshape(-1, n_components)[space.element_nodes]
         fields = form.derived_fields(space.geometry, u_elements)
         return cls(mesh, n_components, u, fields.strain, fields.stress, fields.compliance,
-                   element_type=space.element_type)
+                   element_type=space.element_type, form=form)
 
     @property
     def von_mises(self) -> ElementField:
@@ -147,18 +154,37 @@ class ElasticSolution(FieldSolution):
         return invariants.von_mises(self.stress)
 
     def nodal_stress(self, method: str = 'average') -> FloatArray:
-        '''(n_nodes, 3, 3) continuous stress recovered from the per-element tensor.
+        '''(n_nodes, 3, 3) continuous stress at the nodes.
 
-        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.recover_nodal`.
+        `method` picks the recovery, as in `FunctionSpace.recover_nodal`: `'average'`
+        evaluates each element's stress at its own nodes and volume-averages the
+        elements sharing a node; `'l2'` projects the stress sampled at quadrature
+        points onto the nodal space. Both read the within-element variation of a
+        P2 stress, so a rim or corner value comes from the boundary itself rather
+        than from interior sample points. Without `form` (a loaded solution) they
+        fall back to recovering the per-element tensor.
         '''
-        return self.space.recover_nodal(self.stress, method=method)
+        return self._nodal_field('stress', method)
 
     def nodal_strain(self, method: str = 'average') -> FloatArray:
-        '''(n_nodes, 3, 3) continuous strain recovered from the per-element tensor.
+        '''(n_nodes, 3, 3) continuous strain at the nodes; see `nodal_stress`.'''
+        return self._nodal_field('strain', method)
 
-        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.recover_nodal`.
-        '''
-        return self.space.recover_nodal(self.strain, method=method)
+    def _nodal_field(self, name: str, method: str) -> FloatArray:
+        if self.form is None:
+            return self.space.recover_nodal(getattr(self, name), method=method)
+        space = self.space
+        u_elements = np.asarray(self.u).reshape(-1, self.n_components)[space.element_nodes]
+        if method == 'average':
+            fields = self.form.fields_at(space.geometry_at_nodes, u_elements)
+            return space.average_to_nodal(getattr(fields, name))
+        if method == 'l2':
+            # A degree-p field's gradient is degree p - 1; the rule that integrates its
+            # product with a shape function exactly is 2p - 1, and 2p is the cached one.
+            geometry = space.geometry_at(2 * space.element_type.SHAPE_DEGREE)
+            fields = self.form.fields_at(geometry, u_elements)
+            return space.project_to_nodal(getattr(fields, name), geometry)
+        raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
 
     def nodal_von_mises(self, method: str = 'average') -> FloatArray:
         '''(n_nodes,) von Mises stress at the nodes, the smooth field to plot.

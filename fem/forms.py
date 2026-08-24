@@ -151,6 +151,13 @@ class ElasticFields:
     compliance: ElementField  # (n_elements,)
 
 
+@dataclass(frozen=True)
+class ElasticPointFields:
+    '''Strain and stress at every point of a geometry's rule, full 3x3 tensors.'''
+    strain: FloatArray       # (n_elements, n_qp, 3, 3)
+    stress: FloatArray       # (n_elements, n_qp, 3, 3)
+
+
 @runtime_checkable
 class RecoversElasticFields(Protocol):
     '''A form that can recover an elastic state from a solved displacement.
@@ -159,18 +166,39 @@ class RecoversElasticFields(Protocol):
     the attribute exists, not that its signature matches.
     '''
 
+    def fields_at(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> ElasticPointFields:
+        '''Strain and stress at every point of `geometry`'s rule.
+
+        `u_elements` is `(n_elements, N, n_components)`, matching what
+        `FunctionSpace.assemble_residual` builds and what `ElementGeometry.gradients`
+        consumes. A form wanting the flat interleaved `(n_elements, N*n_components)`
+        that Voigt's B multiplies reshapes internally: flattening the last two axes
+        reproduces the node-major, component-minor order `dof_indices` emits.
+
+        The points are whatever the geometry was built at: a quadrature rule for an
+        integral or a projection, or the element's own nodes (`nodal_rule`) for a
+        nodal reading.
+        '''
+        ...
+
     def derived_fields(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> ElasticFields:
-        '''Recover element fields from `(n_elements, N, n_components)` nodal values.
-
-        The nested layout, matching what `FunctionSpace.assemble_residual` builds
-        and what `ElementGeometry.gradients` consumes. A form wanting the flat
-        interleaved `(n_elements, N*n_components)` that Voigt's B multiplies
-        reshapes internally: flattening the last two axes reproduces the node-major,
-        component-minor order `dof_indices` emits.
-        '''
+        '''One strain, stress, and compliance per element, from `(n_elements, N,
+        n_components)` nodal values: the element mean of `fields_at` over the rule.'''
         ...
+
+
+def _element_mean(values: FloatArray, weight_detJ: FloatArray) -> FloatArray:
+    '''Reduce `(n_elements, n_qp, ...)` point values to their volume-weighted element mean.
+
+    Exact for P1 (the field is constant) and the centroid value of a field linear
+    within the element, which a straight P2 stress is.
+    '''
+    weights = weight_detJ / weight_detJ.sum(axis=1, keepdims=True)
+    return np.einsum('eq,eq...->e...', weights, values)
 
 
 class Form(Protocol):
@@ -332,58 +360,15 @@ class LinearElasticForm:
         # left-to-right order forms a large intermediate and runs far slower here.
         return np.einsum('eqji,ejk,eqkl,eq->eil', B, D, B, geometry.weight_detJ, optimize=True)
 
-    def derived_fields(
+    def fields_at(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> ElasticFields:
-        '''Element strain, stress, and compliance from nodal displacements.
+    ) -> ElasticPointFields:
+        '''Strain and stress at every point of `geometry`'s rule.
 
-        `u_elements` is `(n_elements, N, n_components)`; flattening its last two
-        axes gives the interleaved DOF order B's columns are written in.
-
-        Returns full `(n_elements, 3, 3)` tensors, not the Voigt vectors assembly
-        works in (see `voigt_to_tensor`); a 2D result is lifted to the 3D state
-        its plane-strain assumption implies.
-
-        Recovered per element at the first quadrature point. For P1 the strain is
-        constant over the element, so any point gives its one value; a higher-order
-        field varies, and reducing it to one per-element tensor is a reporting
-        choice this makes explicit rather than a property of the element.
-        '''
-        B = strain_displacement(geometry.grad_phi[:, 0])   # (n_el, n_strains, k)
-        D = self.material.constitutive_matrices(
-            geometry.reference_dim, geometry.n_elements
-        )
-        u_flat = np.asarray(u_elements).reshape(geometry.n_elements, -1)
-        strain_voigt = np.einsum('esk,ek->es', B, u_flat)
-        stress_voigt = np.einsum('est,et->es', D, strain_voigt)
-
-        strain = voigt_to_tensor(strain_voigt, shear_factor=2.0)
-        stress = voigt_to_tensor(stress_voigt, shear_factor=1.0)
-
-        if strain.shape[-1] == 2:
-            # Plane strain: eps_zz is zero by definition, and the material
-            # develops sigma_zz holding it there. von Mises without it is computed
-            # on the wrong state.
-            sigma_zz = self.material.out_of_plane_stress(strain)
-            strain = _with_out_of_plane(strain, np.zeros(len(strain)))
-            stress = _with_out_of_plane(stress, sigma_zz)
-
-        # The full double contraction. eps_zz is zero under plane strain, so the
-        # lift above leaves this equal to the in-plane Voigt dot product it replaces.
-        compliance = np.einsum('eij,eij,e->e', stress, strain, geometry.volumes)
-        return ElasticFields(strain, stress, compliance)
-
-    def stress_field(
-        self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> FloatArray:
-        '''(n_elements, n_qp, d, d) in-plane Cauchy stress at every quadrature point.
-
-        The spatially-resolved counterpart of `derived_fields`, which reduces the state
-        to one tensor per element. A P2 displacement has a strain that varies linearly
-        within the element, so the stress does too; the recovery error estimator samples
-        it here rather than at the single point `derived_fields` reports. In-plane only:
-        the estimator jumps and recovers the in-plane stress, so the plane-strain
-        out-of-plane lift `derived_fields` makes for von Mises is not needed.
+        Full `(n_elements, n_qp, 3, 3)` tensors, not the Voigt vectors assembly works
+        in (see `voigt_to_tensor`); a 2D result is lifted to the 3D state its
+        plane-strain assumption implies. Constant across the points for P1, linear
+        within the element for a straight P2 triangle.
         '''
         B = strain_displacement(geometry.grad_phi)          # (n_el, n_qp, n_strains, k)
         D = self.material.constitutive_matrices(
@@ -394,8 +379,49 @@ class LinearElasticForm:
         stress_voigt = np.einsum('est,eqt->eqs', D, strain_voigt)   # (n_el, n_qp, n_strains)
 
         n_el, n_qp = stress_voigt.shape[:2]
+        strain = voigt_to_tensor(strain_voigt.reshape(n_el * n_qp, -1), shear_factor=2.0)
         stress = voigt_to_tensor(stress_voigt.reshape(n_el * n_qp, -1), shear_factor=1.0)
-        return stress.reshape(n_el, n_qp, *stress.shape[1:])
+
+        if strain.shape[-1] == 2:
+            # Plane strain: eps_zz is zero by definition, and the material
+            # develops sigma_zz holding it there. von Mises without it is computed
+            # on the wrong state.
+            sigma_zz = self.material.out_of_plane_stress(strain)
+            strain = _with_out_of_plane(strain, np.zeros(len(strain)))
+            stress = _with_out_of_plane(stress, sigma_zz)
+
+        return ElasticPointFields(strain.reshape(n_el, n_qp, 3, 3),
+                                  stress.reshape(n_el, n_qp, 3, 3))
+
+    def derived_fields(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> ElasticFields:
+        '''Element strain, stress, and compliance from nodal displacements.
+
+        Strain and stress are the element mean of `fields_at` over the rule: the
+        exact value for P1 and the centroid value for a straight P2 triangle.
+        Compliance is `∫ sigma : eps` over the element.
+        '''
+        fields = self.fields_at(geometry, u_elements)
+        # The full double contraction. eps_zz is zero under plane strain, so the
+        # lift above leaves this equal to the in-plane Voigt dot product it replaces.
+        compliance = np.einsum('eqij,eqij,eq->e', fields.stress, fields.strain,
+                               geometry.weight_detJ)
+        return ElasticFields(_element_mean(fields.strain, geometry.weight_detJ),
+                             _element_mean(fields.stress, geometry.weight_detJ),
+                             compliance)
+
+    def stress_field(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> FloatArray:
+        '''(n_elements, n_qp, d, d) in-plane stress at every quadrature point.
+
+        The in-plane block of `fields_at`, for the recovery error estimator, which
+        jumps and recovers the in-plane stress and has no use for the out-of-plane
+        lift.
+        '''
+        d = geometry.reference_dim
+        return self.fields_at(geometry, u_elements).stress[:, :, :d, :d]
 
 
 @dataclass(frozen=True)
@@ -611,10 +637,11 @@ class EnergyForm:
             tangent += (term1 + term2) * geometry.weight_detJ[:, q][:, None, None, None, None]
         return tangent
 
-    def derived_fields(
+    def _point_state(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> ElasticFields:
-        '''Element strain, Cauchy stress, and compliance at a solved displacement.
+    ) -> tuple[FloatArray, FloatArray, FloatArray]:
+        '''`(strain, cauchy, W)` at every point of the rule, the first two as
+        `(n_elements, n_qp, 3, 3)` and the energy density as `(n_elements, n_qp)`.
 
         Stress is **Cauchy**, `sigma = J^-1 P F^T`, not the first Piola-Kirchhoff
         `P = dW_dF` the energy derivative gives: P is measured per unit undeformed
@@ -624,13 +651,11 @@ class EnergyForm:
         Reconciles two conventions from `fem.energies`: the gradient orientation it
         works in and the plane-strain reduction a 2D solve makes. Both are explained
         there under "Solving versus reporting".
-
-        Recovered per element at the first quadrature point, matching the linear
-        path: constant over the element for P1, one representative value otherwise.
         '''
-        grad_u = geometry.gradients(u_elements)[:, 0]   # (n_el, d, d), first quad point
+        grad_qp = geometry.gradients(u_elements)          # (n_el, n_qp, d, d)
+        n_el, n_qp, d = grad_qp.shape[:3]
+        grad_u = grad_qp.reshape(n_el * n_qp, d, d)
         t = self.energy_density.evaluate(grad_u)
-        d = grad_u.shape[-1]
 
         # Put F and dW_dF into the standard orientation before anything contracts
         # them; fem.energies works in the transposed one, which the energy cannot
@@ -654,9 +679,28 @@ class EnergyForm:
             strain = _with_out_of_plane(strain, np.zeros(len(strain)))
             cauchy = _with_out_of_plane(cauchy, sigma_zz)
 
-        # Twice the stored energy, which for a quadratic W is exactly S:E, the
-        # work-conjugate pair. Contracting the *reported* Cauchy stress with E
-        # instead mixes measures and runs ~30% wrong at finite strain. Going
-        # through W also avoids having to pick an orientation.
-        compliance = 2.0 * t.W * geometry.volumes
-        return ElasticFields(strain, cauchy, compliance)
+        return (strain.reshape(n_el, n_qp, 3, 3), cauchy.reshape(n_el, n_qp, 3, 3),
+                np.asarray(t.W).reshape(n_el, n_qp))
+
+    def fields_at(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> ElasticPointFields:
+        '''Strain and Cauchy stress at every point of `geometry`'s rule; see `_point_state`.'''
+        strain, cauchy, _ = self._point_state(geometry, u_elements)
+        return ElasticPointFields(strain, cauchy)
+
+    def derived_fields(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> ElasticFields:
+        '''Element strain, Cauchy stress, and compliance at a solved displacement.
+
+        Strain and stress are the element mean of `fields_at` over the rule,
+        matching the linear path. Compliance is twice the stored energy integrated
+        over the element, which for a quadratic W is exactly `∫ S : E`, the
+        work-conjugate pair. Contracting the *reported* Cauchy stress with E instead
+        mixes measures and runs ~30% wrong at finite strain.
+        '''
+        strain, cauchy, W = self._point_state(geometry, u_elements)
+        compliance = 2.0 * np.einsum('eq,eq->e', W, geometry.weight_detJ)
+        return ElasticFields(_element_mean(strain, geometry.weight_detJ),
+                             _element_mean(cauchy, geometry.weight_detJ), compliance)

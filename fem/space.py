@@ -431,6 +431,17 @@ class FunctionSpace:
         return self.geometry_at(self.element_type.default_quadrature_degree())
 
     @cached_property
+    def geometry_at_nodes(self) -> ElementGeometry:
+        '''Geometry whose "quadrature points" are each element's own nodes.
+
+        For reading a field's gradient (a flux, a stress) at the nodes rather than at
+        interior integration points, which is what a nodal recovery of a P2 derived
+        field wants. Not for integrating: see `Element.nodal_rule`.
+        '''
+        return self.element_type.geometry(self.node_coords[self.element_nodes],
+                                          self.element_type.nodal_rule())
+
+    @cached_property
     def boundary_geometry(self) -> ElementGeometry:
         '''The same, for the boundary facets: embedded elements, so a wider grad_phi.'''
         return self.boundary_type.geometry(self.node_coords[self.boundary_nodes])
@@ -584,19 +595,38 @@ class FunctionSpace:
 
     def _recover_nodal_average(self, values: FloatArray) -> VertexField:
         '''The volume-weighted nodal average of a per-element field.'''
+        n_local = self.element_nodes.shape[1]
+        per_node = np.repeat(values[:, None, ...], n_local, axis=1)
+        return self.average_to_nodal(per_node)
+
+    def average_to_nodal(self, values_at_nodes: FloatArray) -> VertexField:
+        '''Volume-weighted nodal average of a field sampled at each element's nodes.
+
+        `values_at_nodes` is `(n_elements, N, *component_shape)`: element e's reading
+        of the field at its N nodes, as `fields_at(space.geometry_at_nodes, ...)`
+        produces. A node shared by several elements gets their readings averaged,
+        weighted by element volume. This is `recover_nodal('average')` for a field
+        that varies within the element; for an element-constant field the two agree.
+        '''
+        values_at_nodes = np.asarray(values_at_nodes, dtype=float)
         nodes = self.element_nodes
+        if values_at_nodes.shape[:2] != nodes.shape:
+            raise ValueError(
+                f'expected one value per element node {nodes.shape}, '
+                f'got {values_at_nodes.shape[:2]}'
+            )
         weights = self.element_volumes
         n_local = nodes.shape[1]
         flat = nodes.ravel()
-        trailing = values.shape[1:]
+        trailing = values_at_nodes.shape[2:]
 
-        # Broadcast the per-element weight over any trailing component axes, then
-        # scatter each element's weighted value onto its own nodes. `add.at`
-        # accumulates rather than assigns, so a shared node sums its elements'
-        # contributions (an assignment would keep only the last, an order-dependent
-        # bug the scalar path once had).
-        w = weights.reshape((-1,) + (1,) * len(trailing))
-        weighted = np.repeat(values * w, n_local, axis=0)
+        # Broadcast the per-element weight over the node and any trailing component
+        # axes, then scatter each element's weighted readings onto its own nodes.
+        # `add.at` accumulates rather than assigns, so a shared node sums its
+        # elements' contributions (an assignment would keep only the last, an
+        # order-dependent bug the scalar path once had).
+        w = weights.reshape((-1, 1) + (1,) * len(trailing))
+        weighted = (values_at_nodes * w).reshape(len(flat), *trailing)
         sums = np.zeros((self.n_nodes, *trailing))
         np.add.at(sums, flat, weighted)
         norms = np.bincount(flat, weights=np.repeat(weights, n_local), minlength=self.n_nodes)
