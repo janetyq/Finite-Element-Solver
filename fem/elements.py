@@ -71,6 +71,32 @@ class Element:
         return cls.reference_dim() + 1
 
     @classmethod
+    def reference_nodes(cls) -> FloatArray:
+        '''(N, reference_dim) reference coordinates of the nodes, in node order.
+
+        The points where each shape function is 1 and the others 0. For a linear
+        simplex these are its corners: node 0 at the origin, node i on axis i - 1.
+        A higher-order element adds its edge nodes.
+        '''
+        if cls.SHAPE_DEGREE == 1:
+            r = cls.reference_dim()
+            return np.vstack([np.zeros((1, r)), np.eye(r)])
+        raise NotImplementedError(f'{cls.__name__} does not define reference_nodes')
+
+    @classmethod
+    def nodal_rule(cls) -> QuadratureRule:
+        '''A `QuadratureRule` whose points are the element's own nodes.
+
+        For evaluating a field or its gradient at the nodes through the same batched
+        `geometry` machinery an integral uses, not for integrating: the weights are
+        equal shares of the reference measure so `volumes` stays right on an affine
+        element, but the rule has no exactness degree.
+        '''
+        nodes = cls.reference_nodes()
+        measure = 1.0 / factorial(cls.reference_dim())
+        return QuadratureRule(nodes, np.full(len(nodes), measure / len(nodes)), 0)
+
+    @classmethod
     def quadrature(cls, min_degree: int) -> QuadratureRule:
         '''The cheapest rule on this element's reference simplex exact to `min_degree`.'''
         return quadrature_rule(cls.reference_dim(), min_degree)
@@ -331,6 +357,10 @@ class QuadraticLineElement(Element):
         return 1
 
     @classmethod
+    def reference_nodes(cls) -> FloatArray:
+        return np.array([[0.0], [1.0], [0.5]])
+
+    @classmethod
     def shape_values(cls, points: FloatArray) -> FloatArray:
         P = np.atleast_2d(np.asarray(points, dtype=float))
         xi = P[:, 0]
@@ -365,6 +395,12 @@ class QuadraticTriangleElement(Element):
     @classmethod
     def reference_dim(cls) -> int:
         return 2
+
+    @classmethod
+    def reference_nodes(cls) -> FloatArray:
+        # Corners, then the midpoints m12, m02, m01 in the node order above.
+        return np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0],
+                         [0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
     @classmethod
     def shape_values(cls, points: FloatArray) -> FloatArray:

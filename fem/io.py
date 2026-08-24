@@ -96,6 +96,12 @@ def _mesh_from_arrays(data):
     return Mesh(*geometry)
 
 
+def _persisted(f: dataclasses.Field) -> bool:
+    '''Whether a solution field is stored: the header is written separately, and a
+    field marked `metadata={'persist': False}` (a form, not an array) is dropped.'''
+    return f.name not in _SOLUTION_HEADER and f.metadata.get('persist', True)
+
+
 def save_solution(solution, path='solution.npz'):
     '''Write a typed solution (its fields + mesh + component count) to one npz archive.'''
     arrays = _mesh_to_arrays(solution.mesh)
@@ -106,7 +112,7 @@ def save_solution(solution, path='solution.npz'):
     arrays[_ELEMENT_TYPE] = np.array(
         solution.element_type.__name__ if solution.element_type is not None else '')
     for f in dataclasses.fields(solution):
-        if f.name in _SOLUTION_HEADER:
+        if not _persisted(f):
             continue
         value = np.asarray(getattr(solution, f.name))
         if value.dtype == object:
@@ -142,6 +148,6 @@ def load_solution(path='solution.npz'):
         fields = {
             f.name: data[_VALUE_PREFIX + f.name]
             for f in dataclasses.fields(cls)
-            if f.name not in _SOLUTION_HEADER
+            if _persisted(f)
         }
         return cls(mesh, n_components, element_type=element_type, **fields)
