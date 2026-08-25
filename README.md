@@ -345,8 +345,8 @@ examples/            # runnable demo scripts, the CLI, and the gallery builder
 files/               # example SVG outlines
 ```
 
-The figures in this README are committed images (PNGs and one GIF), refreshed by hand. After changing a
-demo, regenerate them and commit the result:
+The figures in this README are committed images (PNGs and one GIF), refreshed by
+hand. After changing a demo, regenerate them and commit the result:
 
 ```bash
 uv run python examples/make_readme_figures.py   # rewrites the figures in images/
