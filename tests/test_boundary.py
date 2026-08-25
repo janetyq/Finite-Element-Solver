@@ -67,21 +67,16 @@ def test_conflicting_component_still_raises(make_unit_square):
         bc.resolve(mesh, n_components=2)
 
 
-def test_neumann_rejects_a_free_component(make_unit_square):
-    """None has no meaning for a load -- catch it at resolve() rather than let
-    it become a silent NaN in the assembled traction."""
+@pytest.mark.parametrize('add', [
+    lambda bc, region: bc.add(BCType.NEUMANN, region, [1.0, None]),
+    lambda bc, region: bc.add_robin(region, kappa=1.0, g=[1.0, None]),
+], ids=['neumann', 'robin'])
+def test_a_load_rejects_a_free_component(make_unit_square, add):
+    """None has no meaning for a load -- catch it at resolve() rather than let it
+    become a silent NaN in the assembled traction."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, None])
-
-    with pytest.raises(ValueError, match='None'):
-        bc.resolve(mesh, n_components=2)
-
-
-def test_robin_rejects_a_free_component(make_unit_square):
-    mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add_robin(on_plane(0, 1.0), kappa=1.0, g=[1.0, None])
+    add(bc, on_plane(0, 1.0))
 
     with pytest.raises(ValueError, match='None'):
         bc.resolve(mesh, n_components=2)

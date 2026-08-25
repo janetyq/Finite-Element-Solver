@@ -92,12 +92,10 @@ def test_demo_runs(demo, make_unit_square, tmp_path, monkeypatch):
     )
 
 
-@pytest.mark.parametrize('demo', DEMOS, ids=lambda demo: demo.name)
-def test_demo_declares_a_known_section(demo):
+def test_every_demo_declares_a_known_section():
     """Sections are declared per demo, so a new one can silently land in "Other". The
     gallery still renders it -- this is what stops that going unnoticed."""
     from gallery import SECTIONS
 
-    assert demo.section in SECTIONS, (
-        f'{demo.name} declares section {demo.section!r}; expected one of {SECTIONS}'
-    )
+    unknown = {demo.name: demo.section for demo in DEMOS if demo.section not in SECTIONS}
+    assert not unknown, f'demos declaring a section not in {SECTIONS}: {unknown}'

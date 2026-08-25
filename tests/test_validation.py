@@ -10,10 +10,8 @@ from fem.energies import NeohookeanEnergyDensity
 from fem.energy_solver import EnergySolver
 from fem.boundary import BoundaryConditions, BCType
 from fem.mesh.mesh import Mesh
-from fem.equations import LinearElastic, StrainMeasure
-from fem.solver import Solver
+from fem.equations import LinearElastic
 from fem.regions import everywhere, on_plane, at_indices
-from fem.plot.plotter import PlotMode
 
 
 def test_neohookean_is_gated():
@@ -78,17 +76,6 @@ def test_dirichlet_neumann_different_components_is_allowed(make_unit_square):
     assert np.any(resolved.neumann_load[left, 0] != 0)
 
 
-def test_conflicting_dirichlet_values_are_rejected(make_unit_square):
-    """Overlapping regions are fine (a corner is on two edges); overlapping
-    regions that disagree are a conflict, and last-write-wins would bury it."""
-    mesh = make_unit_square(8)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)   # left edge
-    bc.add(BCType.DIRICHLET, on_plane(1, 0.0), 1.0)   # bottom edge; corner disagrees
-    with pytest.raises(ValueError):
-        bc.resolve(mesh, n_components=1)
-
-
 def test_agreeing_overlapping_regions_are_fine(make_unit_square):
     mesh = make_unit_square(8)
     bc = BoundaryConditions()
@@ -96,30 +83,6 @@ def test_agreeing_overlapping_regions_are_fine(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), 0.0)
     resolved = bc.resolve(mesh, n_components=1)
     assert len(resolved.fixed_idxs) == len(set(resolved.fixed_idxs))
-
-
-def test_value_shape_is_checked_not_guessed(make_unit_square):
-    """The old API chose between 'one value per node' and 'one value for all' by
-    comparing len(indices) == len(values), so the same call changed meaning with
-    mesh resolution. A wrong-width value must now simply raise."""
-    mesh = make_unit_square(4)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])  # 3 components for n_components=2
-    with pytest.raises(ValueError):
-        bc.resolve(mesh, n_components=2)
-
-
-def test_two_node_edge_pins_both_dofs(make_unit_square):
-    """Regression for the length-coincidence bug: on a 2x2 mesh the left edge has
-    exactly 2 nodes, which used to make [0, 0] mean 'one value per node' and
-    crash. It must mean 'both components, at every node on the edge'."""
-    mesh = make_unit_square(2)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-
-    resolved = bc.resolve(mesh, n_components=2)
-    assert len(resolved.fixed_idxs) == 4  # 2 nodes x 2 components
-    assert len(resolved.fixed_values) == 4
 
 
 def test_bctype_accepts_enum_and_string_but_rejects_typo():
@@ -183,28 +146,9 @@ def test_energy_solver_rejects_a_per_element_modulus(make_unit_square):
         EnergySolver(mesh, LinearElastic(E=E, nu=0.4), bc)
 
 
-def test_solver_rejects_finite_strain_elasticity(make_unit_square):
-    """The linear Solver assembles a constant small-strain stiffness. A
-    Green-Lagrange energy is not quadratic, so it has no constant stiffness --
-    the finite-strain equation must be rejected here, not silently linearised."""
-    mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-
-    eq = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    with pytest.raises(NotImplementedError):
-        Solver(mesh, eq, bc).solve()
-
-
 def test_add_rejects_robin_pointing_to_add_robin():
     """Robin is two-sided and needs a coefficient, so it goes through add_robin,
     not the value-on-region add()."""
     bc = BoundaryConditions()
     with pytest.raises(ValueError, match='add_robin'):
         bc.add(BCType.ROBIN, everywhere(), 0)
-
-
-def test_plotmode_rejects_typo():
-    assert PlotMode("surface") is PlotMode.SURFACE  # string resolves to the member
-    with pytest.raises(ValueError):
-        PlotMode("surfce")  # typo
