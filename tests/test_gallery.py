@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
 
 import solver_demos  # noqa: E402
-from benchmark_assembly import demo_backends  # noqa: E402
+from benchmark_assembly import demo_timing_benchmark  # noqa: E402
 from demo_registry import Demo, DemoResult, Figure  # noqa: E402
 from gallery import build_gallery  # noqa: E402
 
@@ -83,7 +83,7 @@ def _registry():
                         section='Meshing & solving PDEs'),
         'topopt': Demo('topopt', partial(solver_demos.demo_topology_optimization, iters=2),
                        domain=small, section='Solids & structures'),
-        'backends': Demo('backends', partial(demo_backends, sizes=(5,)),
+        'backends': Demo('backends', partial(demo_timing_benchmark, sizes=(5,)),
                          section='Accuracy & performance'),
         'text_only': Demo('text_only', _text_only, section='Accuracy & performance'),
         'absent': Demo('absent', _poisson, domain=small,

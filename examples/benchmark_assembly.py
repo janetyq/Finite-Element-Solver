@@ -9,7 +9,7 @@ factor+solve against AMG-preconditioned CG. The direct cost grows super-linearly
 with fill-in; the AMG-CG cost should overtake it as the mesh grows.
 
     uv run python -m examples.benchmark_assembly
-    uv run python examples/cli.py run backends
+    uv run python examples/cli.py run timing_benchmark
 """
 import logging
 import time
@@ -40,7 +40,7 @@ def _time(fn):
 @dataclass
 class Timing:
     """One box size's measurements: kept as numbers, not a formatted string, so
-    `demo_backends` can chart the scaling trend as well as print it."""
+    `demo_timing_benchmark` can chart the scaling trend as well as print it."""
     n: int
     tets: int
     dofs: int
@@ -74,7 +74,7 @@ def benchmark(n: int) -> Timing:
     return Timing(n, len(mesh.elements), problem.space.n_dofs, t_assemble, t_direct, t_iter)
 
 
-def demo_backends(sizes=DEFAULT_SIZES):
+def demo_timing_benchmark(sizes=DEFAULT_SIZES):
     """Timing of assembly and both solve backends on a 3D elastic box over a range of
     sizes."""
     timings = [benchmark(n) for n in sizes]
@@ -101,10 +101,10 @@ DEMOS = [
     # and the gallery run all five sizes. The test only needs to know that assembly and
     # both backends still compose, which n=5 answers in 0.01s where the full sweep
     # takes 11.6s, over half of it one sparse factorisation at n=21.
-    Demo('backends', demo_backends, section='Accuracy & performance',
+    Demo('timing_benchmark', demo_timing_benchmark, section='Accuracy & performance',
          smoke_kwargs={'sizes': (5,)}),
 ]
 
 
 if __name__ == '__main__':
-    print(demo_backends().text)
+    print(demo_timing_benchmark().text)

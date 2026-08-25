@@ -159,13 +159,14 @@ STYLE = """
           --code: #1d2026; }
 }
 * { box-sizing: border-box; }
-body { margin: 0 auto; padding: 2.5rem 1.25rem 4rem; max-width: 62rem; background: var(--bg);
+body { margin: 0 auto; padding: 2.5rem 1.25rem 4rem; max-width: 70rem; background: var(--bg);
        color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
 h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
 h2 { font-size: 1.15rem; margin: 0 0 .35rem; }
 a { color: inherit; }
 .sub { color: var(--muted); margin: 0 0 2rem; }
-.intro { margin: 0 0 .6rem; max-width: 46rem; font-size: 1.05rem; }
+.intro { margin: 0 0 .6rem; max-width: 54rem; font-size: 1.05rem; }
+/* Four cards per row at full width: four 15rem cards and three gaps fit in 70rem. */
 .grid { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
 .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
         text-decoration: none; display: flex; flex-direction: column; }
@@ -360,18 +361,21 @@ def _index_page(entries: list[Entry]) -> str:
 
     rendered = sum(1 for e in entries if not e.skipped)
     body = [
-        '<h1>Finite Element Solver &mdash; demo gallery</h1>',
-        '<p class="intro">A finite element solver written from scratch in Python: '
-        'meshing, assembly, and solves for the Poisson, heat, wave, and elasticity '
-        'equations in 2D and 3D. Every demo below is rendered beside the code that '
-        'produced it.</p>',
+        '<h1>Demo Gallery: Finite Element Solver</h1>',
+        '<p class="intro">This is a finite-element solver built from scratch in Python for '
+        'PDEs and structural mechanics, with applications including stress analysis, '
+        'heat/wave propagation, buckling, and topology optimization. Includes the full '
+        'numerical pipeline: geometry and mesh generation, element formulation and '
+        'assembly, sparse linear/eigenvalue solvers, error estimation and adaptive '
+        'refinement, and convergence validation. Every demo below comes with the code '
+        'that produced it.</p>',
         f'<p class="sub">{rendered} of {len(entries)} rendered, by '
         '<code>examples/cli.py gallery</code>, on every push to <code>main</code>.</p>',
     ]
     for title, members in _sections(entries):
         body.append(f'<h2 class="heading">{html.escape(title)}</h2>')
         body.append(f'<div class="grid">\n{chr(10).join(card(e) for e in members)}\n</div>')
-    return _page('FEM demo gallery', '\n'.join(body))
+    return _page('Demo Gallery: Finite Element Solver', '\n'.join(body))
 
 
 def _selected_demos(registry: dict[str, Demo], only: Iterable[str] | None) -> list[Demo]:
