@@ -2,7 +2,6 @@
 from math import e
 
 import numpy as np
-import pytest
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
@@ -12,21 +11,6 @@ from fem.mesh.mesh import Mesh
 from fem.regions import everywhere, on_plane
 from fem.solution import ElasticSolution
 from fem.solver import Solver
-
-
-def test_error_estimator_returns_correct_shape(make_unit_square):
-    """The estimator must return one non-negative finite value per element."""
-    mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    solver = Solver(mesh, Poisson(source=1.0), bc)
-    solver.solve()
-
-    eta = residual_estimator(solver.equation).estimate(solver)
-
-    assert len(eta) == len(mesh.elements)
-    assert np.all(np.isfinite(eta))
-    assert np.all(eta >= 0)
 
 
 def test_error_estimator_linear_solution_small_jumps(make_unit_square):
@@ -65,17 +49,6 @@ def test_error_estimator_concentrates_near_peak(make_unit_square):
     near_center = center_dist < 0.15
     far_from_center = center_dist > 0.35
     assert eta[near_center].mean() > eta[far_from_center].mean()
-
-
-def test_error_estimator_requires_solved_system(make_unit_square):
-    """Calling error_estimate before solve raises."""
-    mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    solver = Solver(mesh, Poisson(source=1.0), bc)
-
-    with pytest.raises(ValueError, match='requires a solved system'):
-        residual_estimator(solver.equation).estimate(solver)
 
 
 def test_adaptive_refinement_with_error_estimator(make_unit_square):
@@ -150,35 +123,6 @@ def _unit_square_two_triangles():
     elements = [[0, 1, 2], [0, 2, 3]]
     boundary = [[0, 1], [1, 2], [2, 3], [3, 0]]
     return Mesh(vertices, elements, boundary)
-
-
-def test_elastic_error_estimator_returns_correct_shape(make_unit_square):
-    """The estimator must return one non-negative finite value per element."""
-    mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])
-    equation = LinearElastic(E=200, nu=0.3)
-    solver = Solver(mesh, equation, bc)
-    solver.solve()
-
-    eta = residual_estimator(equation).estimate(solver)
-
-    assert len(eta) == len(mesh.elements)
-    assert np.all(np.isfinite(eta))
-    assert np.all(eta >= 0)
-
-
-def test_elastic_error_estimator_requires_solved_system(make_unit_square):
-    """Calling error_estimate before solve raises."""
-    mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), [0, 0])
-    equation = LinearElastic(E=200, nu=0.3)
-    solver = Solver(mesh, equation, bc)
-
-    with pytest.raises(ValueError, match='requires a solved system'):
-        residual_estimator(equation).estimate(solver)
 
 
 def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):

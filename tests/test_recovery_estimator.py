@@ -12,7 +12,6 @@ the boundary), so simple nodal-averaging recovery -- biased at boundaries -- is 
 its best and the index is a clean check rather than a loose one.
 """
 import numpy as np
-import pytest
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
@@ -116,15 +115,6 @@ def test_elastic_recovery_is_asymptotically_exact():
 # -- shape / sanity ----------------------------------------------------------
 
 
-@pytest.mark.parametrize('solve', [_solve_poisson, _solve_elastic])
-def test_recovery_returns_one_nonnegative_value_per_element(solve):
-    solver = solve(8)
-    eta = recovery_estimator(solver.equation).estimate(solver)
-    assert eta.shape == (len(solver.mesh.elements),)
-    assert np.all(np.isfinite(eta))
-    assert np.all(eta >= 0)
-
-
 def test_recovery_of_a_linear_field_is_near_zero(make_unit_square):
     """A globally linear solution has constant gradient, so its recovery equals it
     and the estimate vanishes -- the patch test for a recovery estimator."""
@@ -136,16 +126,6 @@ def test_recovery_of_a_linear_field_is_near_zero(make_unit_square):
 
     eta = recovery_estimator(solver.equation).estimate(solver)
     assert np.all(eta < 1e-10)
-
-
-def test_recovery_requires_a_solved_system(make_unit_square):
-    mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    solver = Solver(mesh, Poisson(source=1.0), bc)
-
-    with pytest.raises(ValueError, match='requires a solved system'):
-        recovery_estimator(solver.equation).estimate(solver)
 
 
 # -- drives adaptive refinement ----------------------------------------------

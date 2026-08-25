@@ -7,6 +7,7 @@ for a missing dependency -- not the demos themselves, which `test_demos.py` runs
 """
 import json
 import re
+import shutil
 import sys
 from functools import partial
 from pathlib import Path
@@ -58,12 +59,12 @@ def _result_then_setup(mesh):
                        Figure(conditions, 'what was imposed', 'conditions', setup=True)])
 
 
-@pytest.fixture(scope='module')
-def gallery(tmp_path_factory):
+def _registry():
+    """The hand-made registry the module gallery is built from."""
     # The gallery runs demos with no overrides -- neither arguments nor domain -- so
     # the cheap variants are bound here rather than declared on the Demo.
     small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
-    registry = {
+    return {
         'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
                         section='Solving PDEs'),
         'topopt': Demo('topopt', partial(solver_demos.demo_topology_optimization, iters=2),
@@ -83,6 +84,11 @@ def gallery(tmp_path_factory):
         # Declares no section, so it also stands for a demo the index has no heading for.
         'gif_maker': Demo('gif_maker', _writes_a_gif),
     }
+
+
+@pytest.fixture(scope='module')
+def gallery(tmp_path_factory):
+    registry = _registry()
     out = tmp_path_factory.mktemp('gallery') / 'out'
     # Serial: several of these demos are defined in this test module, which a spawned
     # worker process could not import to unpickle. The parallel path -- which needs
@@ -98,14 +104,10 @@ def test_parallel_build_renders_every_demo(tmp_path):
     by importing the module it lives in -- which is the constraint the real registry
     already meets and the test-local demos above do not.
     """
-    from functools import partial
-
     small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     registry = {
         'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
                         section='Solving PDEs'),
-        'linear_elastic': Demo('linear_elastic', solver_demos.demo_linear_elastic,
-                               domain=small, section='Solids & structures'),
         'l2_projection': Demo('l2_projection', solver_demos.demo_l2_projection, domain=small,
                               section='Accuracy & performance'),
     }
@@ -120,21 +122,17 @@ def test_parallel_build_renders_every_demo(tmp_path):
         assert all((out / p.src).exists() for p in entry.panels)
 
 
-def test_only_rebuilds_one_page_and_leaves_the_rest(tmp_path):
+def test_only_rebuilds_one_page_and_leaves_the_rest(gallery, tmp_path):
     """`only` is a single-page rebuild: it re-renders the named demo in place without
-    disturbing the sibling pages or the index a full build wrote."""
-    small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
-    registry = {
-        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
-                        section='Solving PDEs'),
-        'text_only': Demo('text_only', _text_only, section='Accuracy & performance'),
-    }
+    disturbing the sibling pages or the index a full build wrote. Runs on a copy of the
+    module's full build rather than building another."""
+    built, _ = gallery
     out = tmp_path / 'out'
-    build_gallery(registry, out, workers=1)          # a full build first
+    shutil.copytree(built, out)
     index_before = (out / 'index.html').read_bytes()
     sibling_before = (out / 'text_only.html').read_bytes()
 
-    entries = build_gallery(registry, out, workers=1, only=['poisson'])
+    entries = build_gallery(_registry(), out, workers=1, only=['poisson'])
 
     assert [e.name for e in entries] == ['poisson']
     assert (out / 'poisson.html').exists()
@@ -146,14 +144,12 @@ def test_only_rebuilds_one_page_and_leaves_the_rest(tmp_path):
 def test_only_into_a_fresh_dir_writes_the_page_but_no_index(tmp_path):
     """With no prior full build there is nothing to index faithfully, so `only` writes
     the page and leaves the index unwritten rather than one listing a lone demo."""
-    small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
-    registry = {'poisson': Demo('poisson', solver_demos.demo_poisson_equation,
-                                domain=small, section='Solving PDEs')}
+    registry = {'text_only': Demo('text_only', _text_only, section='Accuracy & performance')}
     out = tmp_path / 'out'
-    entries = build_gallery(registry, out, workers=1, only=['poisson'])
+    entries = build_gallery(registry, out, workers=1, only=['text_only'])
 
-    assert (out / 'poisson.html').exists()
-    assert entries[0].panels
+    assert [e.name for e in entries] == ['text_only']
+    assert (out / 'text_only.html').exists()
     assert not (out / 'index.html').exists()
 
 

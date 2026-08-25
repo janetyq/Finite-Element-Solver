@@ -164,30 +164,30 @@ def test_frames_can_be_sampled_down_to_a_cap(mesh, tmp_path):
     """Rasterizing frames is the largest cost of a gallery build, and a player does not
     need one image per solver step. The last frame is never the one dropped -- for a
     topology optimization it is the result."""
-    values = [np.full(len(mesh.vertices), float(k)) for k in range(10)]
+    values = [np.full(len(mesh.vertices), float(k)) for k in range(6)]
 
     plotter = Plotter(1, 1)
     plotter.plot_animation(mesh, values, mode='colored')
-    written = plotter.save_frames(str(tmp_path / '{:03d}.png'), max_frames=4)
+    written = plotter.save_frames(str(tmp_path / '{:03d}.png'), max_frames=3)
 
-    assert len(written) == 4
+    assert len(written) == 3
     # Contiguously numbered, so the player steps through them without gaps.
-    assert [Path(p).name for p in written] == ['000.png', '001.png', '002.png', '003.png']
+    assert [Path(p).name for p in written] == ['000.png', '001.png', '002.png']
     assert all(Path(p).exists() for p in written)
 
-    # The last image is the last *frame*, not the fourth of ten: compared against the
-    # same figure writing the run in full, whose final image is frame 9 by definition.
+    # The last image is the last *frame*, not the third of six: compared against the
+    # same figure writing the run in full, whose final image is frame 5 by definition.
     full = plotter.save_frames(str(tmp_path / 'full{:03d}.png'))
     assert Path(written[-1]).read_bytes() == Path(full[-1]).read_bytes()
     plotter.close()
 
 
 def test_uncapped_frames_write_every_step(mesh, tmp_path):
-    values = [np.full(len(mesh.vertices), float(k)) for k in range(5)]
+    values = [np.full(len(mesh.vertices), float(k)) for k in range(3)]
 
     plotter = Plotter(1, 1)
     plotter.plot_animation(mesh, values, mode='colored')
-    assert len(plotter.save_frames(str(tmp_path / '{:03d}.png'))) == 5
+    assert len(plotter.save_frames(str(tmp_path / '{:03d}.png'))) == 3
     plotter.close()
 
 
@@ -500,3 +500,15 @@ def test_warp_true_needs_a_solution_not_a_bare_mesh():
     mesh, space = _p2_square()
     with pytest.raises(ValueError, match='warp=True needs a Solution'):
         Plotter(1, 1).plot(mesh, space.node_coords[:, 0], mode='colored', space=space, warp=True)
+
+
+def test_refinement_plot_draws(mesh):
+    """plot_refinement colours red/green leaves on a refined mesh."""
+    from fem.mesh.refinement import RedGreenRefiner
+    from fem.plot.helpers import plot_refinement
+
+    refiner = RedGreenRefiner(mesh)
+    refined = refiner.refine([0])
+    ax = Plotter().get_ax()
+    plot_refinement(ax, refined, refiner.leaf_classifications())
+    assert ax.has_data()

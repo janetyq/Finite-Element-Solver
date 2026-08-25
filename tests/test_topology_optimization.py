@@ -15,7 +15,7 @@ from fem.space import FunctionSpace
 from fem.topology import calculate_smoothing_matrix
 from fem.regions import on_plane
 from fem.equations import LinearElastic
-from fem.topology import TopologyOptimizer
+from fem.topology import TargetCompliance, TopologyOptimizer
 
 
 def _dense_smoothing_matrix(mesh, r):
@@ -172,3 +172,11 @@ def test_smoothing_matrix_stays_sparse_under_refinement(make_unit_square):
 
     assert fine.shape[0] > 4 * coarse.shape[0]
     assert fine.nnz / fine.shape[0] < 1.5 * coarse.nnz / coarse.shape[0]
+
+
+def test_target_compliance_gradient_is_finite_per_element():
+    """The target-compliance objective yields one finite sensitivity per element."""
+    rng = np.random.default_rng(0)
+    compliance, rho = rng.random(12) + 0.1, rng.random(12) + 0.1
+    gradient = TargetCompliance(target=1.0).gradient(compliance, rho, penalty=3.0)
+    assert gradient.shape == (12,) and np.all(np.isfinite(gradient))

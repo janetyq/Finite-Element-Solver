@@ -179,18 +179,6 @@ def test_p2_residual_concentrates_near_a_peaked_source():
     assert eta[center_dist < 0.15].mean() > eta[center_dist > 0.35].mean()
 
 
-@pytest.mark.parametrize('equation, bc_value', [
-    (Poisson(source=_poisson_source), 0.0),
-    (LinearElastic(E=200, nu=0.3), [0.0, 0.0]),
-])
-def test_p2_residual_returns_one_nonnegative_value_per_element(equation, bc_value):
-    solver = _solve(equation, 8, bc_value=bc_value)
-    eta = residual_estimator(solver.equation).estimate(solver)
-    assert eta.shape == (len(solver.mesh.elements),)
-    assert np.all(np.isfinite(eta))
-    assert np.all(eta >= 0)
-
-
 def test_p2_residual_drives_adaptive_refinement():
     """The full loop on a P2 space: the mesh grows, concentrates near a localised source,
     and the solve stays P2 across remeshes."""

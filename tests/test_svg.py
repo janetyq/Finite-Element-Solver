@@ -204,3 +204,10 @@ def test_grid_crossing_finds_a_crossing_among_far_apart_clusters():
     ])
     segments = np.array([[0, 1], [2, 3], [4, 5], [6, 7]])
     assert _find_crossing_segments(vertices, segments) == (0, 1)
+
+
+def test_douglas_peucker_handles_a_collinear_run():
+    """No interior point beats a zero distance on a straight run, so the index stayed
+    None and the recursion sliced with None + 1."""
+    points = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]])
+    assert len(douglas_peucker(points, epsilon=0.0)) == 2

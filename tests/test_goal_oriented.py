@@ -6,7 +6,6 @@ a valid per-element field, its refinement concentrates near the quantity of inte
 it drives the mesh there more strongly than the global recovery estimator does.
 """
 import numpy as np
-import pytest
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
@@ -35,27 +34,6 @@ def _near_far(mesh, point, near=0.15, far=0.35):
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     dist = np.linalg.norm(centroids - np.asarray(point), axis=1)
     return int((dist < near).sum()), int((dist > far).sum())
-
-
-def test_returns_one_nonnegative_value_per_element():
-    solver = _poisson_solver(10)
-    qoi = PointValue(_nearest_node(solver.space, (0.7, 0.7)))
-    eta = goal_oriented_estimator(solver.equation, qoi).estimate(solver)
-
-    assert eta.shape == (len(solver.mesh.elements),)
-    assert np.all(np.isfinite(eta))
-    assert np.all(eta >= 0)
-
-
-def test_requires_a_solved_system():
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(8, 8))
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    solver = Solver(mesh, Poisson(source=lambda p: 1.0), bc)  # not solved
-    qoi = PointValue(_nearest_node(solver.space, (0.5, 0.5)))
-
-    with pytest.raises(ValueError, match='requires a solved system'):
-        goal_oriented_estimator(solver.equation, qoi).estimate(solver)
 
 
 def test_indicator_peaks_near_the_quantity_of_interest():

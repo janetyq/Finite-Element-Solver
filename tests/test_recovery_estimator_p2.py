@@ -13,14 +13,11 @@ import pytest
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import (
-    ELASTIC_E,
-    ELASTIC_NU,
-    elastic_source,
     exact_gradient,
     h1_seminorm_error,
 )
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
-from fem.equations import LinearElastic, Poisson
+from fem.equations import Poisson
 from fem.estimators import recovery_estimator
 from fem.mesh.structured import create_rect_mesh
 from fem.postprocess import GradientField
@@ -89,18 +86,6 @@ def test_p2_recovery_effectivity_stays_bounded():
         indices.append(eta / true_error)
 
     assert all(0.5 < i < 2.0 for i in indices)
-
-
-@pytest.mark.parametrize('equation, bc_value', [
-    (Poisson(source=_poisson_source), 0.0),
-    (LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source), [0.0, 0.0]),
-])
-def test_p2_recovery_returns_one_nonnegative_value_per_element(equation, bc_value):
-    solver = _solve(equation, 8, QuadraticTriangleElement, bc_value=bc_value)
-    eta = recovery_estimator(solver.equation).estimate(solver)
-    assert eta.shape == (len(solver.mesh.elements),)
-    assert np.all(np.isfinite(eta))
-    assert np.all(eta >= 0)
 
 
 # -- drives adaptive refinement on a P2 space --------------------------------

@@ -83,16 +83,12 @@ def convergence_2d():
     return [_solve_2d(n) for n in (9, 17, 33)]
 
 
-def test_2d_error_decreases(convergence_2d):
-    errors = [e for _, e in convergence_2d]
-    for coarse, fine in zip(errors, errors[1:]):
-        assert fine < coarse, f'error grew under refinement: {errors}'
-
-
 def test_2d_second_order(convergence_2d):
+    """The error falls monotonically under refinement, at O(h^2)."""
+    errors = [e for _, e in convergence_2d]
+    assert all(fine < coarse for coarse, fine in zip(errors, errors[1:])), errors
     orders = _observed_orders(convergence_2d)
-    for p in orders:
-        assert 1.7 < p < 2.3, f'expected ~2nd order, got {orders}'
+    assert all(1.7 < p < 2.3 for p in orders), f'expected ~2nd order, got {orders}'
 
 
 # --------------------------------------------------------------------------
@@ -143,39 +139,20 @@ def convergence_3d():
     return [_solve_3d(n) for n in (9, 13, 17, 21, 29)]
 
 
-def test_3d_error_decreases(convergence_3d):
-    errors = [e for _, e in convergence_3d]
-    for coarse, fine in zip(errors, errors[1:]):
-        assert fine < coarse, f'error grew under refinement: {errors}'
-
-
 def test_3d_second_order(convergence_3d):
-    """The same O(h^2) band the 2D case asserts -- observed orders 1.82, 1.90, 1.94, 1.96."""
+    """The error falls monotonically under refinement, inside the O(h^2) band the 2D
+    case asserts: observed orders 1.82, 1.90, 1.94, 1.96."""
+    errors = [e for _, e in convergence_3d]
+    assert all(fine < coarse for coarse, fine in zip(errors, errors[1:])), errors
     orders = _observed_orders(convergence_3d)
-    for p in orders:
-        assert 1.7 < p < 2.3, f'expected ~2nd order, got {orders}'
+    assert all(1.7 < p < 2.3 for p in orders), f'expected ~2nd order, got {orders}'
 
 
-def test_3d_order_climbs_toward_two(convergence_3d):
-    """Still approaching 2 from below, rather than sitting at a plateau.
-
-    Being inside the band is necessary but not sufficient: a defect that degraded
-    the rate to a constant 1.8 would also pass the band check on these meshes.
-    Monotone improvement under refinement is what distinguishes a pre-asymptotic
-    reading of a second-order method from a genuinely lower-order one.
-    """
+def test_3d_order_climbs_to_two(convergence_3d):
+    """Inside the band is necessary but not sufficient: a defect degrading the rate to
+    a constant 1.8 would pass it. The order must climb monotonically under refinement
+    (a pre-asymptotic reading of a second-order method, not a lower-order one) and the
+    finest pair, which AMG-CG affords, must arrive near 2 rather than merely approach it."""
     orders = _observed_orders(convergence_3d)
-    for coarse, fine in zip(orders, orders[1:]):
-        assert fine > coarse, f'order should climb toward 2, got {orders}'
-
-
-def test_3d_order_reaches_two_on_the_fine_mesh(convergence_3d):
-    """The finest pair actually arrives near 2, not merely climbing toward it.
-
-    The direct net stopped at n=21 (order 1.94), where the rate had not yet reached
-    its asymptotic value; the n=21->29 pair AMG-CG affords reads ~1.96, which is the
-    statement that the P1 method is genuinely second order here rather than something
-    slightly less that happens to sit inside the band.
-    """
-    orders = _observed_orders(convergence_3d)
+    assert all(fine > coarse for coarse, fine in zip(orders, orders[1:])), orders
     assert orders[-1] > 1.95, f'finest order did not reach the asymptotic rate: {orders}'
