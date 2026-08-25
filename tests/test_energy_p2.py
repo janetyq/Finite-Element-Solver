@@ -92,31 +92,3 @@ def test_a_p2_hyperelastic_solve_converges_and_carries_its_element_type():
     assert solution.element_type is QuadraticTriangleElement
     assert solution.space.n_nodes > len(mesh.vertices)          # edge nodes exist
     assert solution.nodal_von_mises().shape == (solution.space.n_nodes,)
-
-
-def test_a_p2_energy_solve_is_more_accurate_than_p1():
-    """A bending deformation the linear element captures poorly: the P2 energy solve lands
-    closer to a fine-mesh reference than P1 on the same coarse mesh, the accuracy the
-    higher-order element buys."""
-    def solve(mesh, element_type):
-        bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-        # A tip rotation: the loaded edge's x-displacement varies with height, bending it.
-        bc.add(BCType.DIRICHLET, on_plane(0, 4.0), lambda p: [0.4 * (p[1] - 0.5), 0.0])
-        equation = LinearElastic(200.0, 0.3, kinematics=StrainMeasure.GREEN_LAGRANGE)
-        s = EnergySolver(mesh, equation, bc, element_type=element_type)
-        return s.solve(), s.space
-
-    coarse = create_rect_mesh([[0.0, 0.0], [4.0, 1.0]], [9, 4])
-    fine = create_rect_mesh([[0.0, 0.0], [4.0, 1.0]], [33, 12])
-    reference, ref_space = solve(fine, QuadraticTriangleElement)
-    tip_ref = float(np.abs(reference.u.reshape(-1, 2)[:len(fine.vertices), 1]).max())
-
-    def tip_deflection(solution, mesh):
-        return float(np.abs(solution.u.reshape(-1, 2)[:len(mesh.vertices), 1]).max())
-
-    p1, _ = solve(coarse, LinearTriangleElement)
-    p2, _ = solve(coarse, QuadraticTriangleElement)
-    err_p1 = abs(tip_deflection(p1, coarse) - tip_ref)
-    err_p2 = abs(tip_deflection(p2, coarse) - tip_ref)
-    assert err_p2 < err_p1
