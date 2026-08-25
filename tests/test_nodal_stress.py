@@ -24,7 +24,7 @@ from fem.space import FunctionSpace
 
 def _quadratic_displacement_solution(element_type, E=200.0, nu=0.3):
     """An `ElasticSolution` whose displacement is a known quadratic field, so its stress
-    is exactly linear and a P2 space carries it exactly. Built from the nodal values
+    is linear, which a P2 space carries exactly. Built from the nodal values
     rather than solved, so the discretization error is zero by construction."""
     mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
     space = FunctionSpace(mesh, element_type, n_components=2)

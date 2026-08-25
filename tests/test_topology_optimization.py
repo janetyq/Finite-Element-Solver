@@ -59,9 +59,7 @@ def test_min_compliance_sensitivity_uses_the_configured_penalty(make_unit_square
 
 def test_density_scales_the_solid_element_stiffness(make_unit_square):
     """The identity the cached solid stiffness rests on: D is linear in E, so
-    diluting the modulus to rho^p E_0 scales each element matrix by exactly rho^p.
-    If that ever stopped holding, the assembled operator would silently stop being
-    the one the configured material describes."""
+    diluting the modulus to rho^p E_0 scales each element matrix by rho^p."""
     mesh = make_unit_square(6)
     space = FunctionSpace(mesh, n_components=2)
     rho = np.linspace(0.2, 1.0, len(mesh.elements))

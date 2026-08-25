@@ -79,8 +79,7 @@ class NeumannContribution:
     `facet_mask` marks the boundary facets in the region; a `MaskedMassForm` over them
     integrates `traction` (the nodal field g) across those facets alone, the same
     region-restricted integral a Robin condition uses. Masking keeps a traction from
-    spreading onto a neighbouring edge through a shared corner node, which the
-    unmasked boundary mass it replaces did, inflating the applied resultant.
+    spreading onto a neighbouring edge through a shared corner node.
     '''
     facet_mask: BoolArray       # one entry per boundary facet
     traction: VertexField       # (n_vertices, n_components), nonzero on the region nodes
@@ -202,9 +201,8 @@ class BoundaryConditions:
         boundary = np.asarray(nodes.boundary_idxs, dtype=int)
 
         if is_mesh_bound(region):
-            # Naming a node explicitly is a claim about that node, so silently
-            # dropping an interior one would hide a mistake. Describing a region
-            # is a filter, where the intersection is the intent.
+            # A named interior node is a mistake to report; a geometric region is a
+            # filter, so its intersection with the boundary is the intent.
             interior = np.setdiff1d(selected, boundary)
             if len(interior):
                 raise ValueError(

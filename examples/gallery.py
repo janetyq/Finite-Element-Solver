@@ -408,7 +408,7 @@ def build_gallery(registry: dict[str, Demo], out_dir: Path,
     The demos are independent (each renders its own figures under demo-prefixed names),
     so they run across `workers` processes, bounding the build by the slowest single
     demo rather than the sum. `workers` defaults to the machine's CPU count; `workers=1`
-    runs them in this process, which is what the generator's own tests use.
+    runs them in this process, as the generator's tests do.
     """
     out_dir = Path(out_dir).resolve()
     demos = _selected_demos(registry, only)

@@ -214,7 +214,7 @@ def test_p2_elastic_residual_runs_end_to_end():
 
 def test_residual_estimator_refuses_curved_elements():
     """The interior term's divergence assumes a constant Jacobian, so a curved element
-    is refused outright rather than estimated with a silently wrong Hessian."""
+    is refused."""
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(4, 4))
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)

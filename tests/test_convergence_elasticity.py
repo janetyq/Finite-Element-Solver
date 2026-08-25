@@ -117,7 +117,7 @@ def _solve_3d(n):
 def convergence_3d():
     # h = 1/8, 1/12, 1/16, 1/20, 1/28.
     #
-    # The coarse end is deliberately dropped. Kuhn tets are distorted enough that
+    # The coarse end is dropped. Kuhn tets are distorted enough that
     # the error constant is large, so h = 1/4 and 1/6 are still pre-asymptotic
     # (they read 1.46 and 1.69) and including them would force a weaker assertion
     # on the whole sequence. Starting at h = 1/8 is not cherry-picking the answer:

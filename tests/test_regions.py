@@ -88,8 +88,7 @@ def test_none_is_zero():
 
 
 def test_wrong_width_raises_rather_than_being_guessed():
-    """The old API inferred meaning from a length coincidence; a mismatch must
-    simply be an error."""
+    """A value of the wrong width is an error, not reinterpreted."""
     with pytest.raises(ValueError):
         evaluate_field([1.0, 2.0, 3.0], POINTS, n_components=2)
 

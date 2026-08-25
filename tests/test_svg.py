@@ -58,9 +58,8 @@ def test_a_curve_that_does_not_close_exactly_keeps_its_real_gap(tmp_path):
 
 
 def test_a_closed_curve_simplifies_and_meshes_without_a_degenerate_chord(tmp_path):
-    """Regression: sampling every Bezier through its true endpoint (rather than
-    stopping short) once left an exact start==end duplicate in the ring, which is
-    a zero-length chord to `douglas_peucker` and a zero-length edge to `PSLG`."""
+    """A closed curve leaves no start==end duplicate in the ring, which would be a
+    zero-length chord to `douglas_peucker` and a zero-length edge to `PSLG`."""
     svg_file = _write_svg(tmp_path, 'M0,0 C0,1 1,1 1,0 C1,-1 0,-1 0,0 Z')
     loop = np.array(read_svg_to_list_of_path_points(svg_file)[0])
 
@@ -172,7 +171,7 @@ def _crossing_by_all_pairs(vertices, segments):
 
 
 def test_grid_crossing_detection_matches_the_all_pairs_reference():
-    """The spatial-grid crossing search returns exactly the pair the all-pairs scan does."""
+    """The spatial-grid crossing search returns the pair the all-pairs scan does."""
     rng = np.random.default_rng(7)
     for _ in range(200):
         n = int(rng.integers(2, 25))

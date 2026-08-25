@@ -67,7 +67,7 @@ Matrix: TypeAlias = FloatArray
 SparseMatrix: TypeAlias = csr_array
 
 # What a DiscreteSystem factors: a sparse assembled operator in production, or a
-# small dense one in a test (csc_array converts either). Loose on purpose:
+# small dense one in a test (csc_array converts either). Kept loose:
 # scipy.sparse ships no stubs, so sparse subscripting fights a precise type more
 # than it documents.
 Operator: TypeAlias = Any

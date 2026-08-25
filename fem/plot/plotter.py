@@ -200,8 +200,7 @@ class Plotter:
             plot_surface(ax, mesh, values, clim=clim, space=space,
                          subdivisions=subdivisions, warp=warp)
         elif mode is PlotMode.SOLID:
-            # The colorbar is set up on the 3D axes, after the swap: attaching it to the
-            # 2D one it replaces is what left a stray bar beside a surface animation.
+            # The colorbar is set up on the 3D axes, after the swap.
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
             if values is not None and idx not in self.cbar_infos:
@@ -397,9 +396,8 @@ class Plotter:
                 else:
                     ax.set_aspect('equal')
 
-            # Only where the caller has not placed one itself: `ax.legend()` replaces an
-            # existing legend with a default-positioned one, so an explicit `loc` was
-            # being discarded here rather than respected.
+            # Only where the caller has not placed one itself: `ax.legend()` would
+            # replace an existing legend with a default-positioned one.
             if ax.get_legend() is None and any(ax.get_legend_handles_labels()[1]):
                 ax.legend()
 

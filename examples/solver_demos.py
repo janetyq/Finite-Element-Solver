@@ -75,7 +75,7 @@ def demo_l2_projection(mesh, reference_resolution=120):
         plotter,
         'Representation error, before any PDE: how well the P1 space can represent a '
         'function at all. Left: the target sin(40 r^2), whose rings tighten with radius. '
-        'Right: its L2 projection onto a deliberately coarse mesh. The slow inner rings '
+        'Right: its L2 projection onto a coarse mesh. The slow inner rings '
         'come through; past the radius where one ring spans only a couple of triangles the '
         'space can no longer follow it, and the outer rings break up into the mesh. This '
         'is the error floor every solver on this mesh starts from, and the rest of this '
@@ -325,7 +325,7 @@ def demo_curved_elements(coarse_n=4, resolutions=(3, 5, 9, 17)):
     """Show what curved (isoparametric) elements buy on a curved domain: the boundary
     follows the true circle instead of a polygon, so the domain area (pure geometry)
     converges at the element's own order instead of the polygonal O(h^2)."""
-    # A deliberately coarse annulus for the two picture panels, so the straight facets are
+    # A coarse annulus for the two picture panels, so the straight facets are
     # obvious. Both solve the same manufactured Poisson problem (u = sin(x) sin(y)); only
     # the element's geometry differs, straight P2 vs isoparametric P2.
     coarse = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, coarse_n, 4 * coarse_n)
@@ -490,7 +490,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     # isoparametric element's edge nodes all land on the true rim.
     pslg = plate_with_hole_pslg(length, height, radius, segments=circle_segments)
     pslg.validate()
-    # Deliberately coarse: resolving the rim is adaptive refinement's job below. The rim
+    # Coarse: resolving the rim is adaptive refinement's job below. The rim
     # still grades finer than the interior, since Ruppert's honours its short segments.
     rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=max_area_fraction * pslg.area())
@@ -1854,7 +1854,7 @@ DEMOS = [
     Demo('design_sensitivity', demo_design_sensitivity, section=SOLIDS,
          domain=partial(beam, 3.0, 1.0, 120), smoke_kwargs={'iters': 3}),
 
-    # Meshed deliberately coarse, so sin(40 r^2)'s slow inner rings resolve but the fast
+    # Meshed coarse, so sin(40 r^2)'s slow inner rings resolve but the fast
     # outer ones alias into the triangulation.
     Demo('l2_projection', demo_l2_projection, section=ACCURACY, domain=partial(square, 28),
          smoke_kwargs={'reference_resolution': 60}),

@@ -149,7 +149,7 @@ def test_only_into_a_fresh_dir_writes_the_page_but_no_index(tmp_path):
 
 
 def test_only_rejects_an_unknown_demo(tmp_path):
-    """A mistyped name rebuilds nothing silently; it names the demo that does not exist."""
+    """A mistyped name raises, naming the demo that does not exist."""
     registry = {'poisson': Demo('poisson', _text_only)}
     with pytest.raises(ValueError, match='no such demo'):
         build_gallery(registry, tmp_path / 'out', workers=1, only=['posson'])
@@ -231,7 +231,7 @@ def test_a_demo_declaring_no_section_still_appears(gallery):
 
 
 def test_a_demo_can_nominate_which_figure_is_its_card_image(gallery):
-    """Read in order, a pipeline demo opens on its setup; a card wants the payoff."""
+    """Read in order, a pipeline demo opens on its setup; a card wants the result."""
     out, _entries = gallery
     index = (out / 'index.html').read_text(encoding='utf-8')
     assert 'pipeline-result.png' in index

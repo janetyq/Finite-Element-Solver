@@ -428,7 +428,7 @@ class GeometricStiffnessForm:
     tension and softens it in compression, to the point of buckling, where `K + λ K_g`
     loses positive-definiteness.
 
-    It is exactly `term1` of the St-Venant–Kirchhoff consistent tangent
+    It is `term1` of the St-Venant–Kirchhoff consistent tangent
     (`EnergyForm.element_tangents`), where the prestress is the second Piola–Kirchhoff
     stress `dW/dS` contracted through the constant kernel `d²S/dF²`. Here the prestress
     is supplied (recovered once from a reference linear solve), so the geometric
@@ -530,8 +530,8 @@ class EnergyForm:
     - its gradient (the residual, one vector per element),
     - its Hessian (the tangent, one matrix per element).
 
-    A quadratic energy gives a constant tangent independent of the state. The linear
-    stiffness `Form` is that special case, which is why these are siblings.
+    A quadratic energy gives a constant tangent independent of the state; the linear
+    stiffness `Form` is that special case.
 
     The physics is delegated to an energy density (`fem.energies`), which evaluates
     the full derivative chain once for the whole mesh and returns a
@@ -548,7 +548,7 @@ class EnergyForm:
         The displacement gradient has degree `shape_degree - 1`, and the density's energy
         is `energy_degree`-degree in it, so the energy integrand is their product. This is
         higher than the linear stiffness's default on P2 (quartic St-VK reaches degree 4),
-        which is why the energy path asks for its own rule rather than sharing that default.
+        so the energy path asks for its own rule.
         '''
         return self.energy_density.energy_degree * max(0, shape_degree - 1)
 

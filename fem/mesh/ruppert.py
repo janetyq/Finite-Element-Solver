@@ -281,7 +281,7 @@ class RuppertsAlgorithm:
         triangles and never terminating.  They go through the region labelling
         rather than an even-odd test per triangle: a non-convex outline leaves
         hundreds of skinny triangles outside the hull, all of them failing the
-        angle bound, and collapsing those to one test per region is the point.
+        angle bound; one test per region is far cheaper.
         '''
         simplices = self.triangulation.simplices
         segment_mask = self._segment_edges()

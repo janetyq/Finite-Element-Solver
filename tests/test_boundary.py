@@ -32,9 +32,8 @@ def test_partial_pin_leaves_the_other_component_free(make_unit_square):
 
 def test_two_conditions_merge_different_components_at_one_vertex(make_unit_square):
     """The corner where a roller edge meets its rigid-body-mode pin: two `add`
-    calls, each naming one component, must both land in `fixed_idxs` rather than
-    the second silently overwriting the first (or the two being flagged a
-    conflict, since they never actually disagree)."""
+    calls, each naming one component, both land in `fixed_idxs`; they do not
+    conflict, since they never disagree."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, None])

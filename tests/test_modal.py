@@ -113,7 +113,7 @@ def test_solution_round_trips_through_io(tmp_path):
 
 def test_green_lagrange_equation_is_rejected():
     """Modal analysis linearises about the unstressed state; a finite-strain law has no
-    constant stiffness, so it is refused rather than silently linearised."""
+    constant stiffness, so it is refused."""
     mesh = cantilever(12.0, n_length=12, n_across=3)
     equation = LinearElastic(E, NU, kinematics=StrainMeasure.GREEN_LAGRANGE)
     with pytest.raises(NotImplementedError, match='constant'):

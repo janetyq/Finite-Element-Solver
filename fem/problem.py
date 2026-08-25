@@ -175,8 +175,7 @@ class EnergyProblem:
     '''∇Π(u) = 0: a nonlinear operator whose tangent depends on the state.
 
     The residual is the energy gradient and the tangent its Hessian, both from an
-    `EnergyForm`. No external work term yet: the load is zero, so a source is
-    refused rather than silently dropped (as `EnergySolver` always has).
+    `EnergyForm`. No external work term yet: the load is zero, so a source is refused.
     '''
 
     def __init__(
@@ -211,7 +210,7 @@ class EnergyProblem:
         return np.zeros(self.space.n_dofs)
 
     def tangent(self, u: DofVector | None) -> Operator:
-        # Unlike a LinearProblem's, this tangent genuinely depends on the state, so
+        # Unlike a LinearProblem's, this tangent depends on the state, so
         # the "state-independent" None a LinearSolve would pass is a category error.
         if u is None:
             raise ValueError('EnergyProblem has a state-dependent tangent; evaluate it at a u')

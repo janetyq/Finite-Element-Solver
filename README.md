@@ -214,7 +214,7 @@ is hardest to approximate.
 ### Representation error
 
 Before any PDE, there is the question of what the space can represent at all. The target
-$\sin(40 r^2)$ has rings that tighten with radius; projected onto a deliberately coarse
+$\sin(40 r^2)$ has rings that tighten with radius; projected onto a coarse
 P1 mesh, the slow inner rings come through but the fast outer ones break up into the
 triangulation. That representation error is the floor every solver on this mesh starts
 from, and refining the mesh is what lowers it.

@@ -57,9 +57,7 @@ def test_close_closes_its_own_figure(mesh):
 
 
 def test_surface_animation_adds_no_colorbar(mesh):
-    """A colorbar was set up for every mode, but only the colored mode reads one --
-    and for a surface it landed on the 2D axes that get replaced by 3D ones, so it
-    survived as a legend attached to nothing."""
+    """A surface animation draws no colorbar."""
     values = [np.linspace(0, 1, len(mesh.vertices)) * k for k in (1.0, 2.0)]
 
     plotter = Plotter(1, 1)
@@ -484,8 +482,7 @@ def test_warp_true_deforms_by_the_solutions_own_displacement():
 
 
 def test_warp_true_needs_a_solution_not_a_bare_mesh():
-    """`warp=True` has no displacement to read off a raw mesh, so it is rejected rather
-    than silently drawing the undeformed shape."""
+    """`warp=True` has no displacement to read off a raw mesh, so it is rejected."""
     mesh, space = _p2_square()
     with pytest.raises(ValueError, match='warp=True needs a Solution'):
         Plotter(1, 1).plot(mesh, space.node_coords[:, 0], mode='colored', space=space, warp=True)

@@ -177,9 +177,8 @@ class _CGSolver:
     '''Preconditioned CG bound to one operator and its AMG preconditioner.
 
     Holds the AMG hierarchy built by `IterativeBackend.prepare`, so each `solve`
-    reuses it rather than re-coarsening. Fails loudly: CG reports non-convergence
-    (or an illegal input) through a nonzero `info`, and a silently-wrong vector is
-    worse than a raise, so we raise.
+    reuses it rather than re-coarsening. Raises when CG reports non-convergence or an
+    illegal input through a nonzero `info`.
     '''
 
     def __init__(self, A: csr_array, preconditioner, rtol: float, maxiter: int | None) -> None:
@@ -206,8 +205,8 @@ class _CGSolver:
 class _MinresSolver:
     '''MINRES bound to one symmetric (possibly indefinite) operator.
 
-    Holds the operator and an optional SPD preconditioner. Fails loudly, as `_CGSolver`
-    does: a silently unconverged iterate is worse than a raise.
+    Holds the operator and an optional SPD preconditioner. Raises on non-convergence,
+    as `_CGSolver` does.
     '''
 
     def __init__(

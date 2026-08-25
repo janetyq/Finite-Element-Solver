@@ -35,8 +35,7 @@ def test_linear_elastic_builds_its_form_from_its_own_constants():
 
 def test_finite_strain_has_no_bilinear_form():
     """A Green-Lagrange energy is not quadratic, so there is no constant stiffness
-    to assemble. Refusing here is what stops a finite-strain problem from being
-    silently linearised by whichever solver picked up the equation."""
+    to assemble."""
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
 
     with pytest.raises(NotImplementedError, match='small-strain'):

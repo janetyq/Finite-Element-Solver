@@ -91,8 +91,8 @@ def supports_interactive(demo: Demo) -> bool:
 def demo_mesh(demo: Demo, mesh_file: str | None) -> list[Mesh]:
     '''The mesh arguments to call `demo` with: its own domain, or `--mesh` instead.
 
-    Passing `--mesh` to a demo that takes none is a mistake worth naming rather than
-    silently ignoring: it means the caller expected a different demo to be listening.
+    Passing `--mesh` to a demo that takes none is a mistake: the caller expected a
+    different demo.
     '''
     if demo.domain is None:
         if mesh_file is not None:

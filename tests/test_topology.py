@@ -30,8 +30,7 @@ def test_triangle_mesh_edges():
 
 
 def test_tet_mesh_edges():
-    """A tet has 6 edges. The old cyclic `range(3)` found only 3, silently
-    dropping every edge touching the fourth node."""
+    """A tet has 6 edges, including the three touching the fourth node."""
     mesh = Mesh(
         vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
         elements=[[0, 1, 2, 3]],

@@ -112,8 +112,8 @@ def calculate_triangle_angles(triangle):
     sides = np.linalg.norm(np.roll(points, -1, axis=-2) - np.roll(points, 1, axis=-2), axis=-1)
     a, b, c = sides[..., 0], sides[..., 1], sides[..., 2]
     # Law of cosines. Clipped because a degenerate triangle can put the ratio a
-    # hair outside [-1, 1], and a NaN angle would silently compare false against
-    # any bound, exactly the sliver a refinement loop must not accept as good.
+    # hair outside [-1, 1], and a NaN angle would compare false against any bound,
+    # accepting the sliver as good.
     cosines = np.stack([
         (b**2 + c**2 - a**2) / (2 * b * c),
         (c**2 + a**2 - b**2) / (2 * c * a),

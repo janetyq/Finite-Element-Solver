@@ -113,15 +113,14 @@ def test_with_operator_reapplies_the_robin_boundary_term(make_unit_square):
 
     np.testing.assert_allclose(derived.tangent().toarray(), direct.tangent().toarray(), atol=1e-12)
     np.testing.assert_allclose(derived.load, direct.load, atol=1e-12)
-    # And the Robin term is genuinely there: without it the operator would be 2K.
+    # And the Robin term is present: without it the operator would be 2K.
     bare = 2.0 * space.assemble(laplacian).toarray()
     assert np.abs(derived.tangent().toarray() - bare).max() > 1e-6
 
 
 def test_traction_load_has_the_exact_resultant(make_unit_square):
     """A uniform edge traction assembles to a load totalling traction x loaded-length.
-    Masking each Neumann region to its own facets is what makes this exact; the unmasked
-    boundary mass it replaces leaked onto the neighbours and inflated the resultant."""
+    Masking each Neumann region to its own facets is what makes this exact."""
     mesh = make_unit_square(10)
     space = FunctionSpace(mesh, n_components=1)
     bc = BoundaryConditions()

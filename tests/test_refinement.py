@@ -39,8 +39,7 @@ def test_adaptive_refinement_grows_mesh_and_resolves(make_unit_square):
 
 
 def test_adaptive_refinement_respects_max_triangles(make_unit_square):
-    """The old guard was `< max_triangles or max_iters == 0`, so max_iters never
-    bound the loop and the element cap was the only thing stopping it."""
+    """The element cap stops the loop."""
     mesh = make_unit_square(6)
     solver = Solver(mesh, Projection(source=1.0))
 
@@ -63,7 +62,7 @@ def test_adaptive_refinement_respects_max_iters(make_unit_square):
 
 
 def test_adaptive_refinement_carries_geometric_dirichlet_bcs(make_unit_square):
-    """The payoff of position-based specs: a Dirichlet condition described as a
+    """A Dirichlet condition described as a
     region is re-resolved on each refined mesh, so it keeps holding on nodes that
     did not exist when it was written."""
     mesh = make_unit_square(6)
@@ -145,7 +144,6 @@ def test_energy_solver_remesh_rebuilds_derived_state(make_unit_square):
     assert solver.mesh is fine
     assert solver.space.mesh is fine
     assert solver.space.n_dofs == len(fine.vertices) * 2
-    # The constraints follow the new mesh because the problem resolves them per
-    # solve, rather than the solver holding a partition from the old one.
+    # The constraints follow the new mesh because the problem resolves them per solve.
     _, fixed, _ = solver.problem().constraints
     assert len(fixed) == 2 * sum(1 for v in fine.vertices[fine.boundary_idxs] if v[0] == 0.0)

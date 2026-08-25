@@ -159,7 +159,7 @@ def test_energy_path_compliance_is_the_work_conjugate_pairing():
     """Compliance pairs work-conjugate measures (second Piola-Kirchhoff with Green-Lagrange).
     Contracting the reported Cauchy stress with Green-Lagrange strain is wrong by tens
     of percent at finite strain, so this checks the finite regime against S:E."""
-    A = np.array([[0.15, 0.30], [0.05, -0.10]])   # genuinely finite
+    A = np.array([[0.15, 0.30], [0.05, -0.10]])   # finite strain
     geometry, u_elements = _geometry_and_nodal(A)
 
     fields = EnergyForm(StVenantKirchhoff(E, NU)).derived_fields(geometry, u_elements)
@@ -195,7 +195,7 @@ def test_compliance_agrees_across_both_paths_at_small_strain():
 
 
 def test_green_lagrange_strain_vanishes_under_rigid_rotation():
-    """A rigid rotation stores no energy, so the Green-Lagrange strain is exactly zero where
+    """A rigid rotation stores no energy, so the Green-Lagrange strain is zero where
     small strain reports a spurious compression."""
     theta = 0.4
     R = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])

@@ -184,7 +184,7 @@ def test_l2_recovery_conserves_the_field_integral():
 
 
 def test_l2_and_average_recovery_differ_on_a_varying_field():
-    """The two recoveries are genuinely different operators: the local weighted average
+    """The two recoveries are different operators: the local weighted average
     and the global mass projection agree only on a field the space reproduces exactly
     (a constant), and differ on one that varies element to element."""
     mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [8, 8])

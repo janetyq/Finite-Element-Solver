@@ -29,7 +29,7 @@ PLATE_OUTLINE = np.array([[-3.0, -3.0], [5.0, -3.0], [5.0, 5.0], [-3.0, 5.0]])
 
 # `files/cloud.svg` simplified at tolerance 0.02, from the backlog's qhull-precision
 # report. Its tight curvature makes qhull fan a segment split's collinear triple into a
-# zero-area sliver that used to crash refinement. Regular shapes do not reproduce it, so
+# zero-area sliver that crashes an unguarded refinement. Regular shapes do not reproduce it, so
 # the exact coordinates are pinned here rather than generated.
 CLOUD_OUTLINE = np.array([
     [3.0000, 786.3507], [3.2753, 784.6595], [4.5816, 782.5672], [6.6932, 781.2728],
@@ -41,8 +41,8 @@ CLOUD_OUTLINE = np.array([
 
 # A slender L-bracket (arm 4, limb width 1.2) with a sharp re-entrant corner. Its long
 # axis-aligned edges and the circumcenters refinement inserts along the corner are
-# nearly cocircular, which used to trip qhull's *incremental* insertion with a "wide
-# merge" precision error partway through a run. Distinct from CLOUD_OUTLINE's failure,
+# nearly cocircular, which trips qhull's incremental insertion with a "wide merge"
+# precision error partway through a run. Distinct from CLOUD_OUTLINE's failure,
 # which was a segment-split sliver; this one is in add_points, and the coordinates are
 # pinned because a regular shape does not reproduce it.
 L_BRACKET_OUTLINE = np.array([
@@ -55,7 +55,7 @@ REFINING_AREA = 0.05
 
 
 def _l_shape() -> PSLG:
-    """A non-convex outline. The reflex corner is the point: the convex hull spans
+    """A non-convex outline. The reflex corner matters: the convex hull spans
     it, so refinement produces triangles outside the domain that have to go."""
     return PSLG(L_SHAPE_OUTLINE.copy())
 
@@ -195,9 +195,8 @@ def _scanned_encroachment(algo):
 
 def test_encroachment_tracking_does_not_drift_from_a_full_scan():
     """Encroachment is carried in a mask updated as vertices and segments are
-    added, rather than rescanned every pass. That is state that can go wrong
-    silently and still return a plausible mesh, so hold it against the
-    definition through both of the mutations refinement makes."""
+    added, rather than rescanned every pass. That state can drift and still return a
+    plausible mesh, so it is held against the definition through both mutations."""
     algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
     assert np.array_equal(algo._encroached, _scanned_encroachment(algo))
 
@@ -533,7 +532,7 @@ def test_a_square_does_not_warn(caplog):
 
 def test_crossing_segments_are_refused():
     """A bow-tie is not a planar straight-line graph. Meshing it does not fail,
-    it silently meshes the wrong region."""
+    it meshes the wrong region."""
     bowtie = np.array([[0.0, 0.0], [1.0, 1.0], [1.0, 0.0], [0.0, 1.0]])
 
     with pytest.raises(ValueError, match='cross'):
@@ -584,7 +583,7 @@ def test_degenerate_triangle_has_a_zero_angle():
 
 def test_a_collinear_sliver_is_never_treated_as_a_bad_triangle():
     """A zero-area sliver from a collinear triple has no circumcenter to refine towards, so
-    it is excluded from the bad set, while a genuinely skinny triangle is still refined."""
+    it is excluded from the bad set, while a skinny triangle is still refined."""
     algo = RuppertsAlgorithm(PSLG(SQUARE_OUTLINE.copy()), min_angle=30)
     start, end = np.array([0.0, 0.0]), np.array([2.0, 1.0])
     extra = np.array([
@@ -605,11 +604,11 @@ def test_a_collinear_sliver_is_never_treated_as_a_bad_triangle():
 
 def test_a_tight_outline_meshes_without_a_qhull_precision_error():
     """`CLOUD_OUTLINE` under an area cap meshes without a QhullError, honours the angle
-    bound, and fills exactly what the outline encloses."""
+    bound, and fills what the outline encloses."""
     pslg = PSLG(CLOUD_OUTLINE.copy())
     algo = RuppertsAlgorithm(pslg, min_angle=30, max_area=0.005 * pslg.area())
 
-    mesh = algo.refine()  # used to raise scipy.spatial.QhullError
+    mesh = algo.refine()
 
     assert _min_angles(mesh).min() >= 30
     vertices = np.asarray(mesh.vertices)
@@ -625,7 +624,7 @@ def test_a_reentrant_corner_meshes_through_an_incremental_precision_error(max_ar
     pslg = PSLG(L_BRACKET_OUTLINE.copy())
     algo = RuppertsAlgorithm(pslg, min_angle=25, max_area=max_area_fraction * pslg.area())
 
-    mesh = algo.refine()  # used to raise scipy.spatial.QhullError from add_points
+    mesh = algo.refine()
 
     assert _min_angles(mesh).min() >= 25
     vertices = np.asarray(mesh.vertices)

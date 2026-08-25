@@ -81,15 +81,14 @@ def test_demo_runs(demo, make_unit_square, tmp_path, monkeypatch):
             f'{demo.name} has {len(slugs)} figures needing distinct slugs, got {slugs}'
         )
 
-    # The point of the whole contract: a demo that yields nothing appears nowhere, which
-    # is how a demo rendering a blank panel stayed invisible before.
+    # A demo that yields nothing appears nowhere in the gallery.
     assert result.figures or result.text or result.artifacts, (
         f'{demo.name} produced no figures, no text, and no files'
     )
 
 
 def test_every_demo_declares_a_known_section():
-    """A demo declaring an unknown section would land in "Other" silently."""
+    """A demo declaring an unknown section would land in "Other"."""
     from gallery import SECTIONS
 
     unknown = {demo.name: demo.section for demo in DEMOS if demo.section not in SECTIONS}

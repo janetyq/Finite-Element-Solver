@@ -29,8 +29,7 @@ def _labels(mesh, bc):
 
 
 def test_robin_conditions_are_drawn(mesh):
-    """`plot_bc` branched on Dirichlet and Neumann and fell through silently for Robin,
-    so the one demo about a boundary condition could not draw its own."""
+    """A Robin condition is drawn."""
     bc = BoundaryConditions()
     bc.add_robin(everywhere(), kappa=2.0, g=1.0)
     assert any(label.startswith('Robin') for label in _labels(mesh, bc))

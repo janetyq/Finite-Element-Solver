@@ -4,7 +4,7 @@
 
 The demos are the single source of truth. This renders a curated subset of the
 gallery into a temporary directory and copies the chosen figures into `images/` under
-README-friendly names, so a figure here is exactly what the gallery renders for the
+README-friendly names, so a figure here is what the gallery renders for the
 same demo. Re-run it after a demo changes; the README points at committed files so it
 still renders on GitHub, offline, and in a fork.
 

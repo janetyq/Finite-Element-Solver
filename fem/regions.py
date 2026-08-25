@@ -77,8 +77,8 @@ def union(*regions: Region) -> Region:
 
 
 class at_indices:  # noqa: N801 - lowercase to read like the function helpers above
-    '''Named vertex indices. The escape hatch for work that is genuinely about
-    specific nodes rather than a place in the domain.
+    '''Named vertex indices. The escape hatch for work that is about specific nodes
+    rather than a place in the domain.
 
     Mesh-bound by construction: indices mean nothing once a remesher renumbers
     vertices, so `is_mesh_bound` reports True and callers that remesh refuse it.
@@ -135,11 +135,8 @@ def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -
 def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
     '''Normalize a constant or a callable-of-position into an (N, n_components) array.
 
-    A single rule, "the value at a point", for both forms. The previous API
-    chose between "one value per index" and "one value shared by all indices" by
-    comparing `len(indices) == len(values)`, so `add('dirichlet', left, [0, 0])`
-    on 2D elasticity silently changed meaning when the edge happened to hold
-    exactly two nodes.
+    A single rule, "the value at a point", for both forms; a value's width is
+    checked against `n_components`, never inferred from the point count.
 
     Every component must be a real number: `None` has no meaning for a source,
     a traction, or a Robin `g`: there is nothing "left free" about a load. Use

@@ -216,7 +216,7 @@ def demo_outline_to_mesh(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0
         bc.add(BCType.DIRICHLET, everywhere(), 0)
         u = Solver(mesh, Poisson(source=1.0), bc).solve().u
         # A colour scale per cell (the domains differ in size by orders of magnitude) and
-        # no colorbar: the shape is the point, not the amplitude.
+        # no colorbar: the shape matters, not the amplitude.
         clim = (0.0, float(u.max()))
         plotter.plot(mesh, u, mode='colored', idx=idx, colorbar=False, clim=clim,
                      empty=True, title=f'{name}: {len(mesh.elements)} triangles')

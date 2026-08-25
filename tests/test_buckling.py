@@ -149,7 +149,7 @@ def test_effective_length_factors_across_end_conditions():
 
 def test_green_lagrange_equation_is_rejected():
     """Linearised buckling needs the constant small-strain stiffness; a finite-strain
-    equation has none, so it is refused rather than silently linearised."""
+    equation has none, so it is refused."""
     mesh = column(12.0, n_length=12, n_across=3)
     equation = LinearElastic(E, NU, kinematics=StrainMeasure.GREEN_LAGRANGE)
     with pytest.raises(NotImplementedError, match='small-strain stiffness'):

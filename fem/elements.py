@@ -271,8 +271,8 @@ class LinearElement(Element):
     '''Base class for linear (P1) simplex elements.
 
     Shape function phi(x) = a + b*x_1 + c*x_2 + ... + z*x_{N-1}, so the gradient
-    is constant over the element, the reason a P1 assembly reduces to one Jacobian
-    per element and a single quadrature point.
+    is constant over the element, so a P1 assembly reduces to one Jacobian per
+    element and a single quadrature point.
     '''
     SHAPE_DEGREE = 1
 

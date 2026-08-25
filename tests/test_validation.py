@@ -13,7 +13,7 @@ from fem.regions import everywhere, on_plane, at_indices
 
 
 def test_neohookean_is_gated():
-    """The unfinished Neohookean material must raise, not silently do nothing."""
+    """The unfinished Neohookean material raises."""
     density = NeohookeanEnergyDensity(E=200, nu=0.3)
     with pytest.raises(NotImplementedError):
         density.evaluate(np.zeros((1, 2, 2)))
@@ -100,8 +100,7 @@ def test_index_list_as_region_is_rejected():
 
 
 def test_energy_solver_rejects_a_source_term(make_unit_square):
-    """EnergySolver builds no load vector, so a source term would be accepted and
-    then silently dropped, returning the unforced answer."""
+    """EnergySolver builds no load vector, so a source term would be dropped."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])

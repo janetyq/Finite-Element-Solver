@@ -420,8 +420,8 @@ class FunctionSpace:
         '''Geometry whose "quadrature points" are each element's own nodes.
 
         For reading a field's gradient (a flux, a stress) at the nodes rather than at
-        interior integration points, which is what a nodal recovery of a P2 derived
-        field wants. Not for integrating: see `Element.nodal_rule`.
+        interior integration points, as a nodal recovery of a P2 field needs. Not for
+        integrating: see `Element.nodal_rule`.
         '''
         return self.element_type.geometry(self.node_coords[self.element_nodes],
                                           self.element_type.nodal_rule())
@@ -651,8 +651,7 @@ class FunctionSpace:
         the shared scalar mass matrix.
 
         This generalizes `recover_nodal('l2')` from an element-constant field to one that
-        varies within the element, which is what a P2 derived field (a flux linear per
-        element) needs. `geometry` must be the space's own geometry so its shape functions
+        varies within the element, as a P2 derived field does. `geometry` must be the space's own geometry so its shape functions
         and node numbering line up with the nodal space `M` is built on.
         '''
         values_qp = np.asarray(values_qp, dtype=float)

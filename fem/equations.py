@@ -116,7 +116,7 @@ class LinearElastic(Equation):
 
         The bilinear form exists only for the small-strain measure: a
         Green-Lagrange energy is not quadratic, so it has no constant stiffness.
-        A finite-strain LinearElastic is rejected rather than silently linearised.
+        A finite-strain LinearElastic is rejected.
         '''
         if self.kinematics is not StrainMeasure.SMALL:
             raise NotImplementedError(

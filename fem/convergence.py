@@ -80,7 +80,7 @@ def l2_norm(space: FunctionSpace, values: VertexField) -> float:
     with resolution and cannot be compared across a refinement sequence.
 
     This measures the distance to the interpolant of a reference field (it reads the
-    reference only at the nodes). For the honest continuous error against a closed-form
+    reference only at the nodes). For the continuous error against a closed-form
     field, integrated at the quadrature points, see `quadrature_l2`.
     """
     return float(np.sqrt(values @ space.mass_matrix @ values))
@@ -412,7 +412,7 @@ def elastic_p2_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 # of order h^2 caps its accuracy however high the element order. Isoparametric P2 puts
 # its boundary edge nodes on the true circle and recovers the O(h^3) rate. That gap,
 # the geometry floor against the recovered rate, is what test_convergence_curved.py
-# asserts, and it is the payoff curved elements exist to deliver.
+# asserts.
 
 ANNULUS_INNER, ANNULUS_OUTER = 1.0, 2.0
 
