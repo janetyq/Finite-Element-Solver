@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.colorbar import Colorbar
 from matplotlib.colors import Colormap, LogNorm, Normalize
-from matplotlib.tri import Triangulation
+from matplotlib.tri import LinearTriInterpolator, Triangulation
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace
@@ -172,6 +172,29 @@ def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridi
         ax.tricontour(triangulation, nodal, levels=contour, colors='black',
                       linewidths=0.5, alpha=0.5)
     return cbar_info, collection
+
+
+def plot_streamlines(ax, mesh, velocity, density=0.8, color='white', linewidth=0.7,
+                     grid=(240, 140)):
+    """Overlay streamlines of a per-vertex vector field `velocity` (n_vertices, 2).
+
+    `streamplot` wants a regular grid, so the field is interpolated linearly onto one
+    spanning the mesh's bounding box, masked outside the mesh (a hole in the domain
+    stays empty). A field given at the nodes of a P2 space is read at its vertices,
+    which lead the node numbering.
+    """
+    velocity = np.asarray(velocity)[:len(mesh.vertices)]
+    triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1],
+                                  triangles=mesh.elements)
+    finder = triangulation.get_trifinder()
+    lower, upper = mesh.vertices.min(axis=0), mesh.vertices.max(axis=0)
+    xs = np.linspace(lower[0], upper[0], grid[0])
+    ys = np.linspace(lower[1], upper[1], grid[1])
+    X, Y = np.meshgrid(xs, ys)
+    U = LinearTriInterpolator(triangulation, velocity[:, 0], trifinder=finder)(X, Y)
+    V = LinearTriInterpolator(triangulation, velocity[:, 1], trifinder=finder)(X, Y)
+    ax.streamplot(X, Y, U, V, density=density, color=color, linewidth=linewidth,
+                  arrowsize=0.9)
 
 
 def face_values(mesh, values):

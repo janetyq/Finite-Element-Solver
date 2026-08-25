@@ -21,7 +21,7 @@ from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.estimators import recovery_estimator
 from fem.forms import MaskedMassForm
 from fem.space import FunctionSpace
-from fem.regions import everywhere, on_plane, in_box, intersect, union
+from fem.regions import on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
@@ -73,39 +73,12 @@ def demo_l2_projection(mesh, reference_resolution=120):
         'couple of triangles the space can no longer follow it, and the outer rings break '
         'up into the mesh. This is the error floor every solver on this mesh starts from.')])
 
-def demo_poisson_equation(mesh):
-    """Poisson's equation with a constant source and zero Dirichlet boundary."""
-    equation = Poisson(source=1)
-    bc = BoundaryConditions()
-    # bc.add(BCType.NEUMANN, on_plane(0, np.max(mesh.vertices[:, 0])), [1])
-    bc.add(BCType.DIRICHLET, everywhere(), 0)
-
-    solver = Solver(mesh, equation, bc)
-    solution = solver.solve()
-    gradient = solver.space.gradient(solution.u)
-
-    conditions = Plotter()
-    conditions.plot(mesh, mode='bc', bc=bc)
-
-    plotter = Plotter(1, 3, title='Poisson Equation')
-    plotter.plot(mesh, solution.u, mode='surface', title='Solution', idx=(0, 0))
-    plotter.plot(mesh, gradient, mode='arrows', title='Gradient', idx=(0, 1))
-    plotter.plot(mesh, np.linalg.norm(gradient, axis=1), mode='surface', title='Gradient Norm', idx=(0, 2))
-    return DemoResult([
-        Figure(plotter,
-               'A constant unit source, with the gradient recovered from the solution '
-               'beside it.',
-               'fields'),
-        Figure(conditions,
-               'Pinned at every boundary node, so the solution vanishes all the way round.',
-               'conditions', setup=True),
-    ])
-
-def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
-                        n_points=80, min_angle=20, max_area_fraction=0.0015):
-    """Potential flow over a NACA airfoil, solved as Laplace's equation on P2 elements."""
+def demo_poisson(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
+                 n_points=80, min_angle=20, max_area_fraction=0.0015):
+    """Poisson's equation as potential flow over a NACA airfoil, on P2 elements."""
     # An ideal (incompressible, irrotational) flow has a velocity potential phi with
-    # v = grad(phi) and div(v) = 0, so phi solves Laplace's equation. The wing carries no
+    # v = grad(phi) and div(v) = 0, so phi solves Laplace's equation, Poisson's with no
+    # source. The wing carries no
     # flow through it, the natural (zero-flux) condition of the weak form: say nothing
     # on its surface and it becomes a streamline the flow parts around.
     pslg = airfoil_channel_pslg(length, height, chord, angle_of_attack, n_points=n_points)
@@ -123,7 +96,8 @@ def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
     solution = solver.solve()
     # v = grad(phi), read at the nodes so the P2 tessellation draws it smoothly.
-    speed = np.linalg.norm(solution.nodal_flux(), axis=1)   # (n_nodes,)
+    velocity = solution.nodal_flux()                         # (n_nodes, 2)
+    speed = np.linalg.norm(velocity, axis=1)
     # Ideal flow with no Kutta condition predicts a near-singular velocity at the sharp
     # edges; clip it to a high percentile so the flow over the wing stays legible.
     cap = float(np.percentile(speed, 96))
@@ -137,19 +111,21 @@ def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     plotter.plot(mesh, solution.u, mode='colored', idx=(0, 0), label='velocity potential',
                  title='Potential and its equipotentials', contour=22, space=solution.space)
     plotter.plot(mesh, speed, mode='colored', idx=(0, 1), label='flow speed', clim=(0.0, cap),
-                 title='Flow speed (clipped near the edges)', space=solution.space)
+                 title='Flow speed and streamlines', space=solution.space,
+                 streamlines=velocity)
     return DemoResult([
         Figure(plotter,
                'Ideal (irrotational, incompressible) flow over a NACA 2412 airfoil at a '
                f'{angle_of_attack:g}-degree angle of attack, generated from the standard '
                'formula rather than a data file. Left: the velocity potential phi (Laplace) '
                'with its equipotentials, which crowd over the upper surface where the flow '
-               'speeds up. Right: the flow speed, faster over the top than the bottom, with '
-               'stagnation near the leading and trailing edges. The wing takes no condition '
-               'at all, which in the weak form is zero flux, so it is a streamline the flow '
-               'parts around. The speed '
-               'is clipped near the sharp edges, where ideal '
-               'flow with no Kutta condition predicts an unphysical velocity spike.',
+               'speeds up. Right: the flow speed with its streamlines, faster over the top '
+               'than the bottom, with stagnation near the leading and trailing edges. The '
+               'wing takes no condition at all, which in the weak form is zero flux, so it '
+               'is a streamline the flow parts around. The speed is clipped near the sharp '
+               'edges, where ideal flow with no Kutta condition predicts an unphysical '
+               'velocity spike, and the streamlines wrap the trailing edge for the same '
+               'reason.',
                'flow'),
         Figure(conditions,
                'A potential difference across the channel (phi = 0 at the inlet, 1 at the '
@@ -1512,7 +1488,6 @@ SOLIDS = 'Solids & structures'
 ACCURACY = 'Accuracy & performance'
 
 DEMOS = [
-    Demo('poisson', demo_poisson_equation, section=SOLVING, domain=partial(square, 80)),
     # Builds its own heatsink and a solid-block baseline, so it takes no domain.
     Demo('heat', demo_heat_equation, section=SOLVING,
          smoke_kwargs={'max_area_fraction': 0.03, 'steps': 4, 'fin_lengths': (0.8, 2.0)}),
@@ -1520,7 +1495,7 @@ DEMOS = [
     Demo('wave', demo_wave_equation, section=SOLVING,
          smoke_kwargs={'steps': 6, 'max_area': 0.5, 'uniform_rounds': 0}),
     # Builds its own airfoil-in-a-channel from the NACA formula, so it takes no domain.
-    Demo('potential_flow', demo_potential_flow, section=SOLVING,
+    Demo('poisson', demo_poisson, section=SOLVING,
          smoke_kwargs={'n_points': 40, 'max_area_fraction': 0.02}),
 
     # The 2D cantilever whose domain this is, plus a 3D box the demo builds for itself.

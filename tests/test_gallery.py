@@ -40,6 +40,21 @@ def _text_only():
     return DemoResult(text='n=5 dofs=375 time=0.01s')
 
 
+def _poisson(mesh):
+    """A cheap Poisson solve with one figure, standing in for a real demo."""
+    from fem.boundary import BCType, BoundaryConditions
+    from fem.equations import Poisson
+    from fem.regions import everywhere
+    from fem.solver import Solver
+
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0)
+    solution = Solver(mesh, Poisson(source=1), bc).solve()
+    plotter = Plotter()
+    plotter.plot(mesh, solution.u, mode='colored')
+    return DemoResult([Figure(plotter, 'the dome')])
+
+
 def _two_figures(mesh, nominate=False):
     """Two figures, optionally with the second nominated as the card image."""
     first, second = Plotter(title='first'), Plotter(title='second')
@@ -64,14 +79,14 @@ def _registry():
     # the cheap variants are bound here rather than declared on the Demo.
     small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     return {
-        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
+        'poisson': Demo('poisson', _poisson, domain=small,
                         section='Meshing & solving PDEs'),
         'topopt': Demo('topopt', partial(solver_demos.demo_topology_optimization, iters=2),
                        domain=small, section='Solids & structures'),
         'backends': Demo('backends', partial(demo_backends, sizes=(5,)),
                          section='Accuracy & performance'),
         'text_only': Demo('text_only', _text_only, section='Accuracy & performance'),
-        'absent': Demo('absent', solver_demos.demo_poisson_equation, domain=small,
+        'absent': Demo('absent', _poisson, domain=small,
                        section='Meshing & solving PDEs',
                        smoke_requires='a_module_that_is_not_installed'),
         'pipeline': Demo('pipeline', partial(_two_figures, nominate=True), domain=small,
@@ -101,7 +116,7 @@ def test_parallel_build_renders_every_demo(tmp_path):
     module-level demos are used, since a worker unpickles each by importing its module."""
     small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     registry = {
-        'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
+        'poisson': Demo('poisson', _poisson, domain=small,
                         section='Meshing & solving PDEs'),
         'l2_projection': Demo('l2_projection', solver_demos.demo_l2_projection, domain=small,
                               section='Accuracy & performance'),
@@ -198,7 +213,7 @@ def test_source_is_shown_on_the_page(gallery):
     """The figures are what a demo produced; the code is what a reader came for."""
     out, entries = gallery
     page = (out / 'poisson.html').read_text(encoding='utf-8')
-    assert 'def demo_poisson_equation' in page
+    assert 'def _poisson' in page
     assert 'BCType.DIRICHLET' in page
 
 
@@ -211,7 +226,7 @@ def test_source_survives_a_partial(gallery):
 def test_a_skipped_demo_still_shows_its_source(gallery):
     """Nothing about a missing optional dependency makes the code less worth reading."""
     out, _entries = gallery
-    assert 'def demo_poisson_equation' in (out / 'absent.html').read_text(encoding='utf-8')
+    assert 'def _poisson' in (out / 'absent.html').read_text(encoding='utf-8')
 
 
 def test_index_is_grouped_by_section_not_alphabetically(gallery):

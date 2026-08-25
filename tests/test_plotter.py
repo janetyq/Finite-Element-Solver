@@ -171,6 +171,16 @@ def test_frames_can_be_sampled_down_to_a_cap(mesh, tmp_path):
     plotter.close()
 
 
+def test_streamlines_overlay_a_colored_panel(mesh):
+    """A uniform per-vertex velocity draws streamlines on the panel, in the mesh."""
+    velocity = np.tile([1.0, 0.0], (len(mesh.vertices), 1))
+    plotter = Plotter()
+    plotter.plot(mesh, np.ones(len(mesh.vertices)), mode='colored', streamlines=velocity)
+    ax = plotter.get_ax((0, 0))
+    assert any(type(c).__name__ == 'LineCollection' for c in ax.collections)
+    plotter.close()
+
+
 def test_save_gif_writes_a_looping_file_with_the_sampled_frames(mesh, tmp_path):
     from PIL import Image
 

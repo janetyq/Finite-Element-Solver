@@ -42,7 +42,7 @@ IMAGES = REPO_ROOT / 'images'
 FIGURES: list[tuple[str, str]] = [
     # Meshing & solving PDEs
     ('outline_to_mesh', 'outline_to_mesh.png'),
-    ('potential_flow-flow', 'potential_flow.png'),
+    ('poisson-flow', 'poisson.png'),
     ('heat-comparison', 'heatsink_comparison.png'),
     ('heat-efficiency', 'heatsink_efficiency.png'),
     ('wave-animation', 'wave.gif'),
