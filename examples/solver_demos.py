@@ -96,8 +96,7 @@ def demo_poisson(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
     solution = solver.solve()
     # v = grad(phi), read at the nodes so the P2 tessellation draws it smoothly.
-    velocity = solution.nodal_flux()                         # (n_nodes, 2)
-    speed = np.linalg.norm(velocity, axis=1)
+    speed = np.linalg.norm(solution.nodal_flux(), axis=1)   # (n_nodes,)
     # Ideal flow with no Kutta condition predicts a near-singular velocity at the sharp
     # edges; clip it to a high percentile so the flow over the wing stays legible.
     cap = float(np.percentile(speed, 96))
@@ -111,21 +110,18 @@ def demo_poisson(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     plotter.plot(mesh, solution.u, mode='colored', idx=(0, 0), label='velocity potential',
                  title='Potential and its equipotentials', contour=22, space=solution.space)
     plotter.plot(mesh, speed, mode='colored', idx=(0, 1), label='flow speed', clim=(0.0, cap),
-                 title='Flow speed and streamlines', space=solution.space,
-                 streamlines=velocity)
+                 title='Flow speed (clipped near the edges)', space=solution.space)
     return DemoResult([
         Figure(plotter,
                'Ideal (irrotational, incompressible) flow over a NACA 2412 airfoil at a '
                f'{angle_of_attack:g}-degree angle of attack, generated from the standard '
                'formula rather than a data file. Left: the velocity potential phi (Laplace) '
                'with its equipotentials, which crowd over the upper surface where the flow '
-               'speeds up. Right: the flow speed with its streamlines, faster over the top '
-               'than the bottom, with stagnation near the leading and trailing edges. The '
-               'wing takes no condition at all, which in the weak form is zero flux, so it '
-               'is a streamline the flow parts around. The speed is clipped near the sharp '
-               'edges, where ideal flow with no Kutta condition predicts an unphysical '
-               'velocity spike, and the streamlines wrap the trailing edge for the same '
-               'reason.',
+               'speeds up. Right: the flow speed, faster over the top than the bottom, with '
+               'stagnation near the leading and trailing edges. The wing takes no condition '
+               'at all, which in the weak form is zero flux, so it is a streamline the flow '
+               'parts around. The speed is clipped near the sharp edges, where ideal flow '
+               'with no Kutta condition predicts an unphysical velocity spike.',
                'flow'),
         Figure(conditions,
                'A potential difference across the channel (phi = 0 at the inlet, 1 at the '

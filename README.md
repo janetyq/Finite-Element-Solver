@@ -44,10 +44,9 @@ $\phi$ solves Laplace's equation. The obstacle is a NACA 2412 airfoil at a 12-de
 angle of attack. A potential difference drives the flow left to right. The wing
 carries no boundary condition at all, which in the weak form is the natural zero-flux
 condition, so it becomes a streamline the flow parts around. The equipotentials crowd
-over the upper surface, where the flow speeds up, and the streamlines on the right show
-the flow parting around the wing.
+over the upper surface, where the flow speeds up.
 
-<p align="center"><img src="images/poisson.png" width="780" alt="Potential flow: equipotentials, flow speed, and streamlines over a NACA airfoil"></p>
+<p align="center"><img src="images/poisson.png" width="780" alt="Potential flow: equipotentials and flow speed over a NACA airfoil"></p>
 
 ### Heat equation
 

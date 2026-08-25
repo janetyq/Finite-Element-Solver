@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from fem.space import FunctionSpace
 
 from fem.plot.helpers import (
-    plot_streamlines,
     plot_mesh,
     plot_boundary,
     plot_highlight,
@@ -128,7 +127,6 @@ class Plotter:
         log_scale: bool = False,
         colorbar: bool = True,
         contour: int | None = None,
-        streamlines: FloatArray | None = None,
         space: 'FunctionSpace | None' = None,
         subdivisions: int = 3,
         warp: 'FloatArray | bool | None' = None,
@@ -152,9 +150,7 @@ class Plotter:
 
         `cmap` selects the colormap (default 'viridis'); `log_scale` uses logarithmic
         normalization. `contour=n` overlays n isolines of the field on the colored
-        panel (the level sets of a scalar, e.g. a potential's equipotentials);
-        `streamlines=v` overlays the streamlines of a per-vertex vector field `v`
-        (a flow's velocity over its speed).
+        panel (the level sets of a scalar, e.g. a potential's equipotentials).
 
         `space` opts a P2 or curved solve into a faithful render: the mesh, colored,
         surface, and arrow panels draw on a `subdivisions`-fine tessellation of each
@@ -200,8 +196,6 @@ class Plotter:
                                              colorbar=colorbar, contour=contour,
                                              space=space, subdivisions=subdivisions, warp=warp)
             self.cbar_infos[idx] = cbar_info
-            if streamlines is not None:
-                plot_streamlines(ax, mesh, streamlines)
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
