@@ -66,7 +66,9 @@ class SupportsEnergy(Protocol):
 
 @dataclass(frozen=True)
 class Source:
-    '''Volume load L(v) = ∫ f·v, with f a constant or a callable of position.'''
+    '''Volume load L(v) = ∫ f·v integrated as f's nodal interpolant, f a constant or a
+    callable of position. Pass one to `LinearProblem` to ask for that path explicitly;
+    a bare callable is sampled at the quadrature points instead.'''
     field: FieldValue = None
 
     def vector(self, space: FunctionSpace) -> DofVector:
@@ -83,7 +85,7 @@ class LinearProblem:
         self,
         space: FunctionSpace,
         operator: Form,
-        source: FieldValue | LinearForm = None,
+        source: FieldValue | LinearForm | Source = None,
         bc: BoundaryConditions | None = None,
     ) -> None:
         self.space = space
@@ -114,11 +116,15 @@ class LinearProblem:
                 boundary_mass @ neumann.traction.flatten()).flatten()
 
         # Callers pass only the volume source; the BC resolution supplies the traction
-        # terms above. The source is a field (integrated as its P1 interpolant via the
-        # cached mass matrix) or a LinearForm sampled at the quadrature points, for a
-        # source that varies within an element.
+        # terms above. A callable source is sampled at the quadrature points (as a
+        # LinearForm), which captures variation within an element; a constant or a
+        # nodal array is integrated as its interpolant through the cached mass matrix.
+        if callable(source) and not isinstance(source, (LinearForm, Source)):
+            source = LinearForm(source, n_components=space.n_components)
         if isinstance(source, LinearForm):
             volume_load = space.assemble_load(source)
+        elif isinstance(source, Source):
+            volume_load = source.vector(space)
         else:
             volume_load = Source(source).vector(space)
         self._b = volume_load + traction_load + robin_load

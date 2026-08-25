@@ -200,6 +200,24 @@ def test_with_operator_leaves_the_original_alone(make_unit_square):
     np.testing.assert_array_equal(original.tangent().toarray(), before)
 
 
+def test_callable_source_is_sampled_at_the_quadrature_points(make_unit_square):
+    """A callable source builds the same load as the LinearForm it is wrapped in, not
+    the mass matrix times its nodal values."""
+    from fem.forms import LinearForm
+
+    mesh = make_unit_square(6)
+    space = FunctionSpace(mesh)
+
+    def peaked(point):
+        return float(np.exp(-40 * np.sum((point - 0.5) ** 2)))
+
+    sampled = LinearProblem(space, LaplacianForm(), peaked).load
+    explicit = LinearProblem(space, LaplacianForm(), LinearForm(peaked)).load
+    nodal = space.mass_matrix @ np.array([peaked(p) for p in space.node_coords])
+    assert np.allclose(sampled, explicit)
+    assert not np.allclose(sampled, nodal)
+
+
 def test_energy_problem_rejects_a_source(make_unit_square):
     space = FunctionSpace(make_unit_square(6), n_components=2)
     bc = BoundaryConditions()

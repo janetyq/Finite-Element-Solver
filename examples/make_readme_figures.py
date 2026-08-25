@@ -40,10 +40,9 @@ IMAGES = REPO_ROOT / 'images'
 # an animated figure, which is rendered here directly rather than through the gallery,
 # whose twenty player frames are too few for a smooth loop.
 FIGURES: list[tuple[str, str]] = [
-    # Meshing a domain
+    # Meshing & solving PDEs
     ('outline_to_mesh', 'outline_to_mesh.png'),
-    # Solving PDEs
-    ('potential_flow-flow', 'potential_flow.png'),
+    ('poisson-flow', 'poisson.png'),
     ('heat-comparison', 'heatsink_comparison.png'),
     ('heat-efficiency', 'heatsink_efficiency.png'),
     ('wave-animation', 'wave.gif'),
@@ -59,7 +58,6 @@ FIGURES: list[tuple[str, str]] = [
     # Accuracy & performance
     ('l2_projection', 'l2_projection.png'),
     ('convergence', 'convergence.png'),
-    ('higher_order', 'higher_order.png'),
     ('refinement-after', 'refinement.png'),
 ]
 
