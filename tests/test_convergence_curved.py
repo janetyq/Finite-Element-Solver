@@ -1,22 +1,10 @@
 """Curved (isoparametric) boundary elements: the geometry fidelity they deliver.
 
-A straight P2 element approximates a curved boundary by a chord, so its boundary edge
-node sits inside the true domain by the chord sagitta (order h^2) and the meshed area is
-that much too small. An isoparametric element places its boundary edge node on the true
-curve, so the boundary is captured to the element's own order.
-
-These assert what separates the curved element from the straight one on the annulus of
-`fem.convergence`: the boundary nodes land on the true rim (to machine precision), and
-the meshed area converges at the element's order (~h^3) rather than the polygonal
-O(h^2). The isoparametric Poisson solve is checked to keep the P2 L2 rate, so the curved
-geometry map has not degraded the solver, and the curved mass matrix is checked to
-integrate the true curved area.
-
-Scope note: on this smooth Dirichlet problem the interior L2 solution error does not
-visibly floor for straight P2 (the domain-perturbation error stays subdominant at these
-resolutions), so the curved benefit is asserted where it is unambiguous, in geometric
-fidelity. The stronger physical payoff (boundary flux, stress at a curved rim) comes
-with the plate-with-hole benchmark in the meshing-pipeline follow-up.
+A straight P2 element approximates a curved boundary by a chord, so the meshed area
+is too small by O(h^2). An isoparametric element places its boundary edge node on the
+true curve, so the boundary nodes land on the rim to machine precision, the meshed
+area converges at the element's order (~h^3), the isoparametric Poisson solve keeps
+the P2 L2 rate, and the curved mass matrix integrates the true area.
 """
 import numpy as np
 import pytest

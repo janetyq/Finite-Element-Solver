@@ -1,9 +1,6 @@
-"""Tests for the adaptive refinement loop's machinery.
-
-The error estimator itself is still open (BACKLOG section 3), so these drive the
-loop with a hand-written estimator. What they pin down is everything around it:
-that the loop re-solves on each new mesh rather than reusing a stale estimate,
-and that the conditions it cannot carry across a remesh fail loudly.
+"""The adaptive refinement loop's machinery, driven with a hand-written estimator: it
+re-solves on each new mesh rather than reusing a stale estimate, and the conditions it
+cannot carry across a remesh fail loudly.
 """
 import numpy as np
 import pytest
@@ -98,8 +95,7 @@ def test_adaptive_refinement_rejects_index_based_bcs(make_unit_square):
 
 
 def test_adaptive_refinement_rejects_mismatched_estimator(make_unit_square):
-    """An estimator sized to the wrong mesh is exactly the staleness bug the old
-    implementation had; catch it instead of indexing unrelated elements."""
+    """An estimator sized to the wrong mesh is refused instead of indexing unrelated elements."""
     mesh = make_unit_square(6)
     solver = Solver(mesh, Projection(source=1.0))
 
@@ -137,8 +133,8 @@ def test_adaptive_refinement_drives_the_energy_solver(make_unit_square):
 
 
 def test_energy_solver_remesh_rebuilds_derived_state(make_unit_square):
-    """`remesh` must rebuild the space, not just swap the mesh: a stale space is
-    sized to the old vertex count and would silently solve the wrong system."""
+    """`remesh` rebuilds the space, not just the mesh: a stale space is sized to the old
+    vertex count."""
     coarse, fine = make_unit_square(4), make_unit_square(7)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])

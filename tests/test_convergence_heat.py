@@ -1,14 +1,8 @@
 """Temporal convergence of the heat time integrators.
 
-The spatial FEM discretization gives the semi-discrete system  M u' = -K u, whose
-exact solution is  u(t) = expm(-t M^{-1} K) u0  on the free (interior) DOFs. The
-integrator is compared against *that* -- not the continuous PDE -- so the error is
-purely temporal: no spatial discretization error contaminates the observed order,
-and the mesh can stay coarse (the exp is dense).
-
-theta = 1 (backward Euler) is first order; theta = 1/2 (Crank-Nicolson, the
-default) is second. Both are pinned here -- a scheme's temporal order is a fact the
-net asserts rather than adjusts to fit.
+The integrator is compared against the exact solution of the semi-discrete system,
+u(t) = expm(-t M^{-1} K) u0 on the free DOFs, so the error is purely temporal.
+theta = 1 (backward Euler) is first order; theta = 1/2 (Crank-Nicolson) is second.
 """
 import numpy as np
 import pytest

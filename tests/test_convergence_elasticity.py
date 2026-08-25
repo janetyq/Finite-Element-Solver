@@ -1,26 +1,16 @@
-"""Numerical validation of linear elasticity via the Method of Manufactured
-Solutions, in 2D and 3D.
+"""MMS validation of linear elasticity in 2D and 3D.
 
-The 3D case is the checkpoint for the `FieldShape` work: it is the first thing
-the old architecture could not express, since `LinearElastic.dim` was a class
-constant of 2. The 2D case is its control, and the regression net for the vector
-mass matrix -- a body force is only correct if every component of it is.
-
-The solver assembles K from B^T D B and solves  K u = M f, the weak form of
+The solver assembles K from B^T D B and solves K u = M f, the weak form of
 
     -div(sigma(u)) = f,     sigma = 2 mu eps(u) + lambda tr(eps(u)) I
 
-We manufacture a displacement that vanishes on the whole boundary, so
-homogeneous Dirichlet conditions are exact:
+with a manufactured displacement that vanishes on the boundary:
 
     2D:  u = (sin(pi x) sin(pi y), 0)
     3D:  u = (sin(pi x) sin(pi y) sin(pi z), 0, 0)
 
-Only the first component of u is non-zero, but the off-diagonal shear terms of
-sigma make every component of f non-zero -- which is what makes this exercise
-the coupled vector path rather than a scalar solve in disguise.
-
-Both use P1 elements, so the L2 error is O(h^2).
+Only the first component is nonzero, but the shear terms of sigma make every
+component of f nonzero, so this exercises the coupled vector path. P1, so O(h^2).
 """
 import numpy as np
 import pytest

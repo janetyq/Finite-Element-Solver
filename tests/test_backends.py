@@ -1,11 +1,8 @@
-"""The iterative (AMG-CG) backend agrees with the direct one and fails loudly.
+"""The iterative backends agree with the direct one and fail loudly.
 
-CG with an AMG preconditioner is an alternative way to solve the *same* free-free
-block `DirectBackend` factors, so its answers must match a direct solve to solver
-tolerance -- on isolated SPD systems, through the full Poisson/elasticity solves,
-and through the MMS convergence net. That equivalence is what lets the fine-mesh 3D
-convergence net (test_convergence_elasticity) run on AMG-CG without losing sight of
-the direct path.
+AMG-CG and MINRES solve the same free-free block `DirectBackend` factors, so their
+answers must match a direct solve to solver tolerance: on isolated systems, through the
+full Poisson/elasticity solves, and through the MMS convergence net.
 """
 import numpy as np
 import pytest
@@ -30,11 +27,7 @@ def _spd(n, seed=0):
 
 
 def _symmetric_indefinite(n, seed=0):
-    """A symmetric, nonsingular, indefinite matrix (eigenvalues of both signs).
-
-    Built with a known spectrum through an orthogonal Q, so it is genuinely indefinite
-    (CG breaks) yet well away from singular (MINRES and a direct solve both succeed).
-    """
+    """A symmetric, nonsingular, indefinite matrix with a known spectrum."""
     rng = np.random.default_rng(seed)
     Q, _ = np.linalg.qr(rng.normal(size=(n, n)))
     eigenvalues = np.linspace(-2.0, 3.0, n)
@@ -82,11 +75,7 @@ def test_iterative_matches_direct_on_elasticity():
 
 
 def test_iterative_backend_preserves_second_order_convergence():
-    """The MMS O(h^2) rate holds through the iterative backend, not just the direct one.
-
-    This is the solver safety net extended to CG: a preconditioner or tolerance bug
-    would show up as a broken convergence rate, not merely a shifted constant.
-    """
+    """The MMS O(h^2) rate holds through the iterative backend, not just the direct one."""
     data = [_poisson_mms(n, IterativeBackend()) for n in (11, 21, 41)]
     hs = [h for h, _ in data]
     errors = [e for _, e in data]
@@ -99,13 +88,8 @@ def test_iterative_backend_preserves_second_order_convergence():
 
 
 def test_iterative_matches_direct_on_3d_elasticity():
-    """The direct/iterative equivalence holds for 3D vector elasticity too.
-
-    A cheap (coarse-mesh) lock on the property the fine-mesh 3D convergence net leans
-    on: it solves only on AMG-CG, trusting that a direct solve would land in the same
-    place. Here that trust is checked directly, in 3D, where the rigid-body near-kernel
-    and the tet assembly both differ from the 2D case above.
-    """
+    """The direct/iterative equivalence holds for 3D vector elasticity, where the rigid-body
+    near-kernel and the tet assembly both differ from 2D."""
     mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(7, 7, 7))
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])       # cantilever: one face
@@ -141,11 +125,7 @@ def test_iterative_solver_reuses_its_setup_across_right_hand_sides():
 
 
 def test_rigid_body_modes_are_in_the_stiffness_kernel():
-    """Translations and rotations produce no strain: K @ mode == 0 unconstrained.
-
-    The near-kernel AMG needs *is* the stiffness kernel of the free (unconstrained)
-    body, so this is the property that makes the modes the right ones to feed it.
-    """
+    """Translations and rotations produce no strain: K @ mode == 0 unconstrained."""
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
     space = FunctionSpace(mesh, n_components=2)
     K = space.assemble(LinearElasticForm(LinearElasticMaterial(E=200, nu=0.3)))
@@ -156,12 +136,7 @@ def test_rigid_body_modes_are_in_the_stiffness_kernel():
 
 
 def test_facade_gives_elasticity_its_rigid_body_modes():
-    """The Solver facade enriches an iterative elastic solve with the modes.
-
-    Correctness is the same either way (both match direct), so the observable is
-    that the facade routes elasticity through with_near_null_space -- checked by the
-    enriched backend converging, and by a lightly constrained solve still matching.
-    """
+    """The Solver facade routes an iterative elastic solve through with_near_null_space."""
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(25, 25))
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])          # cantilever: one edge
@@ -174,11 +149,7 @@ def test_facade_gives_elasticity_its_rigid_body_modes():
 
 
 def test_iterative_backend_matches_direct_through_a_time_step():
-    """A heat step's effective operator M + θdtK is SPD, so AMG-CG matches direct.
-
-    Covers the integrator wiring: the backend threads through ThetaMethod into the
-    DiscreteSystem it reuses across steps.
-    """
+    """A heat step's effective operator M + θdtK is SPD, so AMG-CG matches direct."""
     from fem.integrators import ThetaMethod
     from fem.numerics import bump_function
     from fem.problem import heat
@@ -193,12 +164,8 @@ def test_iterative_backend_matches_direct_through_a_time_step():
 
 
 def test_non_convergence_raises():
-    """A CG that cannot reach tolerance in its iteration budget fails loudly.
-
-    Capping maxiter at 1 on a system that needs more is a deterministic way to force
-    a nonzero convergence flag; the backend must raise rather than return the
-    unconverged iterate.
-    """
+    """A CG that cannot reach tolerance in its iteration budget raises rather than returning
+    the unconverged iterate."""
     A = _spd(40, seed=5)
     free = np.arange(40)
     backend = IterativeBackend(rtol=1e-14, maxiter=1)
@@ -223,13 +190,7 @@ def test_minres_matches_direct_on_an_indefinite_system():
 
 
 def test_minres_matches_direct_through_dirichlet_elimination():
-    """MINRES solves the free-free block of a constrained indefinite system, matching direct.
-
-    Exercises the Dirichlet-elimination path (fixed DOFs lifted to the RHS) on an
-    indefinite operator, not just the unconstrained solve above. CG is not tested here:
-    on an indefinite operator its behaviour is undefined (it may break down, stagnate, or
-    return a wrong vector), which is precisely why the indefinite path needs MINRES.
-    """
+    """MINRES solves the free-free block of a constrained indefinite system, matching direct."""
     A = _symmetric_indefinite(24, seed=2)
     b = np.ones(24)
     free = np.arange(2, 24)

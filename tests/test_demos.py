@@ -1,14 +1,10 @@
 """Every registered demo still runs.
 
-The demos in `examples/` are the only thing exercising the plot layer, and they are
-the first thing to break when an API moves -- two of them had rotted against
-`BoundaryConditions.plot` and `Solution.get_values` with nothing to catch it. Each
-demo runs here on a small mesh, asserting "still callable and still returns what the
-registry claims", not "still correct": the numerics have their own tests.
-
-A demo needing an optional dependency names it in `Demo.smoke_requires` and is skipped
-where that is absent; `Demo.smoke_kwargs` supplies the cheapest arguments that still
-exercise the code.
+The demos are the only thing exercising the plot layer and the first thing to break
+when an API moves. Each runs here on a small mesh, asserting "still callable and still
+returns what the registry claims", not "still correct". A demo needing an optional
+dependency names it in `Demo.smoke_requires`; `Demo.smoke_kwargs` supplies the
+cheapest arguments that still exercise the code.
 """
 import sys
 from pathlib import Path
@@ -93,8 +89,7 @@ def test_demo_runs(demo, make_unit_square, tmp_path, monkeypatch):
 
 
 def test_every_demo_declares_a_known_section():
-    """Sections are declared per demo, so a new one can silently land in "Other". The
-    gallery still renders it -- this is what stops that going unnoticed."""
+    """A demo declaring an unknown section would land in "Other" silently."""
     from gallery import SECTIONS
 
     unknown = {demo.name: demo.section for demo in DEMOS if demo.section not in SECTIONS}

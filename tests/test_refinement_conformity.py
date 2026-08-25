@@ -1,9 +1,6 @@
-"""Tests that red-green refinement produces conforming meshes.
-
-A conforming triangle mesh has no hanging nodes: every interior edge is shared
-by exactly two elements, and every boundary edge by exactly one.  These tests
-pin that invariant under single-round, multi-round, and adjacent-element
-refinement — the scenarios most likely to break green-closure bookkeeping.
+"""Red-green refinement produces conforming meshes: every interior edge is shared by
+exactly two elements and every boundary edge by one, under single-round, multi-round,
+and adjacent-element refinement.
 """
 import itertools
 from collections import Counter

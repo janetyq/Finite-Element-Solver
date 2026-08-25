@@ -95,8 +95,7 @@ def test_wrong_width_raises_rather_than_being_guessed():
 
 
 def test_field_width_is_independent_of_point_count():
-    """Regression for the length-coincidence bug: a 2-component value on exactly
-    2 points must still mean 'both components at both points'."""
+    """A 2-component value on exactly 2 points still means 'both components at both points'."""
     two_points = POINTS[:2]
     values = evaluate_field([7.0, 9.0], two_points, n_components=2)
     assert values.shape == (2, 2)

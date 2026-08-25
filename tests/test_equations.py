@@ -1,10 +1,5 @@
-"""An equation names its own physics.
-
-`Equation.operator` and `Equation.energy_density` are the two questions a solver
-used to answer on the equation's behalf, through a module-level `stiffness_form`
-and an `EnergySolver._select_energy`. Answering them polymorphically is what lets
-`Solver._steady_problem` hold no "which PDE is this?" branch, so these pin the
-mapping at the level it now lives.
+"""An equation names its own physics: `operator`, `energy_density`, and the refusals
+where they do not apply.
 """
 import numpy as np
 import pytest
@@ -14,8 +9,8 @@ from fem.forms import LaplacianForm, LinearElasticForm, MassForm
 
 
 def test_projection_assembles_a_mass_matrix():
-    """An L2 projection solves M u = b, so its operator is the mass form -- and it
-    must carry the component count, which the form needs and the equation knows."""
+    """An L2 projection solves M u = b, so its operator is the mass form, carrying the
+    component count."""
     operator = Projection().operator(n_components=2)
 
     assert isinstance(operator, MassForm)
@@ -30,8 +25,7 @@ def test_scalar_family_shares_the_material_free_laplacian():
 
 
 def test_linear_elastic_builds_its_form_from_its_own_constants():
-    """The equation carries E and nu, so it -- not a solver -- is what turns them
-    into a material. A form built here must be the one the solver would assemble."""
+    """The equation carries E and nu and turns them into the form the solver assembles."""
     operator = LinearElastic(E=210.0, nu=0.3).operator(n_components=2)
 
     assert isinstance(operator, LinearElasticForm)
@@ -66,13 +60,8 @@ def test_per_element_modulus_has_no_single_energy_density():
 
 
 def test_solver_refuses_finite_strain_through_the_equation_itself(make_unit_square):
-    """`Solver.solve` used to gate on an isinstance whitelist of equation types.
-
-    That branch is gone: the equation is asked for its operator, and one that has
-    no constant stiffness refuses. The refusal is both louder and more specific
-    than the whitelist's -- it names the reason and points at EnergySolver --
-    which is why the whitelist was redundant rather than protective.
-    """
+    """A Green-Lagrange equation has no constant stiffness, so `Solver.solve` refuses with
+    a message pointing at EnergySolver."""
     from fem.solver import Solver
 
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)

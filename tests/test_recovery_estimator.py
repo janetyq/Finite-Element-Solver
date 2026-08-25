@@ -1,15 +1,6 @@
-"""Tests for the Zienkiewicz-Zhu recovery error estimator.
-
-The residual estimator (tests/test_error_estimator.py) is checked against
-hand-derived values; a recovery estimator is checked a stronger way -- its
-*effectivity index*, the ratio of the estimate to the true error, which for a good
-recovery approaches 1 under refinement. The true error is available here because
-the manufactured-solution machinery (fem.convergence) supplies an exact field, so
-its exact flux is known in closed form and integrated against the discrete one.
-
-The manufactured problems are interior-dominant (u = sin(pi x) sin(pi y), zero on
-the boundary), so simple nodal-averaging recovery -- biased at boundaries -- is at
-its best and the index is a clean check rather than a loose one.
+"""The Zienkiewicz-Zhu recovery error estimator, checked by its effectivity index, the
+ratio of the estimate to the true error, which approaches 1 under refinement. The true
+error is available because the manufactured-solution machinery supplies an exact flux.
 """
 import numpy as np
 
@@ -116,8 +107,8 @@ def test_elastic_recovery_is_asymptotically_exact():
 
 
 def test_recovery_of_a_linear_field_is_near_zero(make_unit_square):
-    """A globally linear solution has constant gradient, so its recovery equals it
-    and the estimate vanishes -- the patch test for a recovery estimator."""
+    """A globally linear solution has constant gradient, so the estimate vanishes: the patch
+    test for a recovery estimator."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), lambda p: p[0])

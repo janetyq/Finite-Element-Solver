@@ -1,15 +1,8 @@
-"""Numerical validation of the Poisson solver via the Method of Manufactured
-Solutions (MMS).
+"""MMS validation of the Poisson solver.
 
-The solver assembles the stiffness matrix K (the discrete -Laplacian) and the
-mass matrix M, then solves  K u = M f  with homogeneous Dirichlet BCs -- i.e. the
-weak form of  -div(grad u) = f.
-
-The manufactured solution, its forcing, and the study that refines against them
-live in `fem/convergence.py`, so that the `convergence` demo draws exactly what
-these tests assert rather than a second implementation that could drift from it.
-What is here is the assertions: that the error falls, that it falls at the O(h^2)
-rate P1 elements promise, and that the finest mesh is accurate in absolute terms.
+The manufactured solution, its forcing, and the study live in `fem/convergence.py`, so
+the `convergence` demo draws what these tests assert: the error falls, at the O(h^2)
+rate P1 promises, and the finest mesh is accurate in absolute terms.
 """
 import numpy as np
 import pytest
@@ -44,10 +37,8 @@ def test_second_order_convergence(convergence_data):
 
 
 def test_first_order_h1_convergence(convergence_data):
-    """The H1 seminorm -- the gradient error, integrated against the analytic gradient
-    rather than read off the assembled K -- converges at O(h) for P1, one order below
-    L2. It is the sharper probe of the stiffness the operator is built from: a subtly
-    wrong grad_phi degrades this rate while the L2 error can still look almost right."""
+    """The H1 seminorm (the gradient error) converges at O(h) for P1, one order below L2.
+    A subtly wrong grad_phi degrades this rate while the L2 error can still look right."""
     hs = [s.h for s in convergence_data]
     errors = [s.h1_error for s in convergence_data]
     orders = [
@@ -79,8 +70,7 @@ def test_observed_orders_recover_a_known_rate():
 
 
 def test_the_error_is_interior():
-    """Homogeneous Dirichlet data is imposed exactly, so nothing is left to be wrong on
-    the boundary -- which is what the `convergence` demo's error field shows."""
+    """Homogeneous Dirichlet data is imposed exactly, so the boundary error is zero."""
     solve = solve_poisson_mms(11)
     assert np.allclose(solve.pointwise_error[solve.mesh.boundary_idxs], 0.0)
     assert np.abs(solve.pointwise_error).max() > 0.0

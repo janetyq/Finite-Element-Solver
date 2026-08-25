@@ -1,15 +1,7 @@
-"""Scalar reductions of a tensor, and the property that makes them meaningful.
-
-The contract is **rotation invariance**. A material does not know which way the
-axes point, so a scalar built from its stress state must not change when the
-frame turns. These rotate the input and assert the output holds still.
-
-That property is not cosmetic: the reduction these replaced was
-`np.linalg.norm` applied to a Voigt vector, which counts an off-diagonal term
-once where the tensor holds it twice (and, for engineering shear, twice where the
-tensor holds it once). For pure shear it reports tau or tau*sqrt(2) for the same
-physical state depending only on how the axes happen to lie --
-`test_voigt_norm_is_not_invariant_but_frobenius_is` pins exactly that contrast.
+"""Scalar reductions of a tensor must be rotation invariant: these rotate the input and
+assert the output holds still. A norm over Voigt components is not invariant (it
+counts an off-diagonal term once where the tensor holds it twice), which
+`test_voigt_norm_is_not_invariant_but_frobenius_is` pins as a contrast.
 """
 import numpy as np
 import pytest
@@ -78,13 +70,8 @@ def test_principal_values_are_invariant_under_rotation():
 
 
 def test_voigt_norm_is_not_invariant_but_frobenius_is():
-    """The bug this module exists to prevent, stated as a contrast.
-
-    Pure shear in 2D, and the same state seen in a frame rotated 45 degrees,
-    where it reads as equal tension and compression on the diagonal. A norm taken
-    over the Voigt components reports tau and then tau*sqrt(2); the Frobenius norm
-    of the tensor reports tau*sqrt(2) both times.
-    """
+    """Pure shear in 2D, and the same state in a frame rotated 45 degrees: a Voigt norm
+    reports tau and then tau*sqrt(2); the Frobenius norm reports tau*sqrt(2) both times."""
     tau = 3.0
     shear = np.array([[0.0, 0.0, tau]])          # Voigt [sxx, syy, sxy]
     rotated = np.array([[tau, -tau, 0.0]])       # the same state at 45 degrees
@@ -100,8 +87,7 @@ def test_voigt_norm_is_not_invariant_but_frobenius_is():
 
 
 def test_von_mises_ignores_hydrostatic_pressure():
-    """Uniform pressure causes no distortion, so it must not register as
-    equivalent stress -- the reason von Mises is built on the deviator."""
+    """Uniform pressure causes no distortion, so it must not register as equivalent stress."""
     tensor = symmetric_batch()
     shifted = tensor + 100.0 * np.eye(3)
 
@@ -154,8 +140,7 @@ def test_voigt_to_tensor_halves_engineering_shear():
 
 
 def test_voigt_to_tensor_places_3d_components_in_assembly_order():
-    """3D Voigt rows are ordered [xx, yy, zz, xy, yz, xz] -- the order
-    `strain_displacement` writes them, which this must match exactly."""
+    """3D Voigt rows are ordered [xx, yy, zz, xy, yz, xz], as `strain_displacement` writes them."""
     got = voigt_to_tensor(np.array([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]), shear_factor=1.0)
     np.testing.assert_allclose(
         got[0], [[1.0, 4.0, 6.0], [4.0, 2.0, 5.0], [6.0, 5.0, 3.0]]

@@ -1,22 +1,10 @@
-"""The assembled global operators, pinned entry-for-entry.
+"""The assembled global operators, pinned entry for entry.
 
-`test_forms.py` pins the *element* matrices and `test_convergence*.py` pins the
-*solution*; neither pins the scatter that joins them. A scatter bug that
-misplaces a contribution can leave the element matrices correct and still show up
-only as a degraded convergence rate several layers away.
-
-So this file characterizes the global operators directly. Small meshes get exact
-golden matrices; the 3D meshes get invariants plus scalar fingerprints (nnz,
-trace, Frobenius norm, row sums), which are compact enough to read and strong
-enough that a misdirected entry moves at least one of them.
-
-The invariants are the mathematically meaningful half and are worth stating:
-
-- A mass matrix sums to the measure of its domain -- `sum_ij int phi_i phi_j` is
-  `int 1` over the domain, since the P1 basis is a partition of unity. For a
-  k-component space that is k times the measure, once per component.
-- A Laplacian annihilates constants, so its rows sum to zero.
-- An elastic stiffness annihilates rigid translations, for the same reason.
+`test_forms.py` pins the element matrices and `test_convergence*.py` the solution;
+this pins the scatter that joins them. Small meshes get exact golden matrices; the 3D
+meshes get invariants (a mass matrix sums to the domain measure, a Laplacian
+annihilates constants, an elastic stiffness annihilates rigid translations) plus
+scalar fingerprints (nnz, trace, Frobenius norm, row sums).
 """
 import numpy as np
 import pytest
@@ -45,12 +33,7 @@ def fingerprint(A):
 
 
 def approx(expected):
-    """Compare fingerprints relatively, with an absolute floor for the ~0 entries.
-
-    The reductions span twelve orders of magnitude (a stiffness trace in the
-    thousands next to a row sum that is exactly zero up to rounding), so neither
-    tolerance alone fits: `rel` handles the large entries, `abs` the vanishing ones.
-    """
+    """Compare fingerprints relatively, with an absolute floor for the ~0 entries."""
     return pytest.approx(expected, rel=1e-10, abs=1e-8)
 
 
@@ -194,11 +177,7 @@ def test_per_element_modulus_reaches_the_global_matrix(mesh):
 
 
 def test_scatter_matches_a_direct_coo_sum(mesh):
-    """The cached scatter plan against the obvious way of writing the same sum.
-
-    A space resolves each element matrix entry's destination once and reuses it
-    across assemblies; handing the same entries to scipy as raw COO triplets sums
-    them independently, and the two must agree entry for entry."""
+    """The cached scatter plan agrees entry for entry with a raw COO sum."""
     d = mesh.spatial_dim
     V = FunctionSpace(mesh, n_components=d)
     form = LinearElasticForm(LinearElasticMaterial(np.linspace(50.0, 200.0, len(mesh.elements)), 0.3))

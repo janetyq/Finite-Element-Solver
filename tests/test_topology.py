@@ -1,9 +1,4 @@
-"""Tests for dimension-general mesh topology: edge and boundary-facet extraction.
-
-The 1D and 3D paths had no correctness coverage, which is how the triangle-only
-`range(3)` assumption survived in both `Mesh._get_all_edges` and
-`get_boundary_from_vertices_elements`.
-"""
+"""Dimension-general mesh topology: edge and boundary-facet extraction in 1D, 2D, and 3D."""
 import numpy as np
 import pytest
 
@@ -15,8 +10,7 @@ from fem.mesh.mesh import Mesh
 # --- edges ---
 
 def test_line_mesh_edges():
-    """A 2-node line element is its own single edge. This used to IndexError:
-    the old loop indexed element[2] on a 2-node element."""
+    """A 2-node line element is its own single edge."""
     mesh = Mesh(
         vertices=[[0.0], [1.0], [2.0]],
         elements=[[0, 1], [1, 2]],
@@ -69,7 +63,7 @@ def test_boundary_of_two_triangles():
 
 
 def test_boundary_of_single_tet():
-    """Every face of a lone tet is a boundary face -- 4 triangles, not edges."""
+    """Every face of a lone tet is a boundary face: 4 triangles."""
     boundary = {tuple(f) for f in get_boundary_from_vertices_elements([[0, 1, 2, 3]])}
     assert boundary == {(0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)}
 
@@ -111,10 +105,8 @@ def test_box_mesh_tiles_the_cube_exactly(n):
 
 
 def test_box_mesh_boundary_is_the_cube_surface():
-    """Every boundary vertex lies on a face of the cube and every interior one
-    does not -- i.e. the cells agree on their shared diagonals. A non-conforming
-    tiling would leave interior faces unmatched and pull them into the boundary.
-    """
+    """Every boundary vertex lies on a face of the cube and every interior one does not, so
+    the cells agree on their shared diagonals."""
     n = 4
     mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
     on_face = np.isclose(mesh.vertices, 0) | np.isclose(mesh.vertices, 1)

@@ -1,13 +1,9 @@
 """The geometric (initial-stress) stiffness form produces correct element matrices.
 
-`GeometricStiffnessForm` is the one operator whose "material" is a supplied stress
-rather than a constitutive law, so these pin it against properties that hold for any
-prestress (symmetry, linearity, the rigid-translation null space) plus two analytic
-values: under a hydrostatic prestress it collapses to a scaled Laplacian, and a
-uniaxial prestress on the unit triangle has a hand-computable block.
-
-The physics -- that this is the matrix whose competition with the elastic stiffness
-sets the buckling load -- is checked in `tests/test_buckling.py`.
+Pinned against properties that hold for any prestress (symmetry, linearity, the
+rigid-translation null space) and two analytic values: a hydrostatic prestress gives a
+scaled Laplacian, and a uniaxial prestress on the unit triangle has a hand-computable
+block. The physics is checked in `tests/test_buckling.py`.
 """
 import numpy as np
 import pytest
@@ -33,7 +29,7 @@ def _prestress(geometry, sigma):
 
 @pytest.mark.parametrize("geometry", [TRI, TET])
 def test_geometric_stiffness_is_symmetric(geometry):
-    """K_g is symmetric for any prestress -- it is a Gᵀ Σ G form with Σ symmetric."""
+    """K_g is symmetric for any prestress: it is a Gᵀ Σ G form with Σ symmetric."""
     d = geometry.spatial_dim
     rng = np.random.default_rng(0)
     sigma = rng.normal(size=(d, d))
@@ -59,9 +55,8 @@ def test_geometric_stiffness_is_linear_in_the_prestress(geometry):
 
 @pytest.mark.parametrize("geometry", [TRI, TET])
 def test_hydrostatic_prestress_is_a_scaled_laplacian(geometry):
-    """Under a hydrostatic prestress p·I, Σ₀ = p·I and the form reduces to
-    p ∫ ∇φ_a·∇φ_b per component -- exactly p times the block-expanded Laplacian
-    stiffness. The cleanest analytic anchor: it ties K_g to a form already tested."""
+    """Under a hydrostatic prestress p·I the form reduces to p times the block-expanded
+    Laplacian stiffness."""
     d = geometry.spatial_dim
     p = 3.0
     K_g = GeometricStiffnessForm(_prestress(geometry, p * np.eye(d))).element_matrices(geometry)[0]

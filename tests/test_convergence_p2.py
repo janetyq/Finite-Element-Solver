@@ -1,12 +1,9 @@
-"""MMS for P2 (quadratic) elements: the higher-order accuracy Fact B delivers.
+"""MMS for P2 (quadratic) elements.
 
-The same manufactured Poisson problem as `test_convergence.py`, one polynomial
-degree up. The claim P2 exists to make good on is the *rate* -- O(h^3) in L2 where
-P1 gives O(h^2) -- so that is what is asserted. A wrong edge-node numbering, a wrong
-shape function, or an unpinned boundary edge node does not accidentally converge at
-the right cubic rate, so a passing rate here is strong evidence the whole P2 path --
-the enlarged node set, the quadratic hats, and the edge-DOF boundary handling -- is
-correct end to end.
+The same manufactured Poisson problem as `test_convergence.py`, one degree up. The
+claim is the rate: O(h^3) in L2 where P1 gives O(h^2). A wrong edge-node numbering,
+shape function, or unpinned boundary edge node does not converge at the cubic rate,
+so a passing rate is strong evidence the whole P2 path is correct.
 """
 import numpy as np
 import pytest
@@ -57,19 +54,16 @@ def elastic_study():
 
 
 def test_p2_elasticity_is_third_order(elastic_study):
-    """The vector P2 path -- two DOFs per node, on corners and edge midpoints alike --
-    converges at O(h^3) like the scalar case, so the node numbering is right under
-    n_components = 2 and the coupled operator, not only for a scalar unknown."""
+    """The vector P2 path converges at O(h^3) like the scalar one, so the node numbering is
+    right under n_components = 2 and the coupled operator."""
     for p in elastic_study.orders:
         assert 2.7 < p < 3.3, f"expected ~3rd order, got orders {elastic_study.orders}"
 
 
 def test_p2_reproduces_a_linear_displacement_and_its_constant_stress():
-    """The constant-stress patch test. A linear displacement is in the P2 space
-    exactly, so imposing it on the boundary of an unloaded block must reproduce it in
-    the interior to machine precision, and the recovered stress must be the single
-    constant plane-strain value that strain implies -- a direct check of the P2 vector
-    solve and its stress recovery, independent of any convergence rate."""
+    """The constant-stress patch test: a linear displacement imposed on the boundary of an
+    unloaded block is reproduced in the interior to machine precision, and the recovered
+    stress is the single constant plane-strain value that strain implies."""
     E, nu, a = 200.0, 0.3, 0.01
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)

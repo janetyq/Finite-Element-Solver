@@ -1,10 +1,6 @@
-"""The composition core: LinearProblem / EnergyProblem and the solve strategies.
-
-The headline is the equivalence the pre-composition architecture could not even
-state: LinearSolve and NewtonSolve share no ancestor there, so nothing could
-assert they agree. Here a LinearProblem has a constant tangent and an affine
-residual, so Newton reaches the LinearSolve answer in one applied step -- from any
-seed -- and the two are cross-checked directly.
+"""The composition core: LinearProblem / EnergyProblem and the solve strategies. A
+LinearProblem has a constant tangent and an affine residual, so Newton reaches the
+LinearSolve answer in one step from any seed.
 """
 import numpy as np
 import pytest
@@ -85,8 +81,7 @@ def test_linear_elastic_factory_matches_the_solver_facade(make_unit_square):
 
 
 def test_with_operator_matches_a_problem_built_from_scratch(make_unit_square):
-    """Deriving a problem under a new operator has to be indistinguishable from
-    stating that problem directly -- same constraints, same load, same solution."""
+    """Deriving a problem under a new operator is indistinguishable from stating it directly."""
     mesh = make_unit_square(10)
     space = FunctionSpace(mesh, n_components=2)
     bc = BoundaryConditions()
@@ -137,7 +132,7 @@ def test_traction_load_has_the_exact_resultant(make_unit_square):
 
 def test_traction_stays_on_its_own_edge(make_unit_square):
     """The masked traction integrates over its region's facets only, so no load lands on a
-    node off the loaded edge -- a shared corner used to spread it onto the neighbours."""
+    node off the loaded edge."""
     mesh = make_unit_square(10)
     space = FunctionSpace(mesh, n_components=1)
     bc = BoundaryConditions()
@@ -148,9 +143,7 @@ def test_traction_stays_on_its_own_edge(make_unit_square):
 
 
 def test_derived_problem_does_not_answer_with_the_parents_operator(make_unit_square):
-    """The dangerous ordering for a lazily assembled tangent: the parent has already
-    assembled its own, so the copy `with_operator` makes starts out holding it. A
-    derived problem that kept it would return the old operator with no error at all."""
+    """A derived problem must not keep the parent's already-assembled tangent."""
     space = FunctionSpace(make_unit_square(6), n_components=1)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
@@ -174,8 +167,7 @@ def test_tangent_is_assembled_once_and_held(make_unit_square):
 
 
 def test_stating_a_problem_does_not_assemble_it(make_unit_square, monkeypatch):
-    """A problem that is never solved costs nothing to state -- which is what lets
-    TopologyOptimizer hold a template it only ever derives from."""
+    """A problem that is never solved costs nothing to state."""
     space = FunctionSpace(make_unit_square(6), n_components=1)
     assembled = []
     assemble = FunctionSpace.assemble

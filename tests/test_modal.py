@@ -1,20 +1,13 @@
 """Modal analysis reproduces Euler-Bernoulli beam vibration.
 
-The companion to `test_buckling.py`: where buckling checks the eigenproblem `K φ = -λ K_g φ`
-against Euler's column loads, this checks the free-vibration pencil `K φ = ω² M φ` against
-a cantilever's natural frequencies -- the analytic answer beam theory gives,
+The free-vibration pencil `K φ = ω² M φ` against a cantilever's natural frequencies,
 
     f_n = (β_n L)² / (2π) · sqrt(E* I / (ρ A L⁴)),
 
-with the roots β_n L = 1.875, 4.694, 7.855, … for a fixed-free beam, I = h³/12 the second
-moment, A = h the area (unit depth), and E* = E/(1-ν²) the plane-strain modulus (the same
-effective modulus the buckling test uses for bending).
-
-Quadratic (P2) elements throughout, for the same reason as buckling: the constant-strain
-triangle locks in bending and reaches the analytic frequencies only on a mesh refined hard
-through the thickness, where P2 matches them on a coarse one. A 2D continuum also carries a
-little shear flexibility and rotary inertia that Euler-Bernoulli omits, so the frequencies
-sit a hair below the beam-theory value -- the tolerances are honest headroom over that.
+with β_n L = 1.875, 4.694, 7.855, … for a fixed-free beam, I = h³/12, A = h (unit
+depth), and E* = E/(1-ν²). P2 elements throughout, since the constant-strain triangle
+locks in bending. A 2D continuum carries a little shear flexibility and rotary inertia
+that Euler-Bernoulli omits, so the frequencies sit a hair below the beam-theory value.
 """
 import numpy as np
 import pytest
@@ -34,17 +27,14 @@ BETA_L = np.array([1.875104, 4.694091, 7.854757, 10.995541])   # fixed-free beam
 
 
 def cantilever(length, height=1.0, n_length=48, n_across=6):
-    """A slender rectangular beam, meshed like the buckling column.
-
-    `n_across` is set independently of the aspect ratio so bending is resolved through
-    the thickness rather than left to a near-isotropic triangle's two or three elements.
-    """
+    """A slender rectangular beam, with `n_across` elements through the thickness so bending
+    is resolved."""
     return create_rect_mesh(corners=[[0, 0], [length, height]],
                             resolution=(n_length, n_across))
 
 
 def clamped_bc():
-    """Fixed-free: one end clamped, the rest free -- no load (modal analysis reads none)."""
+    """Fixed-free: one end clamped, the rest free, no load."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     return bc
@@ -72,11 +62,7 @@ def test_first_bending_frequency_matches_euler_bernoulli():
 
 
 def test_bending_mode_ratios_follow_beam_theory():
-    """The low modes are all bending, in the ratio (β_n/β_1)²: ~1 : 6.27 : 17.5.
-
-    Axial modes sit far above these on a slender beam, so the lowest three eigenvalues are
-    the first three bending tones, whose spacing beam theory fixes independent of scale.
-    """
+    """The low modes are all bending, in the ratio (β_n/β_1)²: ~1 : 6.27 : 17.5."""
     length = 24.0
     sol = solve_modes(cantilever(length, n_length=64), n_modes=3)
     ratios = sol.frequencies[:3] / sol.frequencies[0]
@@ -86,12 +72,8 @@ def test_bending_mode_ratios_follow_beam_theory():
 
 
 def test_frequency_scales_as_sqrt_stiffness_over_density():
-    """f ∝ sqrt(E/ρ): the material dependence, checked as exact scaling on one mesh.
-
-    Scaling E or ρ uniformly multiplies K or M by a constant, which moves every ω by an
-    exact factor without changing the mode shapes -- so the same mesh gives 2x frequency
-    for 4x stiffness and half for 4x density, to round-off.
-    """
+    """f ∝ sqrt(E/ρ): 4x stiffness gives 2x frequency and 4x density half, to round-off,
+    with the mode shapes unchanged."""
     mesh = cantilever(24.0)
     base = solve_modes(mesh, n_modes=1)
     stiffer = solve_modes(mesh, n_modes=1, E=4 * E)
@@ -101,11 +83,7 @@ def test_frequency_scales_as_sqrt_stiffness_over_density():
 
 
 def test_modes_are_mass_orthonormal():
-    """The mode shapes are M-orthonormal: φ_iᵀ M φ_j = δ_ij, the normalisation eigsh imposes.
-
-    Checked on the lifted full-DOF vectors against the same unit-density mass matrix the
-    solver assembled (density defaults to 1); the fixed DOFs are zero, so they drop out.
-    """
+    """The mode shapes are M-orthonormal: φ_iᵀ M φ_j = δ_ij on the lifted vectors."""
     mesh = cantilever(24.0)
     sol = solve_modes(mesh, n_modes=4)
     mass = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2).mass_matrix
@@ -123,7 +101,7 @@ def test_frequencies_are_positive_ascending_and_units_consistent():
 
 
 def test_solution_round_trips_through_io(tmp_path):
-    """A ModalSolution saves and loads like any other -- reflected over its dataclass fields."""
+    """A ModalSolution saves and loads like any other."""
     sol = solve_modes(cantilever(16.0, n_length=24), n_modes=3)
     path = str(tmp_path / 'modal.npz')
     sol.save(path)
@@ -150,7 +128,7 @@ def test_non_elastic_equation_is_rejected():
 
 
 def test_degenerate_parameters_are_rejected():
-    """n_modes and density must be physical -- caught at construction, not at solve."""
+    """n_modes and density must be physical, caught at construction."""
     mesh = cantilever(12.0, n_length=12, n_across=3)
     with pytest.raises(ValueError, match='n_modes'):
         ModalSolver(mesh, LinearElastic(E, NU), n_modes=0)

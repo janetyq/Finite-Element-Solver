@@ -1,20 +1,14 @@
 """Linearised buckling reproduces Euler's column theory.
 
-The geometric-stiffness *form* is pinned analytically in `test_geometric_stiffness.py`;
-this is the physics test -- that assembling it against a prestress and solving the
-eigenproblem `K φ = -λ K_g φ` recovers the buckling loads and mode shapes a slender
-column actually has. Euler is the exact answer to compare against, the same role the
-manufactured solution plays for the steady solvers:
+The geometric-stiffness form is pinned analytically in `test_geometric_stiffness.py`;
+this checks that assembling it against a prestress and solving `K φ = -λ K_g φ`
+recovers the buckling loads and modes of a slender column:
 
     P_cr = π² E* I / (K L)²,   I = h³/12,   E* = E/(1-ν²) (plane strain),
 
-with the effective-length factor K set by the end conditions (K = 2 cantilever,
-1 pinned-pinned, 0.5 fixed-fixed, ≈0.7 fixed-pinned).
-
-Quadratic (P2) elements throughout: the constant-strain triangle locks in bending and
-reaches Euler only on a mesh refined hard through the thickness, where P2 matches it to
-a fraction of a percent on a coarse one -- so these run P2 and hold a tight tolerance.
-The tolerances are honest headroom over the observed error (~1-2%), not tuned to it.
+with K set by the end conditions (2 cantilever, 1 pinned-pinned, 0.5 fixed-fixed,
+about 0.7 fixed-pinned). P2 elements throughout, since the constant-strain triangle
+locks in bending. Tolerances are headroom over the observed 1-2% error.
 """
 import numpy as np
 import pytest
@@ -31,25 +25,17 @@ E_STAR = E / (1 - NU**2)   # plane-strain effective modulus for bending
 
 
 def column(length, height=1.0, n_length=40, n_across=5):
-    """A slender rectangular column, meshed for a buckling solve.
-
-    `n_across` (through the thickness) is set independently of the aspect ratio, not
-    left to follow it: bending is resolved across the height, and an isotropic-triangle
-    beam would put only two or three elements there on a slender column.
-    """
+    """A slender rectangular column, with `n_across` elements through the thickness so
+    bending is resolved."""
     return create_rect_mesh(corners=[[0, 0], [length, height]],
                             resolution=(n_length, n_across))
 
 
 def critical_load(mesh, bc, length, height=1.0, n_modes=2):
-    """The lowest buckling load and the whole solution, for `mesh` under `bc`.
+    """The lowest buckling load and the whole solution for `mesh` under `bc`.
 
-    The load factor multiplies the reference load; the physical buckling load is that
-    factor times the actual axial force the reference solve carries. That force is read
-    at mid-span, where it is uniform and free of the end disturbances -- the applied
-    traction's own resultant is not it, since the consistent nodal load spreads a little
-    onto the edges meeting the loaded one at its corners.
-    """
+    The load factor multiplies the axial force the reference solve carries, read at
+    mid-span where it is uniform and free of the end disturbances."""
     solver = BucklingSolver(mesh, LinearElastic(E, NU), bc, n_modes=n_modes,
                             element_type=QuadraticTriangleElement)
     solution = solver.solve()
@@ -101,7 +87,7 @@ def test_cantilever_higher_modes_follow_the_odd_square_law():
 
 
 def test_critical_load_scales_as_inverse_length_squared():
-    """P_cr ∝ 1/L² -- the slenderness law, read off as a log-log slope of -2."""
+    """P_cr ∝ 1/L²: the slenderness law, read off as a log-log slope of -2."""
     lengths = np.array([16.0, 24.0, 32.0, 48.0])
     loads = np.array([
         critical_load(column(L, n_length=max(32, int(2 * L))), cantilever_bc(L), L)[0][0]
@@ -112,19 +98,10 @@ def test_critical_load_scales_as_inverse_length_squared():
 
 
 def test_effective_length_factors_across_end_conditions():
-    """The four classic end conditions recover their effective-length factors.
-
-    Realised in a 2D continuum, so approximate -- a clamp adds a little Saint-Venant
-    stiffening a beam-theory 'fixed' end has none of -- but the measured factors land
-    within a few percent of 2, 1, 1/2, and ~0.7, and the buckling loads span the
-    textbook 1 : 4 : 16 : ~8 range that the effective-length idea is about.
-
-    An end's *rotation* is what the factor turns on, and in a continuum that is set by
-    the axial DOF: a traction-loaded edge (u_x free) rotates freely -- a pin or a free
-    end -- while an edge driven by an imposed uniform displacement (u_x fixed) cannot,
-    which is a clamp. Transverse support is u_y = 0 along the whole edge, which holds the
-    end in place without touching its rotation, so it is a pin rather than a point load.
-    """
+    """The four classic end conditions recover their effective-length factors to within a
+    few percent of 2, 1, 1/2, and ~0.7 (a 2D clamp adds a little Saint-Venant
+    stiffening). What sets the factor is whether an end can rotate: a traction-loaded
+    edge (u_x free) rotates, an imposed uniform displacement (u_x fixed) cannot."""
     length = 24.0
     mesh = column(length, n_length=48, n_across=6)
     delta = 0.02 * length
@@ -180,16 +157,8 @@ def test_green_lagrange_equation_is_rejected():
 
 
 def test_no_compression_means_no_buckling():
-    """Buckling needs compression. With no load there is no prestress, K_g vanishes, and
-    K + λ K_g stays positive-definite for every λ -- so the solver reports no buckling
-    mode rather than handing the eigensolver an all-zero `K_g`, whose eigenproblem is
-    trivial (every μ is 0, so no finite buckling factor).
-
-    This is the guard's clean, decidable case. A member in overall *tension* is not one:
-    a clamped end develops local corner compression, so the discrete structure always has
-    some compressive prestress and a (huge, spurious) buckling factor -- there is no
-    threshold-free way to call that "no buckling", so the solver does not try to.
-    """
+    """With no load there is no prestress, K_g vanishes, and the solver reports no buckling
+    mode rather than handing the eigensolver an all-zero K_g."""
     mesh = column(12.0, n_length=12, n_across=4)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])   # clamped, but nothing applied

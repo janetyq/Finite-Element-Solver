@@ -1,15 +1,9 @@
 """The residual error estimator on quadratic (P2) elements.
 
-The P1 residual estimator drops two terms that vanish only for a constant flux: the
-interior term keeps just the source (`div(flux) = 0` inside a constant-strain element),
-and the edge jump compares one representative flux per element. On P2 the flux varies
-within each element, so both need the flux's real behaviour: the interior residual gains
-`div(flux)` (a Laplacian, or the Navier stress divergence), computed from the P2 shape
-functions' second derivatives, and the jump is read at the shared edge from each side.
-
-These tests pin the new machinery (shape Hessians, the field Hessian, the two
-divergences), the correctness (the estimator vanishes on a field P2 represents exactly),
-and that it drives adaptive refinement on a P2 space.
+On P2 the flux varies within each element, so the interior residual gains `div(flux)`
+(computed from the P2 shape functions' second derivatives) and the jump is read at the
+shared edge from each side. These pin the Hessians and divergences, that the estimator
+vanishes on a field P2 represents exactly, and that it drives refinement on P2.
 """
 import numpy as np
 import pytest

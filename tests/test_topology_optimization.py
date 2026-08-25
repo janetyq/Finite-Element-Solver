@@ -1,8 +1,4 @@
-"""Tests for the density-based topology optimizer.
-
-Distinct from `test_topology.py`, which is about mesh topology -- edges and
-boundary facets -- despite the name collision.
-"""
+"""The density-based topology optimizer. (`test_topology.py` is mesh topology.)"""
 import numpy as np
 import pytest
 
@@ -19,12 +15,8 @@ from fem.topology import TargetCompliance, TopologyOptimizer
 
 
 def _dense_smoothing_matrix(mesh, r):
-    """The filter written out as an all-pairs distance matrix.
-
-    The definition the sparse `calculate_smoothing_matrix` is checked against:
-    obviously correct, and unusable past a few thousand elements, which is why it
-    is a test reference rather than the implementation.
-    """
+    """The filter written out as an all-pairs distance matrix, the reference the sparse
+    `calculate_smoothing_matrix` is checked against."""
     centers = mesh.vertices[mesh.elements].mean(axis=1)
     distances = np.linalg.norm(centers[:, None, :] - centers[None, :, :], axis=2)
     weights = np.maximum(0, r - distances)
@@ -53,11 +45,8 @@ def test_simp_penalty_drives_the_modulus_scaling(make_unit_square):
 
 
 def test_min_compliance_sensitivity_uses_the_configured_penalty(make_unit_square):
-    """The sensitivity p/rho * c is only the derivative of the compliance if p is
-    the exponent the modulus scaling used. Both the scaled modulus and the
-    objective's gradient read self.penalty, so one configured exponent drives
-    both -- they can no longer be independent literal 3s descending different
-    gradients."""
+    """The sensitivity p/rho * c is the derivative of the compliance only if p is the
+    exponent the modulus scaling used; one configured exponent drives both."""
     penalty = 2.0
     optimizer = _optimizer(make_unit_square(5), penalty=penalty)
     solution = optimizer._solve()
@@ -87,13 +76,8 @@ def test_density_scales_the_solid_element_stiffness(make_unit_square):
 
 
 def test_solve_matches_a_problem_built_from_the_scaled_material(make_unit_square):
-    """The optimizer builds its operator by rescaling cached solid-material element
-    matrices. Stating the same problem the long way round -- one `LinearElasticForm`
-    over `scaled_modulus`, assembled from scratch -- has to give the same displacement.
-
-    Drives `_solve` rather than restating its arithmetic: a test that rebuilt the
-    operator expression itself would agree with any exponent `_solve` happened to use.
-    """
+    """The optimizer's rescaled cached matrices give the same displacement as one
+    `LinearElasticForm` over `scaled_modulus` assembled from scratch."""
     optimizer = _optimizer(make_unit_square(6), penalty=3.0)
     optimizer.set_rho(np.linspace(0.3, 1.0, len(optimizer.mesh.elements)))
 
@@ -137,9 +121,8 @@ def test_smoothing_matrix_matches_the_dense_cone_weights(make_unit_square):
 
 
 def test_smoothing_matrix_leaves_a_uniform_field_alone(make_unit_square):
-    """Rows sum to 1, so filtering a constant sensitivity returns it unchanged.
-    A filter that failed this would bias the optimizer wherever the neighbourhood
-    is one-sided -- along every boundary, that is."""
+    """Rows sum to 1, so filtering a constant sensitivity returns it unchanged, including
+    along the boundary where the neighbourhood is one-sided."""
     mesh = make_unit_square(12)
     uniform = np.full(len(mesh.elements), 2.5)
 
@@ -149,8 +132,7 @@ def test_smoothing_matrix_leaves_a_uniform_field_alone(make_unit_square):
 
 
 def test_smoothing_matrix_couples_only_within_the_radius(make_unit_square):
-    """No weight reaches past r, which is what makes the matrix sparse and what
-    pins the design's feature size to the radius."""
+    """No weight reaches past r, which keeps the matrix sparse and pins the feature size."""
     mesh = make_unit_square(12)
     centers = mesh.vertices[mesh.elements].mean(axis=1)
     r = 0.15
@@ -163,10 +145,8 @@ def test_smoothing_matrix_couples_only_within_the_radius(make_unit_square):
 
 
 def test_smoothing_matrix_stays_sparse_under_refinement(make_unit_square):
-    """A radius tracking the element size keeps the entries per row bounded as the
-    mesh refines -- the usual SIMP choice, and the one under which the filter costs
-    O(n_elements). Storing all n^2 couplings instead is what ran topology
-    optimization out of memory past ~30k elements."""
+    """A radius tracking the element size keeps the entries per row bounded as the mesh
+    refines, so the filter costs O(n_elements)."""
     coarse = calculate_smoothing_matrix(make_unit_square(20), r=3.0 / 20)
     fine = calculate_smoothing_matrix(make_unit_square(40), r=3.0 / 40)
 

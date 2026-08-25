@@ -1,10 +1,5 @@
-"""What a boundary-conditions panel is able to say.
-
-The panel is a demo's only claim about what was imposed, so a condition it cannot draw
-is a condition a reader has to take on faith from the prose beside it. These check that
-each kind reaches the axes, by legend label rather than by pixels -- the label is what
-tells a reader which mark is which, so a mark drawn without one is not much better than
-a mark not drawn at all.
+"""What a boundary-conditions panel is able to say. Each kind of condition must reach
+the axes, checked by legend label rather than by pixels.
 """
 import matplotlib.pyplot as plt
 import numpy as np
@@ -42,8 +37,8 @@ def test_robin_conditions_are_drawn(mesh):
 
 
 def test_a_robin_label_gives_the_coefficient_and_the_ambient_value(mesh):
-    """Drawn only as a coloured edge, the two numbers the condition is about -- how
-    freely it exchanges and what with -- appear nowhere on the panel."""
+    """A Robin condition's two numbers, how freely it exchanges and with what, appear in the
+    legend."""
     bc = BoundaryConditions()
     bc.add_robin(everywhere(), kappa=0.5, g=0.5*300.0)
     assert 'Robin: du/dn + 0.5(u - 300) = 0' in _labels(mesh, bc)
@@ -77,8 +72,7 @@ def test_a_displacement_pinned_away_from_zero_is_drawn_as_arrows(mesh):
 
 
 def test_a_scalar_flux_is_drawn_as_a_run_not_an_arrow(mesh):
-    """A scalar Neumann acts along a normal this panel does not draw, so an arrow would
-    have to point somewhere; it also used to index a second component that is not there."""
+    """A scalar Neumann acts along a normal this panel does not draw, so it is a run."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), 3.0)
@@ -105,8 +99,7 @@ def test_a_vector_traction_still_gets_arrows(mesh):
 
 
 def test_boundary_carrying_no_condition_is_drawn_as_natural(mesh):
-    """Saying nothing about an edge is a statement -- the natural condition of the weak
-    form -- and `stress_concentration` exists to make exactly that point about its rim."""
+    """Saying nothing about an edge is the natural condition of the weak form, and it is drawn."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     assert 'Natural: t = 0' in _labels(mesh, bc)
@@ -129,8 +122,7 @@ def test_repeated_conditions_of_one_kind_get_one_legend_entry(mesh):
 
 
 def test_a_roller_reads_as_free_rather_than_nan(mesh):
-    """A roller's free component must read as 'free', not the literal NaN it is
-    internally -- and must not be mistaken for a displacement being imposed."""
+    """A roller's free component reads as 'free', not the literal NaN it is internally."""
     from matplotlib.quiver import Quiver
 
     bc = BoundaryConditions()
@@ -202,8 +194,7 @@ def test_a_traction_overlays_as_load_arrows(mesh):
 
 
 def test_a_driven_end_overlays_as_a_wall_and_an_arrow(mesh):
-    """An imposed nonzero displacement both clamps and pushes: a wall with a load arrow,
-    which is what tells it apart from a plain clamp."""
+    """An imposed nonzero displacement both clamps and pushes: a wall with a load arrow."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [-0.3, 0])
     fig, ax = _overlay(mesh, bc)
@@ -213,8 +204,8 @@ def test_a_driven_end_overlays_as_a_wall_and_an_arrow(mesh):
 
 
 def test_a_single_anchor_point_overlays_as_a_dot_not_a_support(mesh):
-    """The lone point that ties off a pinned column's axial slide is scaffolding, so it is
-    a small marker -- not a wall or triangles competing with the supports on the ends."""
+    """The lone point that ties off a pinned column's axial slide is a small marker, not a
+    wall or triangles."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, 0.5)), [0, 0])
     fig, ax = _overlay(mesh, bc)
@@ -227,8 +218,7 @@ def test_a_single_anchor_point_overlays_as_a_dot_not_a_support(mesh):
 
 
 def test_colour_encodes_the_weak_form_type(mesh):
-    """First law: colour is the weak-form type -- Dirichlet blue (held), Neumann red
-    (applied) -- so the panel and the overlay speak one language rather than two."""
+    """Colour is the weak-form type: Dirichlet blue, Neumann red, in the panel and the overlay."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])   # clamp -> blue wall
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])   # traction -> red arrows
@@ -245,9 +235,8 @@ def test_colour_encodes_the_weak_form_type(mesh):
 
 
 def test_shape_is_the_role_only_where_the_components_allow(mesh):
-    """Second law: shape is the mechanical role, as specific as the field permits. A vector
-    clamp on an edge is a wall; the same edge in a scalar field -- which has no clamp or
-    roller -- stays a row of dots, no drafting glyph."""
+    """Shape is the mechanical role, as specific as the field permits: a vector clamp on an
+    edge is a wall; the same edge in a scalar field stays a row of dots."""
     vector = BoundaryConditions()
     vector.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     fig, ax = _overlay(mesh, vector)

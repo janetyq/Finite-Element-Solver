@@ -7,12 +7,8 @@ E, NU = 210.0, 0.3
 
 
 def _plane_strain_state(eps_xx, eps_yy, eps_xy):
-    """An in-plane strain tensor and the full 3D stress the law gives it.
-
-    The 3D Hooke matrix with a zero zz strain is the definition of plane strain,
-    so running the state through it produces the reference sigma_zz independently
-    of whatever shortcut the 2D path uses.
-    """
+    """An in-plane strain tensor and the full 3D stress the law gives it, the reference for
+    the 2D shortcut."""
     mu, lamb = Enu_to_Lame(E, NU)
     voigt_3d = np.array([eps_xx, eps_yy, 0.0, 2 * eps_xy, 0.0, 0.0])
     stress_3d = hooke_matrix(3, mu, lamb) @ voigt_3d
@@ -21,8 +17,7 @@ def _plane_strain_state(eps_xx, eps_yy, eps_xy):
 
 
 def test_out_of_plane_stress_matches_the_3d_law_under_zero_axial_strain():
-    """`out_of_plane_stress` must reproduce what the full 3D law gives for a
-    strain state with epsilon_zz = 0 -- the definition of plane strain."""
+    """`out_of_plane_stress` reproduces what the full 3D law gives for epsilon_zz = 0."""
     strain, stress_3d = _plane_strain_state(0.004, -0.002, 0.0015)
 
     sigma_zz = LinearElasticMaterial(E, NU).out_of_plane_stress(strain)
@@ -30,12 +25,7 @@ def test_out_of_plane_stress_matches_the_3d_law_under_zero_axial_strain():
 
 
 def test_lambda_trace_and_nu_sum_forms_agree():
-    """`lambda * tr(eps)` and `nu * (sigma_xx + sigma_yy)` are the same number.
-
-    The docstring claims the two spellings are interchangeable, and the signature
-    was chosen to match the energy densities' rather than for the shorter formula.
-    Pin the equivalence so that claim cannot quietly stop being true.
-    """
+    """`lambda * tr(eps)` and `nu * (sigma_xx + sigma_yy)` are the same number."""
     strain, stress_3d = _plane_strain_state(0.004, -0.002, 0.0015)
 
     lambda_form = LinearElasticMaterial(E, NU).out_of_plane_stress(strain)
