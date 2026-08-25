@@ -1,25 +1,18 @@
 """Drawing a problem's boundary conditions: what each one says, and where it applies.
 
-One vocabulary, two views. A condition is drawn with two independent axes of meaning:
+A condition is drawn with two independent axes of meaning:
 
-* **colour is the weak-form type**: Dirichlet blue (the boundary held at a value),
-  Neumann red (the boundary carrying an applied flux), Robin orange (a blend of both),
-  and the unwritten natural condition grey. This is universal: every PDE has essential
-  and natural boundaries, whatever the field.
-* **shape is the mechanical role**, as specific as the components allow. A vector
-  (elasticity) Dirichlet edge becomes a drafting symbol: a hatched wall for a clamp, a
-  row of triangles on a ground line for a roller (held one way, free to rotate and to
-  slide the other), a lone triangle with no ground line for a pin (held at that point, but
-  a single point can resist no rotation, so unlike a wall it doesn't clamp the end), and
-  an arrow off a wall/pin for an imposed displacement. A scalar field, which has none
-  of these mechanical roles, keeps dots and runs. Neumann is arrows (a vector traction) or
-  a run (a scalar flux); Robin is a run.
+* Colour is the weak-form type: Dirichlet blue (held at a value), Neumann red (an
+  applied flux), Robin orange (a blend), and the unwritten natural condition grey.
+* Shape is the mechanical role, as specific as the components allow. A vector
+  Dirichlet edge is a drafting symbol: a hatched wall for a clamp, triangles on a
+  ground line for a roller, a lone triangle for a pin, and an arrow off a wall or pin
+  for an imposed displacement. A scalar field keeps dots and runs. Neumann is arrows
+  (a vector traction) or a run (a scalar flux); Robin is a run.
 
-`plot_bc` renders the standalone conditions panel every solver demo carries: a filled
-body, the marks, and a legend of values. `overlay_supports` renders the same marks over
-a result already on the axes (a buckled mode, say), so an end condition can be read off
-the shape without a legend. Both go through one classifier (`_classify`) and one set of
-glyph drawers, so the two views cannot drift into different languages.
+`plot_bc` renders the standalone conditions panel: a filled body, the marks, and a
+legend of values. `overlay_supports` renders the same marks over a result already on
+the axes. Both go through one classifier (`_classify`) and one set of glyph drawers.
 """
 import warnings
 from dataclasses import dataclass
@@ -151,7 +144,7 @@ def _dirichlet_shape(values, is_edge):
 
 def _classify(bc, mesh):
     """Turn a spec's conditions into drawable marks, and report the field's component
-    count. The *natural* condition is left to the caller, which alone knows which facets
+    count. The natural condition is left to the caller, which alone knows which facets
     no condition claimed."""
     from fem.boundary import BCType
 

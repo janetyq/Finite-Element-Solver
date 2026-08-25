@@ -12,17 +12,13 @@ turns it into the generalized symmetric eigenproblem
 
 with `K` the elastic stiffness and `M` the consistent mass matrix. The eigenvalues are
 the squared natural angular frequencies and the eigenvectors the mode shapes. No applied
-load enters (unlike buckling, whose `K_g` comes from a reference solve), so the result
-is a property of the structure alone (its stiffness, mass, and supports), the way a
-bell's pitch is a property of the bell and not of how hard it is struck.
+load enters, so the result is a property of the structure alone.
 
 The lowest frequencies are the ones that matter (a forcing near them resonates), so the
-eigensolve uses shift-invert about `sigma = 0` through `EigenSolve`, the standard way
-to pull the smallest eigenvalues of a large sparse pencil, factoring `K` on the free
-block once. `MassForm` integrates the unit-density mass, so a scalar `density` scales it
-to physical units; the frequencies then go as `sqrt(E / density)`, the material
-dependence a modal analysis turns on (the mode shapes, by contrast, are set by geometry
-and supports, unchanged by a uniform scaling of stiffness or mass).
+eigensolve uses shift-invert about `sigma = 0` through `EigenSolve`, factoring `K` on
+the free block once. `MassForm` integrates the unit-density mass, so a scalar `density`
+scales it to physical units; the frequencies go as `sqrt(E / density)`, while the mode
+shapes are set by geometry and supports alone.
 """
 import logging
 

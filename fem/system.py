@@ -1,18 +1,13 @@
 """The assembled linear system: a matrix, its Dirichlet partition, and a solve.
 
-`DiscreteSystem` is the seam between assembly (which produces a matrix) and algebra
-(which solves it). It owns the operator `A` and the DOF partition, eliminates the
-constrained DOFs rather than penalising them, and (the reason it is an object rather
-than a function) factors the free-free block once through a `Backend`, so repeated
-solves with different right-hand sides reuse that factorization. A time-stepper whose
-LHS is constant across steps, or a Newton loop with a fixed tangent, pays the setup
-only once and a cheap solve per subsequent right-hand side.
+`DiscreteSystem` owns the operator `A` and the DOF partition, eliminates the
+constrained DOFs rather than penalising them, and factors the free-free block once
+through a `Backend`, so repeated solves with different right-hand sides (a
+time-stepper, a Newton loop with a fixed tangent) reuse the factorization.
 
-How the free-free block is solved is the injected `backend`: `DirectBackend` (sparse
-LU, the default, robust for any operator) or `IterativeBackend` (AMG-preconditioned CG,
-opt-in for SPD systems). This class only eliminates the Dirichlet DOFs and hands the
-free-free block off; the backend owns the algebra, including whatever storage format it
-wants (`splu` needs CSC, CG needs CSR), so neither leaks in here.
+The `backend` is `DirectBackend` (sparse LU, the default) or `IterativeBackend`
+(AMG-preconditioned CG, opt-in for SPD systems); it owns the algebra and its storage
+format.
 """
 import numpy as np
 

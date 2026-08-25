@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 
 import numpy as np
 from scipy.sparse import coo_matrix
@@ -63,13 +63,13 @@ class RuppertsAlgorithm:
     Starting from a Delaunay triangulation of the input vertices, loop until
     no encroached segments and no skinny triangles remain:
 
-    1. **Split encroached segments** (priority).  A segment is *encroached*
+    1. Split encroached segments (priority). A segment is encroached
        when a mesh vertex other than its own endpoints falls inside its
        diametral circle (the circle whose diameter is the segment).  Replace
        it with two halves at its midpoint.  Fixing encroachment can also fix
        nearby skinny triangles.
 
-    2. **Insert circumcenters of skinny triangles.**  A triangle whose
+    2. Insert circumcenters of skinny triangles. A triangle whose
        smallest angle is below `min_angle` is refined by inserting its
        circumcenter.  If that new point would encroach a segment, split the
        segment instead and re-examine the triangle later.
@@ -77,13 +77,12 @@ class RuppertsAlgorithm:
     Each step adds one vertex, which the triangulation absorbs incrementally
     rather than being rebuilt around.
 
-    **Why segments are respected.**  The Delaunay triangulation only knows
-    about points, not segments.  But if a segment's diametral circle contains
-    no other vertex, it is guaranteed to appear as a Delaunay edge. Splitting
-    encroached segments clears their diametral circles, which makes the
+    Why segments are respected: the Delaunay triangulation only knows about points,
+    but a segment whose diametral circle contains no other vertex is guaranteed to
+    appear as a Delaunay edge, so splitting encroached segments makes the
     unconstrained Delaunay conform to the boundary.
 
-    **What is returned.** The result keeps only what the PSLG encloses: a
+    What is returned: the result keeps only what the PSLG encloses: a
     Delaunay triangulation spans the convex hull, so a non-convex outline also
     produces triangles outside it. Interior/exterior alternates by the
     even-odd rule: a region with an odd number of segment crossings to
@@ -191,12 +190,11 @@ class RuppertsAlgorithm:
 
         Tested in the Thales form: `vertex` is inside the circle on diameter (a, b)
         exactly when angle a-vertex-b is obtuse, i.e. (a - vertex).(b - vertex) < 0.
-        That dot product equals |center - vertex|^2 - radius^2 algebraically, but,
-        unlike computing the two terms apart, it is exactly zero when `vertex` is an
-        endpoint (identical coordinates subtract to zero). So a segment is never judged
-        to contain its own endpoint however tiny it is next to the coordinate
-        magnitude, where the old center/radius form lost that to cancellation and split
-        the segment forever.
+        That dot product equals |center - vertex|^2 - radius^2 algebraically, but
+        unlike the two terms computed apart it is exactly zero when `vertex` is an
+        endpoint, so a segment is never judged to contain its own endpoint however
+        small it is relative to the coordinate magnitude. The center/radius form lost
+        that to cancellation and split the segment forever.
         '''
         ends = self.vertices[self.segments]
         _, radii_sq = self._diametral_circles()
@@ -336,8 +334,7 @@ class RuppertsAlgorithm:
     def _refill_bad_queue(self, triangles, replace=True):
         '''Queue `triangles` for refinement, as corner triples rather than rows.
 
-        Rows are qhull's numbering and do not survive an insertion; the corners
-        do, which is what a queue outliving the pass that filled it needs.
+        Rows are qhull's numbering and do not survive an insertion; the corners do.
         '''
         queued = [tuple(sorted(triangle)) for triangle in triangles]
         self._bad_queue = queued if replace else self._bad_queue + queued

@@ -7,15 +7,9 @@ rule by, and the property `tests/test_quadrature.py` certifies against the close
 form for a monomial over a simplex.
 
 Weights sum to the reference simplex measure `1/d!`, so a physical integral is
-`sum_q weight_q * f(x_q) * |det J|`, the same `/factorial(reference_dim)`
-convention `LinearElement.geometry` already scales its element measures by. The
-points are in the element's own reference coordinates: the simplex with node 0 at
-the origin and the remaining nodes at the unit basis vectors, matching the frame
-`LinearElement._dshape` is written in.
-
-This module replaces an earlier `quadrature.py` whose rules took `(func, polygon)`
-and were never wired into assembly; a real assembly layer needs reference points
-and weights, which is what these are.
+`sum_q weight_q * f(x_q) * |det J|`. The points are in the element's own reference
+coordinates: node 0 at the origin and the remaining nodes at the unit basis vectors,
+the frame `LinearElement._dshape` is written in.
 """
 from dataclasses import dataclass
 

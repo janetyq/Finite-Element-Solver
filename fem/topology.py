@@ -7,11 +7,8 @@ factor; the compliance and its sensitivity drive an optimality-criterion update 
 the density. What the density does not touch (the constraints, the load, and the
 element stiffness of the undiluted material) is built once and reused.
 
-The objective is an injected object (`MinCompliance`, `TargetCompliance`) rather
-than a string resolved through a `_select_*` dispatch, and the optimization method
-(the OC update) is a method here. That replaces the plugin-shaped machinery (an
-ignored args bag, an objective value that was never evaluated) with the one
-quantity that is actually used: the sensitivity.
+The objective is an injected object (`MinCompliance`, `TargetCompliance`) supplying
+the sensitivity, and the optimization method (the OC update) is a method here.
 """
 import logging
 from collections.abc import Callable
@@ -125,12 +122,7 @@ class TargetCompliance:
 
 @dataclass(frozen=True, eq=False)
 class TopologyHistory:
-    '''The per-iteration series a topology optimization produces.
-
-    Replaces the old `Solution.combine_solutions` `_list`-suffix convention: the
-    quantities that vary across iterations are typed, discoverable lists rather
-    than string keys probed with try/except.
-    '''
+    '''The per-iteration series a topology optimization produces.'''
     rho: list[ElementField]
     u: list[DofVector]
     von_mises: list[ElementField]   # one scalar per element, per iteration

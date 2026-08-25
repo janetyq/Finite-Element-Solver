@@ -1,14 +1,10 @@
 """Boundary conditions, specified against geometry and resolved against a mesh.
 
-The split here is the whole design. A `BoundaryConditions` is a specification:
-mesh-independent and discretization-independent, describing what the user means ("the left edge
-is pinned"). A `ResolvedBC` is what a solver needs: concrete DOF indices and load
-vectors for one particular mesh and one particular number of DOFs per node.
-
-Keeping the specification lets a condition survive remeshing (resolve it again
-against the new mesh), and keeping the resolution immutable and per-component-count
-stops one shared BC object from silently reconfiguring itself when handed to a
-solver for a different equation.
+A `BoundaryConditions` is a mesh-independent specification ("the left edge is
+pinned"). A `ResolvedBC` is what a solver needs: concrete DOF indices and load
+vectors for one mesh and one number of DOFs per node. Keeping the specification lets
+a condition survive remeshing; keeping the resolution immutable stops one shared BC
+object from reconfiguring itself when handed to a solver for a different equation.
 """
 import logging
 from dataclasses import dataclass

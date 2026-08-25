@@ -1,30 +1,15 @@
 """The buckling facade: mesh + equation + reference load -> critical loads and modes.
 
 Linearised (eigenvalue) buckling, the finite-element analogue of Euler's column
-formula. Where `Solver` answers "what shape does this load hold the structure in?",
-`BucklingSolver` answers "how far can this load be scaled before the structure snaps
-sideways into a different shape?" It reports the load factor λ and the shape (mode)
-it buckles into.
+formula: how far can a load be scaled before the structure snaps sideways into a
+different shape? The result is the load factor λ and the mode it buckles into.
 
-The method is three steps, and only the middle one is new to the package:
-
-1. **Reference solve.** Apply a reference load and solve the ordinary linear-elastic
-   problem (through `Solver`), recovering the membrane prestress σ₀ it puts every
-   element under.
-2. **Geometric stiffness.** Assemble `K_g(σ₀)` (`GeometricStiffnessForm`), the
+1. Reference solve. Apply a reference load and solve the linear-elastic problem
+   (through `Solver`), recovering the membrane prestress σ₀ in every element.
+2. Geometric stiffness. Assemble `K_g(σ₀)` (`GeometricStiffnessForm`), the
    initial-stress matrix that softens the structure under compression.
-3. **Eigenproblem.** Solve `K φ = -λ K_g φ` for the lowest few λ. `λ_1` is the
-   critical load factor: the reference load times `λ_1` is the buckling load, and `φ_1`
-   is the shape it buckles into.
-
-Every other solver here answers `A x = b`: one matrix, one right-hand side, solved for `x`
-by `DiscreteSystem` (which removes the fixed Dirichlet DOFs and factors the matrix once).
-Buckling asks a different question (`K φ = -λ K_g φ`, which load factors λ and shapes φ
-satisfy it), and an eigenproblem has no right-hand side. So removing the fixed DOFs and
-calling `scipy.sparse.linalg.eigsh` is `EigenSolve`'s job (the eigenproblem's counterpart to
-`LinearSolve`). `BucklingSolver` just assembles `K` and `K_g`, passes them to `EigenSolve`,
-and turns the returned eigenvalues into load factors; the reference solve, the assembly, and
-the stress recovery are existing machinery reused unchanged.
+3. Eigenproblem. Solve `K φ = -λ K_g φ` for the lowest few λ through `EigenSolve`.
+   `λ_1` is the critical load factor and `φ_1` the shape it buckles into.
 """
 import logging
 

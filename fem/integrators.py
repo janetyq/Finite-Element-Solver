@@ -1,15 +1,13 @@
 """Time integrators: a scheme applied to a semi-discrete `Problem`.
 
-The domain has two ODE orders: heat is first (M u' + K u = b), wave is second
-(M u'' + K u = b), so there is one integrator family per order rather than one
-first-order interface for both. Each forms a constant effective operator from the
-problem's mass and stiffness, factors it once through `DiscreteSystem`, and steps
-by updating only the right-hand side. `dt` and the step count live here, not on the
-equation; initial conditions come in through `run`.
+Heat is first order (M u' + K u = b), wave is second (M u'' + K u = b), so there is one
+integrator family per order. Each forms a constant effective operator from the
+problem's mass and stiffness, factors it once through `DiscreteSystem`, and steps by
+updating only the right-hand side. `dt` and the step count live here; initial
+conditions come in through `run`.
 
-The wave path uses Newmark, not a 2N first-order block: its effective operator
-`M + β dt² c²K` is SPD and N-sized, so it stays inside the CG/preconditioning story
-and needs no lifting of Dirichlet indices into a block DOF space.
+The wave path uses Newmark rather than a 2N first-order block: its effective operator
+`M + β dt² c²K` is SPD and N-sized, so it stays inside the CG/preconditioning path.
 """
 import numpy as np
 

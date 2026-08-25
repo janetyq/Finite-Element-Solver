@@ -2,18 +2,16 @@
 rather than vertex indices.
 
 A region is any callable mapping an (N, spatial_dim) array of point coordinates to an
-(N,) boolean mask, so a bare lambda qualifies. The helpers below just name the
-cases that kept recurring and own the coordinate tolerance, which was previously
-an ad-hoc `< 1e-6` re-derived at every call site.
+(N,) boolean mask, so a bare lambda qualifies. The helpers below name the common
+cases and own the coordinate tolerance.
 
-A field is a value that may be either a constant or a callable of position;
-`evaluate_field` normalizes both into a (N, n_components) array.
+A field is a constant or a callable of position; `evaluate_field` normalizes both
+into a (N, n_components) array.
 
-Both are deliberately mesh-independent, and that is the point: a boundary
-condition described this way can be resolved afresh against whatever mesh is
-current, which lets it survive refinement. `at_indices` is the escape hatch for
-genuinely node-specific work; it marks itself mesh-bound so remeshers can refuse
-it instead of silently relocating it.
+Both are mesh-independent, so a boundary condition described this way can be
+resolved again against whatever mesh is current and survives refinement.
+`at_indices` is the escape hatch for node-specific work; it marks itself mesh-bound
+so remeshers can refuse it.
 """
 from collections.abc import Sequence
 

@@ -1,11 +1,9 @@
 """Red-green triangle refinement.
 
-The session object (`RedGreenRefiner`) owns a parent/child tree that tracks how
-each triangle was produced. This tree allows green-closure rollback: when a green
-child is later marked for refinement, its parent can be recovered and re-refined
-red, preserving mesh quality across successive rounds.
-
-The tree is private state; callers see only ``refine(idxs) -> Mesh``.
+`RedGreenRefiner` owns a parent/child tree recording how each triangle was produced,
+so that when a green child is later marked for refinement its parent is recovered
+and re-refined red, preserving mesh quality across rounds. Callers see only
+``refine(idxs) -> Mesh``.
 """
 from __future__ import annotations
 

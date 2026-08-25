@@ -1,22 +1,15 @@
 """The `Problem`: the assembly-ready statement a solve strategy consumes.
 
-A `Problem` is to a composition of physics what `ResolvedBC` is to a
-`BoundaryConditions`: the resolved, immutable view of a specification, built for
-one mesh. It answers the four questions a solver needs and nothing more:
-`constraints` (which DOFs are fixed), `load` (the right-hand side), `tangent(u)`,
-and `residual(u)`. Above it the world is PDE-rich; below it, `DiscreteSystem` sees
-only a matrix and a partition. The `Problem` is the narrow waist between them, so a
-solve strategy never learns which PDE it is solving.
+A `Problem` is the resolved, immutable view of a physics composition, built for one
+mesh. It answers the four questions a solver needs: `constraints` (which DOFs are
+fixed), `load` (the right-hand side), `tangent(u)`, and `residual(u)`. Below it,
+`DiscreteSystem` sees only a matrix and a partition, so a solve strategy never learns
+which PDE it is solving.
 
 `LinearProblem` and `EnergyProblem` share that protocol, mirroring the `Form` /
-`EnergyForm` split: the linear one is the special case whose tangent does not
-depend on the state. Both own their constraints (resolved from the BC spec once,
-here), which takes the re-resolve-after-remesh dance out of the solver:
-a driver that remeshes just builds a new `Problem`.
-
-Named PDEs survive as factory functions (`poisson`, `linear_elastic`, ...), not
-dispatch classes: composing a typed operator with a typed load is what "solving
-Poisson" means, so there is no PDE type to switch on.
+`EnergyForm` split: the linear one has a state-independent tangent. Both own their
+constraints, resolved from the BC spec once; a driver that remeshes builds a new
+`Problem`. Named PDEs are factory functions (`poisson`, `linear_elastic`, ...).
 """
 import copy
 from dataclasses import dataclass
@@ -154,8 +147,7 @@ class LinearProblem:
         derived = copy.copy(self)
         derived.operator = operator
         # The copy carries this problem's assembled operator, which is precisely what
-        # the derived one must not answer with. Dropping it makes the new operator
-        # take effect; keeping it would hand back the old stiffness silently.
+        # the derived one must not answer with.
         derived._A = None
         return derived
 

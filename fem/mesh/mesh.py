@@ -105,9 +105,7 @@ class Mesh:
         '''Dimension of the space the nodes live in.
 
         Distinct from an element's `reference_dim`: a triangle mesh embedded in
-        3D has spatial_dim 3 but reference_dim 2. The two coincide only when the
-        elements fill their ambient space, which is why one number has served
-        for both so far.
+        3D has spatial_dim 3 but reference_dim 2.
         '''
         return int(self.vertices.shape[1])
 

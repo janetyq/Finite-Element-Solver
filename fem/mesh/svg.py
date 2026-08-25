@@ -315,7 +315,6 @@ def _find_crossing_segments(vertices, segments):
     other; a pair sharing an endpoint touches there and is skipped. Only pairs a
     spatial grid finds sharing a bounding-box cell are tested (`_candidate_segment_pairs`),
     so a spread-out outline costs about linear time rather than comparing every pair.
-    The worst case (every box over one cell) matches the old all-pairs scan.
     '''
     vertices = np.asarray(vertices, dtype=float)
     segments = np.asarray(segments)
@@ -346,8 +345,7 @@ def _find_crossing_segments(vertices, segments):
     hits = np.flatnonzero(crossing)
     if not len(hits):
         return None
-    # `pairs` is lexicographically sorted, so the first crossing is the lex-min pair,
-    # matching the row-major order the old all-pairs scan returned.
+    # `pairs` is lexicographically sorted, so the first crossing is the lex-min pair.
     first = hits[0]
     return int(i[first]), int(j[first])
 
@@ -398,7 +396,7 @@ class PSLG:
     def from_loops(cls, loops, curves=None, segment_curves=None):
         '''A PSLG spanning several closed outlines.
 
-        What each loop *means* is decided when meshing, by the even-odd rule: a
+        What each loop means is decided when meshing, by the even-odd rule: a
         loop inside another is a hole, a loop beside it is a separate piece. So
         the caller draws the outlines and does not also have to label them.
 
