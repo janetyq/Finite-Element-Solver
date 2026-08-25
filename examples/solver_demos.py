@@ -1508,9 +1508,9 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                'clamp in a solid adding a little Saint-Venant stiffening an ideal beam has none of.',
                'end_conditions'),
         Figure(laws,
-               'Euler\'s column formula (1744) gives the buckling load of an ideal slender '
-               'elastic column, P_cr = pi^2 E* I / (K L)^2. Left: sweeping the length of a '
-               'pinned column, the critical '
+               'Euler\'s column formula gives the buckling load of an ideal slender elastic '
+               'column, P_cr = pi^2 E* I / (K L)^2. Left: sweeping the length of a pinned '
+               'column, the critical '
                'load falls as 1/L^2 (a slope of -2 on log-log) and lands on it, with '
                'E* = E/(1-nu^2) the plane-strain modulus a 2D solve sees. Right: the '
                'effective-length factor K read back from each end condition\'s buckling load, '
