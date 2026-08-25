@@ -171,6 +171,20 @@ def test_frames_can_be_sampled_down_to_a_cap(mesh, tmp_path):
     plotter.close()
 
 
+def test_save_gif_writes_a_looping_file_with_the_sampled_frames(mesh, tmp_path):
+    from PIL import Image
+
+    values = [np.full(len(mesh.vertices), float(k)) for k in range(6)]
+    plotter = Plotter(1, 1)
+    plotter.plot_animation(mesh, values, mode='colored')
+    plotter.save_gif(str(tmp_path / 'run.gif'), max_frames=3)
+    plotter.close()
+
+    with Image.open(tmp_path / 'run.gif') as gif:
+        assert gif.n_frames == 3
+        assert gif.info.get('loop') == 0
+
+
 def test_uncapped_frames_write_every_step(mesh, tmp_path):
     values = [np.full(len(mesh.vertices), float(k)) for k in range(3)]
 

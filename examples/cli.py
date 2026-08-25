@@ -34,16 +34,23 @@ def build_registry() -> dict[str, Demo]:
     return registry
 
 
+# Images a saved animation is sampled down to: enough for a smooth loop, few enough
+# that a README GIF stays a few megabytes.
+GIF_FRAMES = 60
+
+
 def figure_path(save_path: str, figure, only: bool) -> str:
     '''Where one figure of a multi-figure demo is written.
 
     A single-figure demo lands exactly on `--save`; more than one takes the figure's
-    slug as a suffix, so `wave` saves as `wave-animation.png` / `wave-snapshots.png`
-    rather than by position.
+    slug as a suffix, so `wave` saves as `wave-animation.gif` / `wave-snapshots.png`
+    rather than by position. An animated figure always takes the `.gif` extension.
     '''
-    if only:
-        return save_path
     stem, dot, ext = save_path.rpartition('.')
+    if figure.animated:
+        ext, dot = 'gif', '.'
+    if only:
+        return f'{stem}.{ext}' if dot else save_path
     return f'{stem}-{figure.slug}.{ext}' if dot else f'{save_path}-{figure.slug}'
 
 
@@ -53,16 +60,15 @@ def _show(result: DemoResult) -> None:
 
 
 def _save(result: DemoResult, save_path: str, name: str, dpi: float | None = None) -> None:
-    animated = [f for f in result.figures if f.animated]
-    stills = result.still_figures
-    if animated and not stills:
-        raise NotImplementedError(
-            f"{name!r} produces only animated figures, and animation saving isn't "
-            "implemented yet under the matplotlib backend (see Plotter.save's TODO) - "
-            'rerun without --save to view it interactively.'
-        )
-    for figure in stills:
-        figure.plotter.save(figure_path(save_path, figure, only=len(stills) == 1), dpi=dpi)
+    '''Stills save as images at `dpi`; animations as GIFs at the frame dpi, sampled to
+    `GIF_FRAMES` images.'''
+    only = len(result.figures) == 1
+    for figure in result.figures:
+        path = figure_path(save_path, figure, only=only)
+        if figure.animated:
+            figure.plotter.save_gif(path, max_frames=GIF_FRAMES)
+        else:
+            figure.plotter.save(path, dpi=dpi)
 
 
 def deliver(result: DemoResult, save_path: str | None, name: str,

@@ -12,20 +12,17 @@ from matplotlib.lines import Line2D
 from fem.adaptivity import AdaptiveRefinement
 from fem.backends import IterativeBackend
 from fem.geometry import calculate_triangle_min_angle
-from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import (
-    ANNULUS_INNER, ANNULUS_OUTER, LOAD_MMS_FREQUENCY, ConvergenceStudy, create_annulus_mesh,
-    elastic_convergence, load_comparison_convergence, oscillatory_exact, poisson_convergence,
-    poisson_p2_convergence, solve_annulus_mms, solve_load_comparison, theta_convergence,
+    ConvergenceStudy, elastic_convergence, load_comparison_convergence, poisson_convergence,
+    poisson_p2_convergence, theta_convergence,
 )
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.estimators import goal_oriented_estimator, recovery_estimator
+from fem.estimators import recovery_estimator
 from fem.forms import MaskedMassForm
 from fem.space import FunctionSpace
 from fem.regions import everywhere, on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
-from fem.plot.helpers import plot_mesh
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
 from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
@@ -34,17 +31,14 @@ from fem.mesh.refinement import RedGreenRefiner
 from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
-from fem.sensitivity import Compliance, PointValue, SensitivityAnalysis
-from fem.design import DesignOptimizer, SIMPModel
-from fem.topology import calculate_smoothing_matrix
 from fem.energy_solver import EnergySolver
 from fem.buckling import BucklingSolver
 from fem.modal import ModalSolver
 
 from demo_registry import Demo, DemoResult, Figure
 from domains import (
-    airfoil_channel_pslg, beam, column, heatsink_pslg, l_bracket_pslg, plate_with_hole_pslg,
-    square, tuning_fork_pslg,
+    airfoil_channel_pslg, beam, column, harbor_pslg, heatsink_pslg, l_bracket_pslg,
+    plate_with_hole_pslg, square, tuning_fork_pslg,
 )
 
 np.set_printoptions(suppress=True)
@@ -222,8 +216,16 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
     crank_nicolson = theta_convergence(0.5, step_counts)
     backward_euler = theta_convergence(1.0, step_counts)
     finest = solves[-1]
+    # The same P1 solve with the source read only at the vertices (its linear interpolant)
+    # against one sampled at the quadrature points: the rate is the same, the constant
+    # is not.
+    loads = load_comparison_convergence(resolutions)
+    load_steps = np.array([lc.h for lc in loads])
+    nodal = ConvergenceStudy(load_steps, np.array([lc.nodal_error for lc in loads]))
+    sampled = ConvergenceStudy(load_steps, np.array([lc.sampled_error for lc in loads]))
 
-    plotter = Plotter(1, 3, title='Convergence against manufactured solutions')
+    plotter = Plotter(2, 2, figsize=(10.0, 8.0),
+                      title='Convergence against manufactured solutions')
     plotter.plot(finest.mesh, finest.pointwise_error, mode='colored', idx=(0, 0),
                  label='u_h - u_exact', title=f'Poisson error at h={finest.h:.3g}')
 
@@ -233,25 +235,36 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
     space.set_title('Space: P1 is second order')
     _tidy_log_axis(space, poisson_study.step)
 
-    time = plotter.chart_ax(idx=(0, 2), xlabel='dt', ylabel='L2 error')
+    time = plotter.chart_ax(idx=(1, 0), xlabel='dt', ylabel='L2 error')
     _plot_study(time, crank_nicolson, 'Crank-Nicolson', 'tab:blue', 2, 'dt')
     _plot_study(time, backward_euler, 'Backward Euler', 'tab:red', 1, 'dt')
     time.set_title('Time: the order is theta\'s to choose')
     _tidy_log_axis(time, crank_nicolson.step)
 
+    load = plotter.chart_ax(idx=(1, 1), xlabel='h', ylabel='L2 error')
+    _plot_study(load, nodal, 'source at vertices', 'tab:red', 2, 'h')
+    _plot_study(load, sampled, 'source at quadrature points', 'tab:blue', 2, 'h')
+    load.set_title('Load: sampling the source wins the constant')
+    _tidy_log_axis(load, load_steps)
+
     rows = ['                      fitted order   expected']
     for name, study, expected in (('Poisson (h)', poisson_study, 2),
                                   ('Elasticity (h)', elastic_study, 2),
                                   ('Crank-Nicolson (dt)', crank_nicolson, 2),
-                                  ('Backward Euler (dt)', backward_euler, 1)):
+                                  ('Backward Euler (dt)', backward_euler, 1),
+                                  ('Nodal load (h)', nodal, 2),
+                                  ('Sampled load (h)', sampled, 2)):
         rows.append(f'{name:<22}{study.fitted_order:>9.2f}{expected:>11}')
     return DemoResult(
         [Figure(plotter,
-                'Left: the Poisson error, zero on the boundary where the solution is pinned '
-                'and deepest at the centre. Middle: halving h quarters that error, for a '
-                'scalar unknown and for a coupled vector one alike. Right: the same '
-                'measurement against the time step, where backward Euler is first order and '
-                'Crank-Nicolson second, for the same cost per step.')],
+                'Top left: the Poisson error, zero on the boundary where the solution is '
+                'pinned and deepest at the centre. Top right: halving h quarters that error, '
+                'for a scalar unknown and for a coupled vector one alike. Bottom left: the '
+                'same measurement against the time step, where backward Euler is first '
+                'order and Crank-Nicolson second, for the same cost per step. Bottom right: '
+                'an oscillatory source read only at the vertices against one sampled at the '
+                'quadrature points. Both are second order; the sampled load is about 3x '
+                'more accurate on every mesh.')],
         text='\n'.join(rows),
     )
 
@@ -291,158 +304,6 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
                 'divides the P2 error by eight (order 3). Right: the same errors against the '
                 'number of unknowns. P2 spends more DOFs per element but reaches a given '
                 'accuracy with fewer of them, so it is cheaper where the solution is smooth.')],
-        text='\n'.join(rows),
-    )
-
-def _annulus_area_study(element_type, resolutions):
-    """Domain-area error vs h for the annulus, a pure measure of boundary fidelity.
-
-    The area the elements integrate over is the polygon for straight facets and the true
-    curved annulus for isoparametric ones, so `space.geometry.total_volume` minus the
-    exact area isolates the geometry error with no solve involved.
-    """
-    true_area = np.pi * (ANNULUS_OUTER**2 - ANNULUS_INNER**2)
-    steps, errors = [], []
-    for n in sorted(resolutions):
-        mesh = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
-        space = FunctionSpace(mesh, element_type, n_components=1)
-        errors.append(abs(space.geometry.total_volume - true_area))
-        steps.append(1.0 / (n - 1))
-    return ConvergenceStudy(np.array(steps), np.array(errors))
-
-
-def demo_curved_elements(coarse_n=4, resolutions=(3, 5, 9, 17)):
-    """Straight against curved (isoparametric) P2 elements on an annulus."""
-    # A coarse annulus for the two picture panels, so the straight facets are
-    # obvious. Both solve the same manufactured Poisson problem (u = sin(x) sin(y)); only
-    # the element's geometry differs, straight P2 vs isoparametric P2.
-    coarse = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, coarse_n, 4 * coarse_n)
-    straight = solve_annulus_mms(coarse_n, QuadraticTriangleElement)
-    curved = solve_annulus_mms(coarse_n, IsoparametricTriangleElement)
-    sp_straight = FunctionSpace(coarse, QuadraticTriangleElement, n_components=1)
-    sp_curved = FunctionSpace(coarse, IsoparametricTriangleElement, n_components=1)
-
-    # One colour scale across both panels so the fields are read side by side; the
-    # difference is meant to be the boundary, not the normalisation.
-    clim = (float(min(straight.u.min(), curved.u.min())),
-            float(max(straight.u.max(), curved.u.max())))
-
-    figure = Plotter(1, 3, figsize=(14.0, 4.2),
-                     title='Curved elements follow the true boundary')
-    # Both fields are drawn on a sub-triangulation of each P2 element (a display
-    # tessellation, added below in `space=`), so the quadratic field shows faithfully and
-    # the only visible difference is the rim: a polygon for straight facets, the true
-    # circle for the curved map. A light wireframe over each makes the elements explicit.
-    figure.plot(coarse, straight.u, mode='colored', idx=(0, 0), space=sp_straight,
-                clim=clim, colorbar=False, title='Straight P2: the rim is a polygon')
-    plot_mesh(figure.get_ax((0, 0)), coarse, color='0.6', linewidth=0.4)
-
-    figure.plot(coarse, curved.u, mode='colored', idx=(0, 1), space=sp_curved,
-                clim=clim, label='u', title='Isoparametric P2: the rim is the true circle')
-    plot_mesh(figure.get_ax((0, 1)), coarse, color='0.6', linewidth=0.4, space=sp_curved)
-
-    # The polygon's area is wrong by O(h^2), the curved rim's by the element's own O(h^3).
-    # On this smooth Dirichlet solve the solution's own L2 error does not floor visibly,
-    # so the panel measures the geometry directly.
-    straight_area = _annulus_area_study(QuadraticTriangleElement, resolutions)
-    curved_area = _annulus_area_study(IsoparametricTriangleElement, resolutions)
-    rate = figure.chart_ax(idx=(0, 2), xlabel='h', ylabel='domain area error')
-    _plot_study(rate, straight_area, 'straight P2', 'tab:blue', 2, 'h')
-    _plot_study(rate, curved_area, 'isoparametric P2', 'tab:orange', 3, 'h')
-    rate.set_title('Area error: O(h^2) vs O(h^3)')
-    _tidy_log_axis(rate, straight_area.step)
-
-    rows = ['             area-error order   expected']
-    for name, study, expected in (('straight P2', straight_area, 2),
-                                  ('isoparametric', curved_area, 3)):
-        rows.append(f'{name:<18}{study.fitted_order:>9.2f}{expected:>11}')
-
-    return DemoResult(
-        [Figure(figure,
-                'The same manufactured Poisson solve on an annulus, straight versus curved '
-                'elements. Left: straight P2 approximates each rim by a chord, so the domain '
-                'is a polygon. Middle: isoparametric P2 places its boundary nodes on the true '
-                'circle and integrates over the curved element, so the rim is round. Both '
-                'fields are drawn on a sub-triangulation of each P2 element, so the quadratic '
-                'field shows faithfully. Right: the area the straight elements integrate over '
-                'is a polygon, wrong by O(h^2); the curved elements integrate the true '
-                'annulus, right to O(h^3).')],
-        text='\n'.join(rows),
-    )
-
-
-def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
-    """A load sampled at the quadrature points against one read only at the vertices."""
-    k = LOAD_MMS_FREQUENCY
-
-    # Setup: the load and the solution it drives, on a fine mesh so these are the ideal
-    # shapes rather than a coarse approximation of them.
-    fine = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(41, 41))
-    u_fine = oscillatory_exact(fine.vertices)
-    f_fine = 2 * (k * np.pi) ** 2 * u_fine     # the source is proportional to u here
-    setup = Plotter(1, 2, title='The problem: a source f drives a solution u')
-    setup.plot(fine, f_fine, mode='colored', idx=(0, 0), label='source f',
-               title='The load: source f')
-    setup.plot(fine, u_fine, mode='surface', idx=(0, 1), title='The solution: u')
-
-    # Convergence over the sequence, plus one coarse mesh reused for the slice and the
-    # error fields, so the 1D cut is literally a row through the 2D error.
-    loads = load_comparison_convergence(resolutions)
-    steps = np.array([lc.h for lc in loads])
-    nodal = ConvergenceStudy(steps, np.array([lc.nodal_error for lc in loads]))
-    sampled = ConvergenceStudy(steps, np.array([lc.sampled_error for lc in loads]))
-    cut_lc = solve_load_comparison(15)
-
-    n = cut_lc.n
-    xs = np.linspace(0, 1, n)
-    j = int(np.argmin(np.abs(xs - 1 / (2 * k))))   # a row through the bump peaks
-    row = slice(j * n, (j + 1) * n)
-    xf = np.linspace(0, 1, 400)
-    u_line = np.sin(k * np.pi * xf) * np.sin(k * np.pi * xs[j])
-    nodal_err = np.abs(cut_lc.nodal - cut_lc.exact)
-    sampled_err = np.abs(cut_lc.sampled - cut_lc.exact)
-    emax = float(max(nodal_err.max(), sampled_err.max()))
-
-    comp = Plotter(2, 2, title='One P1 problem, two ways to build the load')
-    cut = comp.chart_ax(idx=(0, 0), xlabel='x', ylabel='u')
-    cut.plot(xf, u_line, '-', color='0.45', label='exact u')
-    cut.plot(xs, cut_lc.nodal[row], 'o-', color='tab:red', ms=4,
-             label='nodal load (f at vertices)')
-    cut.plot(xs, cut_lc.sampled[row], 's-', color='tab:blue', ms=4,
-             label='sampled load (f at quad. pts)')
-    cut.set_title(f'Solution on a slice at y={xs[j]:.2g} (both P1)')
-
-    conv = comp.chart_ax(idx=(0, 1), xlabel='h', ylabel='L2 error')
-    _plot_study(conv, nodal, 'nodal load', 'tab:red', 2, 'h')
-    _plot_study(conv, sampled, 'sampled load', 'tab:blue', 2, 'h')
-    conv.set_title('L2 error: both order 2, sampling wins the constant')
-    _tidy_log_axis(conv, steps)
-
-    comp.plot(cut_lc.mesh, nodal_err, mode='colored', idx=(1, 0), clim=(0, emax),
-              label='|u_h - u|', title=f'Error with nodal load (h={cut_lc.h:.2g})')
-    comp.plot(cut_lc.mesh, sampled_err, mode='colored', idx=(1, 1), clim=(0, emax),
-              label='|u_h - u|', title='Error with sampled load')
-
-    coarse = loads[0]
-    rows = [f'coarsest mesh (h={coarse.h:.3g}):',
-            f'  nodal load    L2 error {coarse.nodal_error:.3e}',
-            f'  sampled load  L2 error {coarse.sampled_error:.3e}',
-            f'  the nodal shortcut is {coarse.nodal_error / coarse.sampled_error:.1f}x worse']
-    return DemoResult(
-        [Figure(comp,
-                'Both solves use the same P1 elements and differ only in how the source f '
-                'becomes the load. The nodal load reads f at the vertices only (integrating '
-                'its linear interpolant); the sampled load reads f at the interior quadrature '
-                'points. Top-left: on a slice through a row of bumps, the exact solution '
-                '(grey) against the two P1 solutions; the nodal load undershoots each peak. '
-                'Top-right: both converge at order 2, the sampled load about 3x lower. '
-                'Bottom: the absolute error over the mesh for each, at the same colour scale.',
-                'comparison'),
-         Figure(setup,
-                'The manufactured problem, -div(grad u) = f on the unit square with u = 0 on '
-                'the boundary. The source f (left) is an oscillating field of sources and '
-                'sinks; the solution u (right) is a grid of bumps pinned to zero all around.',
-                'setup', setup=True)],
         text='\n'.join(rows),
     )
 
@@ -1041,55 +902,74 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
              f'  finned sink   {q_fin:.1f}   ({effectiveness:.1f}x, on {metal_ratio:.2f}x the metal)\n'
              f'fin efficiency at L = 1.4:  {eta_here:.2f}  (beam theory close)'))
 
-def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
-    """A wave pulse released from rest, reflecting off free edges and interfering with
-    itself."""
-    w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
-    wave_center = np.max(mesh.vertices, axis=0)
-    u_initial = bump_function(mesh.vertices, wave_center, size=0.25*min(w, h))
-    dudt_initial = np.zeros(len(mesh.vertices))
+def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400,
+                       min_angle=28, max_area=0.04, uniform_rounds=2):
+    """A wave front meeting a harbor breakwater, diffracting through its gap into the
+    sheltered water behind."""
+    wall_x, wall_thickness = 2.5, 0.15
+    pslg = harbor_pslg(wall_x=wall_x, wall_thickness=wall_thickness)
+    # Ruppert's meshes the outline coarsely; uniform red refinement then supplies the
+    # resolution the front needs, keeping the angle bound at a fraction of the cost.
+    mesh = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=max_area).refine()
+    for _ in range(uniform_rounds):
+        mesh = RedGreenRefiner(mesh).refine(range(len(mesh.elements)))
+    x = mesh.vertices[:, 0]
 
-    # Empty, so the edges are free: a free edge reflects a pulse back the same way up,
-    # where a clamped one would invert it.
+    # A straight front on the open side, travelling toward the wall. Given d'Alembert's
+    # pairing u = g(x - ct), du/dt = -c g'(x), so it moves one way instead of splitting.
+    profile = np.exp(-((x - front_x) / front_width) ** 2)
+    u_initial = profile
+    dudt_initial = 2 * c * (x - front_x) / front_width**2 * profile
+
+    # No conditions, so every edge is a wall: the natural du/dn = 0 reflects a wave
+    # the same way up.
     bc = BoundaryConditions()
+    solution = NewmarkMethod(dt=dt, steps=steps).run(wave(mesh, c=c, bc=bc),
+                                                     u_initial, dudt_initial)
+    u_values, t_values = solution.u, solution.t
 
-    solution = NewmarkMethod(dt=0.03, steps=40).run(wave(mesh, c=1, bc=bc),
-                                                    u_initial, dudt_initial)
-    u_values = solution.u
-    t_values = solution.t
-
-    # Newmark is second order in time, so it is posed by two initial conditions. Both
-    # are drawn: the zero velocity is what says the membrane starts at rest.
-    setup = Plotter(1, 3)
-    setup.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
-    setup.plot(mesh, u_initial, mode='colored', idx=(0, 1), label='displacement',
-               title='Initial displacement u(x, 0)')
+    setup = Plotter(1, 3, figsize=(15.0, 3.8))
+    setup.plot(mesh, mode='mesh', idx=(0, 0), title='Basin and breakwater')
+    setup.plot(mesh, u_initial, mode='colored', idx=(0, 1), label='height',
+               title='Initial height u(x, 0)')
     setup.plot(mesh, dudt_initial, mode='colored', idx=(0, 2), label='velocity',
-               title='Initial velocity du/dt(x, 0) = 0')
+               title='Initial velocity, a front moving right')
 
-    animation = Plotter(1, 1, title='Wave Equation')
-    animation.plot_animation(mesh, u_values, mode='surface',
-                             titles=[f'Surface t={t:.2f}' for t in t_values], idx=(0, 0))
+    # One colour scale, set by the harbor side, so the diffracted wave reads even
+    # though it is far lower than the front that made it (which doubles again when it
+    # reflects off the far wall).
+    shown = [int(i) for i in np.linspace(len(u_values) // 8, len(u_values) - 1, 8)]
+    harbor = x > wall_x + wall_thickness
+    span = float(max(abs(u_values[i][harbor]).max() for i in shown))
+    clim = (-span, span)
 
-    # Snapshots from the second half of the run, once the pulse has reflected and
-    # started interfering with itself. Shared z limits over the frames shown (not the
-    # whole run, whose initial pulse is far taller), so the six are comparable.
-    shown = [int(i) for i in np.linspace(len(u_values)//2, len(u_values) - 1, 6)]
-    span = (min(float(u_values[i].min()) for i in shown),
-            max(float(u_values[i].max()) for i in shown))
-    snapshots = Plotter(2, 3, title='Wave Equation: reflection and interference')
+    animation = Plotter(1, 1, figsize=(7.4, 4.8))
+    animation.plot_animation(mesh, u_values, mode='colored', cbar_lims=clim, label='height',
+                             cmap='RdBu_r', titles=[f'Harbor breakwater  t={t:.2f}' for t in t_values],
+                             idx=(0, 0))
+
+    snapshots = Plotter(2, 4, figsize=(18.0, 6.4), title='Diffraction through the gap')
     for panel, i in enumerate(shown):
-        snapshots.plot(mesh, u_values[i], mode='surface', idx=divmod(panel, 3),
-                       title=f't={t_values[i]:.2f}', clim=span)
+        snapshots.plot(mesh, u_values[i], mode='colored', idx=divmod(panel, 4),
+                       title=f't={t_values[i]:.2f}', clim=clim, colorbar=panel == 7,
+                       cmap='RdBu_r', label='height')
+
 
     return DemoResult([
-        Figure(animation, 'Newmark time integration of the pulse.', 'animation'),
+        Figure(animation,
+               'Newmark time integration of the front.',
+               'animation'),
         Figure(snapshots,
-               'Six times from the second half of the run, after the pulse has reflected '
-               'off the boundary and begun interfering with itself.', 'snapshots'),
+               'The front reaches the breakwater, reflects off the wall, and passes the '
+               'gap, where it spreads into the harbor as a circular wave centred on the '
+               'opening, lower than the front that made it. The later frames show that wave '
+               'reflecting around the harbor while the front, reflected off the wall and '
+               'then the far edge, comes back through the gap.',
+               'snapshots'),
         Figure(setup,
-               'A pulse released from rest on a membrane whose edges are free (du/dn = 0), '
-               'so the pulse reflects the same way up instead of inverted.',
+               'A basin with a breakwater across it, open on the left and sheltered on the '
+               'right. The initial height and velocity together make a front travelling '
+               'right; every edge is a wall, reflecting the wave the same way up.',
                'conditions', setup=True),
     ])
 
@@ -1231,90 +1111,6 @@ def demo_topology_optimization(mesh, iters=60):
                'Simply supported, pinned at one bottom corner (both directions held) with a '
                'vertical roller at the other (free to slide horizontally), and a downward '
                'load at the top centre.',
-               'conditions', setup=True),
-    ], text=(f'compliance, solid (100% material)     {compliance_solid:.4f}\n'
-             f'compliance, optimized (50% material)  {compliance_opt:.4f}\n'
-             f'ratio                                 {ratio:.2f}x'))
-
-
-def demo_design_sensitivity(mesh, iters=40):
-    """Adjoint sensitivity fields for two goals on a cantilever, and a design optimized
-    from one of them."""
-    E, nu = 200.0, 0.4
-    w = float(np.max(mesh.vertices[:, 0]))
-    h = float(np.max(mesh.vertices[:, 1]))
-    aspect = w / h
-
-    # A cantilever: clamp the left edge, pull the free right tip down. Homogeneous
-    # supports, so the compliance adjoint is the forward solve itself (lambda = u).
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
-    # A load band over the central third of the free edge, so it lands on a boundary
-    # edge on any mesh.
-    bc.add(BCType.NEUMANN, intersect(on_plane(0, w), in_box([None, 0.33 * h], [None, 0.67 * h])),
-           [0.0, -1.0])
-
-    space = FunctionSpace(mesh, n_components=2)
-    radius = 0.06 * h
-    model = SIMPModel(space, base_E=E, nu=nu, bc=bc, penalty=3.0,
-                      sensitivity_filter=calculate_smoothing_matrix(mesh, radius))
-
-    # The two adjoint sensitivity fields, computed on a uniform half-dense structure: one
-    # per objective, before any optimization. Each says d(objective)/d(density) per
-    # element, so it maps where material most changes that particular output.
-    rho0 = np.full(len(space.element_nodes), 0.5)
-    problem = model.problem(rho0)
-    analysis = SensitivityAnalysis(problem)
-    u0 = analysis.solve_forward()
-    density = model.parameterization(rho0)
-
-    tip_dof = _tip_vertical_dof(space, w)
-    # Magnitude, since the tip sensitivity is signed (adding material can move the tip
-    # either way locally); the magnitude is "how much this element steers the tip".
-    compliance_field = -analysis.gradient(Compliance(), density, u0)
-    tip_field = np.abs(analysis.gradient(PointValue(tip_dof), density, u0))
-
-    sensitivity = Plotter(2, 1, figsize=(6.5, 4.6),
-                          title='Adjoint sensitivity: which elements matter')
-    sensitivity.plot(mesh, compliance_field, mode='colored', idx=(0, 0), label='dC/drho',
-                     title='For total stiffness (compliance)')
-    sensitivity.plot(mesh, tip_field, mode='colored', idx=(1, 0), label='|du_tip/drho|',
-                     title='For the tip deflection alone')
-
-    # Then optimize: the general DesignOptimizer minimizes compliance over the density,
-    # its gradient supplied by the same adjoint core the fields above visualize.
-    design = DesignOptimizer(model, Compliance(), volume_frac=0.5, iters=iters,
-                             move=0.2).solve()
-    solid = Solver(mesh, LinearElastic(E, nu), bc).solve()
-    compliance_solid = float(solid.compliance.sum())
-    compliance_opt = float(design.objective[-1])
-    ratio = compliance_opt / compliance_solid
-
-    result = Plotter(panel_aspect=aspect, title='Optimized cantilever')
-    result.plot(mesh, design.rho[-1], mode='colored', label='density',
-                title=f'50% material, compliance {compliance_opt:.3g} ({ratio:.2f}x solid)')
-
-    conditions = Plotter(panel_aspect=aspect)
-    conditions.plot(mesh, mode='bc', bc=bc)
-
-    return DemoResult([
-        Figure(sensitivity,
-               'The adjoint gradient as a field, computed on the uniform half-dense beam '
-               'before any optimization. Top: how much each element affects the total '
-               'compliance, the stiffness of the whole structure. Bottom: how much each '
-               'element affects the tip deflection specifically. The two light up '
-               'different regions; one adjoint solve answers which inputs matter for a '
-               'given output, and the output can be anything.',
-               'sensitivity'),
-        Figure(result,
-               'The cantilever optimized to minimum compliance under a 50% volume budget '
-               'by the general DesignOptimizer, whose descent direction is the compliance '
-               f'sensitivity field above. The result is {ratio:.2f}x as compliant as the '
-               'fully solid block on half the material.',
-               'result', thumbnail=True),
-        Figure(conditions,
-               'A cantilever, clamped on the left edge with a downward load on the middle of '
-               'the free right edge.',
                'conditions', setup=True),
     ], text=(f'compliance, solid (100% material)     {compliance_solid:.4f}\n'
              f'compliance, optimized (50% material)  {compliance_opt:.4f}\n'
@@ -1711,77 +1507,6 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
     ], text=text)
 
 
-def demo_heat_3d(steps=20, n=17):
-    """Transient heat diffusion through a 3D tetrahedral box."""
-    # Same box and resolution convention as the 3D cantilever in `linear_elastic`.
-    mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
-
-    w = max(mesh.vertices.flatten()) - min(mesh.vertices.flatten())
-    heat_center = np.max(mesh.vertices, axis=0)
-    u_initial = bump_function(mesh.vertices, heat_center, mag=50, size=0.3*w) + 300
-
-    solution = ThetaMethod(dt=0.04, steps=steps).run(heat(mesh), u_initial.copy())
-    u_values = solution.u
-    t_values = solution.t
-
-    animation = Plotter(1, 1, title='Heat Diffusion')
-    animation.plot_animation(mesh, u_values, mode='solid', label='temperature',
-                             titles=[f't={t:.2f}' for t in t_values], idx=(0, 0))
-
-    return DemoResult([Figure(
-        animation,
-        'Heat diffusing from a hot corner through a tetrahedral box: the same solve '
-        '`heat` runs in 2D, one dimension up. Only the boundary surface is drawn, so '
-        'the interior is not directly visible, but the same diffusion reaches it.')])
-
-
-def demo_goal_oriented_refinement(resolution=14, target=(0.72, 0.72), max_triangles=900):
-    """Refinement for a point value against refinement for the global error."""
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    equation = Poisson(source=lambda p: 1.0)
-
-    def refined(estimator_for):
-        mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(resolution, resolution))
-        solver = Solver(mesh, equation, bc)
-        solver.solve()
-        # The point value to resolve: the solution at the node nearest `target`.
-        node = int(np.argmin(np.linalg.norm(solver.space.node_coords - np.asarray(target), axis=1)))
-        AdaptiveRefinement(
-            solver, estimator_for(solver, PointValue(node)),
-            max_triangles=max_triangles, max_iters=8,
-        ).run()
-        return solver.mesh
-
-    goal_mesh = refined(lambda solver, qoi: goal_oriented_estimator(equation, qoi))
-    # The global recovery estimator ignores the goal; it takes the QoI only to share the
-    # closure signature.
-    global_mesh = refined(lambda solver, qoi: recovery_estimator(equation))
-
-    comparison = Plotter(1, 2, figsize=(7.4, 3.9),
-                         title='Refining for a point value, versus for the whole field')
-    comparison.plot(global_mesh, mode='mesh', idx=(0, 0),
-                    title=f'Global estimator: {len(global_mesh.elements)} triangles')
-    comparison.plot(goal_mesh, mode='mesh', idx=(0, 1),
-                    title=f'Goal-oriented: {len(goal_mesh.elements)} triangles')
-    for idx in ((0, 0), (0, 1)):
-        comparison.get_ax(idx).plot(*target, 'o', color='crimson', markersize=7,
-                                    markeredgecolor='white', markeredgewidth=1.0, zorder=5)
-
-    return DemoResult([
-        Figure(comparison,
-               'The same Poisson problem refined two ways to a similar triangle budget. '
-               'Left: the global recovery estimator spreads refinement across the domain, '
-               'blind to what the answer is for. Right: the goal-oriented estimator refines '
-               'for the solution value at the marked point (crimson), packing triangles '
-               'around it and the region that most influences it, and leaving the rest '
-               'coarse. The dual (adjoint) solution is the influence function of that '
-               'point value, and weighting the residual by it steers the mesh.',
-               'comparison'),
-    ], text=(f'global estimator refined to        {len(global_mesh.elements)} triangles\n'
-             f'goal-oriented estimator refined to {len(goal_mesh.elements)} triangles'))
-
-
 SOLVING = 'Solving PDEs'
 SOLIDS = 'Solids & structures'
 ACCURACY = 'Accuracy & performance'
@@ -1791,8 +1516,9 @@ DEMOS = [
     # Builds its own heatsink and a solid-block baseline, so it takes no domain.
     Demo('heat', demo_heat_equation, section=SOLVING,
          smoke_kwargs={'max_area_fraction': 0.03, 'steps': 4, 'fin_lengths': (0.8, 2.0)}),
-    Demo('heat_3d', demo_heat_3d, section=SOLVING, smoke_kwargs={'steps': 3, 'n': 5}),
-    Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
+    # Builds its own harbor basin, so it takes no domain.
+    Demo('wave', demo_wave_equation, section=SOLVING,
+         smoke_kwargs={'steps': 6, 'max_area': 0.5, 'uniform_rounds': 0}),
     # Builds its own airfoil-in-a-channel from the NACA formula, so it takes no domain.
     Demo('potential_flow', demo_potential_flow, section=SOLVING,
          smoke_kwargs={'n_points': 40, 'max_area_fraction': 0.02}),
@@ -1822,9 +1548,6 @@ DEMOS = [
     # rather than growing thinner members.
     Demo('topology_optimization', demo_topology_optimization, section=SOLIDS,
          domain=partial(beam, 4.0, 1.0, 160), smoke_kwargs={'iters': 3}),
-    # The general design driver over the adjoint core, on a 3:1 cantilever.
-    Demo('design_sensitivity', demo_design_sensitivity, section=SOLIDS,
-         domain=partial(beam, 3.0, 1.0, 120), smoke_kwargs={'iters': 3}),
 
     # Meshed coarse, so sin(40 r^2)'s slow inner rings resolve but the fast
     # outer ones alias into the triangulation.
@@ -1836,10 +1559,4 @@ DEMOS = [
               'step_counts': (16, 32)}),
     Demo('higher_order', demo_higher_order, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21)}),
-    Demo('curved_elements', demo_curved_elements, section=ACCURACY,
-         smoke_kwargs={'resolutions': (3, 5)}),
-    Demo('quadrature_load', demo_quadrature_load, section=ACCURACY,
-         smoke_kwargs={'resolutions': (11, 21)}),
-    Demo('goal_oriented_refinement', demo_goal_oriented_refinement, section=ACCURACY,
-         smoke_kwargs={'resolution': 8, 'max_triangles': 200}),
 ]
