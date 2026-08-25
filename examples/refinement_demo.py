@@ -10,6 +10,7 @@ import numpy as np
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
+from fem.convergence import l2_norm
 from fem.equations import Poisson
 from fem.estimators import residual_estimator
 from fem.mesh.mesh import Mesh
@@ -23,16 +24,23 @@ from demo_registry import Demo, DemoResult, Figure
 from domains import square
 
 
-def demo_refinement(_mesh):
-    """Adaptive refinement driven by an error estimator on a peaked Poisson source."""
+def demo_refinement(_mesh, uniform_resolutions=(10, 20, 40, 80, 160), adaptive_rounds=30):
+    """Adaptive refinement driven by an error estimator on a peaked Poisson source,
+    against uniform refinement at the same cost."""
     mesh = create_rect_mesh(corners=[[0.0, 0.0], [1.0, 1.0]], resolution=(20, 20))
     w, h = 1.0, 1.0
+    a = 300      # the peak's sharpness: its width is about 1/sqrt(2a)
 
+    # The source is -laplacian of a * exp(-a r^2), which is within 2e-4 of zero on the
+    # boundary, so that peak is the exact solution to the precision this chart needs.
     def peaked_source(point):
-        a = 50
         x, y = point - np.array([w/2, h/2])
         r2 = x**2 + y**2
         return 4*a*a*(1-a*r2)*e**(-a*r2)
+
+    def exact(points):
+        r2 = np.sum((points - np.array([w/2, h/2]))**2, axis=1)
+        return a * np.exp(-a * r2)
 
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0)
@@ -51,6 +59,7 @@ def demo_refinement(_mesh):
         estimator,
         max_triangles=3000,
         max_iters=20,
+        refine_fraction=0.5,
     ).run()
     refined_mesh = refined_solver.mesh
     refined_error = estimator.estimate(refined_solver)
@@ -82,6 +91,37 @@ def demo_refinement(_mesh):
                title=f'Error η (max: {refined_max:.3f}, ‖η‖: {refined_norm:.2f})',
                idx=(0, 2), clim=error_clim, cmap='YlOrRd', log_scale=True)
 
+    # The payoff: error against cost, refining uniformly and adaptively. Each adaptive
+    # round refines the worst elements once and re-solves; each point is one round.
+    def error_of(solver, solution):
+        return l2_norm(solver.space, solution.u - exact(solver.space.node_coords))
+
+    uniform_dofs, uniform_errors = [], []
+    for n in uniform_resolutions:
+        solver = Solver(create_rect_mesh(corners=[[0.0, 0.0], [1.0, 1.0]],
+                                         resolution=(n, n)), equation, bc)
+        uniform_dofs.append(solver.space.n_dofs)
+        uniform_errors.append(error_of(solver, solver.solve()))
+
+    adaptive_solver = Solver(mesh.copy(), equation, bc)
+    adaptive_dofs = [adaptive_solver.space.n_dofs]
+    adaptive_errors = [error_of(adaptive_solver, adaptive_solver.solve())]
+    for _ in range(adaptive_rounds):
+        solution = AdaptiveRefinement(adaptive_solver, estimator, max_triangles=10**9,
+                                      max_iters=1, refine_fraction=0.5).run()
+        if adaptive_solver.space.n_dofs > max(uniform_dofs) // 2:
+            break
+        adaptive_dofs.append(adaptive_solver.space.n_dofs)
+        adaptive_errors.append(error_of(adaptive_solver, solution))
+
+    payoff = Plotter(title='Error against cost')
+    chart = payoff.chart_ax(xlabel='degrees of freedom', ylabel='L2 error')
+    chart.loglog(uniform_dofs, uniform_errors, 'o-', color='tab:blue', label='uniform')
+    chart.loglog(adaptive_dofs, adaptive_errors, '.-', color='tab:red', label='adaptive')
+    chart.set_title('Uniform against adaptive refinement')
+    chart.grid(True, which='both', alpha=0.3)
+    chart.legend()
+
     # What red-green splitting does to an element.
     vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
     elements = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]])
@@ -99,6 +139,13 @@ def demo_refinement(_mesh):
                    idx=(0, 1), title='Refined (red / green)')
 
     return DemoResult([
+        Figure(payoff,
+               'The error against the number of unknowns, refining the whole mesh (blue) '
+               'and refining where the estimator points (red). The peak is small next to '
+               'the domain, so uniform refinement spends most of its unknowns where the '
+               'solution is already flat; the adaptive mesh reaches the same error with '
+               'about a third as many.',
+               'payoff'),
         Figure(before,
                'Uniform mesh with a posteriori error estimate η. The estimator bounds '
                'the local discretization error; high values (red) indicate where the '
@@ -117,5 +164,6 @@ def demo_refinement(_mesh):
 
 
 DEMOS = [
-    Demo('refinement', demo_refinement, section='Accuracy & performance', domain=square),
+    Demo('refinement', demo_refinement, section='Accuracy & performance', domain=square,
+         smoke_kwargs={'uniform_resolutions': (10, 20), 'adaptive_rounds': 2}),
 ]

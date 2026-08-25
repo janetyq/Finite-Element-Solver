@@ -58,7 +58,6 @@ FIGURES: list[tuple[str, str]] = [
     # Accuracy & performance
     ('l2_projection', 'l2_projection.png'),
     ('convergence', 'convergence.png'),
-    ('higher_order', 'higher_order.png'),
     ('refinement-after', 'refinement.png'),
 ]
 

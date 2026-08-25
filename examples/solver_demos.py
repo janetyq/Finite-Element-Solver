@@ -45,13 +45,14 @@ np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
 
 def demo_l2_projection(mesh, reference_resolution=120):
-    """An oscillatory function projected onto a coarse P1 space, showing what the space
-    can represent."""
+    """An oscillatory function projected onto a coarse mesh's P1 and P2 spaces, showing
+    what each can represent."""
     def cool_f(point):
         x, y = point - np.array([0.5, 0.5])
         return [np.sin(40 * (x**2 + y**2))]
 
-    solution = Solver(mesh, Projection(source=cool_f)).solve()
+    p1 = Solver(mesh, Projection(source=cool_f)).solve()
+    p2 = Solver(mesh, Projection(source=cool_f), element_type=QuadraticTriangleElement).solve()
 
     # The target sampled on a fine mesh, so the left panel is the function itself rather
     # than another coarse approximation of it. The projection (right) is on the demo's own
@@ -60,18 +61,22 @@ def demo_l2_projection(mesh, reference_resolution=120):
     xy = fine.vertices - np.array([0.5, 0.5])
     exact = np.sin(40 * (xy[:, 0]**2 + xy[:, 1]**2))
 
-    plotter = Plotter(1, 2, title='L2 projection onto a P1 space')
+    plotter = Plotter(1, 3, title='L2 projection onto one coarse mesh')
     plotter.plot(fine, exact, mode='colored', idx=(0, 0), label='', clim=(-1, 1),
                  title='The target: sin(40 r^2)')
-    plotter.plot(mesh, solution.u, mode='colored', idx=(0, 1), label='', clim=(-1, 1),
-                 title=f'Projected onto P1 ({len(mesh.elements)} triangles)')
+    plotter.plot(mesh, p1.u, mode='colored', idx=(0, 1), label='', clim=(-1, 1),
+                 title=f'P1 ({len(mesh.elements)} triangles)')
+    plotter.plot(mesh, p2.u, mode='colored', idx=(0, 2), label='', clim=(-1, 1),
+                 title='P2, same mesh', space=p2.space)
     return DemoResult([Figure(
         plotter,
-        'How well the P1 space can represent a function at all, before any PDE. Left: the '
-        'target sin(40 r^2), whose rings tighten with radius. Right: its L2 projection onto '
-        'a coarse mesh. The slow inner rings come through; where one ring spans only a '
-        'couple of triangles the space can no longer follow it, and the outer rings break '
-        'up into the mesh. This is the error floor every solver on this mesh starts from.')])
+        'How well a space can represent a function at all, before any PDE. Left: the '
+        'target sin(40 r^2), whose rings tighten with radius. Middle: its L2 projection '
+        'onto the P1 space of a coarse mesh. The slow inner rings come through; where one '
+        'ring spans only a couple of triangles the space can no longer follow it, and the '
+        'outer rings break up into the mesh. Right: the P2 space of the same mesh, whose '
+        'edge-midpoint nodes let each element curve, follows the rings further out. This '
+        'representation error is the floor every solver on the mesh starts from.')])
 
 def demo_poisson(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
                  n_points=80, min_angle=20, max_area_fraction=0.0015):
@@ -170,24 +175,31 @@ def _share_panel_limits(plotter, n_panels):
 
 def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 33),
                      step_counts=(16, 32, 64, 128)):
-    """Convergence rates in space and time against manufactured solutions."""
+    """Convergence rates in space and time against manufactured solutions, P1 against
+    P2, and the load built two ways."""
     # The one demo that shows not what the solver computed but how wrong it was:
     #
     #   in space  P1 elements are O(h^2) (halve h, quarter the error) for a scalar
-    #             unknown and for a coupled vector one alike;
+    #             unknown and for a coupled vector one alike; P2 is O(h^3);
     #   in time   the theta method's order is theta's to choose: 1 at backward Euler,
     #             2 at Crank-Nicolson, the default.
     #
     # The same studies run as assertions in tests/test_convergence{,_elasticity,_heat}.py.
     solves = poisson_convergence(resolutions)
+    p2_solves = poisson_p2_convergence(resolutions)
     poisson_study = ConvergenceStudy.from_solves(solves)
+    p2_study = ConvergenceStudy.from_solves(p2_solves)
     elastic_study = ConvergenceStudy.from_solves(elastic_convergence(elastic_resolutions))
+    # DOF counts for the accuracy-per-cost view: P2 spends more unknowns per element,
+    # and the question is whether its faster rate pays that back.
+    p1_dofs = np.array([FunctionSpace(s.mesh).n_dofs for s in solves])
+    p2_dofs = np.array([FunctionSpace(s.mesh, QuadraticTriangleElement).n_dofs
+                        for s in p2_solves])
     # Step counts chosen to sit in the asymptotic band: over coarser steps
     # Crank-Nicolson reads an order near 3, because lambda*dt is not yet small and
     # the leading error term is not yet the one that dominates.
     crank_nicolson = theta_convergence(0.5, step_counts)
     backward_euler = theta_convergence(1.0, step_counts)
-    finest = solves[-1]
     # The same P1 solve with the source read only at the vertices (its linear interpolant)
     # against one sampled at the quadrature points: the rate is the same, the constant
     # is not.
@@ -198,14 +210,19 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
 
     plotter = Plotter(2, 2, figsize=(10.0, 8.0),
                       title='Convergence against manufactured solutions')
-    plotter.plot(finest.mesh, finest.pointwise_error, mode='colored', idx=(0, 0),
-                 label='u_h - u_exact', title=f'Poisson error at h={finest.h:.3g}')
-
-    space = plotter.chart_ax(idx=(0, 1), xlabel='h', ylabel='L2 error')
-    _plot_study(space, poisson_study, 'Poisson', 'tab:blue', 2, 'h')
-    _plot_study(space, elastic_study, 'Elasticity', 'tab:green', 2, 'h')
-    space.set_title('Space: P1 is second order')
+    space = plotter.chart_ax(idx=(0, 0), xlabel='h', ylabel='L2 error')
+    _plot_study(space, poisson_study, 'Poisson, P1', 'tab:blue', 2, 'h')
+    _plot_study(space, elastic_study, 'Elasticity, P1', 'tab:green', 2, 'h')
+    _plot_study(space, p2_study, 'Poisson, P2', 'tab:orange', 3, 'h')
+    space.set_title('Space: P1 is second order, P2 third')
     _tidy_log_axis(space, poisson_study.step)
+
+    cost = plotter.chart_ax(idx=(0, 1), xlabel='degrees of freedom', ylabel='L2 error')
+    cost.loglog(p1_dofs, poisson_study.error, 'o-', color='tab:blue', label='P1')
+    cost.loglog(p2_dofs, p2_study.error, 'o-', color='tab:orange', label='P2')
+    cost.set_title('Cost: P2 reaches a given accuracy first')
+    cost.grid(True, which='both', alpha=0.3)
+    cost.legend()
 
     time = plotter.chart_ax(idx=(1, 0), xlabel='dt', ylabel='L2 error')
     _plot_study(time, crank_nicolson, 'Crank-Nicolson', 'tab:blue', 2, 'dt')
@@ -220,7 +237,8 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
     _tidy_log_axis(load, load_steps)
 
     rows = ['                      fitted order   expected']
-    for name, study, expected in (('Poisson (h)', poisson_study, 2),
+    for name, study, expected in (('Poisson P1 (h)', poisson_study, 2),
+                                  ('Poisson P2 (h)', p2_study, 3),
                                   ('Elasticity (h)', elastic_study, 2),
                                   ('Crank-Nicolson (dt)', crank_nicolson, 2),
                                   ('Backward Euler (dt)', backward_euler, 1),
@@ -229,53 +247,15 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
         rows.append(f'{name:<22}{study.fitted_order:>9.2f}{expected:>11}')
     return DemoResult(
         [Figure(plotter,
-                'Top left: the Poisson error, zero on the boundary where the solution is '
-                'pinned and deepest at the centre. Top right: halving h quarters that error, '
-                'for a scalar unknown and for a coupled vector one alike. Bottom left: the '
-                'same measurement against the time step, where backward Euler is first '
-                'order and Crank-Nicolson second, for the same cost per step. Bottom right: '
-                'an oscillatory source read only at the vertices against one sampled at the '
-                'quadrature points. Both are second order; the sampled load is about 3x '
-                'more accurate on every mesh.')],
-        text='\n'.join(rows),
-    )
-
-def demo_higher_order(resolutions=(11, 21, 41, 81)):
-    """P1 against P2 elements on one manufactured problem, in rate and in cost."""
-    # Same problem, two element orders. P2 carries the extra edge-midpoint DOFs that
-    # let its solution curve within an element; the rate is what that buys.
-    p1_solves = poisson_convergence(resolutions)
-    p2_solves = poisson_p2_convergence(resolutions)
-    p1 = ConvergenceStudy.from_solves(p1_solves)
-    p2 = ConvergenceStudy.from_solves(p2_solves)
-    # DOF counts drive the accuracy-per-cost view: P2 spends more unknowns per element,
-    # and the question is whether its faster rate pays that back.
-    p1_dofs = np.array([FunctionSpace(s.mesh).n_dofs for s in p1_solves])
-    p2_dofs = np.array([FunctionSpace(s.mesh, QuadraticTriangleElement).n_dofs
-                        for s in p2_solves])
-
-    plotter = Plotter(1, 2, title='Higher-order accuracy: P1 vs P2')
-    rate = plotter.chart_ax(idx=(0, 0), xlabel='h', ylabel='L2 error')
-    _plot_study(rate, p1, 'P1', 'tab:blue', 2, 'h')
-    _plot_study(rate, p2, 'P2', 'tab:orange', 3, 'h')
-    rate.set_title('Rate: P2 is third order, P1 second')
-    _tidy_log_axis(rate, p1.step)
-
-    cost = plotter.chart_ax(idx=(0, 1), xlabel='degrees of freedom', ylabel='L2 error')
-    cost.loglog(p1_dofs, p1.error, 'o-', color='tab:blue', label='P1')
-    cost.loglog(p2_dofs, p2.error, 'o-', color='tab:orange', label='P2')
-    cost.set_title('Cost: P2 reaches a given accuracy first')
-    cost.grid(True, which='both', alpha=0.3)
-
-    rows = ['            fitted order   expected']
-    for name, study, expected in (('P1', p1, 2), ('P2', p2, 3)):
-        rows.append(f'{name:<12}{study.fitted_order:>9.2f}{expected:>11}')
-    return DemoResult(
-        [Figure(plotter,
-                'Left: on the same meshes, halving h quarters the P1 error (order 2) and '
-                'divides the P2 error by eight (order 3). Right: the same errors against the '
-                'number of unknowns. P2 spends more DOFs per element but reaches a given '
-                'accuracy with fewer of them, so it is cheaper where the solution is smooth.')],
+                'Top left: on the same meshes, halving h quarters the P1 error (order 2), '
+                'for a scalar unknown and for a coupled vector one alike, and divides the P2 '
+                'error by eight (order 3). Top right: the same errors against the number of '
+                'unknowns; P2 spends more DOFs per element but reaches a given accuracy with '
+                'fewer of them. Bottom left: the error against the time step, where backward '
+                'Euler is first order and Crank-Nicolson second, for the same cost per step. '
+                'Bottom right: an oscillatory source read only at the vertices against one '
+                'sampled at the quadrature points. Both are second order; the sampled load '
+                'is about 3x more accurate on every mesh.')],
         text='\n'.join(rows),
     )
 
@@ -1528,6 +1508,4 @@ DEMOS = [
     Demo('convergence', demo_convergence, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21), 'elastic_resolutions': (9, 17),
               'step_counts': (16, 32)}),
-    Demo('higher_order', demo_higher_order, section=ACCURACY,
-         smoke_kwargs={'resolutions': (11, 21)}),
 ]

@@ -114,9 +114,11 @@ class LinearProblem:
                 boundary_mass @ neumann.traction.flatten()).flatten()
 
         # Callers pass only the volume source; the BC resolution supplies the traction
-        # terms above. The source is a field (integrated as its P1 interpolant via the
-        # cached mass matrix) or a LinearForm sampled at the quadrature points, for a
-        # source that varies within an element.
+        # terms above. A callable source is sampled at the quadrature points (as a
+        # LinearForm), which captures variation within an element; a constant or a
+        # nodal array is integrated as its interpolant through the cached mass matrix.
+        if callable(source) and not isinstance(source, LinearForm):
+            source = LinearForm(source, n_components=space.n_components)
         if isinstance(source, LinearForm):
             volume_load = space.assemble_load(source)
         else:

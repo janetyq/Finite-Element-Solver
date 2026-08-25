@@ -173,21 +173,20 @@ plays the SIMP iterations frame by frame, from an even grey to the black-and-whi
 ### Convergence against manufactured solutions
 
 Against exactly known (manufactured) solutions, P1 elements are second order in space
-(halve $h$, quarter the error) for both a scalar unknown and a coupled vector one. In
-time, backward Euler is first order and Crank-Nicolson second. How the load is built
+(halve $h$, quarter the error) for both a scalar unknown and a coupled vector one, and
+P2 elements third. In time, backward Euler is first order and Crank-Nicolson second.
+How the load is built
 matters too: sampling the source at the quadrature points instead of reading it at
 the vertices keeps the rate and improves the constant about 3x. Every rate here also
 runs as an assertion in the test suite.
 
-<p align="center"><img src="images/convergence.png" width="780" alt="Convergence rates in space and time"></p>
+<p align="center"><img src="images/convergence.png" width="780" alt="Convergence rates in space and time, P1 against P2, and the load built two ways"></p>
 
 ### Higher-order elements
 
 P2 (quadratic) triangles carry edge-midpoint DOFs that let the solution curve within an
-element. On the same meshes they are third order in $L^2$ where P1 is second, and
-reach a given accuracy with fewer degrees of freedom.
-
-<p align="center"><img src="images/higher_order.png" width="780" alt="P1 vs P2 accuracy and cost"></p>
+element. On the same meshes they are third order in $L^2$ where P1 is second (top
+left above), and reach a given accuracy with fewer degrees of freedom (top right).
 
 Curved (isoparametric) boundary elements go a step further. On a boundary that
 carries an analytic curve (a `Circle` or `Arc`), an `IsoparametricTriangleElement`
@@ -207,7 +206,8 @@ across edges, and the boundary residual (2D only). The Zienkiewicz-Zhu recovery
 estimator measures the gap between the discrete flux and a recovered continuous one.
 The goal-oriented estimator refines toward a chosen quantity of interest through an
 adjoint solve. Below, the residual estimator on a peaked Poisson source concentrates
-the mesh where the solution is hardest to approximate.
+the mesh where the solution is hardest to approximate, and reaches a given error with
+about a third of the unknowns uniform refinement needs (the gallery has the chart).
 
 <p align="center"><img src="images/refinement.png" width="780" alt="Adaptive refinement on a peaked source"></p>
 
