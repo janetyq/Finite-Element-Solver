@@ -362,11 +362,9 @@ def _index_page(entries: list[Entry]) -> str:
     rendered = sum(1 for e in entries if not e.skipped)
     body = [
         '<h1>Finite Element Solver &mdash; demo gallery</h1>',
-        # What the project is, before what the page is: the count answered a question
-        # nobody arrives with.
-        '<p class="intro">A finite element solver written from scratch in Python &mdash; '
-        'meshing, assembly, and solves for the Poisson, heat, wave and elasticity '
-        'equations, in 2D and 3D. Every demo below is rendered beside the code that '
+        '<p class="intro">A finite element solver written from scratch in Python: '
+        'meshing, assembly, and solves for the Poisson, heat, wave, and elasticity '
+        'equations in 2D and 3D. Every demo below is rendered beside the code that '
         'produced it.</p>',
         f'<p class="sub">{rendered} of {len(entries)} rendered, by '
         '<code>examples/cli.py gallery</code>, on every push to <code>main</code>.</p>',

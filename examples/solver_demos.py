@@ -51,8 +51,8 @@ np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
 
 def demo_l2_projection(mesh, reference_resolution=120):
-    """Project an oscillatory function onto a mesh's P1 space to show representation error:
-    the resolution limit of the space itself, before any PDE is solved."""
+    """Project an oscillatory function onto a mesh's P1 space to show the representation
+    error of the space itself, before any PDE is solved."""
     def cool_f(point):
         x, y = point - np.array([0.5, 0.5])
         return [np.sin(40 * (x**2 + y**2))]
@@ -73,13 +73,11 @@ def demo_l2_projection(mesh, reference_resolution=120):
                  title=f'Projected onto P1 ({len(mesh.elements)} triangles)')
     return DemoResult([Figure(
         plotter,
-        'Representation error, before any PDE: how well the P1 space can represent a '
-        'function at all. Left: the target sin(40 r^2), whose rings tighten with radius. '
-        'Right: its L2 projection onto a coarse mesh. The slow inner rings '
-        'come through; past the radius where one ring spans only a couple of triangles the '
-        'space can no longer follow it, and the outer rings break up into the mesh. This '
-        'is the error floor every solver on this mesh starts from, and the rest of this '
-        'section measures how fast it falls as the mesh is refined.')])
+        'How well the P1 space can represent a function at all, before any PDE. Left: the '
+        'target sin(40 r^2), whose rings tighten with radius. Right: its L2 projection onto '
+        'a coarse mesh. The slow inner rings come through; where one ring spans only a '
+        'couple of triangles the space can no longer follow it, and the outer rings break '
+        'up into the mesh. This is the error floor every solver on this mesh starts from.')])
 
 def demo_poisson_equation(mesh):
     """Solve Poisson's equation with zero Dirichlet BCs and a constant force."""
@@ -105,17 +103,14 @@ def demo_poisson_equation(mesh):
                'beside it.',
                'fields'),
         Figure(conditions,
-               'Pinned at every boundary node, so no part of this boundary is left to '
-               'the natural condition, which makes the solution vanish all '
-               'the way round.',
+               'Pinned at every boundary node, so the solution vanishes all the way round.',
                'conditions', setup=True),
     ])
 
 def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
                         n_points=80, min_angle=20, max_area_fraction=0.0015):
-    """Potential flow over a NACA airfoil: Laplace's equation for the velocity potential,
-    with the wing a no-flux streamline the flow accelerates over. Solved with quadratic
-    (P2) elements, so the recovered flow speed is smooth without a very fine mesh."""
+    """Potential flow over a NACA airfoil, solving Laplace's equation for the velocity
+    potential on quadratic (P2) elements, with the wing a no-flux streamline."""
     # An ideal (incompressible, irrotational) flow has a velocity potential phi with
     # v = grad(phi) and div(v) = 0, so phi solves Laplace's equation. The wing carries no
     # flow through it, the natural (zero-flux) condition of the weak form: say nothing
@@ -157,15 +152,15 @@ def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
                'formula rather than a data file. Left: the velocity potential phi (Laplace) '
                'with its equipotentials, which crowd over the upper surface where the flow '
                'speeds up. Right: the flow speed, faster over the top than the bottom, with '
-               'stagnation near the leading and trailing edges. The wing takes no condition '
-               'at all: a free surface is the no-flux streamline of the weak form, so the '
-               'flow parts around it. The speed is clipped near the sharp edges, where ideal '
+               'stagnation near the leading and trailing edges. The wing takes no condition, '
+               'which in the weak form is zero flux, so the flow parts around it. The speed '
+               'is clipped near the sharp edges, where ideal '
                'flow with no Kutta condition predicts an unphysical velocity spike.',
                'flow'),
         Figure(conditions,
                'A potential difference across the channel (phi = 0 at the inlet, 1 at the '
-               'outlet) drives the flow left to right; the walls and the wing surface take '
-               'nothing, which is the no-flux condition that makes them streamlines.',
+               'outlet) drives the flow left to right; the walls and the wing surface take no '
+               'condition, so no flow crosses them.',
                'conditions', setup=True),
     ])
 
@@ -253,18 +248,16 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
         rows.append(f'{name:<22}{study.fitted_order:>9.2f}{expected:>11}')
     return DemoResult(
         [Figure(plotter,
-                'Left: the Poisson error is smooth and one-signed: zero on the boundary '
-                'where the solution is pinned exactly, deepest at the centre where the '
-                'piecewise-linear space has the most to miss. Middle: halving h quarters '
-                'that error, for a scalar unknown and for a coupled vector one alike. '
-                'Right: the same measurement against the time step, where the order is '
-                'a choice: backward Euler is first order, Crank-Nicolson second, for the '
-                'same cost per step.')],
+                'Left: the Poisson error, zero on the boundary where the solution is pinned '
+                'and deepest at the centre. Middle: halving h quarters that error, for a '
+                'scalar unknown and for a coupled vector one alike. Right: the same '
+                'measurement against the time step, where backward Euler is first order and '
+                'Crank-Nicolson second, for the same cost per step.')],
         text='\n'.join(rows),
     )
 
 def demo_higher_order(resolutions=(11, 21, 41, 81)):
-    """Compare P1 and P2 elements on the same manufactured Poisson problem: P2 is third
+    """Compare P1 and P2 elements on the same manufactured Poisson problem. P2 is third
     order in L2 where P1 is second."""
     # Same problem, two element orders. P2 carries the extra edge-midpoint DOFs that
     # let its solution curve within an element; the rate is what that buys.
@@ -296,11 +289,10 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
         rows.append(f'{name:<12}{study.fitted_order:>9.2f}{expected:>11}')
     return DemoResult(
         [Figure(plotter,
-                'Left: on the same meshes, halving h quarters the P1 error (order 2) but '
+                'Left: on the same meshes, halving h quarters the P1 error (order 2) and '
                 'divides the P2 error by eight (order 3). Right: the same errors against the '
-                'number of unknowns. P2 spends more DOFs per element, yet reaches a given '
-                'accuracy well to the left of P1, so it is the cheaper choice where the '
-                'solution is smooth.')],
+                'number of unknowns. P2 spends more DOFs per element but reaches a given '
+                'accuracy with fewer of them, so it is cheaper where the solution is smooth.')],
         text='\n'.join(rows),
     )
 
@@ -322,9 +314,9 @@ def _annulus_area_study(element_type, resolutions):
 
 
 def demo_curved_elements(coarse_n=4, resolutions=(3, 5, 9, 17)):
-    """Show what curved (isoparametric) elements buy on a curved domain: the boundary
-    follows the true circle instead of a polygon, so the domain area (pure geometry)
-    converges at the element's own order instead of the polygonal O(h^2)."""
+    """Compare straight and curved (isoparametric) elements on an annulus. The curved
+    boundary follows the true circle, so the domain area converges at the element's own
+    order instead of the polygonal O(h^2)."""
     # A coarse annulus for the two picture panels, so the straight facets are
     # obvious. Both solve the same manufactured Poisson problem (u = sin(x) sin(y)); only
     # the element's geometry differs, straight P2 vs isoparametric P2.
@@ -375,19 +367,17 @@ def demo_curved_elements(coarse_n=4, resolutions=(3, 5, 9, 17)):
                 'elements. Left: straight P2 approximates each rim by a chord, so the domain '
                 'is a polygon. Middle: isoparametric P2 places its boundary nodes on the true '
                 'circle and integrates over the curved element, so the rim is round. Both '
-                'fields are drawn on a sub-triangulation of each P2 element, a display '
-                'tessellation that shows the quadratic field faithfully and adds nothing to '
-                'the solve. Right: the geometry behind the picture. The area the straight '
-                'elements integrate over is a polygon, wrong by O(h^2); the curved elements '
-                'integrate the true annulus, area right to O(h^3) and orders of magnitude '
-                'closer at every mesh.')],
+                'fields are drawn on a sub-triangulation of each P2 element, so the quadratic '
+                'field shows faithfully. Right: the area the straight elements integrate over '
+                'is a polygon, wrong by O(h^2); the curved elements integrate the true '
+                'annulus, right to O(h^3).')],
         text='\n'.join(rows),
     )
 
 
 def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
-    """Show what sampling the load at the quadrature points buys, against reading the
-    source only at the vertices."""
+    """Compare a load sampled at the quadrature points against one read only at the
+    vertices."""
     k = LOAD_MMS_FREQUENCY
 
     # Setup: the load and the solution it drives, on a fine mesh so these are the ideal
@@ -445,21 +435,18 @@ def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
             f'  the nodal shortcut is {coarse.nodal_error / coarse.sampled_error:.1f}x worse']
     return DemoResult(
         [Figure(comp,
-                'Both solves use the same P1 (linear) elements; neither is higher order. '
-                'They differ only in how the source f becomes the load: the nodal load reads '
-                'f at the vertices only (integrating its linear interpolant), the sampled '
-                'load reads f at the interior quadrature points. Top-left: on a slice '
-                'through a row of bumps, the exact solution (grey) against the two P1 '
-                'solutions: the nodal load undershoots each peak. Top-right: both converge '
-                'at order 2, the sampled load about 3x lower. Bottom: the absolute error '
-                'over the mesh for each, at the same colour scale.',
+                'Both solves use the same P1 elements and differ only in how the source f '
+                'becomes the load. The nodal load reads f at the vertices only (integrating '
+                'its linear interpolant); the sampled load reads f at the interior quadrature '
+                'points. Top-left: on a slice through a row of bumps, the exact solution '
+                '(grey) against the two P1 solutions; the nodal load undershoots each peak. '
+                'Top-right: both converge at order 2, the sampled load about 3x lower. '
+                'Bottom: the absolute error over the mesh for each, at the same colour scale.',
                 'comparison'),
          Figure(setup,
-                'The manufactured problem: -div(grad u) = f on the unit square, zero on the '
-                'boundary. The load is the source f (left), an oscillating field of '
-                'sources and sinks; the solution u (right) is what it drives, a grid of '
-                'bumps pinned to zero all around. Both solves in the comparison target this '
-                'u and differ only in how f is sampled to build the load.',
+                'The manufactured problem, -div(grad u) = f on the unit square with u = 0 on '
+                'the boundary. The source f (left) is an oscillating field of sources and '
+                'sinks; the solution u (right) is a grid of bumps pinned to zero all around.',
                 'setup', setup=True)],
         text='\n'.join(rows),
     )
@@ -593,17 +580,15 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     return DemoResult(
         [Figure(figure,
                 f'The whole pipeline in one row. Left: the mesh after adaptive refinement, '
-                f'grown from {n_initial} triangles to {len(mesh.elements)} by putting '
-                f'elements where the recovery estimator found the most error, with the '
-                f'input outline in blue and the conditions drawn on it; the rim and long '
-                f'edges carry none, the natural (traction-free) condition of the weak '
-                f'form. Middle: the stress sigma_xx on curved '
-                f'quadratic elements, crowding into the material either side of the hole '
-                f'and relaxing to the applied value within about a diameter. Right: that '
-                f'stress along a strip through the hole centre, read at the nodes, peaking '
-                f'at {peak:.2f}x the applied value at the rim. The classic Kirsch factor of '
-                f'3 is for a hole in an infinite plate; this plate is finite, and '
-                f"Howland's value for a hole {hole_over_width:.2f} of its width is "
+                f'grown from {n_initial} triangles to {len(mesh.elements)} where the '
+                f'recovery estimator found the most error, with the input outline in blue '
+                f'and the conditions drawn on it; the rim and long edges carry none and are '
+                f'traction-free. Middle: the stress sigma_xx on curved quadratic elements, '
+                f'crowding into the material either side of the hole and relaxing to the '
+                f'applied value within about a diameter. Right: that stress along a strip '
+                f'through the hole centre, peaking at {peak:.2f}x the applied value at the '
+                f'rim. The classic Kirsch factor of 3 is for a hole in an infinite plate; '
+                f"Howland's value for a hole {hole_over_width:.2f} of this plate's width is "
                 f'{finite_kt:.2f}.')],
         text=(f'outline points           {len(pslg.vertices)}  '
               f'(rectangle + polygonalised rim)\n'
@@ -623,7 +608,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
 
 def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, nu=0.3,
                  min_angle=28, max_area_fraction=0.0015, n_rounds=18, refine_fraction=0.9):
-    """Load an L-bracket and read the stress at its inner corner: a sharp re-entrant
+    """Load an L-bracket and read the stress at its inner corner. A sharp re-entrant
     corner is a stress singularity whose peak climbs without bound as the mesh refines,
     while a fillet gives a finite, converged value. This is why real parts round their
     inner corners.
@@ -727,10 +712,10 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
                'fields', thumbnail=True),
         Figure(sweep,
                'The corner von Mises peak as the mesh is adaptively refined into the '
-               'corner. The sharp corner is a true stress singularity, so its peak climbs '
-               'without bound and never converges: the "stress" there is a property of the '
-               'mesh, not of the part. The fillet removes the singularity, and its peak '
-               'settles on a finite value. This is why real parts round their inner corners.',
+               'corner. The sharp corner is a stress singularity, so its peak climbs without '
+               'bound; the "stress" there is a property of the mesh, not of the part. The '
+               'fillet removes the singularity, and its peak settles on a finite value. This '
+               'is why real parts round their inner corners.',
                'singularity'),
         Figure(conditions,
                'The upright limb is clamped at the top; a downward traction pulls the '
@@ -745,8 +730,8 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
 
 
 def demo_elasticity_models(mesh, stretch=0.5):
-    """Stretch one clamped block three ways: a linear solve, the same physics by energy
-    minimisation, and finite strain."""
+    """Stretch one clamped block with a linear solve, with energy minimisation of the same
+    physics, and with finite strain."""
     # Panels 1 and 2 are the same physics reached two ways: solving K u = f, and Newton
     # on the elastic energy that system is the stationary point of. Their displacements
     # agree to machine precision (printed below). Their stress does not, since the two
@@ -787,19 +772,18 @@ def demo_elasticity_models(mesh, stretch=0.5):
     drift = np.linalg.norm(energy_u - linear_u) / np.linalg.norm(linear_u)
     return DemoResult(
         [Figure(plotter,
-                'The first two are the same physics reached two ways: a linear system, '
-                'and Newton on the energy that system is the stationary point of. Their '
-                'displacements are identical to machine precision (below); their stress '
-                'is not, because the two recover different measures: sigma = D:eps '
-                'against the true Cauchy stress at the deformed configuration, which '
-                'agree only for small gradients. The third changes the physics rather '
-                'than the solve: Green-Lagrange stiffens as the stretch grows, which '
-                'small strain cannot.',
+                'The first two are the same physics solved two ways, as a linear system and '
+                'by Newton on the energy that system is the stationary point of. Their '
+                'displacements are identical to machine precision (below). Their stress is '
+                'not, because the two recover different measures, sigma = D:eps against the '
+                'Cauchy stress at the deformed configuration, which agree only for small '
+                'gradients. The third changes the physics: Green-Lagrange stiffens as the '
+                'stretch grows, which small strain cannot.',
                 'stress'),
          Figure(conditions,
-                'Both ends are Dirichlet: the left is held at zero, the right is displaced to '
-                f'{stretch:.0%} of the width. Nothing is loaded; the stress above is '
-                'what it costs to hold that shape.',
+                'Both ends are Dirichlet. The left is held at zero and the right is displaced '
+                f'to {stretch:.0%} of the width. Nothing is loaded; the stress above is what '
+                'it costs to hold that shape.',
                 'conditions', setup=True)],
         text=(f'displacement, linear solve vs energy minimisation: '
               f'relative difference {drift:.1e}\n'
@@ -899,9 +883,9 @@ def _mark_base(ax, width, kind):
 def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0,
                        flux=40.0, fin_lengths=(0.4, 0.8, 1.4, 2.0, 2.8),
                        min_angle=28, max_area_fraction=0.0004):
-    """A finned heatsink: warm it from a cold start (the transient heat equation), then
-    measure how much better it dissipates than a solid block, and check the fins against
-    beam theory."""
+    """Warm a finned heatsink from a cold start with the transient heat equation, measure
+    how much better it dissipates than a solid block, and check the fins against beam
+    theory."""
     # The heat equation is Poisson's operator integrated in time (see fem.problem.heat).
     # A heatsink conducts heat up its fins and sheds it, so the shape is worth measuring;
     # the mesh is built here because it is part of what the demo says.
@@ -1030,12 +1014,12 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     return DemoResult([
         Figure(comparison,
                'The finned sink against a solid block of the same bounding box, posed two '
-               'ways. Top, the same heat flux into each base (a chip of fixed power): the '
+               'ways. Top, the same heat flux into each base (a chip of fixed power). The '
                f'block runs {u_block_p.max()-u_ambient:.0f} C above ambient, the finned sink '
                f'only {u_fin_p.max()-u_ambient:.0f} C, roughly halving the thermal resistance '
-               f'(R {r_block:.2f} -> {r_fin:.2f}). Bottom, each base held at {u_hot:.0f}: the '
-               f'finned sink sheds {effectiveness:.1f}x the heat, on {metal_ratio:.2f}x the '
-               'metal, because the fins trade material for surface area.',
+               f'(R {r_block:.2f} -> {r_fin:.2f}). Bottom, each base held at {u_hot:.0f}. The '
+               f'finned sink sheds {effectiveness:.1f}x the heat with {metal_ratio:.2f}x the '
+               'metal, since the fins trade material for surface area.',
                'comparison', thumbnail=True),
         Figure(snapshots,
                'The same finned sink warming from a cold start, the transient heat equation '
@@ -1047,9 +1031,8 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
                'Fin efficiency, the heat a fin sheds over what it would shed with all of it '
                'at the base temperature, against the beam-theory law tanh(mL)/(mL). The '
                'computed fins track it closely. Efficiency falls as fins lengthen, because a '
-               "long fin runs cold toward the tip and carries less of its share: this sink's "
-               f'fins (L = 1.4) sit near {eta_here:.0%}, trading efficiency for the extra '
-               'surface area that does the cooling.',
+               "long fin runs cold toward the tip and carries less of its share. This sink's "
+               f'fins (L = 1.4) sit near {eta_here:.0%}, trading efficiency for surface area.',
                'efficiency'),
         Figure(animation, 'Crank-Nicolson warming of the heatsink, base to fin tips.',
                'animation'),
@@ -1113,9 +1096,8 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
                'Six times from the second half of the run, after the pulse has reflected '
                'off the boundary and begun interfering with itself.', 'snapshots'),
         Figure(setup,
-               'A pulse released from rest on a membrane whose edges carry the natural '
-               'condition, du/dn = 0. That is a free edge, so the pulse reflects the same '
-               'way up instead of inverted.',
+               'A pulse released from rest on a membrane whose edges are free (du/dn = 0), '
+               'so the pulse reflects the same way up instead of inverted.',
                'conditions', setup=True),
     ])
 
@@ -1171,15 +1153,12 @@ def demo_linear_elastic(mesh, n_3d=14):
 
     return DemoResult([
         Figure(fields,
-               'The same clamp-and-load solved in 2D and 3D. The bending stress is largest '
-               'at the clamp and splits top from bottom: tension over the neutral axis, '
-               'compression under it. The 3D solve carries a three-component displacement '
-               'and recovers stress the same way, drawn on its boundary surface.',
+               'The same clamp and load solved in 2D and 3D. The bending stress is largest '
+               'at the clamp, with tension over the neutral axis and compression under it. '
+               'The 3D solve is drawn on its boundary surface.',
                'fields'),
         Figure(invariants,
-               'Four rotation-invariant reductions of that same 2D stress tensor: '
-               'distortion, mean normal stress, the Tresca measure, and the largest '
-               'tensile principal value.',
+               'Four rotation-invariant reductions of the same 2D stress tensor.',
                'invariants'),
         Figure(conditions,
                'Clamped along the left edge, pulled down over the middle of the right one; '
@@ -1244,17 +1223,17 @@ def demo_topology_optimization(mesh, iters=60):
         Figure(comparison,
                'The same simply supported beam under the same central load, solid and then '
                'with half its material removed by optimization, both drawn deformed. '
-               'Compliance is the work the load does, so it measures deflection under load: '
-               f'the optimized truss is only {ratio:.2f}x as compliant as the fully solid '
-               'block on half the material, because what it removed was near the neutral '
-               'axis, where it was barely resisting the bending.',
+               'Compliance is the work the load does, so it measures deflection under load. '
+               f'The optimized truss is only {ratio:.2f}x as compliant as the fully solid '
+               'block on half the material; what it removed was near the neutral axis, '
+               'where it was barely resisting the bending.',
                'comparison'),
         Figure(animation,
                'Density evolving over the SIMP iterations, from an even grey to the '
                'black-and-white truss.',
                'animation'),
         Figure(conditions,
-               'Simply supported: pinned at one bottom corner (both directions held), a '
+               'Simply supported, pinned at one bottom corner (both directions held) with a '
                'vertical roller at the other (free to slide horizontally), and a downward '
                'load at the top centre.',
                'conditions', setup=True),
@@ -1265,7 +1244,7 @@ def demo_topology_optimization(mesh, iters=60):
 
 def demo_design_sensitivity(mesh, iters=40):
     """Optimize a cantilever with the general design driver, and show the adjoint
-    sensitivity field it runs on: which elements matter most, for two different goals."""
+    sensitivity fields it runs on for two different goals."""
     E, nu = 200.0, 0.4
     w = float(np.max(mesh.vertices[:, 0]))
     h = float(np.max(mesh.vertices[:, 1]))
@@ -1329,8 +1308,8 @@ def demo_design_sensitivity(mesh, iters=40):
                'before any optimization. Top: how much each element affects the total '
                'compliance, the stiffness of the whole structure. Bottom: how much each '
                'element affects the tip deflection specifically. The two light up '
-               'different regions: one adjoint solve answers "which inputs matter for '
-               'this output", and the output can be anything.',
+               'different regions; one adjoint solve answers which inputs matter for a '
+               'given output, and the output can be anything.',
                'sensitivity'),
         Figure(result,
                'The cantilever optimized to minimum compliance under a 50% volume budget '
@@ -1339,8 +1318,8 @@ def demo_design_sensitivity(mesh, iters=40):
                'fully solid block on half the material.',
                'result', thumbnail=True),
         Figure(conditions,
-               'A cantilever: the left edge clamped, a downward load on the middle of the '
-               'free right edge.',
+               'A cantilever, clamped on the left edge with a downward load on the middle of '
+               'the free right edge.',
                'conditions', setup=True),
     ], text=(f'compliance, solid (100% material)     {compliance_solid:.4f}\n'
              f'compliance, optimized (50% material)  {compliance_opt:.4f}\n'
@@ -1360,7 +1339,7 @@ def _tip_vertical_dof(space, width):
 def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                   sweep_lengths=(16.0, 20.0, 28.0, 40.0)):
     """Find the loads at which a slender column buckles and the shapes it buckles into,
-    checked against Euler three ways: mode shapes, end conditions, and the 1/L^2 law."""
+    checked against Euler's mode shapes, end conditions, and 1/L^2 law."""
     # Buckling is an eigenproblem: a reference load puts the column under a prestress,
     # BucklingSolver assembles the geometric stiffness K_g from it and solves
     # K phi = -lambda K_g phi, and lambda multiplies the reference load. P2 elements
@@ -1516,10 +1495,9 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                'A pinned column buckles into half-sine waves. Mode 1 is a single half-wave '
                'at the lowest load, the shape a real column takes. Each higher mode adds a '
                'half-wave and costs n^2 as much (mode 2 is ~4x mode 1), and is reached only '
-               'if the lower ones are braced out: a support at mid-span, a node of mode 2 '
-               'but not mode 1, buys the jump to it. This is the buckling analogue of '
-               'vibration modes, one K phi = -lambda K_g phi eigenproblem: the shapes are '
-               'its eigenvectors and the load factors its eigenvalues.',
+               'if the lower ones are braced out, for instance by a support at mid-span. The '
+               'shapes are the eigenvectors of K phi = -lambda K_g phi and the load factors '
+               'its eigenvalues.',
                'modes', thumbnail=True),
         Figure(factor_plots,
                'The same slender column held four ways, buckling at loads spanning 16x. '
@@ -1763,8 +1741,8 @@ def demo_heat_3d(steps=20, n=17):
 
 
 def demo_goal_oriented_refinement(resolution=14, target=(0.72, 0.72), max_triangles=900):
-    """Refine a mesh for one quantity of interest, not the global error: a point value,
-    and how the goal-oriented mesh concentrates where the global one does not."""
+    """Refine a mesh for a point value rather than the global error, and compare where the
+    two meshes concentrate."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     equation = Poisson(source=lambda p: 1.0)
