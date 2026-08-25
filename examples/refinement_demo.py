@@ -24,9 +24,7 @@ from domains import square
 
 
 def demo_refinement(_mesh):
-    """Adaptive refinement on a peaked Poisson source. The error estimator tells the
-    refiner which elements to split, concentrating the mesh where the solution is
-    hardest to approximate."""
+    """Adaptive refinement driven by an error estimator on a peaked Poisson source."""
     mesh = create_rect_mesh(corners=[[0.0, 0.0], [1.0, 1.0]], resolution=(20, 20))
     w, h = 1.0, 1.0
 

@@ -111,6 +111,9 @@ class Demo:
             return ''
 
     def description(self) -> str:
-        """The demo's docstring on one line, for `list` and for its gallery page."""
+        """The first paragraph of the demo's docstring on one line, for `list` and for
+        its gallery card. Later paragraphs are notes for a reader of the source."""
         doc = inspect.getdoc(self._unwrapped())
-        return ' '.join(doc.split()) if doc else '(no description)'
+        if not doc:
+            return '(no description)'
+        return ' '.join(doc.split('\n\n', 1)[0].split())

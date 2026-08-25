@@ -51,8 +51,8 @@ np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=200)
 
 def demo_l2_projection(mesh, reference_resolution=120):
-    """Project an oscillatory function onto a mesh's P1 space to show the representation
-    error of the space itself, before any PDE is solved."""
+    """An oscillatory function projected onto a coarse P1 space, showing what the space
+    can represent."""
     def cool_f(point):
         x, y = point - np.array([0.5, 0.5])
         return [np.sin(40 * (x**2 + y**2))]
@@ -80,7 +80,7 @@ def demo_l2_projection(mesh, reference_resolution=120):
         'up into the mesh. This is the error floor every solver on this mesh starts from.')])
 
 def demo_poisson_equation(mesh):
-    """Solve Poisson's equation with zero Dirichlet BCs and a constant force."""
+    """Poisson's equation with a constant source and zero Dirichlet boundary."""
     equation = Poisson(source=1)
     bc = BoundaryConditions()
     # bc.add(BCType.NEUMANN, on_plane(0, np.max(mesh.vertices[:, 0])), [1])
@@ -109,8 +109,7 @@ def demo_poisson_equation(mesh):
 
 def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
                         n_points=80, min_angle=20, max_area_fraction=0.0015):
-    """Potential flow over a NACA airfoil, solving Laplace's equation for the velocity
-    potential on quadratic (P2) elements, with the wing a no-flux streamline."""
+    """Potential flow over a NACA airfoil, solved as Laplace's equation on P2 elements."""
     # An ideal (incompressible, irrotational) flow has a velocity potential phi with
     # v = grad(phi) and div(v) = 0, so phi solves Laplace's equation. The wing carries no
     # flow through it, the natural (zero-flux) condition of the weak form: say nothing
@@ -204,8 +203,7 @@ def _share_panel_limits(plotter, n_panels):
 
 def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 33),
                      step_counts=(16, 32, 64, 128)):
-    """Measure the solver's own error against exactly known solutions, and read off the
-    convergence rates in space and in time (Method of Manufactured Solutions)."""
+    """Convergence rates in space and time against manufactured solutions."""
     # The one demo that shows not what the solver computed but how wrong it was:
     #
     #   in space  P1 elements are O(h^2) (halve h, quarter the error) for a scalar
@@ -257,8 +255,7 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
     )
 
 def demo_higher_order(resolutions=(11, 21, 41, 81)):
-    """Compare P1 and P2 elements on the same manufactured Poisson problem. P2 is third
-    order in L2 where P1 is second."""
+    """P1 against P2 elements on one manufactured problem, in rate and in cost."""
     # Same problem, two element orders. P2 carries the extra edge-midpoint DOFs that
     # let its solution curve within an element; the rate is what that buys.
     p1_solves = poisson_convergence(resolutions)
@@ -314,9 +311,7 @@ def _annulus_area_study(element_type, resolutions):
 
 
 def demo_curved_elements(coarse_n=4, resolutions=(3, 5, 9, 17)):
-    """Compare straight and curved (isoparametric) elements on an annulus. The curved
-    boundary follows the true circle, so the domain area converges at the element's own
-    order instead of the polygonal O(h^2)."""
+    """Straight against curved (isoparametric) P2 elements on an annulus."""
     # A coarse annulus for the two picture panels, so the straight facets are
     # obvious. Both solve the same manufactured Poisson problem (u = sin(x) sin(y)); only
     # the element's geometry differs, straight P2 vs isoparametric P2.
@@ -376,8 +371,7 @@ def demo_curved_elements(coarse_n=4, resolutions=(3, 5, 9, 17)):
 
 
 def demo_quadrature_load(resolutions=(11, 21, 41, 81)):
-    """Compare a load sampled at the quadrature points against one read only at the
-    vertices."""
+    """A load sampled at the quadrature points against one read only at the vertices."""
     k = LOAD_MMS_FREQUENCY
 
     # Setup: the load and the solution it drives, on a fine mesh so these are the ideal
@@ -464,9 +458,8 @@ def _finite_plate_kt(hole_over_width: float) -> float:
 def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
                               min_angle=25, max_area_fraction=0.01, circle_segments=16,
                               refinement_iters=36, refinement_budget=40000):
-    """Take a plate with a hole from an outline through meshing, boundary conditions and
-    adaptive refinement to the stress concentration at its rim, measured against
-    Kirsch's factor of 3 and the finite-width value it approaches."""
+    """A plate with a hole, from outline to the stress concentration at its rim, against
+    Kirsch and Howland."""
     # The one demo that runs the whole pipeline, so it builds its own mesh: the outline,
     # what Ruppert's was asked for, and where the conditions went are part of what it
     # shows. The conditions are written against coordinates, so they resolve against
@@ -608,10 +601,8 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
 
 def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, nu=0.3,
                  min_angle=28, max_area_fraction=0.0015, n_rounds=18, refine_fraction=0.9):
-    """Load an L-bracket and read the stress at its inner corner. A sharp re-entrant
-    corner is a stress singularity whose peak climbs without bound as the mesh refines,
-    while a fillet gives a finite, converged value. This is why real parts round their
-    inner corners.
+    """The stress at an L-bracket's inner corner, sharp and filleted, as the mesh
+    refines into it.
 
     Solved on quadratic (P2) elements: the sharp bracket on straight `QuadraticTriangleElement`,
     the filleted one on `IsoparametricTriangleElement` so the arc is a true circle rather than
@@ -730,8 +721,8 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
 
 
 def demo_elasticity_models(mesh, stretch=0.5):
-    """Stretch one clamped block with a linear solve, with energy minimisation of the same
-    physics, and with finite strain."""
+    """One clamped block stretched by a linear solve, by energy minimisation, and at
+    finite strain."""
     # Panels 1 and 2 are the same physics reached two ways: solving K u = f, and Newton
     # on the elastic energy that system is the stationary point of. Their displacements
     # agree to machine precision (printed below). Their stress does not, since the two
@@ -883,9 +874,8 @@ def _mark_base(ax, width, kind):
 def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0,
                        flux=40.0, fin_lengths=(0.4, 0.8, 1.4, 2.0, 2.8),
                        min_angle=28, max_area_fraction=0.0004):
-    """Warm a finned heatsink from a cold start with the transient heat equation, measure
-    how much better it dissipates than a solid block, and check the fins against beam
-    theory."""
+    """Warm a finned heatsink from a cold start, then compare it with a solid block and
+    with beam theory."""
     # The heat equation is Poisson's operator integrated in time (see fem.problem.heat).
     # A heatsink conducts heat up its fins and sheds it, so the shape is worth measuring;
     # the mesh is built here because it is part of what the demo says.
@@ -1051,7 +1041,8 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
              f'fin efficiency at L = 1.4:  {eta_here:.2f}  (beam theory close)'))
 
 def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
-    """Animate wave propagation from a bump initial condition, plus a grid of late snapshots."""
+    """A wave pulse released from rest, reflecting off free edges and interfering with
+    itself."""
     w, h = np.max(mesh.vertices[:, 0]), np.max(mesh.vertices[:, 1])
     wave_center = np.max(mesh.vertices, axis=0)
     u_initial = bump_function(mesh.vertices, wave_center, size=0.25*min(w, h))
@@ -1102,8 +1093,8 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     ])
 
 def demo_linear_elastic(mesh, n_3d=14):
-    """Solve linear elasticity for a cantilever in 2D and again in 3D, then read four
-    rotation-invariant stress measures off the 2D solve."""
+    """A cantilever under a tip load in 2D and 3D, with four stress invariants of the 2D
+    solve."""
     E, nu = 200.0, 0.4
 
     # -- 2D: clamped on the left, pulled down over the middle of the right edge ---------
@@ -1171,8 +1162,8 @@ def demo_linear_elastic(mesh, n_3d=14):
              f'3D peak deflection     {tip_3d:.4f}'))
 
 def demo_topology_optimization(mesh, iters=60):
-    """Optimize where to put half a beam's material with SIMP, and measure how much
-    stiffness that buys against the fully solid block it came from."""
+    """SIMP topology optimization of a beam to half its material, compared with the
+    solid beam."""
     E, nu = 200.0, 0.4
     w = np.max(mesh.vertices[:, 0])
     h = np.max(mesh.vertices[:, 1])
@@ -1243,8 +1234,8 @@ def demo_topology_optimization(mesh, iters=60):
 
 
 def demo_design_sensitivity(mesh, iters=40):
-    """Optimize a cantilever with the general design driver, and show the adjoint
-    sensitivity fields it runs on for two different goals."""
+    """Adjoint sensitivity fields for two goals on a cantilever, and a design optimized
+    from one of them."""
     E, nu = 200.0, 0.4
     w = float(np.max(mesh.vertices[:, 0]))
     h = float(np.max(mesh.vertices[:, 1]))
@@ -1338,8 +1329,8 @@ def _tip_vertical_dof(space, width):
 
 def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                   sweep_lengths=(16.0, 20.0, 28.0, 40.0)):
-    """Find the loads at which a slender column buckles and the shapes it buckles into,
-    checked against Euler's mode shapes, end conditions, and 1/L^2 law."""
+    """Buckling loads and modes of a slender column, checked against Euler's column
+    formula."""
     # Buckling is an eigenproblem: a reference load puts the column under a prestress,
     # BucklingSolver assembles the geometric stiffness K_g from it and solves
     # K phi = -lambda K_g phi, and lambda multiplies the reference load. P2 elements
@@ -1528,8 +1519,8 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
 def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_angle=27,
                n_modes=6, n_shown=4, sweep_lengths=(0.075, 0.088, 0.105, 0.125),
                n_frames=24):
-    """Find the natural frequencies and mode shapes of a steel tuning fork, meshed from
-    its own outline and checked against beam theory."""
+    """Natural frequencies and modes of a steel tuning fork meshed from its outline,
+    against beam theory."""
     # Real SI steel, so the frequencies come out in Hz a musician would recognise.
     # E* = E/(1-nu^2) is the plane-strain modulus a 2D solve sees.
     E, NU, RHO = 2.0e11, 0.3, 7850.0             # Young's (Pa), Poisson, density (kg/m^3)
@@ -1717,7 +1708,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
 
 
 def demo_heat_3d(steps=20, n=17):
-    """Animate transient heat diffusion on a 3D tetrahedral box, drawn as its boundary surface."""
+    """Transient heat diffusion through a 3D tetrahedral box."""
     # Same box and resolution convention as the 3D cantilever in `linear_elastic`.
     mesh = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]], resolution=(4*n//2, n//2, n//2))
 
@@ -1741,8 +1732,7 @@ def demo_heat_3d(steps=20, n=17):
 
 
 def demo_goal_oriented_refinement(resolution=14, target=(0.72, 0.72), max_triangles=900):
-    """Refine a mesh for a point value rather than the global error, and compare where the
-    two meshes concentrate."""
+    """Refinement for a point value against refinement for the global error."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     equation = Poisson(source=lambda p: 1.0)

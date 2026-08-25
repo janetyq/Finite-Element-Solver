@@ -36,9 +36,8 @@ DEFAULT_SIMPLIFICATION_TOLERANCE = 0.005
 
 def demo_regions(length=4.0, height=1.0, n_structured=60, min_angle=30,
                  max_area_fraction=0.0009, E=200.0, nu=0.3, traction=0.5):
-    """Solve one cantilever on two unrelated triangulations of the same beam, a structured
-    grid and an unstructured Ruppert's mesh, to show position-based boundary conditions
-    resolving against whichever mesh is current."""
+    """One cantilever solved on two unrelated meshes with the same position-based
+    boundary conditions."""
     # The clamp and the load are written once against coordinates, so the same two
     # lines select the same physical edges on any triangulation of the beam; a vertex
     # index would mean nothing after a remesh. The load covers a whole edge rather than
@@ -192,8 +191,7 @@ def _mesh_zoom_inset(ax, mesh, box, loc=(0.57, 0.57, 0.42, 0.42)):
 
 def demo_outline_to_mesh(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0.001,
                          interactive=False):
-    """Mesh four closed outlines, traced and generated, and solve the same Poisson problem
-    on each with one pipeline (simplify, Ruppert refine, solve)."""
+    """Four outlines, traced and generated, meshed and solved with one pipeline."""
     # --interactive first opens a slider to explore the Douglas-Peucker simplification on
     # the California outline. `svg_tolerance` is finer than the default so the coastline
     # keeps its detail (the raw trace has ~1700 points).
