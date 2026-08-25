@@ -73,7 +73,7 @@ time and is integrated with Newmark's average-acceleration method. Below, a wave
 front meets a harbor breakwater: it reflects off the wall and passes the gap, where it
 spreads into the sheltered water as a circular wave centred on the opening.
 
-<p align="center"><img src="images/wave.png" width="780" alt="A wave front diffracting through a breakwater gap"></p>
+<p align="center"><img src="images/wave.gif" width="780" alt="A wave front diffracting through a breakwater gap"></p>
 
 ## Solids & structures
 
@@ -345,7 +345,7 @@ examples/            # runnable demo scripts, the CLI, and the gallery builder
 files/               # example SVG outlines
 ```
 
-The figures in this README are committed PNGs, refreshed by hand. After changing a
+The figures in this README are committed images (PNGs and one GIF), refreshed by hand. After changing a
 demo, regenerate them and commit the result:
 
 ```bash

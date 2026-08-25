@@ -943,10 +943,13 @@ def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=200,
     span = float(max(abs(u_values[i][harbor]).max() for i in shown))
     clim = (-span, span)
 
-    animation = Plotter(1, 1, figsize=(7.0, 4.8))
+    # The starting front beside the run, so the animation stands on its own.
+    animation = Plotter(1, 2, figsize=(13.0, 4.4))
+    animation.plot(mesh, u_initial, mode='colored', idx=(0, 0), clim=clim, cmap='RdBu_r',
+                   colorbar=False, title='Initial front; every edge is a wall')
     animation.plot_animation(mesh, u_values, mode='colored', cbar_lims=clim, label='height',
                              cmap='RdBu_r', titles=[f'Harbor breakwater  t={t:.2f}' for t in t_values],
-                             idx=(0, 0))
+                             idx=(0, 1))
 
     snapshots = Plotter(2, 4, figsize=(18.0, 6.4), title='Diffraction through the gap')
     for panel, i in enumerate(shown):
@@ -956,7 +959,9 @@ def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=200,
 
 
     return DemoResult([
-        Figure(animation, 'Newmark time integration of the front.', 'animation'),
+        Figure(animation,
+               'Newmark time integration of the front, beside the state it started from.',
+               'animation'),
         Figure(snapshots,
                'The front reaches the breakwater, reflects off the wall, and passes the '
                'gap, where it spreads into the harbor as a circular wave centred on the '

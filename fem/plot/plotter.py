@@ -53,6 +53,8 @@ DEFAULT_DPI = 150
 # A frame sequence pays this per frame, and frames are viewed at a fraction of the size
 # of a still, so they are written at matplotlib's default instead.
 FRAME_DPI = 100
+# GIFs carry every frame in one file, so they render lighter than the player frames.
+GIF_DPI = 80
 
 
 class Plotter:
@@ -456,12 +458,42 @@ class Plotter:
 
         `path_template` is formatted with the frame number, e.g. `'heat/{:03d}.png'`.
         Every animation on this figure is stepped together, so a figure with two
-        animated panels writes both.
-
-        `max_frames` samples the run down to at most that many images, evenly and
-        keeping both ends, so the last frame (a topology optimization's result) is
-        never dropped.
+        animated panels writes both. `max_frames` samples the run down to at most that
+        many images.
         '''
+        paths = []
+        for image in self._step_frames(max_frames):
+            # Numbered by image rather than by frame, so a sampled run still writes a
+            # contiguous 000, 001, 002 for the player to step through.
+            path = path_template.format(image)
+            self.fig.savefig(path, dpi=FRAME_DPI)
+            paths.append(path)
+        return paths
+
+    def save_gif(self, path: str, max_frames: int | None = None, frame_ms: int = 80,
+                 dpi: float = GIF_DPI) -> None:
+        '''Write the animation to `path` as a looping GIF, `frame_ms` per frame.
+
+        `max_frames` samples the run as `save_frames` does. Each frame is quantized to
+        its own palette, so a GIF of a colour map stays faithful frame to frame.
+        '''
+        import io
+        from PIL import Image
+
+        images = []
+        for _ in self._step_frames(max_frames):
+            buffer = io.BytesIO()
+            self.fig.savefig(buffer, format='png', dpi=dpi)
+            buffer.seek(0)
+            images.append(Image.open(buffer).convert('RGB').quantize(colors=256))
+        images[0].save(path, save_all=True, append_images=images[1:], duration=frame_ms,
+                       loop=0, optimize=False)
+
+    def _step_frames(self, max_frames: int | None):
+        '''Step every animation on this figure through the run, yielding the image
+        number after each frame is drawn; sampled down to `max_frames` evenly, keeping
+        both ends, so the last frame (a topology optimization's result) is never
+        dropped.'''
         if not self._anim_updates:
             raise ValueError('this figure has no animation to write frames for')
 
@@ -469,17 +501,11 @@ class Plotter:
         if max_frames is not None and self.frame_count() > max_frames:
             frames = np.unique(np.linspace(0, self.frame_count() - 1, max_frames).astype(int))
 
-        paths = []
         for image, frame in enumerate(frames):
             for update, _ in self._anim_updates.values():
                 update(int(frame))
             self.format_axs()
-            # Numbered by image rather than by frame, so a sampled run still writes a
-            # contiguous 000, 001, 002 for the player to step through.
-            path = path_template.format(image)
-            self.fig.savefig(path, dpi=FRAME_DPI)
-            paths.append(path)
-        return paths
+            yield image
 
     def frame_count(self) -> int:
         '''Frames the animations on this figure share: the shortest, so every panel

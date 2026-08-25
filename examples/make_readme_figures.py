@@ -27,7 +27,7 @@ matplotlib.use('Agg')  # render to buffers; this opens no windows
 # CLI runs them.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cli import build_registry
+from cli import GIF_FRAMES, build_registry
 from gallery import build_gallery
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +36,9 @@ IMAGES = REPO_ROOT / 'images'
 # (gallery figure stem, README file name). The stem is what the gallery writes:
 # `<demo>` for a single-figure demo, `<demo>-<slug>` for one figure of several. The
 # demo to render is read back off the stem (everything before the first '-'), so each
-# named demo runs once even when the README shows two of its figures.
+# named demo runs once even when the README shows two of its figures. A `.gif` name is
+# an animated figure, which is rendered here directly rather than through the gallery,
+# whose twenty player frames are too few for a smooth loop.
 FIGURES: list[tuple[str, str]] = [
     # Meshing a domain
     ('outline_to_mesh', 'outline_to_mesh.png'),
@@ -44,7 +46,7 @@ FIGURES: list[tuple[str, str]] = [
     ('potential_flow-flow', 'potential_flow.png'),
     ('heat-comparison', 'heatsink_comparison.png'),
     ('heat-efficiency', 'heatsink_efficiency.png'),
-    ('wave-snapshots', 'wave.png'),
+    ('wave-animation', 'wave.gif'),
     # Solids & structures
     ('linear_elastic-fields', 'linear_elastic.png'),
     ('bracket-fields', 'bracket.png'),
@@ -90,12 +92,15 @@ def main() -> None:
         keep = contextlib.nullcontext(args.render_dir)
     else:
         keep = tempfile.TemporaryDirectory()
+    stills = [(stem, name) for stem, name in FIGURES if not name.endswith('.gif')]
+    gifs = [(stem, name) for stem, name in FIGURES if name.endswith('.gif')]
     with keep as work:
         out = Path(work)
-        build_gallery(registry, out, workers=args.workers, only=demos)
+        build_gallery(registry, out, workers=args.workers,
+                      only=sorted({stem.split('-')[0] for stem, _ in stills}))
 
         missing = []
-        for stem, name in FIGURES:
+        for stem, name in stills:
             src = out / 'img' / f'{stem}.png'
             if not src.exists():
                 missing.append(stem)
@@ -103,6 +108,19 @@ def main() -> None:
             IMAGES.mkdir(parents=True, exist_ok=True)   # re-create if it was removed mid-run
             shutil.copyfile(src, IMAGES / name)
             print(f'  images/{name}  <-  {stem}')
+
+    for stem, name in gifs:
+        demo_name, _, slug = stem.partition('-')
+        demo = registry[demo_name]
+        result = demo.func(*([demo.domain()] if demo.domain is not None else []))
+        figure = next((f for f in result.figures if f.animated and f.slug == slug), None)
+        if figure is None:
+            missing.append(stem)
+            continue
+        figure.plotter.save_gif(str(IMAGES / name), max_frames=GIF_FRAMES)
+        for f in result.figures:
+            f.plotter.close()
+        print(f'  images/{name}  <-  {stem}')
 
     if missing:
         raise SystemExit(
