@@ -938,7 +938,7 @@ def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=200,
     # One colour scale, set by the harbor side, so the diffracted wave reads even
     # though it is far lower than the front that made it (which doubles again when it
     # reflects off the far wall).
-    shown = [int(i) for i in np.linspace(len(u_values) // 3, len(u_values) - 1, 6)]
+    shown = [int(i) for i in np.linspace(len(u_values) // 4, len(u_values) - 1, 8)]
     harbor = x > wall_x + wall_thickness
     span = float(max(abs(u_values[i][harbor]).max() for i in shown))
     clim = (-span, span)
@@ -948,19 +948,21 @@ def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=200,
                              cmap='RdBu_r', titles=[f'Harbor breakwater  t={t:.2f}' for t in t_values],
                              idx=(0, 0))
 
-    snapshots = Plotter(2, 3, figsize=(15.0, 7.0), title='Diffraction through the gap')
+    snapshots = Plotter(2, 4, figsize=(18.0, 6.4), title='Diffraction through the gap')
     for panel, i in enumerate(shown):
-        snapshots.plot(mesh, u_values[i], mode='colored', idx=divmod(panel, 3),
-                       title=f't={t_values[i]:.2f}', clim=clim, colorbar=panel == 5,
+        snapshots.plot(mesh, u_values[i], mode='colored', idx=divmod(panel, 4),
+                       title=f't={t_values[i]:.2f}', clim=clim, colorbar=panel == 7,
                        cmap='RdBu_r', label='height')
+
 
     return DemoResult([
         Figure(animation, 'Newmark time integration of the front.', 'animation'),
         Figure(snapshots,
-               'The front reflects off the breakwater and passes the gap, where it '
-               'spreads into the harbor as a circular wave centred on the opening, lower '
-               'than the front that made it. Later frames show that wave reflecting off '
-               'the harbor walls and the reflected front returning on the open side.',
+               'The front reaches the breakwater, reflects off the wall, and passes the '
+               'gap, where it spreads into the harbor as a circular wave centred on the '
+               'opening, lower than the front that made it. The last frames show that wave '
+               'reflecting off the harbor walls while the reflected front returns on the '
+               'open side.',
                'snapshots'),
         Figure(setup,
                'A basin with a breakwater across it, open on the left and sheltered on the '
