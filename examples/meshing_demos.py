@@ -186,7 +186,7 @@ def demo_outline_to_mesh(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0
 
 DEMOS = [
     # Builds its own outlines, so it takes no domain.
-    Demo('outline_to_mesh', demo_outline_to_mesh, section='Meshing a domain',
+    Demo('outline_to_mesh', demo_outline_to_mesh, section='Meshing & solving PDEs',
          smoke_kwargs={'svg_tolerance': 0.005, 'max_area_fraction': 0.04}),
     # Builds its own two meshes (a structured grid and a Ruppert's mesh), so it takes no domain.
 ]

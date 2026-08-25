@@ -1507,7 +1507,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
     ], text=text)
 
 
-SOLVING = 'Solving PDEs'
+SOLVING = 'Meshing & solving PDEs'
 SOLIDS = 'Solids & structures'
 ACCURACY = 'Accuracy & performance'
 

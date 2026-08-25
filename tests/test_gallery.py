@@ -65,14 +65,14 @@ def _registry():
     small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     return {
         'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
-                        section='Solving PDEs'),
+                        section='Meshing & solving PDEs'),
         'topopt': Demo('topopt', partial(solver_demos.demo_topology_optimization, iters=2),
                        domain=small, section='Solids & structures'),
         'backends': Demo('backends', partial(demo_backends, sizes=(5,)),
                          section='Accuracy & performance'),
         'text_only': Demo('text_only', _text_only, section='Accuracy & performance'),
         'absent': Demo('absent', solver_demos.demo_poisson_equation, domain=small,
-                       section='Solving PDEs',
+                       section='Meshing & solving PDEs',
                        smoke_requires='a_module_that_is_not_installed'),
         'pipeline': Demo('pipeline', partial(_two_figures, nominate=True), domain=small,
                          section='Solids & structures'),
@@ -102,7 +102,7 @@ def test_parallel_build_renders_every_demo(tmp_path):
     small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     registry = {
         'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
-                        section='Solving PDEs'),
+                        section='Meshing & solving PDEs'),
         'l2_projection': Demo('l2_projection', solver_demos.demo_l2_projection, domain=small,
                               section='Accuracy & performance'),
     }
@@ -219,7 +219,7 @@ def test_index_is_grouped_by_section_not_alphabetically(gallery):
     out, _entries = gallery
     index = (out / 'index.html').read_text(encoding='utf-8')
     headings = re.findall(r'<h2 class="heading">([^<]+)</h2>', index)
-    assert headings == ['Solving PDEs', 'Solids &amp; structures',
+    assert headings == ['Meshing &amp; solving PDEs', 'Solids &amp; structures',
                         'Accuracy &amp; performance', 'Other demos']
     assert index.index('poisson.html') < index.index('topopt.html')
 

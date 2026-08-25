@@ -41,8 +41,7 @@ FRAMES_PER_PLAYER = 20
 # names its own section (`Demo.section`); this is the order they appear in, and within
 # a section demos keep the order they were registered in.
 SECTIONS: list[str] = [
-    'Meshing a domain',
-    'Solving PDEs',
+    'Meshing & solving PDEs',
     'Solids & structures',
     'Accuracy & performance',
 ]
