@@ -69,11 +69,11 @@ lengthen, since a long fin runs cold toward the tip.
 ### Wave equation
 
 The wave equation, $\partial^2 u / \partial t^2 = c^2 \nabla^2 u$, is second order in
-time and is integrated with Newmark's average-acceleration method. A pulse released
-from rest spreads out, reflects off the free boundary the same way up, and interferes
-with itself.
+time and is integrated with Newmark's average-acceleration method. Below, a wave
+front meets a harbor breakwater: it reflects off the wall and passes the gap, where it
+spreads into the sheltered water as a circular wave centred on the opening.
 
-<p align="center"><img src="images/wave.png" height="400" alt="Wave reflection and interference, second half of the run"></p>
+<p align="center"><img src="images/wave.png" width="780" alt="A wave front diffracting through a breakwater gap"></p>
 
 ## Solids & structures
 
@@ -174,7 +174,9 @@ plays the SIMP iterations frame by frame, from an even grey to the black-and-whi
 
 Against exactly known (manufactured) solutions, P1 elements are second order in space
 (halve $h$, quarter the error) for both a scalar unknown and a coupled vector one. In
-time, backward Euler is first order and Crank-Nicolson second. Every rate here also
+time, backward Euler is first order and Crank-Nicolson second. How the load is built
+matters too: sampling the source at the quadrature points instead of reading it at
+the vertices keeps the rate and improves the constant about 3x. Every rate here also
 runs as an assertion in the test suite.
 
 <p align="center"><img src="images/convergence.png" width="780" alt="Convergence rates in space and time"></p>
@@ -192,8 +194,9 @@ carries an analytic curve (a `Circle` or `Arc`), an `IsoparametricTriangleElemen
 places its edge-midpoint node on the true curve, so the element's boundary edge
 follows the curve instead of cutting a chord. Meshing carries the curve through, so
 Ruppert's split points and red-green refinement project onto it and a circular hole
-stays round under refinement. On an annulus the meshed area then converges at the
-element's own order rather than the polygonal $O(h^2)$.
+stays round under refinement. The meshed area then converges at the element's own
+order rather than the polygonal $O(h^2)$; the hole-in-plate and bracket demos above
+run on these elements.
 
 ### Adaptive refinement
 

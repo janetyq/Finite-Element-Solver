@@ -295,3 +295,20 @@ def gear_pslg(teeth: int = 12, root_radius: float = 0.7, tooth_height: float = 0
                             center[1] + bore_radius * np.sin(bore_angles)])
     return PSLG.from_loops([np.array(outline), bore],
                            curves=[None, Circle(list(center), bore_radius)])
+
+
+def harbor_pslg(length: float = 6.0, width: float = 4.0, wall_x: float = 2.5,
+                wall_thickness: float = 0.15, gap: float = 1.2) -> PSLG:
+    """A rectangular basin crossed by a breakwater with one gap, as a single loop.
+
+    Open water lies left of the wall at `wall_x`, the sheltered harbor to its right. The
+    two wall arms grow inward from the top and bottom edges, leaving `gap` open at
+    mid-width.
+    """
+    x0, x1 = wall_x, wall_x + wall_thickness
+    y0, y1 = (width - gap) / 2, (width + gap) / 2
+    outline = np.array([
+        [0.0, 0.0], [x0, 0.0], [x0, y0], [x1, y0], [x1, 0.0], [length, 0.0],
+        [length, width], [x1, width], [x1, y1], [x0, y1], [x0, width], [0.0, width],
+    ])
+    return PSLG.from_loops([outline])

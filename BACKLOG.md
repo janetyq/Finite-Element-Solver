@@ -20,6 +20,7 @@ Effort: 🟢 low · 🟡 medium · 🔴 high.
 | Post-proc | Transient derived fields (steady flux/stress recovery shipped) | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Design | Lazy plot / `pyamg` imports | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Demos | Stress-driven design beside compliance-driven; a motivated goal-oriented refinement demo | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
 
@@ -79,7 +80,7 @@ Two approaches measured and rejected, so they are not proposed again:
   point), `Circle` / `Arc` curves carried through `PSLG` -> `RuppertsAlgorithm` ->
   `Mesh.boundary_curves`, boundary-node projection in `p2_connectivity`, curvature-aware Ruppert and
   red-green refinement, a curved `MassForm`, P2-aware plotting (`FunctionSpace.tessellation` through
-  `Plotter.plot(..., space=...)`, with the `curved_elements` gallery demo), SVG cubic Beziers
+  `Plotter.plot(..., space=...)`), SVG cubic Beziers
   retained as `CubicBezier` curves through `read_svg_to_pslg` (adaptive flatness sampling, tag-aware
   Douglas-Peucker), and validation (`tests/test_convergence_curved.py` area fidelity and the P2 rate;
   `tests/test_curved_meshing.py` the pipeline and the Kirsch stress concentration; `tests/test_svg.py`
@@ -87,7 +88,7 @@ Two approaches measured and rejected, so they are not proposed again:
   curve serialization** (a saved mesh currently drops its curves) are the remaining gaps. `files/cloud.svg`
   now meshes and solves in the `outline_to_mesh` demo, so its Bezier boundary carries through the pipeline
   there; a dedicated *close-up* contrasting the curved boundary against its chord polygon (the isoparametric
-  payoff) still belongs beside `curved_elements`, unbuilt. Quadratic Beziers (degree-elevate to cubic) and
+  payoff) is unbuilt. Quadratic Beziers (degree-elevate to cubic) and
   elliptical arcs (`EllipseArc`) are unbuilt but unused by the bundled assets.
 - 💡 **Mixed (u-p) formulation, to remove volumetric locking near nu -> 0.5.** The linear triangle
   has one constant strain per element, which cannot represent deviatoric and volumetric deformation
@@ -222,6 +223,19 @@ gap is the transient path.
   loadable by standard tools.
 
 ---
+
+### Demos
+
+- 💡 **Stress-driven design beside compliance-driven.** `DesignOptimizer` takes any
+  `QuantityOfInterest` and `SoftMaxStress` exists, so the same beam optimized once for stiffness and
+  once for peak stress, side by side, would show why the two are not the same design. The OC update
+  assumes a monotone sensitivity, which a stress objective does not guarantee, so this may need the
+  `scipy.optimize` engine above before it converges cleanly.
+- 💡 **A motivated goal-oriented refinement demo.** The estimator is built and tested but has no
+  gallery demo; a point value of Poisson on a square did not make the case. It needs a problem whose
+  goal is sensitive somewhere other than where the solution is rough, such as a cantilever with a
+  hole in its web and the tip deflection as the goal: the global estimator spends its budget on the
+  hole's stress concentration, the goal-oriented one on the root and the load path.
 
 ## Suggested Priority Order
 

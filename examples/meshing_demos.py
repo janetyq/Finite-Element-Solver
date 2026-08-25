@@ -10,21 +10,20 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 from matplotlib.widgets import Slider
 
 from fem.boundary import BoundaryConditions, BCType
-from fem.equations import LinearElastic, Poisson
+from fem.equations import Poisson
 from fem.geometry import calculate_triangle_min_angle
 from fem.plot.plotter import Plotter
 from fem.plot.helpers import plot_mesh
 from fem.mesh.ruppert import RuppertsAlgorithm
-from fem.mesh.svg import PSLG, read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker
-from fem.regions import everywhere, on_plane
+from fem.mesh.svg import read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker
+from fem.regions import everywhere
 from fem.solver import Solver
 
 from demo_registry import Demo, DemoResult, Figure
-from domains import beam, gear_pslg, star_pslg
+from domains import gear_pslg, star_pslg
 
 # Resolved against the repo, so a demo does not depend on where it was launched from.
 DEFAULT_SVG_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'california.svg')
@@ -33,70 +32,6 @@ CLOUD_SVG_FILE = str(Path(__file__).resolve().parents[1] / 'files' / 'cloud.svg'
 # Douglas-Peucker: drop points that deviate less than this fraction of the curve's
 # bounding-box extent. Ruppert's cost grows steeply in point count.
 DEFAULT_SIMPLIFICATION_TOLERANCE = 0.005
-
-def demo_regions(length=4.0, height=1.0, n_structured=60, min_angle=30,
-                 max_area_fraction=0.0009, E=200.0, nu=0.3, traction=0.5):
-    """One cantilever solved on two unrelated meshes with the same position-based
-    boundary conditions."""
-    # The clamp and the load are written once against coordinates, so the same two
-    # lines select the same physical edges on any triangulation of the beam; a vertex
-    # index would mean nothing after a remesh. The load covers a whole edge rather than
-    # a sub-patch, so its resultant is the same on both meshes.
-    clamped = on_plane(0, 0.0)
-    loaded = on_plane(0, length)
-
-    def make_bc():
-        bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, clamped, [0, 0])         # clamp the left edge
-        bc.add(BCType.NEUMANN, loaded, [0, -traction])    # pull the right edge down
-        return bc
-
-    pslg = PSLG.from_loops([np.array([[0.0, 0.0], [length, 0.0],
-                                      [length, height], [0.0, height]])])
-    pslg.validate()
-    meshes = [
-        ('structured grid', beam(length, height, n_structured)),
-        ("Ruppert's mesh", RuppertsAlgorithm(pslg, min_angle=min_angle,
-                                             max_area=max_area_fraction * pslg.area()).refine()),
-    ]
-    solutions = [Solver(m, LinearElastic(E, nu), make_bc()).solve() for _, m in meshes]
-    disp = [np.linalg.norm(s.u.reshape(-1, 2), axis=1) for s in solutions]
-    tips = [float(d.max()) for d in disp]
-    clim = (0.0, max(tips))
-
-    # Two rows: the bare meshes with the selected regions on top, the deformed solves below.
-    resolved = Plotter(2, 2, title='One specification, two meshes, the same solve',
-                       axis_labels=False, figsize=(11.0, 5.6))
-    for col, ((name, m), s, d, tip) in enumerate(zip(meshes, solutions, disp, tips)):
-        resolved.plot(m, mode='mesh', idx=(0, col), title=f'{name}: {len(m.elements)} triangles')
-        resolved.plot_highlights(
-            m, [np.flatnonzero(clamped(m.vertices)), np.flatnonzero(loaded(m.vertices))],
-            ['red', 'lime'], ['', ''], idx=(0, col))
-        resolved.plot(s.deformed_mesh(), d, mode='colored', idx=(1, col),
-                      label='displacement |u|', clim=clim, title=f'tip |u| = {tip:.3f}')
-    legend_handles = [
-        Line2D([], [], marker='o', linestyle='', color='red', markersize=6,
-               label='on_plane: clamped edge'),
-        Line2D([], [], marker='o', linestyle='', color='lime', markersize=6,
-               label='on_plane: loaded edge'),
-    ]
-    resolved.fig.legend(handles=legend_handles, loc='outside lower center', ncol=2,
-                        frameon=False)
-
-    spread = 100 * abs(tips[1] - tips[0]) / tips[1]
-    return DemoResult([
-        Figure(resolved,
-               'One cantilever, clamped on the left edge and pulled down along the right, '
-               'solved on two unrelated triangulations of the same beam: a structured grid '
-               f"({len(meshes[0][1].elements)} triangles) and an unstructured Ruppert's mesh "
-               f"({len(meshes[1][1].elements)}), numbered nothing alike. Top: the clamp (red) "
-               'and load (green), placed by position rather than by vertex index, land on the '
-               'same physical edges on each mesh. Bottom: they drive the same solve, the tip '
-               f'deflections agreeing to within {spread:.1f}%. This is what lets a condition '
-               'be written once and survive remeshing, including adaptive refinement.'),
-    ], text=(f'structured grid   {len(meshes[0][1].elements):>5} triangles, tip |u| = {tips[0]:.4f}\n'
-             f"Ruppert's mesh    {len(meshes[1][1].elements):>5} triangles, tip |u| = {tips[1]:.4f}\n"
-             f'difference        {spread:.1f}%'))
 
 def get_curve_from_svg(svg_file):
     output = read_svg_to_list_of_path_points(svg_file)
@@ -254,6 +189,4 @@ DEMOS = [
     Demo('outline_to_mesh', demo_outline_to_mesh, section='Meshing a domain',
          smoke_kwargs={'svg_tolerance': 0.005, 'max_area_fraction': 0.04}),
     # Builds its own two meshes (a structured grid and a Ruppert's mesh), so it takes no domain.
-    Demo('regions', demo_regions, section='Meshing a domain',
-         smoke_kwargs={'n_structured': 6, 'max_area_fraction': 0.05}),
 ]
