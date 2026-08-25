@@ -495,9 +495,11 @@ class FunctionSpace:
     def element_gradient(self, e_idx: int, u_element: FloatArray) -> FloatArray:
         '''Gradient of a field over one element, from its nodal values.
 
-        At the first quadrature point, constant over the element for P1.
+        The element mean over the rule, as `gradient`; constant over the element for P1.
         '''
-        return self.geometry.grad_phi[e_idx, 0].T @ u_element
+        w = self.geometry.weight_detJ[e_idx]
+        grad_phi = np.einsum('q,qni->ni', w / w.sum(), self.geometry.grad_phi[e_idx])
+        return grad_phi.T @ u_element
 
     # -- integrals ----------------------------------------------------------
 
@@ -522,10 +524,29 @@ class FunctionSpace:
     def gradient(self, u: VertexField) -> FloatArray:
         '''(n_elements, spatial_dim) gradient of a nodal field, one value per element.
 
-        Taken at the first quadrature point; constant per element for P1, which is
-        why it is an element field.
+        The volume-weighted mean over the element's rule: the exact constant for P1,
+        and the centroid value of a straight P2 element's linear gradient.
         '''
-        return self.geometry.gradients(u[self.element_nodes])[:, 0]
+        geometry = self.geometry
+        weights = geometry.weight_detJ / geometry.weight_detJ.sum(axis=1, keepdims=True)
+        return np.einsum('eq,eqi->ei', weights, geometry.gradients(u[self.element_nodes]))
+
+    def nodal_gradient(self, u: VertexField, method: str = 'average') -> VertexField:
+        '''(n_nodes, spatial_dim) continuous gradient of a nodal field.
+
+        `'average'` evaluates each element's gradient at its own nodes and volume-averages
+        the elements sharing a node; `'l2'` projects the gradient sampled at quadrature
+        points onto the nodal space. Both read a P2 gradient's variation within the
+        element, so a boundary node gets the boundary value rather than an interior one.
+        For P1 both agree with `recover_nodal(gradient(u), method)`.
+        '''
+        u_elements = np.asarray(u)[self.element_nodes]
+        if method == 'average':
+            return self.average_to_nodal(self.geometry_at_nodes.gradients(u_elements))
+        if method == 'l2':
+            geometry = self.geometry_at(2 * self.element_type.SHAPE_DEGREE)
+            return self.project_to_nodal(geometry.gradients(u_elements), geometry)
+        raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
 
     def element_field_hessian(self, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, spatial, spatial[, n_components]) physical Hessian of a field.

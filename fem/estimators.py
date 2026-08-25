@@ -143,6 +143,14 @@ class ResidualEstimator:
         mesh, space = solver.mesh, solver.space
         if mesh.spatial_dim != 2:
             raise NotImplementedError('the residual error estimator needs face normals (2D only)')
+        if space.element_type.GEOMETRY_DEGREE > 1:
+            # The interior term's divergence comes from `element_field_hessian`, which is
+            # exact only on straight elements; a curved Jacobian adds a first-derivative
+            # term it omits. Refuse rather than report a silently wrong indicator.
+            raise NotImplementedError(
+                f'the residual error estimator is straight-sided only; '
+                f'{space.element_type.__name__} is curved. Use recovery_estimator.'
+            )
 
         ctx = _solved(solver)                    # raises if the solver has not solved
         flux = self.flux.evaluate(ctx.solution)  # (n_el, k, d)
