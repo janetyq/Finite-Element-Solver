@@ -118,9 +118,8 @@ def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     (P2) elements, so the recovered flow speed is smooth without a very fine mesh."""
     # An ideal (incompressible, irrotational) flow has a velocity potential phi with
     # v = grad(phi) and div(v) = 0, so phi solves Laplace's equation. The wing carries no
-    # flow through it, which is exactly the natural (zero-flux) condition of the weak
-    # form: say nothing on its surface and it becomes a streamline the flow parts around.
-    # A potential difference across the channel drives the flow; the walls are no-flux too.
+    # flow through it, the natural (zero-flux) condition of the weak form: say nothing
+    # on its surface and it becomes a streamline the flow parts around.
     pslg = airfoil_channel_pslg(length, height, chord, angle_of_attack, n_points=n_points)
     pslg.validate()
     mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
@@ -129,20 +128,16 @@ def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     equation = Poisson(source=0)   # Laplace: no sources in the flow
     bc = BoundaryConditions()
     # phi rises from inlet to outlet, so v = grad(phi) runs left to right. The wing and
-    # the walls take no condition, which is the no-flux streamline that makes this a flow
-    # *over* the wing rather than through it.
+    # the walls take no condition, so they are no-flux streamlines.
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)      # inlet (left)
     bc.add(BCType.DIRICHLET, on_plane(0, length), 1.0)   # outlet (right)
 
     solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
     solution = solver.solve()
-    # v = grad(phi). The per-element gradient is constant on each triangle; nodal_flux
-    # recovers a continuous per-node field from it, which the P2 tessellation then draws
-    # smoothly, so the speed reads as a field rather than a mosaic of flat triangles.
+    # v = grad(phi), read at the nodes so the P2 tessellation draws it smoothly.
     speed = np.linalg.norm(solution.nodal_flux(), axis=1)   # (n_nodes,)
-    # Ideal flow with no Kutta condition predicts a near-singular velocity where the
-    # airfoil edges are sharp, which would swamp the colour scale. Clip it to a high
-    # percentile so the flow over the wing, the point of the figure, stays legible.
+    # Ideal flow with no Kutta condition predicts a near-singular velocity at the sharp
+    # edges; clip it to a high percentile so the flow over the wing stays legible.
     cap = float(np.percentile(speed, 96))
 
     conditions = Plotter(panel_aspect=1.8)
@@ -216,17 +211,14 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
                      step_counts=(16, 32, 64, 128)):
     """Measure the solver's own error against exactly known solutions, and read off the
     convergence rates in space and in time (Method of Manufactured Solutions)."""
-    # The one demo that does not show what the solver computed, but how wrong it was.
-    # Every other figure here is checked by eye; these are the claims that survive
-    # being looked at properly, and they are the two the discretization makes:
+    # The one demo that shows not what the solver computed but how wrong it was:
     #
     #   in space  P1 elements are O(h^2) (halve h, quarter the error) for a scalar
     #             unknown and for a coupled vector one alike;
     #   in time   the theta method's order is theta's to choose: 1 at backward Euler,
-    #             2 at Crank-Nicolson, which is the default.
+    #             2 at Crank-Nicolson, the default.
     #
-    # All of it runs as assertions in tests/test_convergence{,_elasticity,_heat}.py;
-    # this draws the same studies rather than a second implementation of them.
+    # The same studies run as assertions in tests/test_convergence{,_elasticity,_heat}.py.
     solves = poisson_convergence(resolutions)
     poisson_study = ConvergenceStudy.from_solves(solves)
     elastic_study = ConvergenceStudy.from_solves(elastic_convergence(elastic_resolutions))
@@ -265,9 +257,9 @@ def demo_convergence(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 3
                 'where the solution is pinned exactly, deepest at the centre where the '
                 'piecewise-linear space has the most to miss. Middle: halving h quarters '
                 'that error, for a scalar unknown and for a coupled vector one alike. '
-                'Right: the same measurement against the time step instead, where the '
-                'order is not a property of the elements but a choice: backward Euler '
-                'buys first order, Crank-Nicolson second, for the same cost per step.')],
+                'Right: the same measurement against the time step, where the order is '
+                'a choice: backward Euler is first order, Crank-Nicolson second, for the '
+                'same cost per step.')],
         text='\n'.join(rows),
     )
 
@@ -305,8 +297,7 @@ def demo_higher_order(resolutions=(11, 21, 41, 81)):
     return DemoResult(
         [Figure(plotter,
                 'Left: on the same meshes, halving h quarters the P1 error (order 2) but '
-                'divides the P2 error by eight (order 3): the steeper line is the whole '
-                'point of a higher-order element. Right: the same errors against the '
+                'divides the P2 error by eight (order 3). Right: the same errors against the '
                 'number of unknowns. P2 spends more DOFs per element, yet reaches a given '
                 'accuracy well to the left of P1, so it is the cheaper choice where the '
                 'solution is smooth.')],
@@ -362,12 +353,9 @@ def demo_curved_elements(coarse_n=4, resolutions=(3, 5, 9, 17)):
                 clim=clim, label='u', title='Isoparametric P2: the rim is the true circle')
     plot_mesh(figure.get_ax((0, 1)), coarse, color='0.6', linewidth=0.4, space=sp_curved)
 
-    # The geometry behind the picture: the polygon's area is wrong by O(h^2), the curved
-    # rim's by the element's own O(h^3). This is where straight and curved separate
-    # cleanly and honestly. On this smooth Dirichlet solve the solution's own L2 error
-    # does not floor visibly (the domain-perturbation error stays subdominant here), so
-    # the panel measures the geometry directly rather than claiming a rate gap that this
-    # problem does not show.
+    # The polygon's area is wrong by O(h^2), the curved rim's by the element's own O(h^3).
+    # On this smooth Dirichlet solve the solution's own L2 error does not floor visibly,
+    # so the panel measures the geometry directly.
     straight_area = _annulus_area_study(QuadraticTriangleElement, resolutions)
     curved_area = _annulus_area_study(IsoparametricTriangleElement, resolutions)
     rate = figure.chart_ax(idx=(0, 2), xlabel='h', ylabel='domain area error')
@@ -492,31 +480,18 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     """Take a plate with a hole from an outline through meshing, boundary conditions and
     adaptive refinement to the stress concentration at its rim, measured against
     Kirsch's factor of 3 and the finite-width value it approaches."""
-    # The one demo that runs the whole pipeline, and so the only one that builds its own
-    # mesh instead of being handed one: what the outline was, what Ruppert's was asked
-    # for, and where the conditions went are each part of what this is showing, and a
-    # domain factory would put all three somewhere the gallery page does not print.
+    # The one demo that runs the whole pipeline, so it builds its own mesh: the outline,
+    # what Ruppert's was asked for, and where the conditions went are part of what it
+    # shows. The conditions are written against coordinates, so they resolve against
+    # whatever triangulation arrives, including the ones adaptive refinement rebuilds.
     #
-    # A domain with a hole in it has no structured triangulation, so this is a generated
-    # mesh going straight into the solver. Nothing downstream of the meshing knows that:
-    # the conditions are written against coordinates rather than vertex numbers, so they
-    # resolve against whatever triangulation arrives, including the one adaptive
-    # refinement (below) rebuilds several times over.
-    #
-    # The hole is only a coarse 16-gon here, and that is enough: `plate_with_hole_pslg`
-    # tags the hole loop with a `Circle`, so Ruppert's split points and the adaptive
-    # red-green refinement below project onto the true rim rather than subdividing chords,
-    # and the isoparametric element's edge nodes sit on the circle too. The hole gets
-    # rounder as the mesh gets finer, instead of freezing into whatever polygon the
-    # initial sampling drew.
+    # The hole is a coarse 16-gon, which is enough: `plate_with_hole_pslg` tags the hole
+    # loop with a `Circle`, so Ruppert's split points, red-green refinement, and the
+    # isoparametric element's edge nodes all land on the true rim.
     pslg = plate_with_hole_pslg(length, height, radius, segments=circle_segments)
     pslg.validate()
-    # Deliberately coarse: the angle bound constrains element shape and says nothing
-    # about size, and this area cap is generous rather than tight, because resolving
-    # the rim is adaptive refinement's job below, not this uniform pass's. The rim still
-    # grades finer than the interior even here, since the polygonalised rim is built
-    # from short input segments and Ruppert's honours them; adaptive refinement starts
-    # from that head start rather than from scratch.
+    # Deliberately coarse: resolving the rim is adaptive refinement's job below. The rim
+    # still grades finer than the interior, since Ruppert's honours its short segments.
     rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=max_area_fraction * pslg.area())
     mesh = rupperts.refine()
@@ -524,33 +499,23 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     initial_worst_angle = calculate_triangle_min_angle(
         np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
 
-    # The rim takes no condition at all, and that is the point: a free surface is the
-    # natural boundary condition of the weak form, so "traction-free" is what an edge
-    # means when nothing is said about it. The conditions panel draws it, rather than
-    # leaving a reader to notice an absence.
+    # The rim takes no condition: a free surface is the natural boundary condition of
+    # the weak form, so "traction-free" is what an edge means when nothing is said.
     #
-    # The left edge is a roller, not a clamp: pinned normal to itself (x = 0) so the
-    # plate cannot drift, free tangentially (y) so it can still narrow as it stretches
-    # -- the Poisson contraction a real clamp would resist. That resistance is itself a
-    # local disturbance with nothing to do with the hole, and it used to compete with
-    # the hole for the adaptive-refinement estimator's attention (see below). A roller
-    # cannot be built from one `add` alone: pinning y anywhere along the edge would
-    # resist the same contraction a clamp does, so a second condition pins y at just
-    # the one corner point the two conditions share, removing the last rigid-body mode
-    # without adding back what the roller exists to avoid.
+    # The left edge is a roller, not a clamp: pinned normal to itself (x = 0), free
+    # tangentially (y) so the plate can narrow as it stretches. A clamp would resist
+    # that Poisson contraction and add its own stress concentration, which competes with
+    # the hole for the estimator's attention. Pinning y along the edge would do the same,
+    # so a second condition pins y at one corner only, removing the last rigid-body mode.
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, None])
     bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0])
     bc.add(BCType.NEUMANN, on_plane(0, length), [traction, 0])
 
-    # Solved on the curved quadratic element, and adaptively refined by the recovery
-    # estimator (recovery_estimator, from fem.estimators), which reads the curved rim's
-    # stress correctly. The loop replaces the uniform mesh above with one built by
-    # repeatedly re-solving and splitting wherever the estimator finds the most error:
-    # everything the rest of this demo plots and measures is read off the result of
-    # this loop, not off the coarse mesh it started from. Because the rim splits
-    # project onto the true circle, more refinement keeps rounding the hole rather
-    # than subdividing a fixed polygon, so the budget is the only ceiling.
+    # Solved on the curved quadratic element and adaptively refined by the recovery
+    # estimator, which reads the curved rim's stress correctly. Everything plotted and
+    # measured below is read off the refined mesh. The rim splits project onto the true
+    # circle, so more refinement keeps rounding the hole.
     equation = LinearElastic(E=200, nu=0.3)
     solver = Solver(mesh, equation, bc, element_type=IsoparametricTriangleElement)
     solution = AdaptiveRefinement(
@@ -558,17 +523,14 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
         max_triangles=n_initial + refinement_budget, max_iters=refinement_iters,
     ).run()
     mesh = solver.mesh
-    # The stress at the nodes, each element evaluated at its own nodes and averaged
-    # where they meet. A P2 stress varies within the element, and this reads it on the
-    # rim itself rather than at an interior sample point near it.
+    # The stress at the nodes: each element evaluated at its own nodes and averaged
+    # where they meet, so the rim value is read on the rim itself.
     nodes = solution.space.node_coords
     sigma_xx = solution.nodal_stress()[:, 0, 0]
 
     # A vertical strip through the hole's centre: the line the concentration decays
-    # along, from the rim out to the far field. The geometry is known here rather than
-    # measured back off the mesh, which building the domain in the demo buys. The rim
-    # crossings are nodes of the mesh (the 16-gon has a vertex at the top and bottom of
-    # the hole, and refinement keeps it), so the peak is the value at those two nodes.
+    # along. The rim crossings are mesh nodes (the 16-gon has a vertex at the top and
+    # bottom of the hole, and refinement keeps it), so the peak is the value there.
     strip = np.abs(nodes[:, 0] - length/2) < 0.25*radius
     order = np.argsort(nodes[strip, 1])
     y_strip, ratio_strip = nodes[strip, 1][order], (sigma_xx[strip] / traction)[order]
@@ -589,33 +551,24 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     hole_over_width = 2*radius / height
     finite_kt = _finite_plate_kt(hole_over_width)
 
-    # One figure, three plots: the whole pipeline in a row. The first plot folds the mesh,
-    # its input outline, and the conditions together, since a 2:1 plate at this zoom has
-    # room for all three; the second is the stress it drives; the third is the chart. The
-    # plate panels sit at 2:1 and the chart takes the third cell at whatever shape is left.
+    # One figure, three plots: mesh with outline and conditions, the stress, the chart.
     figure = Plotter(1, 3, figsize=(14.0, 3.6),
                      title='From an outline to a stress concentration')
     figure.plot(mesh, mode='bc', bc=bc, idx=(0, 0),
                 title=f'{len(mesh.elements)} triangles (refined from {n_initial}), '
                       'with conditions')
     ax0 = figure.get_ax((0, 0))
-    # The triangulation under the conditions, so the panel shows the mesh the solve ran
-    # on (and how finely refinement graded the rim) rather than only the outline. Thin
-    # and grey, below the glyphs, which keep their own zorder and still read over it.
+    # The triangulation under the conditions: thin and grey, below the glyphs.
     ax0.triplot(mesh.vertices[:, 0], mesh.vertices[:, 1], mesh.elements,
                 color='0.55', linewidth=0.2, zorder=1.5)
-    # The input segments over the triangulation: which of the outline the mesher kept and
-    # which it split. Fixed PSLG data, so it overlays the refined mesh as validly as the
-    # coarse one it started from.
+    # The input segments over the triangulation: which of the outline the mesher kept.
     ax0.add_collection(LineCollection(
         rupperts.vertices[rupperts.segments], colors='blue', linewidths=1.0, zorder=2.0))
-    # Passing the solution draws the P2 field on its own tessellation, with the rim
-    # following the true circle, rather than flattening it to one value per triangle.
+    # Passing the solution draws the P2 field on its own tessellation, rim and all.
     figure.plot(solution, sigma_xx, mode='colored', idx=(0, 1), label='sigma_xx',
                 title='Stress concentration (sigma_xx)')
     ax = figure.chart_ax(idx=(0, 2), xlabel='y', ylabel='sigma_xx / applied')
-    # Drawn as two runs, below the hole and above it. One run joins them straight
-    # across the gap, which reads as a stress the hole does not have.
+    # Two runs, below the hole and above it, so nothing is drawn across the gap.
     below = y_strip < height/2
     ax.plot(y_strip[below], ratio_strip[below], 'o-', color='tab:blue', markersize=2,
             label='through the hole centre')
@@ -626,21 +579,16 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     ax.axhline(1.0, color='gray', linestyle=':', label='far field')
     ax.set_title(f'Peak {peak:.2f}x the applied stress')
     ax.grid(alpha=0.3)
-    # Beside the peak, over the flat far field, where it hides nothing.
+    # Over the flat far field, where the legend hides nothing.
     ax.legend(loc='center left', fontsize='small')
 
-    # Ruppert's own quality guarantee does not survive: `min_angle` bounds what
-    # RuppertsAlgorithm builds, but red-green refinement bisects existing triangles
-    # rather than re-triangulating for shape, so it is not a Delaunay construction and
-    # carries no angle guarantee of its own. Worth reporting rather than hiding:
-    # `tests/test_refinement_conformity.py` covers that the mesh stays conforming
-    # through this, not that it stays well-shaped.
+    # Ruppert's angle guarantee does not survive red-green refinement, which bisects
+    # existing triangles rather than re-triangulating for shape; reported rather than
+    # hidden.
     worst_angle = calculate_triangle_min_angle(
         np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min()
-    # rupperts.boundary_loops describes the initial triangulation's boundary facets,
-    # not the refined mesh's; adaptive refinement does not carry it forward (see
-    # BACKLOG.md), so this counts the rim facets Ruppert's produced, before refinement
-    # added more of its own.
+    # rupperts.boundary_loops describes the initial triangulation, not the refined mesh
+    # (see BACKLOG.md), so this counts the rim facets before refinement.
     rim_facets = int(np.sum(rupperts.boundary_loops == 1))
     return DemoResult(
         [Figure(figure,
@@ -648,8 +596,8 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
                 f'grown from {n_initial} triangles to {len(mesh.elements)} by putting '
                 f'elements where the recovery estimator found the most error, with the '
                 f'input outline in blue and the conditions drawn on it; the rim and long '
-                f'edges carry none, which is not an omission but the natural (traction-'
-                f'free) condition of the weak form. Middle: the stress sigma_xx on curved '
+                f'edges carry none, the natural (traction-free) condition of the weak '
+                f'form. Middle: the stress sigma_xx on curved '
                 f'quadratic elements, crowding into the material either side of the hole '
                 f'and relaxing to the applied value within about a diameter. Right: that '
                 f'stress along a strip through the hole centre, read at the nodes, peaking '
@@ -684,12 +632,9 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     the filleted one on `IsoparametricTriangleElement` so the arc is a true circle rather than
     a polygon. The recovery estimator drives refinement (it reads the curved fillet's flux
     correctly), and the peak is read from the recovered nodal von Mises."""
-    # The re-entrant corner is where the two limbs meet. There the exact elastic stress
-    # is genuinely infinite (it grows like r^(-0.46) into the corner), so no mesh
-    # resolves it: refine and the computed peak just keeps climbing. Rounding the corner
-    # with a fillet removes the singularity, and the peak settles on a real number. The
-    # demo shows both halves: the fields side by side, and the corner peak against mesh
-    # size for each, one curve climbing and one levelling off.
+    # At the re-entrant corner the exact elastic stress is infinite (it grows like
+    # r^(-0.46) into the corner), so no mesh resolves it and the computed peak keeps
+    # climbing under refinement. A fillet removes the singularity and the peak settles.
     equation = LinearElastic(E, nu)
     corner = np.array([width, width])
 
@@ -700,10 +645,8 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
         return bc
 
     def corner_peak(solution):
-        # The von Mises peak near the inner corner alone, kept clear of the clamp's own
-        # concentration at the far top so the comparison is about the corner. Read from the
-        # L2-recovered nodal field (recover-then-reduce), the same smooth field the panels
-        # draw, so the tracked peak and the plotted colour agree.
+        # The von Mises peak near the inner corner, clear of the clamp's own concentration
+        # at the top. Read from the same L2-recovered nodal field the panels draw.
         space = solution.space
         nodal_vm = solution.nodal_von_mises(method='l2')
         near = np.linalg.norm(space.node_coords - corner, axis=1) < 0.8 * width
@@ -712,11 +655,9 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     def refine_and_track(fillet, element_type):
         """Adaptively refine one bracket, recording the corner peak each round.
 
-        The refinement loop is `AdaptiveRefinement`'s, unrolled here so the corner peak
-        can be read off every intermediate mesh rather than only the last: the sequence
-        of peaks is the point, not just the final field. `element_type` is the straight
-        quadratic triangle for the sharp corner and the isoparametric one for the fillet,
-        so the arc stays a true circle through refinement.
+        `AdaptiveRefinement`'s loop, unrolled so the corner peak can be read off every
+        intermediate mesh. `element_type` is the straight quadratic triangle for the
+        sharp corner and the isoparametric one for the fillet.
         """
         pslg = l_bracket_pslg(arm, width, fillet_radius=fillet, n_fillet=20)
         pslg.validate()
@@ -745,21 +686,16 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     conditions = Plotter(panel_aspect=1.0)
     conditions.plot(sharp_mesh, mode='bc', bc=make_bc())
 
-    # Independent colour scales: the sharp peak dwarfs the filleted one, so a shared scale
-    # would wash the fillet's own concentration to a single flat colour. The titles carry
-    # the numbers the comparison rests on.
+    # Independent colour scales: the sharp peak would wash the fillet's to a flat colour.
     fields = Plotter(1, 2, title='An L-bracket under a tip load')
     for i, (name, mesh, solution, peaks) in enumerate((
             ('Sharp corner', sharp_mesh, sharp, sharp_peaks),
             (f'Fillet r = {fillet_radius:g}', round_mesh, rounded, round_peaks))):
-        # P2-aware render: passing the solution pulls its space (the tessellation), the
-        # L2-recovered nodal von Mises is the smooth field, and warp=True draws it on the
-        # deformed shape.
+        # Passing the solution draws the P2 field on its tessellation; warp=True deforms it.
         fields.plot(solution, solution.nodal_von_mises(method='l2'), mode='colored',
                     idx=(0, i), warp=True, label='von Mises stress',
                     title=f'{name}\n{len(mesh.elements)} elements, corner peak {peaks[-1]:.0f}')
-        # Clamp and tip-load glyphs read off the undeformed mesh, drawn at the deformed
-        # vertex positions so the load follows the tip it pulls on.
+        # Support glyphs at the deformed vertex positions, so the load follows the tip.
         deformed_vertices = mesh.vertices + solution.u.reshape(-1, 2)[:len(mesh.vertices)]
         fields.overlay_supports(mesh, make_bc(), idx=(0, i), coords=deformed_vertices)
 
@@ -769,8 +705,7 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     ax.semilogx(round_sizes, round_peaks, 'o-', color='tab:blue',
                 label=f'fillet r = {fillet_radius:g} (converges)')
     ax.set_title('Sharp corner keeps climbing; the fillet settles')
-    # The element counts span well under a decade, where a log axis crowds itself with
-    # minor labels (1.1x10^3, 1.2x10^3, ...); label a few round values across the range.
+    # The element counts span under a decade, where a log axis crowds its minor labels.
     ax.grid(True, which='both', alpha=0.3)
     sizes_all = np.concatenate([sharp_sizes, round_sizes])
     mantissas = np.array([1, 1.2, 1.5, 1.8, 2, 2.5, 3, 4, 5, 7])
@@ -795,8 +730,7 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
                'corner. The sharp corner is a true stress singularity, so its peak climbs '
                'without bound and never converges: the "stress" there is a property of the '
                'mesh, not of the part. The fillet removes the singularity, and its peak '
-               'settles on a finite value. This is the whole reason real parts round their '
-               'inner corners.',
+               'settles on a finite value. This is why real parts round their inner corners.',
                'singularity'),
         Figure(conditions,
                'The upright limb is clamped at the top; a downward traction pulls the '
@@ -813,27 +747,18 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
 def demo_elasticity_models(mesh, stretch=0.5):
     """Stretch one clamped block three ways: a linear solve, the same physics by energy
     minimisation, and finite strain."""
-    # One setup, three paths, and the two comparisons worth making sit side by side.
+    # Panels 1 and 2 are the same physics reached two ways: solving K u = f, and Newton
+    # on the elastic energy that system is the stationary point of. Their displacements
+    # agree to machine precision (printed below). Their stress does not, since the two
+    # recover different measures: sigma = D:eps against the true Cauchy stress J^-1 P F^T
+    # at the deformed configuration, which agree only to O(||grad u||).
     #
-    # Panels 1 and 2 are the same physics reached differently: assembling and solving
-    # K u = f, against driving Newton on the elastic energy whose stationary point that
-    # system is. The displacements come out identical to machine precision, which
-    # says the energy path is wired up right, and the demo prints the difference
-    # rather than asserting it.
-    #
-    # Their stress is not identical, and that is not a discrepancy: the two recover
-    # different measures. `LinearElasticForm` reports sigma = D:eps; `EnergyForm`
-    # reports the true Cauchy stress J^-1 P F^T at the deformed configuration. Those
-    # agree only to O(||grad u||) (see EnergyForm.derived_fields), and a 50% stretch
-    # is nowhere near that limit.
-    #
-    # Panel 3 changes the physics rather than the solve. The small-strain measure
-    # eps = (grad u + grad u^T)/2 is only the leading term of S = (F^T F - I)/2; under a
-    # uniaxial stretch lambda the two read (lambda - 1) and (lambda^2 - 1)/2, so the
-    # finite-strain model stiffens as the stretch grows and the linear one cannot.
+    # Panel 3 changes the physics: the small-strain eps is the leading term of the
+    # Green-Lagrange S = (F^T F - I)/2, so the finite-strain model stiffens as the
+    # stretch grows and the linear one cannot.
     #
     # The stress peak sits at the clamped corners, where the imposed displacement is
-    # singular, so the median is quoted beside it as the bulk figure.
+    # singular, so the median is quoted beside it.
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
@@ -872,8 +797,7 @@ def demo_elasticity_models(mesh, stretch=0.5):
                 'small strain cannot.',
                 'stress'),
          Figure(conditions,
-                'Both ends are Dirichlet, and the difference between them is the whole '
-                'problem: the left is held at zero, the right is displaced to '
+                'Both ends are Dirichlet: the left is held at zero, the right is displaced to '
                 f'{stretch:.0%} of the width. Nothing is loaded; the stress above is '
                 'what it costs to hold that shape.',
                 'conditions', setup=True)],
@@ -979,9 +903,8 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     measure how much better it dissipates than a solid block, and check the fins against
     beam theory."""
     # The heat equation is Poisson's operator integrated in time (see fem.problem.heat).
-    # The shape earns its keep: a square plate has nowhere for the heat to go, so only its
-    # contrast fades; a heatsink conducts heat up its fins and sheds it, which is a shape
-    # worth measuring. The mesh is built here because it is part of what the demo says.
+    # A heatsink conducts heat up its fins and sheds it, so the shape is worth measuring;
+    # the mesh is built here because it is part of what the demo says.
     pslg = heatsink_pslg()
     pslg.validate()
     target_area = max_area_fraction * pslg.area()
@@ -995,9 +918,8 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
 
     # -- the transient: warm the sink from a cold start --------------------------------
     # The bottom face is held hot (a chip beneath the base); every other surface is a
-    # convective film, du/dn + kappa*(u - u_ambient) = 0, so a fin sheds heat and cools
-    # toward its tip. A cold start at ambient makes the run a warm-up: the base energizes
-    # at the first step and the front climbs the fins to a steady gradient.
+    # convective film, du/dn + kappa*(u - u_ambient) = 0. A cold start at ambient makes
+    # the run a warm-up, the front climbing the fins to a steady gradient.
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), u_hot)
     bc.add_robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
@@ -1050,10 +972,9 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
                     label='temperature',
                     title=f'Base held at {u_hot:.0f}: finned\nsheds Q = {q_fin:.0f}  '
                           f'({effectiveness:.1f}x on {metal_ratio:.2f}x the metal)')
-    # Mark only the base, and off the coloured field so nothing clashes with the warm
-    # colormap: upward arrows below the base for the Neumann heat flux (fixed-power row), a
-    # bar for the held Dirichlet base (fixed-temperature row). The Robin film is every
-    # other surface, named in the legend rather than traced over the fins.
+    # Mark only the base, below the field: arrows for the Neumann flux (fixed-power row),
+    # a bar for the held Dirichlet base (fixed-temperature row). The Robin film is every
+    # other surface, named in the legend.
     for idx, kind in (((0, 0), 'flux'), ((0, 1), 'flux'), ((1, 0), 'held'), ((1, 1), 'held')):
         _mark_base(comparison.get_ax(idx), width, kind)
         comparison.get_ax(idx).tick_params(left=False, bottom=False,
@@ -1114,8 +1035,7 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
                f'only {u_fin_p.max()-u_ambient:.0f} C, roughly halving the thermal resistance '
                f'(R {r_block:.2f} -> {r_fin:.2f}). Bottom, each base held at {u_hot:.0f}: the '
                f'finned sink sheds {effectiveness:.1f}x the heat, on {metal_ratio:.2f}x the '
-               'metal, because the fins trade material for surface area. This is why '
-               'heatsinks have fins instead of being solid.',
+               'metal, because the fins trade material for surface area.',
                'comparison', thumbnail=True),
         Figure(snapshots,
                'The same finned sink warming from a cold start, the transient heat equation '
@@ -1154,9 +1074,8 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     u_initial = bump_function(mesh.vertices, wave_center, size=0.25*min(w, h))
     dudt_initial = np.zeros(len(mesh.vertices))
 
-    # Empty, so the edges are free rather than pinned. It is the difference the
-    # snapshots are of: a free edge reflects a pulse back the same way up, where a
-    # clamped one would invert it.
+    # Empty, so the edges are free: a free edge reflects a pulse back the same way up,
+    # where a clamped one would invert it.
     bc = BoundaryConditions()
 
     solution = NewmarkMethod(dt=0.03, steps=40).run(wave(mesh, c=1, bc=bc),
@@ -1164,10 +1083,8 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     u_values = solution.u
     t_values = solution.t
 
-    # Newmark is second order in time, so it is posed by two initial conditions, not one.
-    # Both are drawn: the velocity is identically zero, and a panel of nothing is what
-    # says the membrane starts at rest, which is why the pulse spreads outwards in
-    # every direction rather than travelling in one.
+    # Newmark is second order in time, so it is posed by two initial conditions. Both
+    # are drawn: the zero velocity is what says the membrane starts at rest.
     setup = Plotter(1, 3)
     setup.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
     setup.plot(mesh, u_initial, mode='colored', idx=(0, 1), label='displacement',
@@ -1179,15 +1096,9 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
     animation.plot_animation(mesh, u_values, mode='surface',
                              titles=[f'Surface t={t:.2f}' for t in t_values], idx=(0, 0))
 
-    # Snapshots from the second half of the run, once the pulse has reflected off the
-    # boundary and started interfering with itself. One grid, rather than the window
-    # per frame this used to open.
-    # Shared z limits, so the six are the same membrane seen at six times rather than
-    # six differently-scaled drawings: autoscaled, a pulse that has spread out is drawn
-    # to the same height as the one that has not. Spanned over the frames shown and not
-    # the whole run: the tallest thing here is the initial pulse before it disperses,
-    # which none of these panels contains, and scaling to it drew every one of them at
-    # about a third of its axis.
+    # Snapshots from the second half of the run, once the pulse has reflected and
+    # started interfering with itself. Shared z limits over the frames shown (not the
+    # whole run, whose initial pulse is far taller), so the six are comparable.
     shown = [int(i) for i in np.linspace(len(u_values)//2, len(u_values) - 1, 6)]
     span = (min(float(u_values[i].min()) for i in shown),
             max(float(u_values[i].max()) for i in shown))
@@ -1203,8 +1114,8 @@ def demo_wave_equation(mesh):  # TODO: Wave energy not fully implemented
                'off the boundary and begun interfering with itself.', 'snapshots'),
         Figure(setup,
                'A pulse released from rest on a membrane whose edges carry the natural '
-               'condition, du/dn = 0. That is a free edge rather than a clamped one, '
-               'which is why the pulse reflects the same way up instead of inverted.',
+               'condition, du/dn = 0. That is a free edge, so the pulse reflects the same '
+               'way up instead of inverted.',
                'conditions', setup=True),
     ])
 
@@ -1217,9 +1128,8 @@ def demo_linear_elastic(mesh, n_3d=14):
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    # Transverse, so the beam bends: an axial pull is much the same solve on any domain,
-    # where a tip load is what makes a cantilever one. Sized for a tip deflection near 9%
-    # of the span, well inside the small-strain regime the solver assumes.
+    # Transverse, so the beam bends. Sized for a tip deflection near 9% of the span,
+    # inside the small-strain regime.
     bc.add(BCType.NEUMANN,
            intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])),
            [0, -0.5])
@@ -1227,10 +1137,9 @@ def demo_linear_elastic(mesh, n_3d=14):
     deformed = solution.deformed_mesh()
 
     # -- 3D: the same clamp-and-load, one dimension up ---------------------------------
-    # The same assembly and element hierarchy, Solver reading the tetrahedron off the
-    # connectivity. An AMG-preconditioned CG solve rather than a direct factorization,
-    # where a 3D elastic system's fill-in starts to hurt. Only the boundary surface is
-    # drawn: there are several times more tets than surface triangles.
+    # The same assembly, Solver reading the tetrahedron off the connectivity. AMG-CG
+    # rather than a direct factorization, whose fill-in hurts in 3D. Only the boundary
+    # surface is drawn.
     box = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]],
                           resolution=(4 * n_3d // 2, n_3d // 2, n_3d // 2))
     bc_3d = BoundaryConditions()
@@ -1245,9 +1154,8 @@ def demo_linear_elastic(mesh, n_3d=14):
     fields.plot(solution_3d.deformed_mesh(), solution_3d.von_mises, mode='solid', idx=(0, 1),
                 label='von Mises stress', title=f'3D: {len(box.elements)} tetrahedra')
 
-    # The same stress tensor admits other rotation-invariant reductions besides von Mises:
-    # mean normal stress, the Tresca measure, and the largest tensile principal value.
-    # Each is its own question asked of one solve, not a different problem.
+    # Other rotation-invariant reductions of the same stress tensor: mean normal stress,
+    # the Tresca measure, and the largest tensile principal value.
     invariant_fields = [
         ('Von Mises', solution.von_mises),
         ('Pressure', solution.pressure),
@@ -1274,10 +1182,9 @@ def demo_linear_elastic(mesh, n_3d=14):
                'tensile principal value.',
                'invariants'),
         Figure(conditions,
-               'Clamped along the left edge, pulled down over the middle of the right one. '
-               'Everything between is traction-free, which is what makes this a cantilever '
-               'rather than a beam being squeezed. The 3D solve imposes the same clamp and '
-               'tip load, one dimension up.',
+               'Clamped along the left edge, pulled down over the middle of the right one; '
+               'everything between is traction-free. The 3D solve imposes the same clamp '
+               'and tip load, one dimension up.',
                'conditions', setup=True),
     ], text=(f'2D triangles           {len(mesh.elements)}\n'
              f'3D tetrahedra          {len(box.elements)}\n'
@@ -1298,15 +1205,13 @@ def demo_topology_optimization(mesh, iters=60):
     bottom, top = on_plane(1, 0.0), on_plane(1, h)
     bc.add(BCType.DIRICHLET, intersect(bottom, in_box([None, None], [0.04 * w, None])), [0, 0])
     bc.add(BCType.DIRICHLET, intersect(bottom, in_box([0.96 * w, None], [None, None])), [None, 0])
-    # A load over the central fifth of the top rather than a single point: wide enough to
-    # land on a boundary edge on any mesh (a point between two nodes carries no traction),
-    # so the demo also runs on the tiny mesh the gallery smoke-tests it with.
+    # A load over the central fifth of the top rather than a point, so it lands on a
+    # boundary edge on any mesh, including the tiny smoke-test one.
     bc.add(BCType.NEUMANN, intersect(top, in_box([0.4 * w, None], [0.6 * w, None])), [0, -0.5])
 
     equation = LinearElastic(E, nu)
 
-    # The solid block first: 100% material, the stiffest this domain and load admit, and
-    # the baseline the optimized structure is measured against.
+    # The solid block first: 100% material, the baseline the optimized one is measured against.
     solid = Solver(mesh, equation, bc).solve()
     compliance_solid = float(solid.compliance.sum())
     solid_disp = np.linalg.norm(solid.u.reshape(-1, 2), axis=1)
@@ -1319,8 +1224,7 @@ def demo_topology_optimization(mesh, iters=60):
     compliance_opt = float(history.compliance[-1].sum())
     ratio = compliance_opt / compliance_solid
 
-    # Explicit figsize rather than panel_aspect: two 4:1 panels stacked, sized so each
-    # fills its row instead of floating above the aspect helper's minimum panel height.
+    # Explicit figsize: two 4:1 panels stacked, each filling its row.
     comparison = Plotter(2, 1, figsize=(6.5, 4.6),
                          title='Half the material, comparable stiffness')
     comparison.plot(solid.deformed_mesh(), solid_disp, mode='colored', idx=(0, 0), label='|u|',
@@ -1371,8 +1275,8 @@ def demo_design_sensitivity(mesh, iters=40):
     # supports, so the compliance adjoint is the forward solve itself (lambda = u).
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
-    # A load band over the central third of the free edge rather than a point: wide enough
-    # to land on a boundary edge on any mesh, so the demo also runs on the coarse smoke one.
+    # A load band over the central third of the free edge, so it lands on a boundary
+    # edge on any mesh.
     bc.add(BCType.NEUMANN, intersect(on_plane(0, w), in_box([None, 0.33 * h], [None, 0.67 * h])),
            [0.0, -1.0])
 
@@ -1425,8 +1329,8 @@ def demo_design_sensitivity(mesh, iters=40):
                'before any optimization. Top: how much each element affects the total '
                'compliance, the stiffness of the whole structure. Bottom: how much each '
                'element affects the tip deflection specifically. The two light up '
-               'different regions, which is the point of the adjoint: one solve answers '
-               '"which inputs matter for this output", and the output can be anything.',
+               'different regions: one adjoint solve answers "which inputs matter for '
+               'this output", and the output can be anything.',
                'sensitivity'),
         Figure(result,
                'The cantilever optimized to minimum compliance under a 50% volume budget '
@@ -1457,12 +1361,10 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                   sweep_lengths=(16.0, 20.0, 28.0, 40.0)):
     """Find the loads at which a slender column buckles and the shapes it buckles into,
     checked against Euler three ways: mode shapes, end conditions, and the 1/L^2 law."""
-    # Buckling is an eigenproblem, not a K u = b solve: a reference load puts the column
-    # under a prestress, and BucklingSolver assembles the geometric stiffness K_g from it
-    # and solves K phi = -lambda K_g phi. The load factor lambda multiplies the reference
-    # load to reach the buckling load. Quadratic (P2) elements throughout: the
-    # constant-strain triangle locks in bending and would need a mesh refined hard through
-    # the thickness to reach Euler, where P2 matches it on this coarse one.
+    # Buckling is an eigenproblem: a reference load puts the column under a prestress,
+    # BucklingSolver assembles the geometric stiffness K_g from it and solves
+    # K phi = -lambda K_g phi, and lambda multiplies the reference load. P2 elements
+    # throughout: the constant-strain triangle locks in bending.
     E, nu = 200.0, 0.3
     E_star = E / (1 - nu**2)     # plane-strain effective modulus, the one bending sees
     moment = height**3 / 12      # second moment of area of the rectangular section
@@ -1483,12 +1385,10 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
         return solution, solution.load_factors * axial
 
     # The four classic end conditions. What sets an end's effective-length factor is
-    # whether it can rotate, and in a continuum that is the axial DOF: a traction-loaded
-    # edge (u_y free) rotates (a pin or a free end) while an imposed uniform axial
-    # displacement (u_y fixed) cannot (a clamp). u_x = 0 along a whole edge holds the end
-    # transversely without touching its rotation, which is a pin rather than a point load.
-    # The column stands along y, so the ends are at y = 0 and y = span and the load pushes
-    # down the axis in -y.
+    # whether it can rotate: a traction-loaded edge (u_y free) rotates (a pin or a free
+    # end), an imposed uniform axial displacement (u_y fixed) cannot (a clamp). u_x = 0
+    # along an edge holds it transversely without touching its rotation. The column
+    # stands along y, so the ends are at y = 0 and y = span and the load pushes in -y.
     def cantilever(span):   # fixed-free, K = 2
         bc = BoundaryConditions()
         bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
@@ -1532,8 +1432,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
         return solution.mode_mesh(i, scale), scale * transverse
 
     # -- 1. Mode shapes of a pinned column: the buckling analogue of vibration modes ----
-    # Upright columns in a row, so the half-waves of successive modes sit side by side, with
-    # one glyph-and-colour key below all of them (fig.supxlabel) rather than per panel.
+    # Upright columns in a row, with one glyph-and-colour key below all of them.
     pinned_solution, pinned_loads = solve_buckling(mesh, pinned(length), length)
     pinned_bc = pinned(length)
     modes = Plotter(1, n_modes, figsize=(3.2 * n_modes, 6.0), axis_labels=False,
@@ -1545,8 +1444,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                          f'({i+1} half-wave{"s" if i else ""})')
         # The pin/load glyphs, on the deformed shape so the load rides the moving end.
         modes.overlay_supports(mesh, pinned_bc, idx=(0, i), coords=shape.vertices)
-        # Drop the x ticks: on these tall, thin columns the labels only collide, and the
-        # y axis already carries the scale (as on the modal modes plot).
+        # Drop the x ticks: on these tall, thin columns the labels only collide.
         modes.get_ax((0, i)).tick_params(axis='x', labelbottom=False, bottom=False)
     _share_panel_limits(modes, n_modes)
     modes.fig.supxlabel(
@@ -1632,9 +1530,9 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                'clamp in a solid adding a little Saint-Venant stiffening an ideal beam has none of.',
                'end_conditions'),
         Figure(laws,
-               'Euler\'s column formula (1744) is the exact buckling load of an ideal slender '
-               'elastic column, P_cr = pi^2 E* I / (K L)^2, the analytic truth this whole '
-               'demo checks against. Left: sweeping the length of a pinned column, the critical '
+               'Euler\'s column formula (1744) gives the buckling load of an ideal slender '
+               'elastic column, P_cr = pi^2 E* I / (K L)^2. Left: sweeping the length of a '
+               'pinned column, the critical '
                'load falls as 1/L^2 (a slope of -2 on log-log) and lands on it, with '
                'E* = E/(1-nu^2) the plane-strain modulus a 2D solve sees. Right: the '
                'effective-length factor K read back from each end condition\'s buckling load, '
@@ -1644,8 +1542,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                'A pinned-pinned column: both ends held across their width (u_y = 0) so they '
                'stay in line but can still rotate, one point anchoring the axial slide, and a '
                'compressive traction on the right. The transverse support and the axial load '
-               'share the loaded edge (a roller carrying a tangential traction) which the '
-               'buckling column is the case that first needs.',
+               'share the loaded edge, a roller carrying a tangential traction.',
                'conditions', setup=True),
     ], text=text)
 
@@ -1655,10 +1552,8 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
                n_frames=24):
     """Find the natural frequencies and mode shapes of a steel tuning fork, meshed from
     its own outline and checked against beam theory."""
-    # Real SI steel, so the frequencies come out in Hz a musician would recognise: this is
-    # the one demo that names a pitch, and the abstract E=200 the others use would not land
-    # on 440. E* = E/(1-nu^2) is the plane-strain modulus a 2D solve sees, the same
-    # effective modulus the buckling demo's bending uses.
+    # Real SI steel, so the frequencies come out in Hz a musician would recognise.
+    # E* = E/(1-nu^2) is the plane-strain modulus a 2D solve sees.
     E, NU, RHO = 2.0e11, 0.3, 7850.0             # Young's (Pa), Poisson, density (kg/m^3)
     E_STAR = E / (1 - NU**2)
     BETA1_SQ = 1.875104**2                        # first fixed-free beam root, squared
@@ -1677,9 +1572,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         """Mesh a fork of tine length `length` from its outline, and solve its modes."""
         pslg = tuning_fork_pslg(tine_length=length, tine_thickness=tine_thickness)
         pslg.validate()
-        # Element size is set by resolving the thin tine, not the fork's overall extent:
-        # bending curves across the tine, and too few elements there under-resolve the
-        # very mode the demo is about.
+        # Element size is set by resolving the thin tine: bending curves across it.
         mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=0.5*(tine_thickness/across)**2).refine()
         solution = ModalSolver(mesh, LinearElastic(E, NU), clamp(), n_modes=modes,
@@ -1727,9 +1620,8 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         shape, colour = mode_shape(i)
         lim = float(np.abs(colour).max())
         tag = '  (the voice)' if i == voice else ''
-        # No colorbar: the colour is qualitative (its amplitude is arbitrary), and one
-        # shared caption below names it. The symmetric clim keeps the diverging map
-        # centred on zero so the still tine reads white in every panel.
+        # No colorbar: the amplitude is arbitrary, and one caption below names the colour.
+        # The symmetric clim keeps the still tine white in every panel.
         modes.plot(shape, colour, mode='colored', idx=(0, i), cmap='coolwarm',
                    clim=(-lim, lim), colorbar=False, title=f'Mode {i+1}: {freqs[i]:.0f} Hz{tag}')
         modes.overlay_supports(mesh, clamp(), idx=(0, i), coords=shape.vertices)
@@ -1752,9 +1644,8 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
     swing.plot_animation(mesh, [colour]*n_frames, mode='colored', meshes=frames,
                          cmap='coolwarm', cbar_lims=(-lim, lim), label='sideways motion',
                          titles=['']*n_frames)
-    # Say plainly what the animation is: not a dynamics simulation, but the mode's own
-    # exact solution evaluated frame by frame. A standing-wave mode separates into a fixed
-    # shape times cos(omega t), so no time-stepping is needed, and none is done here.
+    # Not a dynamics simulation: a standing-wave mode is a fixed shape times cos(omega t),
+    # evaluated frame by frame.
     swing.fig.supxlabel(
         "Not a time-stepped simulation: this is the mode's exact\n"
         'motion phi cos(omega t), one undamped, idealized mode\n'
@@ -1825,8 +1716,8 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
                'The voice mode as motion rather than a frozen shape: phi cos(omega t), the '
                'tines flexing apart and together at the natural frequency. Any free '
                'vibration is a sum of the modes, each ringing at its own rate; struck, a '
-               'fork sheds the others and settles onto this one, which is why it sounds a '
-               'single clean tone.',
+               'fork sheds the others and settles onto this one, so it sounds a single '
+               'clean tone.',
                'swing'),
         Figure(law,
                'Left: the fork is a pair of clamped-free tines, so beam theory sets its '
@@ -1840,10 +1731,9 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         Figure(built,
                'The fork is one non-convex outline (stem, base, two tines with a slot) '
                'meshed by Ruppert\'s algorithm, with no structured grid. It is held only at '
-               'the stem base: that Dirichlet clamp grounds the structure (a free body has '
-               'rigid-body modes the shift-invert eigensolve cannot factor through) and is '
-               'exactly where a fork is held: the one place that does not damp the voice, '
-               'since the stem barely moves in it.',
+               'the stem base: that clamp grounds the structure (a free body has rigid-body '
+               'modes the shift-invert eigensolve cannot factor through) and is where a fork '
+               'is held, the one place that does not damp the voice.',
                'built', setup=True),
     ], text=text)
 
@@ -1892,8 +1782,8 @@ def demo_goal_oriented_refinement(resolution=14, target=(0.72, 0.72), max_triang
         return solver.mesh
 
     goal_mesh = refined(lambda solver, qoi: goal_oriented_estimator(equation, qoi))
-    # The global recovery estimator ignores the goal, so it takes the QoI only to share
-    # the closure signature; refinement follows the whole-domain error instead.
+    # The global recovery estimator ignores the goal; it takes the QoI only to share the
+    # closure signature.
     global_mesh = refined(lambda solver, qoi: recovery_estimator(equation))
 
     comparison = Plotter(1, 2, figsize=(7.4, 3.9),
@@ -1914,7 +1804,7 @@ def demo_goal_oriented_refinement(resolution=14, target=(0.72, 0.72), max_triang
                'for the solution value at the marked point (crimson), packing triangles '
                'around it and the region that most influences it, and leaving the rest '
                'coarse. The dual (adjoint) solution is the influence function of that '
-               'point value, and weighting the residual by it is what steers the mesh.',
+               'point value, and weighting the residual by it steers the mesh.',
                'comparison'),
     ], text=(f'global estimator refined to        {len(global_mesh.elements)} triangles\n'
              f'goal-oriented estimator refined to {len(goal_mesh.elements)} triangles'))
@@ -1926,87 +1816,58 @@ ACCURACY = 'Accuracy & performance'
 
 DEMOS = [
     Demo('poisson', demo_poisson_equation, section=SOLVING, domain=partial(square, 80)),
-    # Builds its own heatsink and a solid-block baseline (the shape is part of what it
-    # shows), so it takes no domain. The smoke run loosens the size cap, takes a few steps,
-    # and sweeps only two fin lengths for the efficiency check.
+    # Builds its own heatsink and a solid-block baseline, so it takes no domain.
     Demo('heat', demo_heat_equation, section=SOLVING,
          smoke_kwargs={'max_area_fraction': 0.03, 'steps': 4, 'fin_lengths': (0.8, 2.0)}),
     Demo('heat_3d', demo_heat_3d, section=SOLVING, smoke_kwargs={'steps': 3, 'n': 5}),
     Demo('wave', demo_wave_equation, section=SOLVING, domain=square),
-    # Builds its own airfoil-in-a-channel from the NACA formula (the meshing is part of
-    # what it shows), so it takes no domain. The smoke run loosens the size cap and
-    # coarsens the airfoil, which together are all of its cost.
+    # Builds its own airfoil-in-a-channel from the NACA formula, so it takes no domain.
     Demo('potential_flow', demo_potential_flow, section=SOLVING,
          smoke_kwargs={'n_points': 40, 'max_area_fraction': 0.02}),
 
-    # The 2D cantilever whose domain this is, plus a 3D one the demo builds for itself.
-    # The smoke run coarsens only that box, where the tet count sets the cost.
+    # The 2D cantilever whose domain this is, plus a 3D box the demo builds for itself.
     Demo('linear_elastic', demo_linear_elastic, section=SOLIDS,
          domain=partial(beam, 4.0, 1.0, 140), smoke_kwargs={'n_3d': 6}),
-    # Stretched end to end, so the domain is incidental; a square keeps the deformed
-    # and undeformed shapes comparable at a glance.
+    # A square keeps the deformed and undeformed shapes comparable at a glance.
     Demo('elasticity_models', demo_elasticity_models, section=SOLIDS,
          domain=partial(square, 60)),
-    # Builds its own domain rather than taking one, because the meshing is part of what
-    # it shows: the pipeline demo, from an outline through to a stress. The smoke run
-    # loosens the size cap and shortens the adaptive-refinement loop, which together are
-    # where all of its cost is; refinement_iters/_budget aren't reachable through
-    # max_area_fraction alone, since they're independent knobs on top of it.
+    # The pipeline demo builds its own domain, from an outline through to a stress.
     Demo('stress_concentration', demo_stress_concentration, section=SOLIDS,
          smoke_kwargs={'max_area_fraction': 0.05, 'refinement_iters': 3, 'refinement_budget': 200}),
-    # Builds its own L-brackets (sharp and filleted) from outlines, so it takes no
-    # domain. Its cost is the two adaptive-refinement chains, so the smoke run coarsens
-    # the mesh and takes only a couple of rounds.
+    # Builds its own L-brackets (sharp and filleted) from outlines, so it takes no domain.
     Demo('bracket', demo_bracket, section=SOLIDS,
          smoke_kwargs={'max_area_fraction': 0.08, 'n_rounds': 2}),
-    # Builds its own columns (several lengths for the slenderness sweep, plus the four
-    # end conditions) so it takes no domain. The smoke run shrinks the mesh and the
-    # sweep, which together are all of its cost (each case is a small eigensolve).
+    # Builds its own columns (several lengths, four end conditions), so it takes no domain.
     Demo('buckling', demo_buckling, section=SOLIDS,
          smoke_kwargs={'n_length': 12, 'n_across': 4, 'n_modes': 2,
                        'sweep_lengths': (12.0, 18.0)}),
-    # Builds its own fork from an outline, so it takes no domain. Its cost is the eigen-
-    # solves (the main one plus the tuning-law sweep) and the animation frames, so the
-    # smoke run coarsens the mesh, shortens the sweep, and takes only a few frames.
+    # Builds its own fork from an outline, so it takes no domain.
     Demo('modal', demo_modal, section=SOLIDS,
          smoke_kwargs={'n_across_tine': 3, 'min_angle': 25, 'n_modes': 4, 'n_shown': 3,
                        'sweep_lengths': (0.088, 0.125), 'n_frames': 6}),
     # A 4:1 simply supported (MBB) beam, the aspect that optimizes into the classic arch.
-    # `smoothing_radius` is a fixed physical length setting the feature size, so the
-    # resolution resolves the same structure more finely rather than growing thinner
-    # members. The smoke run keeps the mesh but takes only a few iterations.
+    # `smoothing_radius` is a physical length, so a finer mesh resolves the same structure
+    # rather than growing thinner members.
     Demo('topology_optimization', demo_topology_optimization, section=SOLIDS,
          domain=partial(beam, 4.0, 1.0, 160), smoke_kwargs={'iters': 3}),
-    # The general design driver over the adjoint core, on a 3:1 cantilever. Leads with the
-    # sensitivity field (the adjoint's own output) before the optimized result. Smoke runs
-    # a coarse beam for a few iterations.
+    # The general design driver over the adjoint core, on a 3:1 cantilever.
     Demo('design_sensitivity', demo_design_sensitivity, section=SOLIDS,
          domain=partial(beam, 3.0, 1.0, 120), smoke_kwargs={'iters': 3}),
 
-    # Meshed deliberately coarse: the point is the resolution limit, so it runs where
-    # sin(40 r^2)'s slow inner rings still resolve but the fast outer ones alias into the
-    # triangulation. It leads the accuracy section because representation error is the
-    # floor the rest of the section measures the shrinking of.
+    # Meshed deliberately coarse, so sin(40 r^2)'s slow inner rings resolve but the fast
+    # outer ones alias into the triangulation.
     Demo('l2_projection', demo_l2_projection, section=ACCURACY, domain=partial(square, 28),
          smoke_kwargs={'reference_resolution': 60}),
-    # Builds its own sequence of meshes rather than taking a domain: the refinement
-    # sequence is the demo. The smoke run keeps the two coarsest: an order needs
-    # two points, and the 81x81 solve is most of the cost.
+    # Builds its own refinement sequence; the smoke run keeps the two coarsest meshes.
     Demo('convergence', demo_convergence, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21), 'elastic_resolutions': (9, 17),
               'step_counts': (16, 32)}),
-    # Both build their own refinement sequences rather than taking a domain (the
-    # sequence is the demo) so the smoke run keeps only the two coarsest.
     Demo('higher_order', demo_higher_order, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21)}),
-    # Builds its own coarse annulus and a convergence sequence (both are the demo), so it
-    # takes no domain; the smoke run keeps the two coarsest resolutions.
     Demo('curved_elements', demo_curved_elements, section=ACCURACY,
          smoke_kwargs={'resolutions': (3, 5)}),
     Demo('quadrature_load', demo_quadrature_load, section=ACCURACY,
          smoke_kwargs={'resolutions': (11, 21)}),
-    # Two adaptive-refinement chains (goal-oriented and global) from a coarse mesh; the
-    # smoke run keeps the mesh small and caps the triangle budget so both chains are short.
     Demo('goal_oriented_refinement', demo_goal_oriented_refinement, section=ACCURACY,
          smoke_kwargs={'resolution': 8, 'max_triangles': 200}),
 ]
