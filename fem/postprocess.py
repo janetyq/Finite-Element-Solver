@@ -1,16 +1,16 @@
 """Derived fields recovered from a solved system, and how to read them off it.
 
 A solve stores its primary field `u` and the per-element derived field its physics
-recovers (a scalar solve keeps the flux `grad u`; an elastic solve keeps the stress).
-Those per-element fields are element-constant, so they are discontinuous across element
-boundaries. Two consumers want them:
+recovers (a scalar solve keeps the flux `grad u`; an elastic solve keeps the stress), one
+value per element: exact for P1, the element mean for P2. Two consumers want more:
 
-- **Nodal recovery** turns a per-element field into one continuous value per node, the
-  volume-weighted average `FunctionSpace.recover_nodal` builds. That is the smooth field
-  nodal output and P2 plotting draw, and the Zienkiewicz-Zhu recovery the error estimator
-  measures against.
+- **Nodal recovery** gives one continuous value per node, the smooth field nodal output
+  and P2 plotting draw. It re-evaluates the field from `u` at the nodes or quadrature
+  points (`FunctionSpace.nodal_gradient`, `ElasticSolution.nodal_stress`) rather than
+  averaging the per-element values, so a P2 field's variation within the element, and
+  its boundary value, survive; `FunctionSpace.recover_nodal` is the per-element fallback.
 - **Error estimation** jumps the field across interior edges and checks its boundary
-  residual against the applied traction.
+  residual against the applied traction, sampling it at quadrature points on P2.
 
 `DerivedField` is the one equation-specific seam both share: it names which stored field
 is the recoverable flux for a given physics, and how that flux behaves on a boundary edge.
@@ -42,7 +42,7 @@ class DerivedField(Protocol):
     '''
 
     def evaluate(self, solution: FieldSolution) -> FloatArray:
-        '''(n_elements, n_components, spatial_dim) element-constant flux, read off `solution`.'''
+        '''(n_elements, n_components, spatial_dim) per-element flux, read off `solution`.'''
         ...
 
     def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:

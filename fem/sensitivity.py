@@ -153,10 +153,16 @@ class _VonMisesStress:
     region: BoolArray | None = None
 
     def _DB(self) -> FloatArray:
-        '''(n_elements, 3, N*nc): the map `u_e -> in-plane Voigt stress`, D_e B_e.'''
+        '''(n_elements, 3, N*nc): the map `u_e -> in-plane Voigt stress`, D_e B_e.
+
+        B is the volume-weighted mean over the element's rule, so the stress this
+        measures is the element mean (the centroid value on a straight P2 element),
+        the same one `ElasticSolution.stress` reports.
+        '''
         from fem.forms import strain_displacement
         geometry = self.space.geometry
-        B = strain_displacement(geometry.grad_phi[:, 0])                 # (n_el, 3, N*nc)
+        weights = geometry.weight_detJ / geometry.weight_detJ.sum(axis=1, keepdims=True)
+        B = np.einsum('eq,eqsk->esk', weights, strain_displacement(geometry.grad_phi))
         D = self.material.constitutive_matrices(geometry.reference_dim, geometry.n_elements)
         return np.einsum('est,etk->esk', D, B)
 

@@ -84,11 +84,11 @@ class FieldSolution(Solution):
 class ScalarFieldSolution(FieldSolution):
     '''A scalar field plus its recovered per-element flux `grad u` (Poisson's solution).
 
-    `flux` is the element-constant gradient the solve recovers. `nodal_flux` turns it into
-    a continuous per-node field by volume-weighted averaging, the smooth flux a P2 plot or
-    a nodal consumer wants where the per-element field is piecewise-constant.
+    `flux` is one gradient per element (the element mean). `nodal_flux` gives the
+    continuous per-node field a P2 plot or a nodal consumer wants, re-evaluated from `u`
+    at the nodes so a P2 gradient's variation within the element is kept.
     '''
-    flux: ElementField   # (n_elements, spatial_dim) element-constant grad u
+    flux: ElementField   # (n_elements, spatial_dim) per-element grad u
 
     @classmethod
     def from_solve(cls, space: 'FunctionSpace', u: DofVector) -> 'ScalarFieldSolution':
@@ -97,11 +97,11 @@ class ScalarFieldSolution(FieldSolution):
                    flux=space.gradient(u), element_type=space.element_type)
 
     def nodal_flux(self, method: str = 'average') -> FloatArray:
-        '''(n_nodes, spatial_dim) continuous flux recovered from the per-element gradient.
+        '''(n_nodes, spatial_dim) continuous flux at the nodes.
 
-        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.recover_nodal`.
+        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.nodal_gradient`.
         '''
-        return self.space.recover_nodal(self.flux, method=method)
+        return self.space.nodal_gradient(self.u, method=method)
 
 
 @dataclass(frozen=True, eq=False)

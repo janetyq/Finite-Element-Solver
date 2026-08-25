@@ -8,9 +8,11 @@ parameterization. The value is separately cross-checked against `invariants.von_
 so the measure is anchored to the recovered stress, not just self-consistent.
 """
 import numpy as np
+import pytest
 
 from fem import invariants
 from fem.boundary import BCType, BoundaryConditions
+from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.forms import LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
@@ -52,8 +54,9 @@ def _fd_dJ_du(qoi, problem, u, eps):
     return grad
 
 
-def test_mean_stress_adjoint_load_matches_finite_differences(make_unit_square):
-    space = FunctionSpace(make_unit_square(4), n_components=2)
+@pytest.mark.parametrize('element_type', [LinearTriangleElement, QuadraticTriangleElement])
+def test_mean_stress_adjoint_load_matches_finite_differences(make_unit_square, element_type):
+    space = FunctionSpace(make_unit_square(4), element_type, n_components=2)
     problem, u, material = _solved(space, nu=0.3)
     qoi = MeanStress(space, material)
 
@@ -62,8 +65,9 @@ def test_mean_stress_adjoint_load_matches_finite_differences(make_unit_square):
     )
 
 
-def test_soft_max_stress_adjoint_load_matches_finite_differences(make_unit_square):
-    space = FunctionSpace(make_unit_square(4), n_components=2)
+@pytest.mark.parametrize('element_type', [LinearTriangleElement, QuadraticTriangleElement])
+def test_soft_max_stress_adjoint_load_matches_finite_differences(make_unit_square, element_type):
+    space = FunctionSpace(make_unit_square(4), element_type, n_components=2)
     problem, u, material = _solved(space, nu=0.3)
     qoi = SoftMaxStress(space, material, p=6.0)
 
@@ -72,10 +76,12 @@ def test_soft_max_stress_adjoint_load_matches_finite_differences(make_unit_squar
     )
 
 
-def test_mean_stress_value_matches_von_mises_invariant(make_unit_square):
+@pytest.mark.parametrize('element_type', [LinearTriangleElement, QuadraticTriangleElement])
+def test_mean_stress_value_matches_von_mises_invariant(make_unit_square, element_type):
     """The measure equals the volume-weighted mean of the invariant von Mises stress
-    recovered by ElasticSolution, so it is anchored to the real stress state."""
-    space = FunctionSpace(make_unit_square(6), n_components=2)
+    recovered by ElasticSolution, so it is anchored to the real stress state. On P2 both
+    read the element-mean stress, so the same anchor holds."""
+    space = FunctionSpace(make_unit_square(6), element_type, n_components=2)
     problem, u, material = _solved(space, nu=0.3)
 
     solution = ElasticSolution.from_solve(space, u, LinearElasticForm(material))

@@ -143,3 +143,45 @@ def test_average_to_nodal_agrees_with_recover_nodal_for_an_element_constant_fiel
     np.testing.assert_allclose(space.average_to_nodal(per_node), space.recover_nodal(values))
     with pytest.raises(ValueError):
         space.average_to_nodal(values)
+
+
+# --- the scalar flux: same recipe for a Poisson gradient ---
+
+def _quadratic_scalar_solution(element_type):
+    """A `ScalarFieldSolution` whose field is a known quadratic, so its gradient is
+    exactly linear and a P2 space carries it exactly."""
+    from fem.solution import ScalarFieldSolution
+    mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
+    space = FunctionSpace(mesh, element_type)
+    x, y = space.node_coords.T
+    solution = ScalarFieldSolution.from_solve(space, x**2 + x * y - 0.5 * y**2)
+
+    def exact_gradient(points):
+        px, py = np.asarray(points).T
+        return np.column_stack([2 * px + py, px - py])
+
+    return solution, exact_gradient
+
+
+@pytest.mark.parametrize('method', ['average', 'l2'])
+def test_p2_nodal_flux_is_exact_for_a_linear_gradient(method):
+    solution, exact_gradient = _quadratic_scalar_solution(QuadraticTriangleElement)
+    np.testing.assert_allclose(solution.nodal_flux(method=method),
+                               exact_gradient(solution.space.node_coords), atol=1e-9)
+
+
+def test_p2_per_element_flux_is_the_centroid_gradient():
+    solution, exact_gradient = _quadratic_scalar_solution(QuadraticTriangleElement)
+    mesh = solution.mesh
+    centroids = mesh.vertices[mesh.elements].mean(axis=1)
+    np.testing.assert_allclose(solution.flux, exact_gradient(centroids), atol=1e-9)
+    for e in (0, len(mesh.elements) - 1):
+        u_e = solution.u[solution.space.element_nodes[e]]
+        np.testing.assert_allclose(solution.space.element_gradient(e, u_e), solution.flux[e])
+
+
+@pytest.mark.parametrize('method', ['average', 'l2'])
+def test_p1_nodal_flux_is_unchanged(method):
+    solution, _ = _quadratic_scalar_solution(LinearTriangleElement)
+    np.testing.assert_allclose(solution.nodal_flux(method=method),
+                               solution.space.recover_nodal(solution.flux, method=method))

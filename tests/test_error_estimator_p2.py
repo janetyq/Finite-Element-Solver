@@ -17,7 +17,7 @@ import pytest
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import exact_gradient, h1_seminorm_error
-from fem.elements import QuadraticTriangleElement
+from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.equations import LinearElastic, Poisson
 from fem.estimators import residual_estimator
 from fem.materials import Enu_to_Lame
@@ -228,3 +228,15 @@ def test_p2_elastic_residual_runs_end_to_end():
     eta = residual_estimator(equation).estimate(solver)
     assert eta.shape == (len(mesh.elements),)
     assert np.all(np.isfinite(eta)) and np.all(eta >= 0)
+
+
+def test_residual_estimator_refuses_curved_elements():
+    """The interior term's divergence assumes a constant Jacobian, so a curved element
+    is refused outright rather than estimated with a silently wrong Hessian."""
+    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(4, 4))
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    solver = Solver(mesh, Poisson(source=1.0), bc, element_type=IsoparametricTriangleElement)
+    solver.solve()
+    with pytest.raises(NotImplementedError, match='recovery_estimator'):
+        residual_estimator(solver.equation).estimate(solver)

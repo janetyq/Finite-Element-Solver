@@ -48,8 +48,11 @@ def test_a_poisson_solve_carries_its_flux_and_recovers_it_to_the_nodes():
 
     assert isinstance(solution, ScalarFieldSolution)
     assert solution.flux.shape == (len(mesh.elements), 2)
-    assert solution.nodal_flux().shape == (solution.space.n_nodes, 2)
-    assert np.allclose(solution.nodal_flux(), solution.space.recover_nodal(solution.flux))
+    nodal = solution.nodal_flux()
+    assert nodal.shape == (solution.space.n_nodes, 2)
+    assert np.allclose(nodal, solution.space.nodal_gradient(solution.u))
+    # Read at the nodes, not averaged from the per-element values: on P2 the two differ.
+    assert not np.allclose(nodal, solution.space.recover_nodal(solution.flux))
 
 
 def test_nodal_flux_takes_a_recovery_method():
