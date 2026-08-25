@@ -1,32 +1,22 @@
 """A-posteriori error estimators: per-element indicators over a solved system.
 
 An estimator answers "where is the discrete solution least trustworthy?" as one
-non-negative number per element, which an `AdaptiveRefinement` driver turns into a
-refinement decision. It is an operation on a solved system, not data of the PDE, so
-it lives here rather than on `Equation`: the equation only names its physics
-(`Equation.derived_field`), as it names its `operator` and `energy_density`.
+non-negative number per element, which `AdaptiveRefinement` turns into a refinement
+decision. Three are provided:
 
-Two families share one seam and one physics hook:
+- **Residual** (`ResidualEstimator`): how badly the computed field fails the PDE,
+  through an interior term (`source + div(flux)`), an interior-edge flux jump, and a
+  boundary term (applied traction minus discrete traction). Needs edge normals, so
+  2D and straight-sided only.
+- **Recovery** (`RecoveryEstimator`): Zienkiewicz-Zhu. The discrete flux is
+  discontinuous across elements; its L2 projection onto the nodal space is much
+  closer to the exact flux, so `eta_K = ||sigma* - sigma_h||_K` measures the error.
+  Dimension-general and works on curved elements.
+- **Goal-oriented** (`GoalOrientedEstimator`): the product of primal and dual
+  recovery indicators, refining toward a quantity of interest.
 
-- **Residual** (`ResidualEstimator`): measures how badly the computed field fails
-  the PDE, through an interior term (the strong residual `source + div(flux)` the
-  field leaves unbalanced), an interior-edge jump (the flux discontinuity between
-  neighbours), and a boundary term (the applied traction the discrete flux does not
-  match). A direct check of equilibrium, it needs the mesh's edge normals, so it is
-  2D-only for now. It drives P1 and P2 alike.
-
-- **Recovery** (`RecoveryEstimator`): the Zienkiewicz-Zhu idea. The discrete flux
-  is discontinuous across elements (element-constant for P1, linear within each for
-  P2). A recovered continuous flux `sigma*`, the L2 projection onto the nodal space
-  `FunctionSpace.project_to_nodal` builds from the flux sampled at quadrature points,
-  is much closer to the exact flux, so `eta_K = ||sigma* - sigma_h||_K` measures the
-  error. It reads no edge normals, so it is dimension-general (validated in 2D), and
-  sampling per point rather than per element makes it follow a P2 solution.
-
-The one equation-specific input, shared by both, is the **`DerivedField`** (`Equation.derived_field`,
-from `fem.postprocess`): which field to jump or recover (Poisson's gradient, elasticity's
-stress) and, for the residual estimator only, what the boundary residual is. Everything
-else is neutral machinery, the same `Form`/`assemble` split the rest of the package uses.
+The one equation-specific input is the `DerivedField` (`Equation.derived_field`): which
+field to jump or recover, and what its boundary residual is.
 """
 from __future__ import annotations
 
@@ -39,9 +29,7 @@ from fem.quadrature import QuadratureRule
 from fem.regions import evaluate_field
 
 # The three edge midpoints in reference coordinates, ordered opposite corner 0, 1, 2 to
-# match `element_nodes[:, 3:6]`. Sampling the flux here gives its value on each edge, the
-# per-side traction whose jump the residual estimator measures. For P1 (a constant flux)
-# any point gives the element's one value, so this reduces to the element-constant jump.
+# match `element_nodes[:, 3:6]`. The flux sampled here is each side's edge traction.
 _REFERENCE_EDGE_MIDPOINTS = np.array([[0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
 if TYPE_CHECKING:
@@ -75,11 +63,8 @@ class Solved:
 
 
 def _solved(solver: RefinableSolver) -> Solved:
-    '''Resolve `solver`'s latest solve into the view the flux hooks read.
-
-    Raises if the solver has not solved yet: the single guard both estimators lean
-    on, so `estimate` never has to narrow the solution itself.
-    '''
+    '''Resolve `solver`'s latest solve into the view the flux hooks read; raises if
+    the solver has not solved yet.'''
     solution = solver.solution
     if solution is None:
         raise ValueError('the error estimator requires a solved system')
@@ -98,12 +83,8 @@ def _solved(solver: RefinableSolver) -> Solved:
 
 @runtime_checkable
 class ErrorEstimator(Protocol):
-    '''A per-element error indicator over a solved system.
-
-    The single method `AdaptiveRefinement` drives. Residual and recovery estimators
-    implement it, and so would a future goal-oriented one, though they share no
-    internals. That is why this is the seam the driver depends on.
-    '''
+    '''A per-element error indicator over a solved system: the one method
+    `AdaptiveRefinement` drives.'''
 
     def estimate(self, solver: RefinableSolver) -> ElementField:
         '''(n_elements,) non-negative error indicator for `solver`'s latest solve.'''
@@ -122,19 +103,15 @@ class ResidualEstimator:
     `eta_K^2 = h_K^2 ||f + div(flux)||^2_K + (h_K/2) sum_edges ||[[flux.n]]||^2_e
                                            + h_K sum_(bnd edges) ||boundary residual||^2_e`
 
-    The engine owns every geometric quantity (`h_K`, the edge normals, the
-    accumulation) and delegates the physics to the `flux`: the field it jumps, its
-    divergence (the interior residual `f + div(flux)`), and the per-boundary-edge
-    residual. On P1 the flux is element-constant, so `div(flux)` is zero and the jump
-    reads one value per element; on P2 the flux varies, so the interior term carries the
-    divergence and the jump is read at the shared edge from each side.
+    The geometry (`h_K`, edge normals, accumulation) is handled here; the `flux`
+    supplies the physics: the field to jump, its divergence, and the boundary residual.
+    On P1 the flux is element-constant, so `div(flux)` is zero and the jump reads one
+    value per element; on P2 the interior term carries the divergence and the jump is
+    read at the shared edge from each side. The interior residual is read at the
+    centroid and the boundary term uses the element's per-element traction, both
+    exact on P1 and a light approximation on P2.
 
-    The interior residual is read at the element centroid, and the boundary term uses the
-    element's stored (representative) traction, both exact on P1 and a light approximation
-    on P2 where those quantities vary within the element.
-
-    2D only: the jump and boundary terms need edge normals. A 3D mesh would need face
-    normals, which the recovery estimator sidesteps entirely.
+    2D only: the jump and boundary terms need edge normals.
     '''
     flux: DerivedField
     source: FieldValue = None
@@ -159,8 +136,7 @@ class ResidualEstimator:
         n_elements = len(mesh.elements)
 
         # The strong-form interior residual `f + div(flux)`, read at the element centroid.
-        # `div(flux)` is zero for P1 (a constant flux), so this is `f` alone there; a P2
-        # flux varies, and its divergence is the term the linear estimator was missing.
+        # `div(flux)` is zero for P1 (a constant flux).
         centroids = mesh.vertices[mesh.elements].mean(axis=1)
         f = evaluate_field(self.source, centroids, space.n_components)   # (n_el, k)
         residual = f + self.flux.divergence(ctx.solution)               # (n_el, k)
@@ -175,9 +151,7 @@ class ResidualEstimator:
         is_interior = edge_elements[:, 1] >= 0
 
         # The flux each element carries on each of its edges, gathered per global edge and
-        # side. On P2 the flux varies along the edge, so a jump read at the shared edge is
-        # sharper than one between the two elements' representative values; on P1 it is the
-        # element-constant jump unchanged.
+        # side, so the jump is read at the shared edge from both neighbours.
         edge_side_flux = self._per_side_edge_flux(space, ctx.solution, edges, edge_elements)
 
         # Interior edges, all at once: the flux is continuous in the true solution but
@@ -208,8 +182,7 @@ class ResidualEstimator:
             if np.dot(midpoint - centroid, normal) < 0:
                 normal = -normal
             # A component is free where either endpoint carries a live test function;
-            # fixed at both, its traction is a reaction, not a residual. The engine owns
-            # this BC context and hands the flux the primitives it needs.
+            # fixed at both, its traction is a reaction, not a residual.
             free = ~(ctx.is_fixed[v0] & ctx.is_fixed[v1])
             g = 0.5 * (ctx.resolved.neumann_load[v0] + ctx.resolved.neumann_load[v1])
             residual2 = self.flux.boundary_residual(flux[e_bnd], normal, g, free)
@@ -226,9 +199,7 @@ class ResidualEstimator:
 
         For every element the flux is sampled at its three edge midpoints, then scattered
         into `[edge, side]` so an interior edge holds the value from both neighbours (side
-        0 is `edge_elements[:, 0]`). A boundary edge fills only side 0. The jump term reads
-        the difference of the two sides. For P1 the samples are the element-constant flux,
-        so this is the old element-to-element jump.
+        0 is `edge_elements[:, 0]`). A boundary edge fills only side 0.
         '''
         element_nodes = space.element_nodes
         n_el = len(element_nodes)
@@ -261,22 +232,16 @@ class ResidualEstimator:
 class RecoveryEstimator:
     '''Zienkiewicz-Zhu recovery estimator: `eta_K = ||sigma* - sigma_h||_K`.
 
-    The discrete flux `sigma_h` is discontinuous across elements (element-constant for
-    P1, linear within each element for P2); the recovered `sigma*` is its L2 projection
-    onto the continuous nodal space, a smooth field that, being superconvergent, stands
-    in for the unknown exact flux. Their gap, integrated over each element, estimates the
-    error.
+    The discrete flux `sigma_h` is discontinuous across elements; the recovered
+    `sigma*` is its L2 projection onto the continuous nodal space, a superconvergent
+    field that stands in for the unknown exact flux. Their gap, integrated over each
+    element, estimates the error.
 
-    Both fields are read at the same quadrature points, at a rule that resolves the
-    higher-order one: the flux is degree `p - 1` on a degree-`p` element, so the squared
-    gap is degree `2(p - 1)`, and a degree-`2p` rule integrates it (degree 2 on P1,
-    degree 4 on P2). Sampling `sigma_h` per point rather than once per element is what
-    makes the estimate follow a P2 solution's within-element variation.
-
-    Needs no edge normals, so unlike the residual estimator it is dimension-general
-    (validated in 2D). L2-projection recovery is biased at boundaries and re-entrant
-    corners; it still orders elements well enough to drive refinement, though the
-    effectivity there is looser (patch recovery would tighten it).
+    Both fields are read at the same quadrature points, at a degree-`2p` rule on a
+    degree-`p` element (the flux is degree `p - 1`, so the squared gap is `2(p - 1)`).
+    Needs no edge normals, so it is dimension-general (validated in 2D). L2-projection
+    recovery is biased at boundaries and re-entrant corners; it still orders elements
+    well enough to drive refinement, though the effectivity there is looser.
     '''
     flux: DerivedField
 
@@ -331,10 +296,8 @@ class _SolvedView:
     '''A minimal `RefinableSolver` view wrapping one solution, for the dual estimate.
 
     The recovery estimator reads only `mesh`, `space`, `boundary_conditions`, and
-    `solution` off the solver it is handed. The dual solution is not produced by a
-    `Solver`, so this packages it into that shape to reuse the estimator unchanged; the
-    `remesh` / `solve` half of the protocol is never called on an estimate and stays a
-    stub.
+    `solution` off a solver, so the dual solution is packaged into that shape;
+    `remesh` and `solve` are never called on an estimate.
     '''
     mesh: 'Mesh'
     space: FunctionSpace
@@ -353,21 +316,16 @@ class GoalOrientedEstimator:
     '''Dual-weighted-residual refinement: reduce the error in a quantity of interest.
 
     A global estimator refines wherever the solution is rough; this refines where
-    refinement most improves a *specific output* `J(u)` (a point value, a reaction, an
+    refinement most improves a specific output `J(u)` (a point value, a reaction, an
     aggregated stress). The indicator is the product of two recovery indicators,
 
         eta_K = eta_K^primal(u_h) * eta_K^dual(z_h),
 
     the standard DWR energy-norm bound on `|J(u) - J(u_h)|`: `eta^primal` measures where
     the primal solution is inaccurate, `eta^dual` where the goal is sensitive to that
-    inaccuracy, and their product marks the elements that matter for the goal. The dual
-    (adjoint) solution `z` solves `Kᵀ z = ∂J/∂u` through `SensitivityAnalysis`, the
-    influence function of the quantity of interest.
-
-    Built from the equation (for the operator and the recoverable flux) and a
-    `QuantityOfInterest` (for the goal). Uses the recovery estimator as its base, so it is
-    dimension-general and needs no edge normals; the dual solve refactors the operator
-    once per round, which the recovery estimate then reads like any other solution.
+    inaccuracy. The dual (adjoint) solution `z` solves `Kᵀ z = ∂J/∂u` through
+    `SensitivityAnalysis`. Built on the recovery estimator, so it is dimension-general;
+    the dual solve refactors the operator once per round.
     '''
     equation: Equation
     quantity_of_interest: 'QuantityOfInterest'
@@ -394,12 +352,8 @@ class GoalOrientedEstimator:
         return eta_primal * eta_dual
 
     def _package_dual(self, space: FunctionSpace, z, problem) -> FieldSolution:
-        '''Wrap the dual DOF vector in the same typed solution a forward solve would.
-
-        The recovery estimator reads the dual's flux the same way it reads the primal's,
-        so the dual must carry recovered stress (elasticity) or gradient (a scalar field),
-        exactly as `Solver` packages a forward solve.
-        '''
+        '''Wrap the dual DOF vector in the same typed solution a forward solve would,
+        so the recovery estimator can read its flux like the primal's.'''
         from fem.forms import RecoversElasticFields
         from fem.solution import ElasticSolution, ScalarFieldSolution
 

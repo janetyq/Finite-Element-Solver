@@ -1,24 +1,17 @@
 """The discrete function space: a mesh plus a choice of element and component count.
 
 A problem in FEM reads "find u in V_h such that a(u, v) = L(v) for all v in V_h".
-The package has an object for the domain (`Mesh`) and objects for the physics
-(`Equation`, the assembly routines). `FunctionSpace` is the object for V_h.
+`Mesh` is the domain, `Equation` the physics, and `FunctionSpace` is V_h. A space
+has a mesh rather than being one, so two spaces (P1 and P2, scalar and vector) can
+share one copy of the domain.
 
-It has a mesh rather than being one: a discretization is a pairing of geometry with
-an element choice and a component count, not a kind of geometry. So two spaces can
-share one domain (P1 and P2, scalar and vector) over a single copy of it.
+P1 has one DOF per vertex, linear over each element. P2 adds an edge-midpoint node
+per edge for quadratic interpolation. `n_components` is an explicit argument, so a
+mixed formulation can build spaces the equation taxonomy has no name for; the solver
+derives it from the equation one layer up.
 
-P1 is the piecewise-linear space: one DOF per vertex, linear over each element and
-continuous across element boundaries. P2 adds edge-midpoint nodes for quadratic
-interpolation. Only P1 is implemented here.
-
-`n_components` is an explicit argument rather than an `Equation`, so a mixed
-formulation can build spaces the equation taxonomy has no name for. Deriving it from
-`Equation.field` happens one layer up, in the solver.
-
-Immutability is assumed, not enforced: the cached operators are valid only while the
-mesh is not mutated underneath them. Build a new space instead of editing one, the
-same contract `ResolvedBC` has with `BoundaryConditions`.
+The cached operators are valid only while the mesh is not mutated underneath them.
+Build a new space instead of editing one.
 """
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -91,11 +84,9 @@ def element_type_for(mesh: Mesh) -> type[LinearElement]:
 class _ScatterPlan:
     '''Where a batch of element matrices lands in the global matrix.
 
-    Assembly sums each entry into the global (row, col) slot its DOFs name, so
-    elements sharing a node land together. That mapping is fixed by the connectivity,
-    not the form or geometry, so it is resolved once here. Each assembly is then a
-    weighted `bincount` into a CSR matrix whose index arrays are already built, so a
-    topology iteration can reassemble without re-sorting into CSR.
+    The (row, col) slot each entry sums into is fixed by the connectivity, so it is
+    resolved once. Each assembly is then a weighted `bincount` into a CSR matrix
+    whose index arrays are already built.
     '''
     n_entries: int      # element-matrix entries this plan expects
     order: IntArray     # sorts those entries by destination slot
@@ -149,12 +140,9 @@ class _ScatterPlan:
 class _VectorScatterPlan:
     '''Where a batch of element vectors lands in the global vector.
 
-    The vector counterpart of `_ScatterPlan`, without the CSR structure. A load or
-    residual sums its entries into the DOFs its nodes own; with a plain array as the
-    target (not a sparse matrix), the whole scatter is one weighted `bincount`, so
-    this holds just the flat destination map. Resolved once and reused: a Newton loop
-    reassembling the residual each iteration avoids a per-call `np.add.at`, whose
-    unbuffered scatter is several times slower.
+    The vector counterpart of `_ScatterPlan`: one weighted `bincount` over a flat
+    destination map, resolved once. Several times faster than a per-call `np.add.at`
+    for a Newton loop reassembling the residual each iteration.
     '''
     n_entries: int          # element-vector entries this plan expects
     destination: IntArray   # global DOF each entry sums into, one per entry
@@ -188,13 +176,10 @@ class _VectorScatterPlan:
 class NodeSet:
     '''The node geometry boundary-condition resolution resolves against.
 
-    `ResolvedBC` is built by evaluating geometric regions over node coordinates and
-    intersecting with the boundary. For P1 the mesh's own vertices are the nodes, so
-    the mesh serves directly. For P2 the space builds one of these whose `vertices`
-    include the edge-midpoint nodes and whose `boundary` facets carry them, so a
-    condition written against coordinates pins the edge DOFs exactly as it pins the
-    vertex ones, with no change to the resolver. Duck-types `Mesh` for the three
-    attributes `BoundaryConditions.resolve` reads.
+    For P1 the mesh itself serves. For P2 the space builds one of these whose
+    `vertices` include the edge-midpoint nodes and whose `boundary` facets carry them,
+    so a condition written against coordinates pins the edge DOFs too. Duck-types
+    `Mesh` for the attributes `BoundaryConditions.resolve` reads.
     '''
     vertices: Vertices          # (n_nodes, spatial) all node coordinates
     boundary: Elements          # (n_boundary_facets, facet_N) boundary facets as node indices
@@ -508,13 +493,8 @@ class FunctionSpace:
         return float(self.element_volumes.sum())
 
     def integrate(self, u: VertexField) -> float:
-        '''Integral of a nodal field over the domain.
-
-        `M @ u` sums to exactly the integral of a P1 field, so no separate
-        quadrature is needed. Nodal fields only: the old mesh-level version guessed
-        between nodal and per-element data by comparing lengths, which picks wrong
-        whenever n_elements == n_vertices.
-        '''
+        '''Integral of a nodal field over the domain: the entries of `M @ u` summed,
+        which is exact since the shape functions sum to 1.'''
         return float((self.mass_matrix @ u).sum())
 
     def mean_value(self, u: VertexField) -> float:
@@ -559,8 +539,7 @@ class FunctionSpace:
         `(n_elements, N, n_components)` for a vector one.
 
         Straight-sided only: a curved (isoparametric) element has a varying Jacobian, so
-        its physical Hessian picks up a first-derivative term this omits. The residual
-        estimator that uses it is already restricted to straight 2D meshes.
+        its physical Hessian picks up a first-derivative term this omits.
         '''
         d = self.spatial_dim
         corners = self.node_coords[self.element_nodes[:, :d + 1]]   # (n_el, d+1, d)
@@ -577,30 +556,17 @@ class FunctionSpace:
     def recover_nodal(self, values: ElementField, method: str = 'average') -> VertexField:
         '''Recover a continuous nodal field from a per-element one.
 
-        A per-element (element-constant, generally discontinuous) derived quantity such
-        as a flux, stress, or error estimate is turned into one continuous value per node.
-        This is the Zienkiewicz-Zhu recovery the error estimator measures against and the
-        smooth field nodal output and P2 plotting draw.
-
-        Takes a per-element scalar `(n_elements,)` or a per-element array
-        `(n_elements, *component_shape)`, such as a flux tensor, and returns the matching
-        `(n_nodes,)` or `(n_nodes, *component_shape)`, recovering each component
-        independently.
+        Takes `(n_elements,)` or `(n_elements, *component_shape)` and returns
+        `(n_nodes,)` or `(n_nodes, *component_shape)`, each component recovered
+        independently. This is the smooth field nodal output and P2 plotting draw.
 
         `method` picks the recovery:
 
         - `'average'` (default): the volume-weighted nodal average. Local and cheap.
-          Weighted by volume rather than counted evenly, since on a graded mesh a sliver
-          and the large element beside it are not equally good evidence about the field
-          near their shared node; on a uniform mesh the two agree.
+          Volume-weighted so that on a graded mesh a sliver does not count as much as
+          the large element beside it.
         - `'l2'`: the global L2 projection onto the nodal space, `M q = ∫ f φ`. A mass
-          solve, more accurate on a graded mesh, and it conserves the field's integral
-          (`∫ q = ∫ f`), which the average does not. Worth its cost only where a
-          nodal-output consumer needs the fidelity.
-
-        This lives on the space rather than on `Mesh` because it is a discretization
-        operation, not a geometric one: it needs the element measures (average) or the
-        mass matrix (L2), which the space owns and the mesh does not.
+          solve, more accurate on a graded mesh, and it conserves the field's integral.
         '''
         values = np.asarray(values, dtype=float)
         if len(values) != len(self.element_nodes):
@@ -641,11 +607,8 @@ class FunctionSpace:
         flat = nodes.ravel()
         trailing = values_at_nodes.shape[2:]
 
-        # Broadcast the per-element weight over the node and any trailing component
-        # axes, then scatter each element's weighted readings onto its own nodes.
-        # `add.at` accumulates rather than assigns, so a shared node sums its
-        # elements' contributions (an assignment would keep only the last, an
-        # order-dependent bug the scalar path once had).
+        # Scatter each element's volume-weighted readings onto its own nodes; `add.at`
+        # accumulates, so a shared node sums its elements' contributions.
         w = weights.reshape((-1, 1) + (1,) * len(trailing))
         weighted = (values_at_nodes * w).reshape(len(flat), *trailing)
         sums = np.zeros((self.n_nodes, *trailing))
@@ -730,14 +693,10 @@ class FunctionSpace:
     def assemble(self, form: Form, boundary: bool = False) -> SparseMatrix:
         '''Scatter `form`'s element matrices into a global matrix.
 
-        The space owns the loop; the form owns the integrand, so the space stays
-        free of any physics. `boundary=True` integrates over the boundary facets
-        instead of the volume elements: the same scatter over a different mesh of
-        elements. A form may request a higher-degree rule via a `quadrature_degree`
-        attribute (a variable coefficient needs interior points a constant one does
-        not); without it, the default single-point volume geometry is used. Not
-        cached: a form may carry material data that changes (a topology-optimization
-        iteration rescales the modulus). The geometry itself is cached per rule.
+        `boundary=True` integrates over the boundary facets instead of the volume
+        elements. A form may request a higher-degree rule through a `quadrature_degree`
+        attribute; otherwise the element's default geometry is used. Not cached, since
+        a form may carry material data that changes between calls.
         '''
         if boundary:
             geometry = self.boundary_geometry
@@ -760,23 +719,17 @@ class FunctionSpace:
 
     # -- nonlinear assembly -------------------------------------------------
     #
-    # The bilinear `assemble` above scatters a state-independent matrix. An
-    # EnergyForm's element quantities depend on the current displacement, so these
-    # take `u` and evaluate the form at each element's slice of it. The tangent
-    # reuses the same scatter loop as `assemble`; the residual is a vector scatter
-    # and the energy a scalar reduction. Constraints stay with the caller
-    # (EnergySolver's Newton loop), exactly as boundary conditions stay with the
-    # caller for the bilinear path.
+    # An EnergyForm's element quantities depend on the current displacement, so
+    # these take `u` and evaluate the form at each element's slice of it. Constraints
+    # stay with the caller (EnergySolver's Newton loop), as boundary conditions do
+    # for the bilinear path.
 
     def _energy_geometry(self, form: EnergyForm) -> ElementGeometry:
         '''Geometry at a rule that fully integrates `form`'s energy on this element.
 
-        The energy is a higher-degree integrand than the linear stiffness the default
-        rule is tuned for (St-Venant-Kirchhoff is quartic in the displacement gradient,
-        so degree 4 on P2). The same rule serves the energy, its gradient (the residual),
-        and its Hessian (the tangent), so the three stay consistent: the residual is the
-        exact gradient of the quadrature energy and Newton sees a matching tangent.
-        Degree 0 on P1, where the energy is element-constant, so the default rule stands.
+        St-Venant-Kirchhoff is quartic in the displacement gradient, so degree 4 on
+        P2. The same rule serves the energy, residual, and tangent, so the residual is
+        the exact gradient of the quadrature energy and Newton sees a matching tangent.
         '''
         degree = max(self.element_type.default_quadrature_degree(),
                      form.quadrature_degree(self.element_type.SHAPE_DEGREE))
@@ -844,11 +797,7 @@ class FunctionSpace:
         element_matrices: FloatArray,
         boundary: bool = False,
     ) -> SparseMatrix:
-        '''Scatter (n_elements, k, k) element matrices into the global operator.
-
-        The scatter-add that `A[np.ix_(idxs, idxs)] += block` did densely, in
-        O(nonzeros) memory: entries sharing a (row, col) are summed, and the
-        destinations come from the cached `_ScatterPlan`.
-        '''
+        '''Scatter (n_elements, k, k) element matrices into the global operator,
+        summing entries that share a (row, col), through the cached `_ScatterPlan`.'''
         plan = self._boundary_scatter if boundary else self._volume_scatter
         return plan.scatter(element_matrices)

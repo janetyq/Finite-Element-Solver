@@ -48,22 +48,17 @@ class DerivedField(Protocol):
     def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:
         '''(n_elements, n_qp, n_components, spatial_dim) flux at `geometry`'s quadrature points.
 
-        The spatially-resolved flux, recomputed from `solution.u` at each quadrature point
-        rather than read as the one stored per-element value `evaluate` returns. A P1 flux
-        is element-constant, so it repeats across the points; a P2 flux varies linearly
-        within the element, and the recovery estimator needs that variation to measure a
-        higher-order solution's error. `geometry` is the space's geometry at whatever rule
-        the estimator chose.
+        Recomputed from `solution.u` at each point rather than read from the stored
+        per-element value, so a P2 flux keeps its variation within the element.
         '''
         ...
 
     def divergence(self, solution: FieldSolution) -> FloatArray:
         '''(n_elements, n_components) divergence of the flux, constant per straight element.
 
-        The strong-form interior residual is `source + div(flux)`: for Poisson,
-        `f + div(grad u) = f + laplacian(u)`; for elasticity, `b + div(sigma)`. It is
-        identically zero for a P1 element (a constant flux has no divergence), which is
-        why the P1 residual estimator drops it; a P2 flux varies, so div is a real term.
+        The strong-form interior residual is `source + div(flux)`: `f + laplacian(u)`
+        for Poisson, `b + div(sigma)` for elasticity. Zero for P1 (a constant flux);
+        a real term for P2.
         '''
         ...
 
@@ -137,9 +132,9 @@ class StressField:
     the masked term that lets a traction-free stress concentration register while a pinned
     direction's reaction traction is not counted as error.
 
-    `form` is the small-strain elastic form, carried so `sample` can recompute the stress at
-    quadrature points for the P2 recovery estimator. `evaluate` and `boundary_residual` read
-    the state the solve already stored, so they need no form, and it stays optional.
+    `form` is the small-strain elastic form, needed by `sample` and `divergence` to
+    recompute the stress from `u`; `evaluate` and `boundary_residual` read the stored
+    state and work without it.
     '''
 
     def __init__(self, form: 'LinearElasticForm | None' = None) -> None:

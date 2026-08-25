@@ -1,15 +1,9 @@
 """Typed solution containers: one dataclass per solve shape.
 
-Replaces a single dict of named arrays. The fields a solve produces are now typed
-attributes: `solution.u` instead of `solution.get_values("u")`, discoverable and
-checkable. A steady field (an array) and a time series (a list of arrays) are
-different types rather than both being `values[...]` told apart by guessing at a
-length, as the old `get_values(mode=...)` had to do.
-
-The hierarchy follows the physics: a `FieldSolution` carries the unknown `u`;
-`ElasticSolution` adds the recovered stress fields; `TransientSolution` is a time
-series and `WaveSolution` adds the velocity series. `save`/`load` round-trip any of
-them through `fem.io`, which reflects over the dataclass fields.
+A `FieldSolution` carries the unknown `u`; `ElasticSolution` adds the recovered
+stress fields; `TransientSolution` is a time series and `WaveSolution` adds the
+velocity series. `save`/`load` round-trip any of them through `fem.io`, which
+reflects over the dataclass fields.
 """
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -32,10 +26,8 @@ class Solution:
     '''Base: every solution knows the discretization it was computed on.
 
     `element_type` is the element the DOFs live on (None means the linear element for
-    the mesh). It is carried because `u` is a vector of nodal DOFs whose meaning (which
-    node each entry is, P1 vs P2) is the space's, not the mesh's, so a solution is
-    under-specified without it. Keyword-only, so every existing positional construction
-    (and a P1 solve) keeps working unchanged.
+    the mesh). Without it `u` is under-specified: which node each entry belongs to
+    is the space's numbering, not the mesh's.
     '''
     mesh: 'Mesh'
     n_components: int
@@ -70,9 +62,8 @@ class FieldSolution(Solution):
     def deformed_mesh(self) -> 'Mesh':
         '''The mesh displaced by u (meaningful for a vector displacement field).
 
-        A P2 field carries edge-midpoint DOFs the mesh has no vertices for, so only the
-        leading vertex DOFs move the geometry: the warp draws as its P1 restriction, the
-        same simplification `mode_mesh` and the rest of the plot layer make for P2.
+        Only the leading vertex DOFs move the geometry: a P2 field's edge-midpoint
+        DOFs have no mesh vertices, so the warp is the field's P1 restriction.
         '''
         mesh = self.mesh.copy()
         n_vertices = len(mesh.vertices)
@@ -156,13 +147,11 @@ class ElasticSolution(FieldSolution):
     def nodal_stress(self, method: str = 'average') -> FloatArray:
         '''(n_nodes, 3, 3) continuous stress at the nodes.
 
-        `method` picks the recovery, as in `FunctionSpace.recover_nodal`: `'average'`
-        evaluates each element's stress at its own nodes and volume-averages the
-        elements sharing a node; `'l2'` projects the stress sampled at quadrature
-        points onto the nodal space. Both read the within-element variation of a
-        P2 stress, so a rim or corner value comes from the boundary itself rather
-        than from interior sample points. Without `form` (a loaded solution) they
-        fall back to recovering the per-element tensor.
+        `'average'` evaluates each element's stress at its own nodes and volume-averages
+        the elements sharing a node; `'l2'` projects the stress sampled at quadrature
+        points onto the nodal space. Both keep a P2 stress's variation within the
+        element, so a boundary node gets the boundary value. Without `form` (a loaded
+        solution) they fall back to recovering the per-element tensor.
         '''
         return self._nodal_field('stress', method)
 
@@ -234,12 +223,8 @@ class BucklingSolution(Solution):
     def mode_mesh(self, i: int, scale: float = 1.0) -> 'Mesh':
         '''The mesh displaced by `scale` times buckling mode `i`, for drawing it.
 
-        The amplitude is meaningless on its own, so `scale` is a display choice: a
-        caller picks it to make the shape legible against the structure's size.
-
-        A P2 mode carries edge-midpoint DOFs the mesh has no vertices for, so only the
-        leading vertex DOFs move the geometry: the mode draws as its P1 restriction,
-        the same simplification the rest of the plot layer makes for P2 fields.
+        The amplitude is arbitrary, so `scale` is a display choice. Only the leading
+        vertex DOFs move the geometry (a P2 mode draws as its P1 restriction).
         '''
         mesh = self.mesh.copy()
         n_vertices = len(mesh.vertices)
@@ -276,10 +261,8 @@ class ModalSolution(Solution):
     def mode_mesh(self, i: int, scale: float = 1.0) -> 'Mesh':
         '''The mesh displaced by `scale` times mode `i`, for drawing it.
 
-        The amplitude is arbitrary, so `scale` is a display choice a caller picks to make
-        the shape legible. A P2 mode carries edge-midpoint DOFs the mesh has no vertices
-        for, so only the leading vertex DOFs move the geometry: the mode draws as its P1
-        restriction, the same simplification the rest of the plot layer makes for P2.
+        The amplitude is arbitrary, so `scale` is a display choice. Only the leading
+        vertex DOFs move the geometry (a P2 mode draws as its P1 restriction).
         '''
         mesh = self.mesh.copy()
         n_vertices = len(mesh.vertices)

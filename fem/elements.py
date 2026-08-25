@@ -8,15 +8,13 @@ gradients and a measure. It holds no per-element data, so a program has exactly 
 The per-element data lives in `ElementGeometry`, which holds it for the whole mesh
 at once: an `(n_elements, n_qp, N, spatial_dim)` array of `grad_phi` (one shape
 gradient per element and quadrature point) with the matching `(n_elements, n_qp)`
-quadrature weights. That batched shape lets `fem.forms` compute every element matrix
-in one vectorized pass instead of a Python loop, which was the dominant cost of a 3D
-solve. A linear element's gradient is constant across the points, so P1 is the
+quadrature weights, so `fem.forms` computes every element matrix in one vectorized
+pass. A linear element's gradient is constant across the points, so P1 is the
 single-point (`n_qp == 1`) special case.
 
-Two quantities are easy to confuse and are kept distinct throughout. `reference_dim`
-is the dimension of the element itself (2 for a triangle); `spatial_dim` is the
-dimension it is embedded in. They differ exactly for the boundary facets of a 3D mesh
-(a triangle in 3D), which is why the Jacobian below is not assumed square.
+`reference_dim` is the dimension of the element itself (2 for a triangle);
+`spatial_dim` is the dimension it is embedded in. They differ for the boundary facets
+of a 3D mesh, so the Jacobian is not assumed square.
 """
 from dataclasses import dataclass
 from math import factorial
@@ -37,9 +35,7 @@ class Element:
     geometry) lives here; a subclass supplies only `shape_values` / `shape_gradients`
     and, for a higher-order element, its own `reference_dim`.
     '''
-    # Annotations without values: a concrete element type must supply these, and
-    # reaching one on the base raises rather than yielding a None that would only
-    # fail later inside the arithmetic.
+    # Annotations without values: a concrete element type must supply these.
     N: ClassVar[int]
     SHAPE_DEGREE: ClassVar[int]                    # polynomial degree of the shape functions
     SUB_TYPE: ClassVar[type['Element'] | None]     # element of a boundary facet
@@ -219,11 +215,10 @@ class Element:
             scale = np.abs(np.linalg.det(J))
         else:
             # An embedded element (a triangular facet of a tet mesh) has a tall J
-            # with no inverse. The pseudo-inverse gives the gradient *within* the
+            # with no inverse. The pseudo-inverse gives the gradient within the
             # element's own plane, and the Gram determinant gives its measure:
-            # sqrt(det(J^T J)) is |a x b| for a triangle in 3D. Both reduce to the
-            # square case above, which is preferred where it applies because it
-            # avoids squaring the condition number.
+            # sqrt(det(J^T J)) is |a x b| for a triangle in 3D. The square case above
+            # is preferred where it applies since it avoids squaring the condition number.
             J_inv = np.linalg.pinv(J)
             gram = np.swapaxes(J, 1, 2) @ J
             scale = np.sqrt(np.abs(np.linalg.det(gram)))
@@ -513,12 +508,10 @@ class ElementGeometry:
     # facet it is wider than the element's own reference_dim.
     grad_phi: FloatArray
     # (n_elements, n_qp): the quadrature weight times |det J| at each point, the
-    # coefficient every integrand is summed against. Replaces the old scalar
-    # `volumes`, which is now these summed over the points.
+    # coefficient every integrand is summed against; `volumes` is these summed.
     weight_detJ: FloatArray
-    # (n_elements, n_qp, spatial_dim): physical coordinates of the quadrature
-    # points. Empty of meaning for a constant-coefficient form, which never samples
-    # anything; carried so a variable coefficient or source can be evaluated there.
+    # (n_elements, n_qp, spatial_dim): physical coordinates of the quadrature points,
+    # where a variable coefficient or source is evaluated.
     points: FloatArray
 
     @property
@@ -561,10 +554,8 @@ class ElementGeometry:
         '''Field gradient at every quadrature point, from per-element nodal values.
 
         `u_elements` is `(n_elements, N)` for a scalar field or
-        `(n_elements, N, n_components)` for a vector one; the result carries a
-        leading (element, quadrature point) pair, then the spatial axis in the same
-        position `calculate_gradient` used to put it. Constant across the points for
-        P1, so a P1 caller reads any point and gets the element's one value.
+        `(n_elements, N, n_components)` for a vector one; the result is
+        `(n_elements, n_qp, spatial[, n_components])`. Constant across the points for P1.
         '''
         return np.einsum('eqni,en...->eqi...', self.grad_phi, u_elements)
 

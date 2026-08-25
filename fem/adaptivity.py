@@ -1,15 +1,9 @@
 """Adaptive mesh refinement: a driver that refines where the error is largest.
 
-The outer loop that re-solves on progressively finer meshes, sitting above the
-solver it drives rather than inside it: the same shape as TopologyOptimizer,
-where the old version was a method on the thing it drove. It owns a solver, reads
-an error estimate each round, refines the marked elements, and advances the solver
-onto the new mesh via `remesh` (which rebuilds the space from the mesh-independent
-spec). Holding the solver lets the driver call `check_remeshable` on the BC spec
-up front, which a bare problem-factory would hide.
-
-The solver is a `RefinableSolver`, so this drives the linear and nonlinear facades
-alike.
+The outer loop re-solves on progressively finer meshes. It owns a solver, reads an
+error estimate each round, refines the marked elements, and advances the solver onto
+the new mesh through `remesh`. The solver is a `RefinableSolver`, so this drives the
+linear and nonlinear facades alike.
 """
 from __future__ import annotations
 
@@ -34,14 +28,9 @@ logger = logging.getLogger(__name__)
 
 
 class RefinableSolver(Protocol):
-    '''What this driver needs from the solver it advances across meshes.
-
-    A protocol rather than a concrete `Solver` because both facades satisfy it:
-    the linear `Solver` and the nonlinear `EnergySolver` each hold a mesh and a
-    mesh-independent BC spec, rebuild their derived state through `remesh`, and
-    return a typed `Solution` from `solve`. Adaptive refinement is a property of
-    that shape, not of which physics is being solved.
-    '''
+    '''What this driver needs from the solver it advances across meshes: a mesh, a
+    mesh-independent BC spec, `remesh` to rebuild derived state, and `solve`. Both
+    `Solver` and `EnergySolver` satisfy it.'''
     mesh: Mesh
     space: FunctionSpace
     boundary_conditions: BoundaryConditions
@@ -64,11 +53,8 @@ class AdaptiveRefinement:
         refine_fraction: float = 0.9,
     ) -> None:
         self.solver = solver
-        # The estimator maps the solver to a per-element error: an `ErrorEstimator`
-        # object (residual/recovery) or a bare callable for a one-off stand-in. Either
-        # way it takes the solver rather than a stored array because the estimate must
-        # be recomputed every round: once elements are split, the previous array is
-        # both stale and the wrong length, so indexing it selects unrelated elements.
+        # An `ErrorEstimator` or a bare callable of the solver. It takes the solver
+        # rather than a stored array because the estimate is recomputed every round.
         self.estimator = estimator
         self._estimate = estimator.estimate if isinstance(estimator, ErrorEstimator) else estimator
         self.max_triangles = max_triangles
