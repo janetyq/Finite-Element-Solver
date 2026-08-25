@@ -26,8 +26,9 @@ The library includes its own meshing. An outline, traced from an SVG or generate
 simplified with Douglas-Peucker, triangulated with Ruppert's algorithm to a
 minimum-angle and maximum-area bound, and can then be adaptively refined where the
 solution needs it (shown in later demos). Below, the same Poisson problem
-($-\nabla^2 u = 1$ with $u = 0$ on the boundary) is solved on four outlines, which
-between them have disconnected islands, Bezier curves, a hole, and sharp notches.
+($-\nabla^2 u = 1$ with $u = 0$ on the boundary) is solved on four outlines. Each asks
+something different of the mesher: disconnected islands, Bezier curves, a hole, and
+sharp notches.
 
 <p align="center"><img src="images/outline_to_mesh.png" height="400" alt="Four outlines meshed and Poisson-solved: California with a mesh zoom inset, a cloud, a gear, and a star"></p>
 
@@ -36,13 +37,14 @@ between them have disconnected islands, Bezier curves, a hole, and sharp notches
 ### Poisson's equation
 
 Poisson's equation, $-\nabla^2 u = f$, models heat transfer, electrostatics, and other
-steady diffusion. Here it is used for potential flow. An ideal (incompressible,
-irrotational) flow has a velocity potential $\phi$ with $\mathbf{v} = \nabla\phi$, so
+steady diffusion. The meshing section above solves it with a constant source; with
+no source it is Laplace's equation, which here gives a flow. An ideal (incompressible,
+irrotational) flow has a velocity potential $\phi$ with $\mathbf{v} = \nabla\phi$, and
 $\phi$ solves Laplace's equation. The obstacle is a NACA 2412 airfoil at a 12-degree
-angle of attack. A potential difference drives the flow left to right, and the wing
-carries no boundary condition, which in the weak form means zero flux through it, so
-the flow parts around it. The equipotentials crowd over the upper surface, where the
-flow speeds up.
+angle of attack. A potential difference drives the flow left to right. The wing
+carries no boundary condition at all, which in the weak form is the natural zero-flux
+condition, so it becomes a streamline the flow parts around. The equipotentials crowd
+over the upper surface, where the flow speeds up.
 
 <p align="center"><img src="images/potential_flow.png" width="780" alt="Potential flow: equipotentials and flow speed over a NACA airfoil"></p>
 
@@ -68,7 +70,8 @@ lengthen, since a long fin runs cold toward the tip.
 
 The wave equation, $\partial^2 u / \partial t^2 = c^2 \nabla^2 u$, is second order in
 time and is integrated with Newmark's average-acceleration method. A pulse released
-from rest spreads out, reflects off the free boundary, and interferes with itself.
+from rest spreads out, reflects off the free boundary the same way up, and interferes
+with itself.
 
 <p align="center"><img src="images/wave.png" height="400" alt="Wave reflection and interference, second half of the run"></p>
 
@@ -80,13 +83,15 @@ The linear elastic solver computes the displacement and the full stress tensor f
 applied loads and boundary conditions. A cantilever is clamped on the left and pulled
 down over the middle of the right edge. The bending stress is largest at the clamp,
 with tension above the neutral axis and compression below. The 3D panel is a
-tetrahedral cantilever under the same clamp and load, solved with AMG-preconditioned
-conjugate gradients and drawn as its boundary surface.
+tetrahedral cantilever under the same clamp and load, drawn as its boundary surface.
+It is solved with AMG-preconditioned conjugate gradients, since in 3D a direct
+factorization's fill-in starts to hurt.
 
 <p align="center"><img src="images/linear_elastic.png" width="780" alt="Linear elasticity: a 2D cantilever and a 3D tetrahedral one under the same clamp-and-load"></p>
 
-Von Mises, mean normal stress, the Tresca measure, and the largest tensile principal
-value are all rotation-invariant reductions of the same stress tensor.
+One solve gives one stress tensor, and the four 2D stress panels are
+rotation-invariant reductions of it: von Mises, mean normal stress, the Tresca
+measure, and the largest tensile principal value.
 
 ### Stress at a re-entrant corner, and why fillets exist
 
@@ -95,16 +100,19 @@ inner corner. A sharp re-entrant corner is a stress singularity, where the exact
 elastic stress is infinite, so no mesh resolves it and adaptive refinement into the
 corner keeps the computed peak climbing. A fillet removes the singularity and the
 peak settles on a finite value. The plot on the right tracks the corner peak against
-mesh size for both. This is why real parts round their inner corners.
+mesh size for both. The sharp corner climbs without bound, so the stress it reports
+is a property of the mesh rather than the part, while the fillet converges. This is
+why real parts round their inner corners.
 
 <p align="center"><img src="images/bracket.png" height="280" alt="L-bracket von Mises stress: sharp corner vs filleted"> <img src="images/bracket_singularity.png" height="280" alt="Corner stress peak vs mesh refinement: sharp climbs, fillet converges"></p>
 
 ### Three ways to solve the same stretch
 
-The same clamped block is stretched with a linear solve of $Ku = f$, with Newton's
-method on the elastic energy whose stationary point that system is, and with a
-finite-strain (Green-Lagrange) solve. The first two agree in displacement to machine
-precision. The third stiffens as the stretch grows, which small strain cannot.
+The same clamped block is stretched three ways. The first is a linear solve of
+$Ku = f$. The second minimises the elastic energy with Newton's method, and arrives at
+the same system from the other direction. The third is a finite-strain
+(Green-Lagrange) solve. The first two agree in displacement to machine precision. The
+third stiffens as the stretch grows, which small strain cannot.
 
 <p align="center"><img src="images/elasticity_models.png" width="780" alt="Linear, energy-minimisation, and finite-strain solves of one stretch"></p>
 
@@ -150,9 +158,10 @@ load). Here a simply supported beam carries a central load, and the SIMP (Solid
 Isotropic Material with Penalization) method finds the stiffest structure using half
 the material, penalizing intermediate densities so the design resolves toward solid or
 void. It finds the classic arch, a compression arch over a tension tie braced by a
-diagonal web. The optimized truss is only about 1.6x as compliant as the fully solid
-block. The material it removed was near the neutral axis, where it was barely
-resisting the bending.
+diagonal web. Compliance is the work the load does, so it measures deflection
+directly, and the optimized truss is only about 1.6x as compliant as the fully solid
+block on half the material. What it removed was near the neutral axis, where the
+material was barely resisting the bending.
 
 <p align="center"><img src="images/topology_optimization.png" height="400" alt="Solid beam vs the optimized half-material arch, compared by compliance"></p>
 
@@ -201,11 +210,11 @@ the mesh where the solution is hardest to approximate.
 
 ### Representation error
 
-Before solving any PDE, a mesh limits what the P1 space can represent. The target
-$\sin(40 r^2)$ has rings that tighten with radius. Projected onto a coarse P1 mesh,
-the slow inner rings come through but the fast outer ones break up into the
+Before any PDE is solved, the mesh already limits what its P1 space can represent.
+The target $\sin(40 r^2)$ has rings that tighten with radius. Projected onto a coarse
+P1 mesh, the slow inner rings come through but the fast outer ones break up into the
 triangulation. This representation error is the floor every solver on this mesh
-starts from.
+starts from, and refining the mesh is what lowers it.
 
 <p align="center"><img src="images/l2_projection.png" width="780" alt="The target sin(40 r^2) beside its L2 projection onto a coarse P1 mesh"></p>
 

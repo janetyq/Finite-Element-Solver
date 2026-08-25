@@ -151,8 +151,9 @@ def demo_potential_flow(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
                'formula rather than a data file. Left: the velocity potential phi (Laplace) '
                'with its equipotentials, which crowd over the upper surface where the flow '
                'speeds up. Right: the flow speed, faster over the top than the bottom, with '
-               'stagnation near the leading and trailing edges. The wing takes no condition, '
-               'which in the weak form is zero flux, so the flow parts around it. The speed '
+               'stagnation near the leading and trailing edges. The wing takes no condition '
+               'at all, which in the weak form is zero flux, so it is a streamline the flow '
+               'parts around. The speed '
                'is clipped near the sharp edges, where ideal '
                'flow with no Kutta condition predicts an unphysical velocity spike.',
                'flow'),
@@ -1146,10 +1147,13 @@ def demo_linear_elastic(mesh, n_3d=14):
         Figure(fields,
                'The same clamp and load solved in 2D and 3D. The bending stress is largest '
                'at the clamp, with tension over the neutral axis and compression under it. '
-               'The 3D solve is drawn on its boundary surface.',
+               'The 3D solve carries a three-component displacement and recovers stress the '
+               'same way, drawn on its boundary surface.',
                'fields'),
         Figure(invariants,
-               'Four rotation-invariant reductions of the same 2D stress tensor.',
+               'Four rotation-invariant reductions of the same 2D stress tensor: von Mises, '
+               'mean normal stress, the Tresca measure, and the largest tensile principal '
+               'value.',
                'invariants'),
         Figure(conditions,
                'Clamped along the left edge, pulled down over the middle of the right one; '
@@ -1486,9 +1490,9 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
                'A pinned column buckles into half-sine waves. Mode 1 is a single half-wave '
                'at the lowest load, the shape a real column takes. Each higher mode adds a '
                'half-wave and costs n^2 as much (mode 2 is ~4x mode 1), and is reached only '
-               'if the lower ones are braced out, for instance by a support at mid-span. The '
-               'shapes are the eigenvectors of K phi = -lambda K_g phi and the load factors '
-               'its eigenvalues.',
+               'if the lower ones are braced out. A support at mid-span, a node of mode 2 '
+               'but not of mode 1, buys the jump to it. The shapes are the eigenvectors of '
+               'K phi = -lambda K_g phi and the load factors its eigenvalues.',
                'modes', thumbnail=True),
         Figure(factor_plots,
                'The same slender column held four ways, buckling at loads spanning 16x. '
