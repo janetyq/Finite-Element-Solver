@@ -37,8 +37,8 @@ from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import create_rect_mesh
-from fem.problem import LinearProblem, heat
-from fem.regions import evaluate_field, everywhere
+from fem.problem import LinearProblem, Source, heat
+from fem.regions import everywhere
 from fem.solution import FieldSolution, TransientSolution
 from fem.solve import LinearSolve
 from fem.solver import Solver
@@ -551,8 +551,8 @@ class LoadComparison:
 def solve_load_comparison(n: int, quadrature_degree: int = 4) -> LoadComparison:
     """Solve -laplacian(u) = f on an `n` x `n` grid two ways.
 
-    The same P1 space and operator both times; only the load differs: the source's
-    nodal values (integrated as their P1 interpolant) against a LinearForm that samples
+    The same P1 space and operator both times; only the load differs: a `Source`
+    (the source integrated as its P1 interpolant) against a LinearForm that samples
     the source at the quadrature points.
     """
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
@@ -560,9 +560,8 @@ def solve_load_comparison(n: int, quadrature_degree: int = 4) -> LoadComparison:
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
 
-    nodal_source = evaluate_field(oscillatory_source, space.node_coords, 1)
     nodal = LinearSolve().solve(
-        LinearProblem(space, LaplacianForm(), nodal_source, bc))
+        LinearProblem(space, LaplacianForm(), Source(oscillatory_source), bc))
     sampled = LinearSolve().solve(
         LinearProblem(space, LaplacianForm(),
                       LinearForm(oscillatory_source, quadrature_degree=quadrature_degree), bc))
