@@ -4,31 +4,31 @@
 [![Demo gallery](https://img.shields.io/badge/demo-gallery-blue)](https://janetyq.github.io/Finite-Element-Solver/)
 
 A finite element method (FEM) solver written from scratch in Python. It meshes a
-domain, assembles the discrete system, and solves the Poisson, heat, wave, and both
-linear and nonlinear elasticity equations, in 2D and 3D. Boundary conditions can be
-Dirichlet, Neumann, or Robin, and are described geometrically so one specification
-survives a remesh. On top of the core solves it carries custom meshing (Delaunay,
-Ruppert's algorithm, red-green refinement), closed-loop adaptive refinement driven by
-an a posteriori error estimator, higher-order (P2) elements, linearised buckling and
-free-vibration (modal) analysis, and SIMP topology optimization.
+domain, assembles the discrete system, and solves the Poisson, heat, wave, and linear
+and nonlinear elasticity equations in 2D and 3D. Boundary conditions can be Dirichlet,
+Neumann, or Robin, and are described geometrically so one specification survives a
+remesh. It also includes its own meshing (Delaunay, Ruppert's algorithm, red-green
+refinement), adaptive refinement driven by a posteriori error estimators, quadratic
+and curved elements, buckling and modal analysis, adjoint sensitivities, and SIMP
+topology optimization.
 
 ### ▶ [See it running: the demo gallery](https://janetyq.github.io/Finite-Element-Solver/)
 
 The [gallery](https://janetyq.github.io/Finite-Element-Solver/) renders every demo
-beside the code that produced it, rebuilt on each push to `main`. The figures below are
-a curated subset: a tour of what the solver does, with the full captions in the gallery.
+beside the code that produced it and is rebuilt on each push to `main`. The figures
+below are a subset of it, with the full captions in the gallery.
 
 ---
 
 ## Meshing a domain
 
-The library brings its own meshing. Any outline, traced from an SVG or generated, runs
-through three algorithms: Douglas-Peucker to simplify a densely traced outline,
-Ruppert's algorithm to triangulate it to a minimum-angle and maximum-area bound, and
-adaptive refinement to add triangles where they improve accuracy (shown in later
-demos). Below, four outlines carry the same solve, the Poisson "dome" of
-$-\nabla^2 u = 1$ with $u = 0$ on the boundary. Each shape makes a different demand:
-disconnected islands, true Bezier curves, a hole by the even-odd rule, sharp notches.
+The library includes its own meshing. An outline, traced from an SVG or generated, is
+simplified with Douglas-Peucker, triangulated with Ruppert's algorithm to a
+minimum-angle and maximum-area bound, and can then be adaptively refined where the
+solution needs it (shown in later demos). Below, the same Poisson problem
+($-\nabla^2 u = 1$ with $u = 0$ on the boundary) is solved on four outlines. Each asks
+something different of the mesher: disconnected islands, Bezier curves, a hole, and
+sharp notches.
 
 <p align="center"><img src="images/outline_to_mesh.png" height="400" alt="Four outlines meshed and Poisson-solved: California with a mesh zoom inset, a cloud, a gear, and a star"></p>
 
@@ -37,14 +37,14 @@ disconnected islands, true Bezier curves, a hole by the even-odd rule, sharp not
 ### Poisson's equation
 
 Poisson's equation, $-\nabla^2 u = f$, models heat transfer, electrostatics, and other
-steady diffusion. The meshing section above solves its "dome"; the same operator on a
-domain with a hole gives a flow. An ideal (incompressible, irrotational) flow has a
-velocity potential $\phi$ with $\mathbf{v} = \nabla\phi$, so $\phi$ solves Laplace's
-equation. The obstacle is a NACA 2412 airfoil at a 12-degree angle of attack. A
-potential difference drives the flow left to right; the wing carries no condition at
-all, which is the natural zero-flux condition of the weak form, so it becomes a
-streamline the flow parts around. The equipotentials crowd over the upper surface,
-where the flow speeds up.
+steady diffusion. The meshing section above solves it with a constant source; with
+no source it is Laplace's equation, which here gives a flow. An ideal (incompressible,
+irrotational) flow has a velocity potential $\phi$ with $\mathbf{v} = \nabla\phi$, and
+$\phi$ solves Laplace's equation. The obstacle is a NACA 2412 airfoil at a 12-degree
+angle of attack. A potential difference drives the flow left to right. The wing
+carries no boundary condition at all, which in the weak form is the natural zero-flux
+condition, so it becomes a streamline the flow parts around. The equipotentials crowd
+over the upper surface, where the flow speeds up.
 
 <p align="center"><img src="images/potential_flow.png" width="780" alt="Potential flow: equipotentials and flow speed over a NACA airfoil"></p>
 
@@ -56,22 +56,22 @@ $\theta = \tfrac{1}{2}$ (Crank-Nicolson); $\theta = 1$ is backward Euler. A finn
 heatsink is held hot underneath its base, and every other surface sheds heat to ambient
 through a convective (Robin) film, $\partial u / \partial n + \kappa (u - u_\infty) = 0$.
 
-Compared against a solid block of the same size: driven by the same chip power, the
-block runs about 108&deg;C above ambient while the finned sink runs 58&deg;C, roughly
-halving the thermal resistance; held at the same base temperature, the finned sink
-sheds about 1.8x the heat on two-thirds the metal. Each fin's efficiency (right), the
-heat it sheds against what it would shed at the base temperature throughout, follows
-the textbook $\tanh(mL)/(mL)$ law, falling as fins lengthen because a long fin runs
-cold toward the tip.
+The finned sink is compared against a solid block of the same size. Driven by the
+same chip power, the block runs about 108&deg;C above ambient while the finned sink
+runs 58&deg;C, roughly halving the thermal resistance. Held at the same base
+temperature, the finned sink sheds about 1.8x the heat with two-thirds the metal. The
+fin efficiency (right), the heat a fin sheds relative to what it would shed at the base
+temperature throughout, follows the textbook $\tanh(mL)/(mL)$ law and falls as fins
+lengthen, since a long fin runs cold toward the tip.
 
 <p align="center"><img src="images/heatsink_comparison.png" height="280" alt="Heatsink vs a solid block: fixed power (the block overheats) and fixed base temperature (the fins shed more)"> <img src="images/heatsink_efficiency.png" height="280" alt="Fin efficiency against the tanh(mL)/(mL) beam-theory law"></p>
 
 ### Wave equation
 
 The wave equation, $\partial^2 u / \partial t^2 = c^2 \nabla^2 u$, is second order in
-time, so it is integrated with Newmark's average-acceleration method rather than the
-theta-method used for the first-order systems. A pulse released from rest spreads out,
-reflects off the free boundary the same way up, and interferes with itself.
+time and is integrated with Newmark's average-acceleration method. A pulse released
+from rest spreads out, reflects off the free boundary the same way up, and interferes
+with itself.
 
 <p align="center"><img src="images/wave.png" height="400" alt="Wave reflection and interference, second half of the run"></p>
 
@@ -79,89 +79,89 @@ reflects off the free boundary the same way up, and interferes with itself.
 
 ### Linear elasticity, in 2D and 3D
 
-The linear elastic solver recovers displacement and a full stress tensor from applied
-forces and boundary conditions. A cantilever is clamped on the left and pulled down over
-the middle of the right edge; the bending stress is largest at the clamp and splits
-tension above the neutral axis from compression below. The same assembly, element
-hierarchy, and stress recovery run one dimension up: the 3D panel is a tetrahedral
-cantilever under the same clamp-and-load, solved with an AMG-preconditioned
-conjugate-gradient backend where a direct factorization's fill-in starts to hurt, and
-drawn as its boundary surface.
+The linear elastic solver computes the displacement and the full stress tensor from
+applied loads and boundary conditions. A cantilever is clamped on the left and pulled
+down over the middle of the right edge. The bending stress is largest at the clamp,
+with tension above the neutral axis and compression below. The 3D panel is a
+tetrahedral cantilever under the same clamp and load, drawn as its boundary surface.
+It is solved with AMG-preconditioned conjugate gradients, since in 3D a direct
+factorization's fill-in starts to hurt.
 
 <p align="center"><img src="images/linear_elastic.png" width="780" alt="Linear elasticity: a 2D cantilever and a 3D tetrahedral one under the same clamp-and-load"></p>
 
-One solve, one stress tensor, several rotation-invariant questions: von Mises,
-mean normal stress, the Tresca measure, and the largest tensile principal value are
-each a reduction of the same tensor rather than a separate problem.
+One solve gives one stress tensor, and the four 2D stress panels are
+rotation-invariant reductions of it: von Mises, mean normal stress, the Tresca
+measure, and the largest tensile principal value.
 
 ### Stress at a re-entrant corner, and why fillets exist
 
 An L-bracket clamped at the top and pulled down at the tip concentrates stress at its
-inner corner. A sharp re-entrant corner is a stress singularity: the exact elastic
-stress there is infinite, so no mesh resolves it, and adaptive refinement into the
-corner just keeps the computed peak climbing. A fillet removes the singularity, and
-the peak settles on a finite value. Tracking the corner peak against mesh size (right)
-shows both: the sharp corner climbs without bound (its "stress" is a property of the
-mesh, not the part) and the fillet converges. This is why real parts round their
-inner corners.
+inner corner. A sharp re-entrant corner is a stress singularity, where the exact
+elastic stress is infinite, so no mesh resolves it and adaptive refinement into the
+corner keeps the computed peak climbing. A fillet removes the singularity and the
+peak settles on a finite value. The plot on the right tracks the corner peak against
+mesh size for both. The sharp corner climbs without bound, so the stress it reports
+is a property of the mesh rather than the part, while the fillet converges. This is
+why real parts round their inner corners.
 
 <p align="center"><img src="images/bracket.png" height="280" alt="L-bracket von Mises stress: sharp corner vs filleted"> <img src="images/bracket_singularity.png" height="280" alt="Corner stress peak vs mesh refinement: sharp climbs, fillet converges"></p>
 
 ### Three ways to solve the same stretch
 
-The same clamped block is stretched three ways: a linear solve of $Ku = f$, the same
-physics reached by Newton on the elastic energy that system is the stationary point of,
-and a finite-strain (Green-Lagrange) solve. The first two agree in displacement to
-machine precision; the third stiffens as the stretch grows, which small strain cannot.
+The same clamped block is stretched three ways. The first is a linear solve of
+$Ku = f$. The second minimises the elastic energy with Newton's method, and arrives at
+the same system from the other direction. The third is a finite-strain
+(Green-Lagrange) solve. The first two agree in displacement to machine precision. The
+third stiffens as the stretch grows, which small strain cannot.
 
 <p align="center"><img src="images/elasticity_models.png" width="780" alt="Linear, energy-minimisation, and finite-strain solves of one stretch"></p>
 
 ### From an outline to a stress concentration
 
-The one demo that runs the whole pipeline, in one row. A plate with a hole is meshed from
-its outline, given roller and traction conditions (the rim is left traction-free, the
-natural condition of the weak form), solved on curved quadratic elements, then adaptively
-refined toward the stress at the rim. The stress crowds into the material either side of
-the hole and relaxes to the applied value within about a diameter. Read at the rim nodes
-it peaks at 3.03x the applied stress, against the classic Kirsch factor of 3 for a hole in
-an infinite plate and Howland's 3.02 for a hole a tenth of this plate's width.
+This demo runs the whole pipeline. A plate with a hole is meshed from its outline,
+given roller and traction conditions (the rim is left traction-free), solved on curved
+quadratic elements, and adaptively refined toward the stress at the rim. The stress
+crowds into the material either side of the hole and relaxes to the applied value
+within about a diameter. At the rim it peaks at 3.03x the applied stress. The classic
+Kirsch factor is 3 for a hole in an infinite plate, and Howland's value for a hole a
+tenth of this plate's width is 3.02.
 
 <p align="center"><img src="images/stress_concentration.png" width="780" alt="Refined mesh with conditions, the stress field, and the peak against the Kirsch factor"></p>
 
 ### Buckling analysis
 
-A slender column under compression does not fail by crushing; it snaps sideways once
-the load crosses a critical value. `BucklingSolver` finds that value and the shapes by
-*linearised (eigenvalue) buckling*: a reference load sets up a prestress, the geometric
-stiffness $K_g$ assembled from it competes with the elastic stiffness $K$, and the
-generalized eigenproblem $K \phi = -\lambda K_g \phi$ gives the critical load factors
-and mode shapes. The column is meshed with P2 elements, which do not lock in bending
-the way a constant-strain triangle does.
+A slender column under compression does not fail by crushing. It snaps sideways once
+the load crosses a critical value. `BucklingSolver` finds that value and the buckled
+shapes by linearised (eigenvalue) buckling. A reference load sets up a prestress, the
+geometric stiffness $K_g$ is assembled from it, and the generalized eigenproblem
+$K \phi = -\lambda K_g \phi$ gives the critical load factors and mode shapes. The
+column is meshed with P2 elements, which do not lock in bending the way a
+constant-strain triangle does.
 
 <p align="center"><img src="images/buckling.png" height="450" alt="Buckling modes of a pinned-pinned column"></p>
 
 ### Modal (free-vibration) analysis
 
-The same eigen-machinery, a different pencil. Free vibration solves
-$K \phi = \omega^2 M \phi$ (no applied load; the modes are a property of the structure),
-using the consistent mass matrix and a shift-invert about zero to pull the lowest
-frequencies. A steel tuning fork is meshed from its own outline and held at the stem
-base. Its low modes come in pairs; the one whose tines swing oppositely leaves the stem
-still and rings, which is "the voice".
+Free vibration solves $K \phi = \omega^2 M \phi$ with the consistent mass matrix, using
+shift-invert about zero to find the lowest frequencies. No load is applied, so the
+modes are a property of the structure alone. A steel tuning fork is meshed from its
+outline and held at the stem base. Its low modes come in pairs, and the one whose
+tines swing in opposite directions leaves the stem still and rings; that is the
+fork's voice.
 
 <p align="center"><img src="images/modal.png" width="700" alt="A tuning fork's natural modes and their pitches"></p>
 
 ### Topology optimization
 
 Topology optimization distributes material to minimize compliance (deformation under
-load). Here a simply supported beam carries a central load, and the SIMP (Solid Isotropic
-Material with Penalization) method is asked for the stiffest structure using half the
-material, penalizing intermediate densities so the design resolves toward solid-or-void.
-It finds the classic arch: a compression arch over a tension tie, braced by a diagonal
-web. Because compliance is the work the load does, it measures deflection directly, and
-the optimized truss comes out only about 1.6x as compliant as the fully solid block on
-half the material. What it removed was near the neutral axis, where the material was
-barely resisting the bending.
+load). Here a simply supported beam carries a central load, and the SIMP (Solid
+Isotropic Material with Penalization) method finds the stiffest structure using half
+the material, penalizing intermediate densities so the design resolves toward solid or
+void. It finds the classic arch, a compression arch over a tension tie braced by a
+diagonal web. Compliance is the work the load does, so it measures deflection
+directly, and the optimized truss is only about 1.6x as compliant as the fully solid
+block on half the material. What it removed was near the neutral axis, where the
+material was barely resisting the bending.
 
 <p align="center"><img src="images/topology_optimization.png" height="400" alt="Solid beam vs the optimized half-material arch, compared by compliance"></p>
 
@@ -172,11 +172,10 @@ plays the SIMP iterations frame by frame, from an even grey to the black-and-whi
 
 ### Convergence against manufactured solutions
 
-The one place the solver plots not what it computed but how wrong it was. Against
-exactly known (manufactured) solutions, P1 elements are second order in space (halve
-$h$, quarter the error) for a scalar unknown and a coupled vector one alike; in time the
-order is the theta-method's to choose, first at backward Euler and second at
-Crank-Nicolson. Every rate here also runs as an assertion in the test suite.
+Against exactly known (manufactured) solutions, P1 elements are second order in space
+(halve $h$, quarter the error) for both a scalar unknown and a coupled vector one. In
+time, backward Euler is first order and Crank-Nicolson second. Every rate here also
+runs as an assertion in the test suite.
 
 <p align="center"><img src="images/convergence.png" width="780" alt="Convergence rates in space and time"></p>
 
@@ -188,36 +187,34 @@ reach a given accuracy with fewer degrees of freedom.
 
 <p align="center"><img src="images/higher_order.png" width="780" alt="P1 vs P2 accuracy and cost"></p>
 
-Curved (isoparametric) boundary elements take this a step further. On a boundary that
+Curved (isoparametric) boundary elements go a step further. On a boundary that
 carries an analytic curve (a `Circle` or `Arc`), an `IsoparametricTriangleElement`
-places its edge-midpoint node on the true curve and differentiates the full geometry
-map, so the element's boundary edge bends to follow it instead of cutting a chord.
-Meshing carries the curve through, so Ruppert's split points and red-green refinement
-project onto it and a circular hole stays round under refinement rather than becoming a
-finer polygon. On an annulus the meshed area then converges at the element's own order
-rather than the polygonal $O(h^2)$, and a coarsely sampled hole, read at its rim node,
-already carries most of the Kirsch stress concentration.
+places its edge-midpoint node on the true curve, so the element's boundary edge
+follows the curve instead of cutting a chord. Meshing carries the curve through, so
+Ruppert's split points and red-green refinement project onto it and a circular hole
+stays round under refinement. On an annulus the meshed area then converges at the
+element's own order rather than the polygonal $O(h^2)$.
 
 ### Adaptive refinement
 
 Adaptive refinement re-solves and splits wherever an a posteriori error estimator finds
-the most error, keeping triangle quality with red-green refinement. Three estimators
-ship: a residual estimator (interior residual, edge flux jump, boundary residual; 2D
-only), a Zienkiewicz-Zhu recovery estimator (the gap between the discrete flux and a
-recovered continuous one; dimension-general), and a goal-oriented estimator that
-refines toward a chosen quantity of interest through an adjoint solve. Below, the
-residual estimator on a peaked Poisson source concentrates the mesh where the solution
-is hardest to approximate.
+the most error, keeping triangle quality with red-green refinement. There are three
+estimators. The residual estimator measures the interior residual, the flux jump
+across edges, and the boundary residual (2D only). The Zienkiewicz-Zhu recovery
+estimator measures the gap between the discrete flux and a recovered continuous one.
+The goal-oriented estimator refines toward a chosen quantity of interest through an
+adjoint solve. Below, the residual estimator on a peaked Poisson source concentrates
+the mesh where the solution is hardest to approximate.
 
 <p align="center"><img src="images/refinement.png" width="780" alt="Adaptive refinement on a peaked source"></p>
 
 ### Representation error
 
-Before any PDE, there is the question of what the space can represent at all. The target
-$\sin(40 r^2)$ has rings that tighten with radius; projected onto a coarse
+Before any PDE is solved, the mesh already limits what its P1 space can represent.
+The target $\sin(40 r^2)$ has rings that tighten with radius. Projected onto a coarse
 P1 mesh, the slow inner rings come through but the fast outer ones break up into the
-triangulation. That representation error is the floor every solver on this mesh starts
-from, and refining the mesh is what lowers it.
+triangulation. This representation error is the floor every solver on this mesh
+starts from, and refining the mesh is what lowers it.
 
 <p align="center"><img src="images/l2_projection.png" width="780" alt="The target sin(40 r^2) beside its L2 projection onto a coarse P1 mesh"></p>
 
@@ -243,9 +240,9 @@ plotter.plot(mesh, solution.u, mode="surface")
 plotter.show()
 ```
 
-A solution is a typed dataclass, so its fields are attributes rather than string keys.
-An elastic solve returns an `ElasticSolution`, which carries the recovered stress and
-strain as full tensors and derives the scalar measures on demand:
+A solution is a typed dataclass. An elastic solve returns an `ElasticSolution`, which
+carries the stress and strain as full tensors and derives the scalar measures on
+demand:
 
 ```python
 solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
@@ -257,8 +254,7 @@ solution.principal_stress  # (n_elements, 3) principal values, ascending
 solution.compliance        # (n_elements,) strain energy per element
 ```
 
-The tensors are stored and the scalars computed on demand. `fem/invariants.py` holds
-those reductions; each is rotation-invariant.
+`fem/invariants.py` holds those reductions; each is rotation-invariant.
 
 ## Installation
 
@@ -346,9 +342,8 @@ examples/            # runnable demo scripts, the CLI, and the gallery builder
 files/               # example SVG outlines
 ```
 
-The figures in this README are committed PNGs, a curated subset of the gallery's
-renders, refreshed by hand rather than in CI. After changing a demo, regenerate them
-and commit the result:
+The figures in this README are committed PNGs, refreshed by hand. After changing a
+demo, regenerate them and commit the result:
 
 ```bash
 uv run python examples/make_readme_figures.py   # rewrites the figures in images/

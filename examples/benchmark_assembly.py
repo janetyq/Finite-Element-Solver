@@ -75,7 +75,8 @@ def benchmark(n: int) -> Timing:
 
 
 def demo_backends(sizes=DEFAULT_SIZES):
-    """Time assembly and both solve backends on a 3D elastic box, over a range of sizes."""
+    """Timing of assembly and both solve backends on a 3D elastic box over a range of
+    sizes."""
     timings = [benchmark(n) for n in sizes]
     dofs = [t.dofs for t in timings]
 
