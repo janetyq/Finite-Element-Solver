@@ -1,14 +1,9 @@
 """The forms produce correct element matrices.
 
-The stiffness integrand lives in `fem.forms`, with the strain-displacement matrix
-B (here) and the constitutive matrix D (`fem.materials`) in separate files sharing
-one Voigt ordering. These tests pin that pairing against known-correct references,
-so a change that desynchronizes B and D fails fast and locally rather than only
-showing up as a broken convergence rate.
-
-Forms are batched -- they take an `ElementGeometry` for a whole mesh and return
-`(n_elements, k, k)` -- so a single reference simplex is a batch of one, and the
-assertions index `[0]` out of the result.
+The strain-displacement matrix B (`fem.forms`) and the constitutive matrix D
+(`fem.materials`) share one Voigt ordering; these pin that pairing against references,
+so a change that desynchronizes them fails here rather than as a broken convergence
+rate. Forms are batched, so a single reference simplex is a batch of one.
 """
 import numpy as np
 import pytest
@@ -170,8 +165,8 @@ def test_diffusion_form_scales_with_the_coefficient():
 
 
 def test_linear_form_constant_source_integrates_the_hat_exactly():
-    """For a constant source c, each node's load is the exact integral of c times its
-    P1 hat -- c * volume / N -- and the loads sum to c * volume (partition of unity)."""
+    """For a constant source c, each node's load is c * volume / N and the loads sum to
+    c * volume."""
     volume = float(TRI.volumes[0])
     b = LinearForm(3.0, 1).element_vectors(TRI)[0]   # (N,)
     np.testing.assert_allclose(b, 3.0 * volume / 3)  # 3 nodes, integral of a P1 hat

@@ -96,7 +96,7 @@ def demo_backends(sizes=DEFAULT_SIZES):
 
 
 DEMOS = [
-    # The sweep is the point (a crossover is a claim about two curves), so the CLI
+    # The sweep shows the crossover, so the CLI
     # and the gallery run all five sizes. The test only needs to know that assembly and
     # both backends still compose, which n=5 answers in 0.01s where the full sweep
     # takes 11.6s, over half of it one sparse factorisation at n=21.

@@ -1,11 +1,6 @@
-"""Tests for the stress-based quantities of interest.
-
-A stress functional supplies its adjoint load `∂J/∂u`, the stress-recovery map run
-backward. The guardrail is a finite-difference check of exactly that: perturb the
-displacement vector and confirm `dJ_du` matches the central-difference gradient of the
-measure. That isolates what the quantity of interest provides, independent of any
-parameterization. The value is separately cross-checked against `invariants.von_mises`,
-so the measure is anchored to the recovered stress, not just self-consistent.
+"""The stress-based quantities of interest: the adjoint load `dJ_du` matches a
+central-difference gradient of the measure, and the value is cross-checked against
+`invariants.von_mises`.
 """
 import numpy as np
 import pytest

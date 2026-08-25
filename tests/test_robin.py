@@ -1,10 +1,6 @@
-"""Robin boundary conditions: du/dn + kappa*u = g.
-
-A Robin condition is the litmus test for the operator-term composition algebra: a
-single condition contributes to *both* sides of the system -- the boundary term
-kappa*int u*v to the operator and int g*v to the load, each assembled as the mass
-matrix restricted to the region's boundary facets. These tests pin the sign and
-magnitude of both contributions.
+"""Robin boundary conditions, du/dn + kappa*u = g: one condition contributes to both
+sides of the system, kappa*int u*v to the operator and int g*v to the load. These pin
+the sign and magnitude of both.
 """
 import numpy as np
 
@@ -15,11 +11,8 @@ from fem.solver import Solver
 
 
 def test_constant_solution_is_reproduced_exactly(make_unit_square):
-    """A patch test: -div grad u = 0 with du/dn + kappa*u = kappa*c on the whole
-    boundary has the exact solution u == c (du/dn = 0, kappa*c = kappa*c). If the
-    Robin operator or load had the wrong sign or coefficient, the two sides would
-    not balance and u would drift off c.
-    """
+    """A patch test: -div grad u = 0 with du/dn + kappa*u = kappa*c on the whole boundary has
+    the exact solution u == c. A wrong sign or coefficient on either side breaks it."""
     mesh = make_unit_square(10)
     c, kappa = 5.0, 2.0
 
@@ -31,10 +24,7 @@ def test_constant_solution_is_reproduced_exactly(make_unit_square):
 
 
 def test_large_kappa_approaches_the_dirichlet_limit(make_unit_square):
-    """As kappa -> infinity, du/dn + kappa*u = 0 pins u -> 0 on the boundary, so
-    the Robin solution converges to the u = 0 Dirichlet solution. The gap must
-    shrink as kappa grows -- the signature that kappa scales the boundary operator.
-    """
+    """As kappa -> infinity the Robin solution converges to the u = 0 Dirichlet solution."""
     mesh = make_unit_square(12)
     source = 1.0
 

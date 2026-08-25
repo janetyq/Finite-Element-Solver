@@ -1,10 +1,4 @@
-"""Mesh geometry: topology queries over vertices, elements, and facets.
-
-The element<->vertex field projections that used to live here moved to
-`FunctionSpace` (see `tests/test_space.py`). They are discretization operations
-rather than geometric ones, and the correct projection is weighted by element
-measure -- which the space owns and the mesh does not.
-"""
+"""Mesh geometry: topology queries over vertices, elements, and facets."""
 import numpy as np
 import pytest
 
@@ -21,8 +15,8 @@ def _two_triangle_square() -> Mesh:
 
 
 def test_edges_are_every_vertex_pair_of_each_simplex():
-    """For a linear simplex the edge set is exactly the pairs of its nodes, so
-    two triangles give five distinct edges -- four sides plus the shared diagonal."""
+    """For a linear simplex the edge set is the pairs of its nodes, so two triangles give
+    five distinct edges."""
     mesh = _two_triangle_square()
     assert len(mesh.edges) == 5
     assert (0, 2) in {tuple(e) for e in mesh.edges}
@@ -55,8 +49,7 @@ def test_element_neighbours_are_those_sharing_an_edge():
 
 
 def test_edge_extraction_refuses_non_simplex_elements():
-    """Pairing every node only spells out the edges for a linear simplex -- a
-    quadratic element's midside nodes would invent edges that do not exist."""
+    """Pairing every node spells out the edges only for a linear simplex."""
     with pytest.raises(NotImplementedError, match='linear simplices'):
         Mesh(
             vertices=np.zeros((6, 2)),

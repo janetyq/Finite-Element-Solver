@@ -1,8 +1,5 @@
-"""Regressions for `Plotter` writing to, and decorating, the wrong thing.
-
-Each of these was silent: the output existed, looked plausible, and was wrong. They
-are grouped because they share a cause -- reaching for pyplot's global current figure
-and axes instead of the ones the Plotter owns.
+"""`Plotter` writes to, and decorates, its own figure and axes rather than pyplot's
+current ones, and its P2 tessellation and warp draw what they claim.
 """
 from pathlib import Path
 
@@ -60,9 +57,7 @@ def test_close_closes_its_own_figure(mesh):
 
 
 def test_surface_animation_adds_no_colorbar(mesh):
-    """A colorbar was set up for every mode, but only the colored mode reads one --
-    and for a surface it landed on the 2D axes that get replaced by 3D ones, so it
-    survived as a legend attached to nothing."""
+    """A surface animation draws no colorbar."""
     values = [np.linspace(0, 1, len(mesh.vertices)) * k for k in (1.0, 2.0)]
 
     plotter = Plotter(1, 1)
@@ -138,12 +133,8 @@ def test_contour_overlays_isolines_on_a_colored_panel(mesh):
 
 
 def test_colorbar_matches_the_height_of_the_panel_it_annotates():
-    """Constrained layout sizes a colorbar to the subplot *cell*; `set_aspect('equal')`
-    then shrinks the axes inside that cell. On a flat domain the bar ended up around
-    three times the height of the plot it was annotating.
-
-    Measured after `format_axs`, which is what every save and show path calls.
-    """
+    """Constrained layout sizes a colorbar to the subplot cell; `set_aspect('equal')` then
+    shrinks the axes inside it. Measured after `format_axs`."""
     wide = create_rect_mesh(corners=[[0, 0], [4, 1]], resolution=(8, 4))
     values = np.linspace(0.0, 1.0, len(wide.vertices))
 
@@ -161,9 +152,7 @@ def test_colorbar_matches_the_height_of_the_panel_it_annotates():
 
 
 def test_frames_can_be_sampled_down_to_a_cap(mesh, tmp_path):
-    """Rasterizing frames is the largest cost of a gallery build, and a player does not
-    need one image per solver step. The last frame is never the one dropped -- for a
-    topology optimization it is the result."""
+    """Frames are sampled down to `max_frames`, and the last frame is never the one dropped."""
     values = [np.full(len(mesh.vertices), float(k)) for k in range(6)]
 
     plotter = Plotter(1, 1)
@@ -231,9 +220,7 @@ def test_a_conditions_panel_keeps_its_aspect_but_not_the_x_y_labels(mesh):
 
 
 def test_clim_holds_one_scale_across_panels(mesh):
-    """Each panel renormalized to its own extremes, so six snapshots of a field decaying
-    by 70% drew as six near-identical squares -- the run visible only in the colorbar
-    ticks. `plot_animation` had always fixed this across frames; `plot` could not."""
+    """`clim` holds one colour scale across panels, so a decaying field reads as decaying."""
     cool = np.full(len(mesh.vertices), 300.0)
     cool[0] = 314.0
     hot = np.full(len(mesh.vertices), 300.0)
@@ -495,8 +482,7 @@ def test_warp_true_deforms_by_the_solutions_own_displacement():
 
 
 def test_warp_true_needs_a_solution_not_a_bare_mesh():
-    """`warp=True` has no displacement to read off a raw mesh, so it is rejected rather
-    than silently drawing the undeformed shape."""
+    """`warp=True` has no displacement to read off a raw mesh, so it is rejected."""
     mesh, space = _p2_square()
     with pytest.raises(ValueError, match='warp=True needs a Solution'):
         Plotter(1, 1).plot(mesh, space.node_coords[:, 0], mode='colored', space=space, warp=True)

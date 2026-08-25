@@ -1,7 +1,7 @@
 """The nonlinear-solve facade: minimise a stored energy instead of solving Ku = b.
 
 `EnergySolver` is to the energy path what `Solver` is to the linear one, and the
-two are deliberately the same shape: hold a mesh, an equation, and a boundary-
+two are the same shape: hold a mesh, an equation, and a boundary-
 condition spec; build a `Problem` per solve; hand it to a strategy. Here the
 problem is an `EnergyProblem` and the strategy is `NewtonSolve`, because the
 tangent depends on the state.

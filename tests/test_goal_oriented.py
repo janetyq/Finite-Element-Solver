@@ -1,9 +1,5 @@
-"""Tests for the goal-oriented (dual-weighted-residual) error estimator.
-
-The estimator is the product of the primal and dual recovery indicators, so it refines
-toward the elements that matter for a chosen quantity of interest. The checks: it returns
-a valid per-element field, its refinement concentrates near the quantity of interest, and
-it drives the mesh there more strongly than the global recovery estimator does.
+"""The goal-oriented (dual-weighted-residual) error estimator: its refinement
+concentrates near the quantity of interest, more strongly than the global estimator.
 """
 import numpy as np
 

@@ -15,26 +15,20 @@ free-vibration (modal) analysis, and SIMP topology optimization.
 ### ▶ [See it running: the demo gallery](https://janetyq.github.io/Finite-Element-Solver/)
 
 The [gallery](https://janetyq.github.io/Finite-Element-Solver/) renders every demo
-beside the code that produced it, rebuilt automatically on each push to `main`, so it
-always reflects the current demos. The figures below are a curated subset of the same
-renders.
-
-Each section shows one demo's output. The captions in the gallery carry the full
-detail; here the aim is a tour of what the solver does.
+beside the code that produced it, rebuilt on each push to `main`. The figures below are
+a curated subset: a tour of what the solver does, with the full captions in the gallery.
 
 ---
 
 ## Meshing a domain
 
-The library brings its own meshing. A full pipeline meshes any arbitrary outline, traced
-from an SVG or generated, using three algorithms: Douglas-Peucker to simplify a densely
-traced outline into fewer initial segments, Ruppert's algorithm to triangulate those
-segments to a minimum-angle and maximum-area bound, and adaptive refinement to add
-triangles where they improve solution accuracy (shown in later demos). Below, four
-outlines run the pipeline and carry the same solve: the Poisson "dome" of
-$-\nabla^2 u = 1$ with $u = 0$ on the boundary, tallest where the domain is widest and
-pinched to zero at every edge and hole. Each shape makes a different demand: disconnected
-islands, true Bezier curves, a hole by the even-odd rule, sharp notches.
+The library brings its own meshing. Any outline, traced from an SVG or generated, runs
+through three algorithms: Douglas-Peucker to simplify a densely traced outline,
+Ruppert's algorithm to triangulate it to a minimum-angle and maximum-area bound, and
+adaptive refinement to add triangles where they improve accuracy (shown in later
+demos). Below, four outlines carry the same solve, the Poisson "dome" of
+$-\nabla^2 u = 1$ with $u = 0$ on the boundary. Each shape makes a different demand:
+disconnected islands, true Bezier curves, a hole by the even-odd rule, sharp notches.
 
 <p align="center"><img src="images/outline_to_mesh.png" height="400" alt="Four outlines meshed and Poisson-solved: California with a mesh zoom inset, a cloud, a gear, and a star"></p>
 
@@ -43,19 +37,14 @@ islands, true Bezier curves, a hole by the even-odd rule, sharp notches.
 ### Poisson's equation
 
 Poisson's equation, $-\nabla^2 u = f$, models heat transfer, electrostatics, and other
-steady diffusion. The finite element method takes its weak form and discretizes it into
-a sparse linear system. The meshing section above already solves its "dome",
-$-\nabla^2 u = 1$ pinned to zero on the boundary; the same scalar operator tells a
-different story on a domain with a hole.
-
-An ideal (incompressible, irrotational) flow has a velocity potential $\phi$ with
-$\mathbf{v} = \nabla\phi$, so $\phi$ solves Laplace's equation (Poisson with $f = 0$).
-The obstacle here is a NACA 2412 airfoil at a 12-degree angle of attack, generated from
-the standard formula rather than a data file. A potential difference drives the flow
-left to right; the wing carries no flow through it, which is exactly the natural
-zero-flux condition of the weak form. Say nothing on its surface and it becomes a
-streamline the flow parts around. The equipotentials crowd over the upper surface, where
-the flow speeds up.
+steady diffusion. The meshing section above solves its "dome"; the same operator on a
+domain with a hole gives a flow. An ideal (incompressible, irrotational) flow has a
+velocity potential $\phi$ with $\mathbf{v} = \nabla\phi$, so $\phi$ solves Laplace's
+equation. The obstacle is a NACA 2412 airfoil at a 12-degree angle of attack. A
+potential difference drives the flow left to right; the wing carries no condition at
+all, which is the natural zero-flux condition of the weak form, so it becomes a
+streamline the flow parts around. The equipotentials crowd over the upper surface,
+where the flow speeds up.
 
 <p align="center"><img src="images/potential_flow.png" width="780" alt="Potential flow: equipotentials and flow speed over a NACA airfoil"></p>
 
@@ -67,15 +56,13 @@ $\theta = \tfrac{1}{2}$ (Crank-Nicolson); $\theta = 1$ is backward Euler. A finn
 heatsink is held hot underneath its base, and every other surface sheds heat to ambient
 through a convective (Robin) film, $\partial u / \partial n + \kappa (u - u_\infty) = 0$.
 
-Is the shape worth it? Compared against a solid block of the same size, posed two ways:
-driven by the same chip power, the block runs about 108&deg;C above ambient while the
-finned sink runs only 58&deg;C, roughly halving the thermal resistance; and holding each
-base at the same temperature, the finned sink sheds about 1.8x the heat on two-thirds the
-metal. Each fin also checks against beam theory (right): its efficiency, the heat it
-sheds against what it would shed with all of it at the base temperature, follows the
-textbook $\tanh(mL)/(mL)$ law, falling as fins lengthen because a long fin runs cold
-toward the tip, so these fins sit near 40%. The fins trade material for surface area,
-which is why a heatsink is finned rather than solid.
+Compared against a solid block of the same size: driven by the same chip power, the
+block runs about 108&deg;C above ambient while the finned sink runs 58&deg;C, roughly
+halving the thermal resistance; held at the same base temperature, the finned sink
+sheds about 1.8x the heat on two-thirds the metal. Each fin's efficiency (right), the
+heat it sheds against what it would shed at the base temperature throughout, follows
+the textbook $\tanh(mL)/(mL)$ law, falling as fins lengthen because a long fin runs
+cold toward the tip.
 
 <p align="center"><img src="images/heatsink_comparison.png" height="280" alt="Heatsink vs a solid block: fixed power (the block overheats) and fixed base temperature (the fins shed more)"> <img src="images/heatsink_efficiency.png" height="280" alt="Fin efficiency against the tanh(mL)/(mL) beam-theory law"></p>
 
@@ -110,14 +97,13 @@ each a reduction of the same tensor rather than a separate problem.
 ### Stress at a re-entrant corner, and why fillets exist
 
 An L-bracket clamped at the top and pulled down at the tip concentrates stress at its
-inner corner. A *sharp* re-entrant corner is a genuine stress singularity: the exact
-elastic stress there is infinite, so no mesh resolves it. Drive adaptive refinement into
-the corner and the computed peak just keeps climbing. Round the corner with a fillet and
-the singularity is gone: the peak spreads over the radius and settles on a finite value.
-Tracking that corner peak against mesh size (right) shows the two behaviours directly:
-the sharp corner climbs without bound (its "stress" is a property of the mesh, not the
-part); the fillet converges. This is the whole reason real parts round their inner
-corners.
+inner corner. A sharp re-entrant corner is a stress singularity: the exact elastic
+stress there is infinite, so no mesh resolves it, and adaptive refinement into the
+corner just keeps the computed peak climbing. A fillet removes the singularity, and
+the peak settles on a finite value. Tracking the corner peak against mesh size (right)
+shows both: the sharp corner climbs without bound (its "stress" is a property of the
+mesh, not the part) and the fillet converges. This is why real parts round their
+inner corners.
 
 <p align="center"><img src="images/bracket.png" height="280" alt="L-bracket von Mises stress: sharp corner vs filleted"> <img src="images/bracket_singularity.png" height="280" alt="Corner stress peak vs mesh refinement: sharp climbs, fillet converges"></p>
 
@@ -215,20 +201,20 @@ already carries most of the Kirsch stress concentration.
 ### Adaptive refinement
 
 Adaptive refinement re-solves and splits wherever an a posteriori error estimator finds
-the most error, maintaining triangle quality with red-green refinement. Two estimators
-ship: a **residual** estimator (interior residual, interior-edge flux jump, and boundary
-residual; 2D only, as it needs edge normals) and a **Zienkiewicz-Zhu recovery**
-estimator (the gap between the discrete flux and a recovered continuous one;
-dimension-general). Below, refinement driven by the residual estimator on a peaked
-Poisson source concentrates the mesh where the solution is hardest to approximate, and
-the estimated error drops sharply.
+the most error, keeping triangle quality with red-green refinement. Three estimators
+ship: a residual estimator (interior residual, edge flux jump, boundary residual; 2D
+only), a Zienkiewicz-Zhu recovery estimator (the gap between the discrete flux and a
+recovered continuous one; dimension-general), and a goal-oriented estimator that
+refines toward a chosen quantity of interest through an adjoint solve. Below, the
+residual estimator on a peaked Poisson source concentrates the mesh where the solution
+is hardest to approximate.
 
 <p align="center"><img src="images/refinement.png" width="780" alt="Adaptive refinement on a peaked source"></p>
 
 ### Representation error
 
 Before any PDE, there is the question of what the space can represent at all. The target
-$\sin(40 r^2)$ has rings that tighten with radius; projected onto a deliberately coarse
+$\sin(40 r^2)$ has rings that tighten with radius; projected onto a coarse
 P1 mesh, the slow inner rings come through but the fast outer ones break up into the
 triangulation. That representation error is the floor every solver on this mesh starts
 from, and refining the mesh is what lowers it.
@@ -243,17 +229,13 @@ from, and refining the mesh is what lowers it.
 from fem import create_rect_mesh, BoundaryConditions, BCType, Solver, Poisson, Plotter
 from fem.regions import everywhere
 
-mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))  # geometry only
+mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))
 
-# The source term f is data of the equation; the boundary conditions describe only the
-# boundary, and do so geometrically, so the same `bc` is valid on any mesh, including
-# one produced by adaptive refinement.
+# Conditions are geometric, so the same `bc` is valid on any mesh of this domain.
 equation = Poisson(source=1)
 bc = BoundaryConditions()
 bc.add(BCType.DIRICHLET, everywhere(), 0)
 
-# Solver picks the element type off the connectivity and derives the DOFs per node from
-# the equation, so it builds its own FunctionSpace over the mesh.
 solution = Solver(mesh, equation, bc).solve()
 
 plotter = Plotter(title="Poisson")
@@ -275,11 +257,8 @@ solution.principal_stress  # (n_elements, 3) principal values, ascending
 solution.compliance        # (n_elements,) strain energy per element
 ```
 
-The tensors are stored and the scalars computed, not the other way round. A reduction
-to one number is a choice, and reducing at construction would fix which question the
-result can answer. `fem/invariants.py` holds those reductions; each is
-rotation-invariant, which a norm taken over the packed Voigt components used in
-assembly is not.
+The tensors are stored and the scalars computed on demand. `fem/invariants.py` holds
+those reductions; each is rotation-invariant.
 
 ## Installation
 
@@ -313,9 +292,8 @@ uv run pytest
 
 ## Project Structure
 
-A solve is a composition assembled from parts, not a method looked up by PDE name, so
-the package is grouped by the job each object does. `ARCHITECTURE.md` is the full
-account; this is the map.
+The package is grouped by the job each object does. `ARCHITECTURE.md` is the overview;
+this is the map.
 
 ```
 fem/                 # the solver package
@@ -351,8 +329,10 @@ fem/                 # the solver package
 ├── buckling.py      # BucklingSolver: linearised (eigenvalue) buckling
 ├── modal.py         # ModalSolver: free-vibration analysis
 ├── adaptivity.py    # AdaptiveRefinement driver
-├── estimators.py    # residual and Zienkiewicz-Zhu recovery error estimators
+├── estimators.py    # residual, recovery, and goal-oriented error estimators
+├── sensitivity.py   # adjoint sensitivity: quantities of interest and their gradients
 ├── topology.py      # SIMP topology optimization driver
+├── design.py        # DesignOptimizer: any quantity of interest over a density field
 │
 │   # results
 ├── solution.py      # typed Solution hierarchy; ElasticSolution.from_solve
@@ -361,7 +341,7 @@ fem/                 # the solver package
 ├── io.py            # mesh JSON, solution npz (no pickle)
 │
 └── geometry.py, numerics.py, typing.py   # helpers and semantic array aliases
-tests/               # pytest suite (unit, convergence, integration smoke)
+tests/               # pytest suite
 examples/            # runnable demo scripts, the CLI, and the gallery builder
 files/               # example SVG outlines
 ```
@@ -376,13 +356,13 @@ uv run python examples/make_readme_figures.py   # rewrites the figures in images
 
 ## Methods
 
-- Galerkin finite element method: P1 (linear) basis on triangles and tetrahedra, and
-  P2 (quadratic) triangles for O(h³) accuracy, over a Gaussian quadrature layer
+- Galerkin finite element method: P1 (linear) basis on triangles and tetrahedra, P2
+  (quadratic) and curved isoparametric triangles, over a Gaussian quadrature layer
 - Boundary conditions: Dirichlet, Neumann, Robin, and per-component (roller) constraints
 - PDEs: L2 projection, Poisson, variable-coefficient diffusion, heat, wave,
   Navier-Cauchy (linear elasticity), St Venant-Kirchhoff hyperelasticity
 - Kinematics: infinitesimal strain, or geometrically exact Green-Lagrange
-  (2D elasticity is **plane strain**)
+  (2D elasticity is plane strain)
 - Time integration: theta-method (backward Euler, Crank-Nicolson) for first-order
   systems; Newmark average-acceleration for second-order
 - Linear algebra: sparse throughout; direct (`splu`) by default, or AMG-preconditioned
@@ -391,10 +371,11 @@ uv run python examples/make_readme_figures.py   # rewrites the figures in images
   a geometric-stiffness or mass pencil and a sparse generalized eigensolve
 - Derived fields: Cauchy stress and strain tensors, von Mises, principal stresses,
   compliance
-- Error estimation: residual and Zienkiewicz-Zhu recovery estimators, driving
-  closed-loop adaptive refinement
-- Optimization: Newton-Raphson with an optional backtracking line search; optimality
-  criteria (SIMP topology optimization)
+- Error estimation: residual, Zienkiewicz-Zhu recovery, and goal-oriented (dual-weighted
+  residual) estimators, driving closed-loop adaptive refinement
+- Sensitivity and optimization: adjoint gradients of a quantity of interest;
+  Newton-Raphson with an optional backtracking line search; optimality criteria (SIMP
+  topology and design optimization)
 - Mesh algorithms: Delaunay triangulation, Ruppert's algorithm (line segments to
   triangle mesh), red-green refinement
 
@@ -402,14 +383,13 @@ uv run python examples/make_readme_figures.py   # rewrites the figures in images
 
 `BACKLOG.md` tracks the detailed open work; this is the direction.
 
-- **Broaden the physics**: thermoelasticity, plasticity, fluids (Stokes / Navier-Stokes),
+- Broaden the physics: thermoelasticity, plasticity, fluids (Stokes / Navier-Stokes),
   electrostatics, advection-diffusion, Neo-Hookean
-- **Differentiable / adjoint solve**: inverse problems, design and shape optimization,
-  goal-oriented refinement
-- **Standard formats**: STL and OBJ meshes, Gmsh `.msh` import, VTK/ParaView `.vtu` export
-- **Standard benchmark suite**: NAFEMS, Cook's membrane, plate-with-hole, L-shaped
+- Inverse problems and shape optimization on the adjoint core
+- Standard formats: STL and OBJ meshes, Gmsh `.msh` import, VTK/ParaView `.vtu` export
+- Standard benchmark suite: NAFEMS, Cook's membrane, plate-with-hole, L-shaped
   singularity, Euler columns
-- **Finish the core**: 3D P2 with P2-aware plotting and adaptivity, mixed (u-p) for
+- Finish the core: 3D P2 with P2-aware plotting and adaptivity, mixed (u-p) for
   near-incompressibility, time-varying loads, two-grid preconditioner
 
 ## References

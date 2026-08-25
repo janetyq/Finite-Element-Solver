@@ -100,9 +100,8 @@ def test_adaptive_refinement_with_error_estimator(make_unit_square):
 # check eta against a value worked out by hand.
 
 def _inject_constant_stress(solver, sigma_xx, sigma_yy, sigma_xy):
-    """Replace `solver.solution` with a synthetic ElasticSolution carrying the
-    same constant in-plane stress on every element -- enough for
-    `error_estimate` (it reads `.stress` only) without an actual solve."""
+    """Replace `solver.solution` with a synthetic ElasticSolution carrying the same
+    constant in-plane stress on every element."""
     mesh = solver.mesh
     n = len(mesh.elements)
     stress = np.zeros((n, 3, 3))
@@ -116,9 +115,8 @@ def _inject_constant_stress(solver, sigma_xx, sigma_yy, sigma_xy):
 
 
 def _unit_square_two_triangles():
-    """A 2-triangle unit square, split along the (0,2) diagonal -- small enough
-    that every edge's outward normal and the elements it touches can be worked
-    out by hand."""
+    """A 2-triangle unit square, split along the (0,2) diagonal, small enough to work every
+    edge's outward normal out by hand."""
     vertices = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
     elements = [[0, 1, 2], [0, 2, 3]]
     boundary = [[0, 1], [1, 2], [2, 3], [3, 0]]
@@ -126,11 +124,9 @@ def _unit_square_two_triangles():
 
 
 def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):
-    """A globally linear displacement field is constant-strain, hence an exact
-    equilibrium solution with zero body force, so eta should vanish. Dirichlet
-    everywhere means every boundary edge is skipped (both endpoints pinned), so
-    this exercises the interior/jump terms only; the boundary term is covered
-    separately below."""
+    """A globally linear displacement is constant-strain, an exact equilibrium solution with
+    zero body force, so eta vanishes. Dirichlet everywhere, so only the interior and
+    jump terms are exercised."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), lambda p: [0.01 * p[0], -0.003 * p[1]])
@@ -144,15 +140,9 @@ def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):
 
 
 def test_elastic_error_estimator_boundary_term_matches_hand_derivation():
-    """Direct check of the new Neumann/natural-boundary residual term.
-
-    Bottom edge is Dirichlet (pinned both ends) and must be skipped; nothing
-    else carries a condition, so the other three edges are natural with g=0,
-    and each free edge's residual is exactly ||sigma.n||^2 for the injected
-    stress. Expected eta is worked out by hand from the mesh's own geometry
-    (h_K = sqrt(2) for both elements, every boundary edge length 1) and the
-    known outward normals: right -> (1,0), left -> (-1,0), top -> (0,1).
-    """
+    """The Neumann/natural boundary residual against a hand derivation: the bottom edge is
+    Dirichlet and skipped, the other three are natural with g=0, so each free edge's
+    residual is ||sigma.n||^2 for the injected stress."""
     mesh = _unit_square_two_triangles()
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])  # bottom edge only
@@ -175,19 +165,9 @@ def test_elastic_error_estimator_boundary_term_matches_hand_derivation():
 
 
 def test_elastic_error_estimator_neumann_matching_traction_is_quiet():
-    """A Neumann condition that exactly matches the injected stress's traction
-    contributes nothing on the edge it's declared on -- the estimator
-    shouldn't flag a boundary as erroneous when the prescribed data and the
-    solution agree.
-
-    `g` is nodal, so a Neumann value also reaches the *neighbouring* free edges
-    through their shared corner: `error_estimate` averages the two endpoints'
-    nodal `g` from `resolved.neumann_load`. Declaring top's traction therefore
-    lifts `g` on right and left at the shared corner, changing their residuals
-    too -- corner-sharing worked through by hand rather than assumed away. (The
-    assembled *load* no longer spreads this way; the estimator reads nodal `g`,
-    where the corner is still shared.)
-    """
+    """A Neumann condition that exactly matches the injected stress's traction contributes
+    nothing on its edge. `g` is nodal, so it also reaches the neighbouring free edges
+    through the shared corner; that is worked through by hand."""
     mesh = _unit_square_two_triangles()
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])   # bottom: skip
@@ -215,12 +195,8 @@ def test_elastic_error_estimator_neumann_matching_traction_is_quiet():
 
 
 def test_elastic_error_estimator_roller_edge_only_tests_its_free_component():
-    """A roller (bottom pinned in x, free in y) rather than a full clamp: the
-    x-component has a live essential condition (no residual, matching the
-    fully-clamped case), but y is natural there and must still be tested --
-    using the full vector residual would wrongly count the pinned x-direction's
-    reaction stress as error, which is exactly the false signal a roller fix
-    needs the estimator not to produce."""
+    """On a roller (bottom pinned in x, free in y) only the free component is tested; the
+    pinned direction's reaction stress must not count as error."""
     mesh = _unit_square_two_triangles()
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, None])  # bottom: roller
@@ -247,14 +223,8 @@ def test_elastic_error_estimator_roller_edge_only_tests_its_free_component():
 
 
 def test_adaptive_refinement_elasticity_runs_end_to_end(make_unit_square):
-    """The full loop, mirroring test_adaptive_refinement_with_error_estimator:
-    the mesh grows, the solution stays finite, and Dirichlet BCs -- carried as
-    geometric regions rather than vertex indices -- still hold exactly on the
-    refined mesh. Where refinement concentrates is not asserted here: for a
-    fully clamped edge that is a real, budget-dependent question (see the
-    module docstring above), not a property this loop-mechanics test should
-    pin down.
-    """
+    """The full loop: the mesh grows, the solution stays finite, and the geometric Dirichlet
+    conditions still hold exactly on the refined mesh."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])

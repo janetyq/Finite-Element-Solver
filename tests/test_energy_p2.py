@@ -1,10 +1,8 @@
 """Quadratic (P2) elements on the nonlinear energy path.
 
-`EnergySolver` now takes an `element_type`, so a hyperelastic solve can use P2. The one
-subtlety is quadrature: the St-Venant-Kirchhoff energy is quartic in the displacement
-gradient, so on P2 it needs a degree-4 rule where the linear stiffness's default is 2.
-The energy, its gradient (the residual), and its Hessian (the tangent) all share that one
-rule, which these tests pin through a finite-difference gradient check.
+The St-Venant-Kirchhoff energy is quartic in the displacement gradient, so on P2 it
+needs a degree-4 rule where the linear stiffness's default is 2. The energy, residual,
+and tangent share that rule, which a finite-difference gradient check pins.
 """
 import numpy as np
 import pytest
@@ -61,9 +59,8 @@ def test_the_energy_rule_is_degree_aware():
 
 
 def test_full_integration_changes_the_p2_stvk_energy():
-    """The bump is not cosmetic: integrating the quartic St-VK energy on P2 at the default
-    degree-2 rule under-integrates it, here by over 10 percent, which is why the energy
-    path asks for degree 4."""
+    """Integrating the quartic St-VK energy on P2 at the default degree-2 rule
+    under-integrates it by over 10 percent."""
     mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
     form = _stvk_form()

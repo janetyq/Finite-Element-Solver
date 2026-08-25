@@ -1,9 +1,5 @@
-"""Reading an SVG path into the point rings `PSLG` and `douglas_peucker` expect.
-
-A loop is returned without a repeated closing vertex -- the wraparound in
-`PSLG.from_loops` supplies that edge -- which the Close-segment handling in
-`read_svg_to_list_of_path_points` has to preserve regardless of whether the
-artwork's own last segment happens to land exactly back on its start point.
+"""Reading an SVG path into the point rings `PSLG` and `douglas_peucker` expect. A loop
+is returned without a repeated closing vertex; `PSLG.from_loops` supplies that edge.
 """
 from pathlib import Path
 
@@ -37,10 +33,8 @@ def _write_svg(tmp_path, d):
 
 
 def test_a_bezier_segment_is_sampled_through_its_own_true_endpoint(tmp_path):
-    """Every curve segment's endpoint should appear in the outline, not just the
-    points strictly between it and its neighbour -- otherwise every joint in a
-    traced SVG (not only the one closing the loop) cuts the corner short by
-    however far the last sample point falls short of it."""
+    """Every curve segment's endpoint appears in the outline, so no joint in a traced SVG
+    cuts the corner short."""
     svg_file = _write_svg(tmp_path, 'M0,0 C0,1 1,1 1,0 L2,0 Z')
     loop = np.array(read_svg_to_list_of_path_points(svg_file)[0])
     true_endpoint = np.array([1, 10 - 0])  # the C command's own end, y-mirrored
@@ -48,17 +42,15 @@ def test_a_bezier_segment_is_sampled_through_its_own_true_endpoint(tmp_path):
 
 
 def test_a_curve_that_closes_exactly_is_returned_without_a_duplicate_vertex(tmp_path):
-    """The final Bezier's endpoint is written to coincide with the Move point, as a
-    real closed-artwork path does -- e.g. `files/cloud.svg`."""
+    """The final Bezier's endpoint coincides with the Move point (as in `files/cloud.svg`)."""
     svg_file = _write_svg(tmp_path, 'M0,0 C0,1 1,1 1,0 C1,-1 0,-1 0,0 Z')
     loop = np.array(read_svg_to_list_of_path_points(svg_file)[0])
     assert not np.allclose(loop[0], loop[-1])
 
 
 def test_a_curve_that_does_not_close_exactly_keeps_its_real_gap(tmp_path):
-    """The artwork's own last point does not land back on the Move point -- e.g.
-    `files/california.svg`. Nothing should be fabricated to close it; the gap is
-    closed implicitly by `PSLG.from_loops`'s wraparound instead."""
+    """The artwork's last point does not land on the Move point (as in
+    `files/california.svg`); nothing is fabricated to close it."""
     svg_file = _write_svg(tmp_path, 'M0,0 L1,0 L1,1 L0.1,0.9 Z')
     loop = np.array(read_svg_to_list_of_path_points(svg_file)[0])
     assert loop[-1].tolist() == pytest.approx([0.1, 10 - 0.9])
@@ -66,9 +58,8 @@ def test_a_curve_that_does_not_close_exactly_keeps_its_real_gap(tmp_path):
 
 
 def test_a_closed_curve_simplifies_and_meshes_without_a_degenerate_chord(tmp_path):
-    """Regression: sampling every Bezier through its true endpoint (rather than
-    stopping short) once left an exact start==end duplicate in the ring, which is
-    a zero-length chord to `douglas_peucker` and a zero-length edge to `PSLG`."""
+    """A closed curve leaves no start==end duplicate in the ring, which would be a
+    zero-length chord to `douglas_peucker` and a zero-length edge to `PSLG`."""
     svg_file = _write_svg(tmp_path, 'M0,0 C0,1 1,1 1,0 C1,-1 0,-1 0,0 Z')
     loop = np.array(read_svg_to_list_of_path_points(svg_file)[0])
 
@@ -161,8 +152,7 @@ def test_douglas_peucker_is_iterative_and_survives_a_deep_split():
 
 
 def _crossing_by_all_pairs(vertices, segments):
-    '''The reference the grid must match: the old quadratic all-pairs scan, returning
-    the lexicographically first properly crossing pair.'''
+    '''The quadratic all-pairs reference the grid must match.'''
     vertices, segments = np.asarray(vertices, float), np.asarray(segments)
 
     def side(a, b, p):
@@ -181,8 +171,7 @@ def _crossing_by_all_pairs(vertices, segments):
 
 
 def test_grid_crossing_detection_matches_the_all_pairs_reference():
-    """The spatial-grid crossing search is a speed knob only: on random segment soups
-    it returns exactly the pair the old all-pairs scan would."""
+    """The spatial-grid crossing search returns the pair the all-pairs scan does."""
     rng = np.random.default_rng(7)
     for _ in range(200):
         n = int(rng.integers(2, 25))

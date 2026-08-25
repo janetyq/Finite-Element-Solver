@@ -1,10 +1,4 @@
-"""The quadrature-sampled load beats the nodal shortcut, and both stay second order.
-
-Guards the claim the `quadrature_load` demo draws: on an oscillatory source, a
-`LinearForm` (sampling the source at the quadrature points) is more accurate than
-integrating the source's nodal interpolant, at every resolution, while both converge
-at O(h^2).
-"""
+"""The quadrature-sampled load beats the nodal shortcut, and both stay second order."""
 import numpy as np
 
 from fem.convergence import ConvergenceStudy, load_comparison_convergence

@@ -1,14 +1,10 @@
 """Boundary conditions, specified against geometry and resolved against a mesh.
 
-The split here is the whole design. A `BoundaryConditions` is a specification:
-mesh-independent and discretization-independent, describing what the user means ("the left edge
-is pinned"). A `ResolvedBC` is what a solver needs: concrete DOF indices and load
-vectors for one particular mesh and one particular number of DOFs per node.
-
-Keeping the specification lets a condition survive remeshing (resolve it again
-against the new mesh), and keeping the resolution immutable and per-component-count
-stops one shared BC object from silently reconfiguring itself when handed to a
-solver for a different equation.
+A `BoundaryConditions` is a mesh-independent specification ("the left edge is
+pinned"). A `ResolvedBC` is what a solver needs: concrete DOF indices and load
+vectors for one mesh and one number of DOFs per node. Keeping the specification lets
+a condition survive remeshing; keeping the resolution immutable stops one shared BC
+object from reconfiguring itself when handed to a solver for a different equation.
 """
 import logging
 from dataclasses import dataclass
@@ -83,8 +79,7 @@ class NeumannContribution:
     `facet_mask` marks the boundary facets in the region; a `MaskedMassForm` over them
     integrates `traction` (the nodal field g) across those facets alone, the same
     region-restricted integral a Robin condition uses. Masking keeps a traction from
-    spreading onto a neighbouring edge through a shared corner node, which the
-    unmasked boundary mass it replaces did, inflating the applied resultant.
+    spreading onto a neighbouring edge through a shared corner node.
     '''
     facet_mask: BoolArray       # one entry per boundary facet
     traction: VertexField       # (n_vertices, n_components), nonzero on the region nodes
@@ -206,9 +201,8 @@ class BoundaryConditions:
         boundary = np.asarray(nodes.boundary_idxs, dtype=int)
 
         if is_mesh_bound(region):
-            # Naming a node explicitly is a claim about that node, so silently
-            # dropping an interior one would hide a mistake. Describing a region
-            # is a filter, where the intersection is the intent.
+            # A named interior node is a mistake to report; a geometric region is a
+            # filter, so its intersection with the boundary is the intent.
             interior = np.setdiff1d(selected, boundary)
             if len(interior):
                 raise ValueError(

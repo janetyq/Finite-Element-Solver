@@ -1,13 +1,7 @@
-"""Tests for the adjoint sensitivity core.
-
-Two anchors, per `attic/fem-adjoint-sensitivity-design-2026-08-18.md` section 5:
-
-1. Reduction: the general adjoint pass with a `Compliance` quantity of interest and a
-   `DensityField` parameterization reproduces `TopologyOptimizer`'s hand-written
-   sensitivity (`MinCompliance.gradient`), the self-adjoint special case.
-2. Finite-difference check: the adjoint gradient matches a central-difference gradient
-   of the objective, for both a self-adjoint (compliance) and a non-self-adjoint
-   (point-displacement) quantity of interest, over both density and modulus parameters.
+"""The adjoint sensitivity core, anchored two ways: the general adjoint pass with a
+`Compliance` quantity of interest reproduces `TopologyOptimizer`'s hand-written
+sensitivity, and the adjoint gradient matches a central-difference gradient for both a
+self-adjoint and a non-self-adjoint quantity of interest.
 """
 import numpy as np
 
@@ -44,11 +38,8 @@ def _density_problem(space, rho, base_E, nu, penalty):
 
 
 def test_compliance_density_gradient_matches_the_hand_written_sensitivity(make_unit_square):
-    """Reduction anchor: the general adjoint pass equals MinCompliance.gradient.
-
-    The core returns the true gradient dC/drho (negative); MinCompliance.gradient returns
-    the positive ascent sensitivity compliance * p / rho, so the two agree up to sign.
-    """
+    """The general adjoint pass equals MinCompliance.gradient up to sign (the core returns
+    dC/drho, MinCompliance the positive ascent sensitivity)."""
     space = FunctionSpace(make_unit_square(6), n_components=2)
     base_E, nu, penalty = 1.0, 0.3, 3.0
     rho = np.linspace(0.3, 1.0, len(space.element_nodes))

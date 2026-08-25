@@ -1,15 +1,8 @@
 """Derived fields: the quantities recovered from a solved displacement.
 
-Recovery is shared -- `Solver` and `TopologyOptimizer` both turn a solved `u`
-into strain, stress, and compliance -- so these pin the contract both go through
-rather than either one's implementation of it.
-
-The compliance identity below is the anchor. Element compliance is the volume
-integral of the double contraction sigma:epsilon, and the assembled stiffness is
-K = int B^T D B, so summing the per-element compliance must reproduce u^T K u
-exactly. That ties the recovered fields to the operator that produced them
-without a single hard-coded magic number, which is what makes it survive a
-change of representation.
+The anchor is the compliance identity: element compliance is the volume integral of
+sigma:epsilon and K = int B^T D B, so the per-element compliances sum to u^T K u
+exactly, tying the recovered fields to the operator without a magic number.
 """
 import numpy as np
 import pytest
@@ -29,19 +22,15 @@ REFERENCE_TRIANGLE = np.array([[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]])
 
 
 def _geometry_and_nodal(A):
-    """A single triangle carrying the exact linear field u(x) = A x.
-
-    P1 elements reproduce a linear field exactly, so the recovered gradient is A
-    to machine precision -- which makes the analytic strain and stress available
-    as an independent reference rather than a second implementation.
-    """
+    """A single triangle carrying the exact linear field u(x) = A x, whose analytic strain
+    and stress are an independent reference."""
     geometry = LinearTriangleElement.geometry(REFERENCE_TRIANGLE)
     nodal = (A @ REFERENCE_TRIANGLE[0].T).T
     return geometry, nodal[None]
 
 
 def _cantilever_bc() -> BoundaryConditions:
-    """Left edge pinned, right edge pulled down -- a loaded 2D cantilever."""
+    """Left edge pinned, right edge pulled down."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [0.0, -1.0])
@@ -54,14 +43,8 @@ def _solved(mesh):
 
 
 def test_element_compliance_sums_to_the_strain_energy_form(make_unit_square):
-    """sum_e int sigma:epsilon == u^T K u.
-
-    The per-element compliance is a contraction of the recovered stress against
-    the recovered strain; K is assembled from the same B and D. If the two ever
-    disagree -- a dropped factor of two on the shear terms, a mismatched Voigt
-    ordering -- the identity breaks, which is exactly the class of error a
-    representation change can introduce.
-    """
+    """sum_e int sigma:epsilon == u^T K u. A dropped factor of two on the shear terms or a
+    mismatched Voigt ordering breaks the identity."""
     mesh = make_unit_square(8)
     solver, solution = _solved(mesh)
 
@@ -80,14 +63,8 @@ def test_compliance_is_positive_and_finite(make_unit_square):
 
 
 def test_solver_and_optimizer_recover_the_same_fields(make_unit_square):
-    """The two call sites that recover derived fields must agree.
-
-    `Solver` and `TopologyOptimizer` run the same numerical path -- LinearProblem
-    -> LinearSolve -> derived fields -- so at a uniform unit density the
-    optimizer's first iterate is the plain elastic solve. They recover the fields
-    through separate code today; this pins that they agree, so collapsing them
-    onto one owner is a refactor rather than a change.
-    """
+    """`Solver` and `TopologyOptimizer` recover the same fields: at a uniform unit density
+    the optimizer's first iterate is the plain elastic solve."""
     mesh = make_unit_square(6)
     _, solution = _solved(mesh)
 
@@ -108,13 +85,8 @@ def test_solver_and_optimizer_recover_the_same_fields(make_unit_square):
 
 
 def test_recovered_strain_is_the_analytic_symmetric_gradient():
-    """Ties B, the Voigt unpacking, and the engineering-shear factor together.
-
-    For u(x) = A x the strain is exactly the symmetric part of A. Getting this
-    right requires the shear row of B, the Voigt ordering, and the division by
-    two to all agree -- a factor-of-two error anywhere shows up here, where the
-    old `norm`-of-a-Voigt-vector reduction could hide it.
-    """
+    """For u(x) = A x the strain is the symmetric part of A, which ties B, the Voigt
+    unpacking, and the engineering-shear factor together."""
     A = np.array([[0.03, 0.08], [-0.01, -0.02]])
     geometry, u_elements = _geometry_and_nodal(A)
 
@@ -128,8 +100,7 @@ def test_recovered_strain_is_the_analytic_symmetric_gradient():
 
 
 def test_recovered_stress_satisfies_the_isotropic_law():
-    """sigma = 2*mu*eps + lambda*tr(eps)*I, checked on the full 3x3 tensor
-    including the reconstructed out-of-plane component."""
+    """sigma = 2*mu*eps + lambda*tr(eps)*I on the full 3x3 tensor, out-of-plane included."""
     A = np.array([[0.02, 0.05], [0.01, -0.03]])
     geometry, u_elements = _geometry_and_nodal(A)
     mu, lamb = Enu_to_Lame(E, NU)
@@ -144,18 +115,9 @@ def test_recovered_stress_satisfies_the_isotropic_law():
 
 
 def test_energy_and_linear_paths_report_the_same_stress_at_small_strain():
-    """The two elastic paths must agree where they model the same physics.
-
-    `SmallStrain` is the linearisation the direct assembly solves, so at small
-    displacement the energy path's Cauchy stress and the linear path's stress
-    describe one state. They agree to O(||grad u||) -- the pushforward J^-1 P F^T
-    is what separates them -- so this checks the whole 3x3 tensor at a strain
-    small enough for that difference to be negligible.
-
-    This is also what pins the transposes. `ElementGeometry.gradients` returns the
-    transpose of the usual displacement gradient, so dW_dF comes out transposed
-    too; get the pushforward wrong and the off-diagonal terms disagree here.
-    """
+    """The energy path's Cauchy stress and the linear path's stress agree to O(||grad u||),
+    the pushforward J^-1 P F^T being what separates them. Asserted as a rate (halving the
+    displacement halves the gap), which also pins the transposes."""
     shape = np.array([[1.0, 3.0], [0.5, -2.0]])
 
     def discrepancy(amplitude):
@@ -179,13 +141,8 @@ def test_energy_and_linear_paths_report_the_same_stress_at_small_strain():
 
 
 def test_out_of_plane_stress_agrees_across_both_elastic_paths():
-    """The reconstructed sigma_zz is the same number whichever path built it.
-
-    The linear path gets it from the material as nu*(sxx + syy); the energy path
-    gets it from the density as lambda*tr(S). Those are the same quantity written
-    two ways, and if they ever drift the two solvers report different von Mises
-    stresses for identical physics.
-    """
+    """The reconstructed sigma_zz is the same number from the material (nu*(sxx + syy)) and
+    from the density (lambda*tr(S))."""
     A = 1e-6 * np.array([[2.0, 1.0], [-1.0, 4.0]])
     geometry, u_elements = _geometry_and_nodal(A)
 
@@ -199,17 +156,10 @@ def test_out_of_plane_stress_agrees_across_both_elastic_paths():
 
 
 def test_energy_path_compliance_is_the_work_conjugate_pairing():
-    """Compliance must pair stress and strain measures that are work-conjugate.
-
-    Second Piola-Kirchhoff stress is conjugate to Green-Lagrange strain over the
-    reference volume; Cauchy stress is not -- it pairs with the rate of
-    deformation over the deformed volume. Contracting the two *reported* tensors
-    (Cauchy with Green-Lagrange) mixes them, and at finite strain the answer is
-    wrong by tens of percent. It happens to be right at small strain, which is
-    why the agreement test above does not catch it, so this checks the finite
-    regime directly against S:E built from the density's own derivative chain.
-    """
-    A = np.array([[0.15, 0.30], [0.05, -0.10]])   # genuinely finite
+    """Compliance pairs work-conjugate measures (second Piola-Kirchhoff with Green-Lagrange).
+    Contracting the reported Cauchy stress with Green-Lagrange strain is wrong by tens
+    of percent at finite strain, so this checks the finite regime against S:E."""
+    A = np.array([[0.15, 0.30], [0.05, -0.10]])   # finite strain
     geometry, u_elements = _geometry_and_nodal(A)
 
     fields = EnergyForm(StVenantKirchhoff(E, NU)).derived_fields(geometry, u_elements)
@@ -245,10 +195,8 @@ def test_compliance_agrees_across_both_paths_at_small_strain():
 
 
 def test_green_lagrange_strain_vanishes_under_rigid_rotation():
-    """The property that makes the finite-strain measure worth its cost: rotating
-    a body rigidly stores no energy, so its strain must be exactly zero. Small
-    strain does not have this -- it reports a spurious compression -- which is
-    what the two measures differ on."""
+    """A rigid rotation stores no energy, so the Green-Lagrange strain is zero where
+    small strain reports a spurious compression."""
     theta = 0.4
     R = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
     A = R - np.eye(2)  # u(x) = (R - I)x rotates the element rigidly
@@ -263,9 +211,7 @@ def test_green_lagrange_strain_vanishes_under_rigid_rotation():
 
 @pytest.mark.parametrize('n', [4, 6])
 def test_compliance_is_mesh_convergent(n, make_unit_square):
-    """Total compliance is a physical quantity, so refining the mesh must not
-    move it wildly -- a coarse guard against a recovery that scales with element
-    count rather than with volume."""
+    """Total compliance is a physical quantity, so refining the mesh must not move it wildly."""
     _, coarse = _solved(make_unit_square(n))
     _, fine = _solved(make_unit_square(n + 4))
     assert coarse.compliance.sum() == pytest.approx(fine.compliance.sum(), rel=0.5)

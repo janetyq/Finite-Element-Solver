@@ -1,9 +1,4 @@
-"""Assertion-based solver tests.
-
-These are the demos from Tests.py rewritten as real, headless regression tests:
-same problem setups, but asserting on physical/mathematical invariants instead
-of producing a plot for a human to eyeball.
-"""
+"""Solver tests asserting on physical and mathematical invariants."""
 import numpy as np
 import pytest
 
@@ -17,12 +12,8 @@ from fem.integrators import NewmarkMethod, ThetaMethod, wave_energy
 
 
 def test_heat_conserves_mean_temperature(make_unit_square):
-    """A theta-method with no-flux (natural) boundaries conserves total heat.
-
-    Because K annihilates constants (K @ 1 = 0) and 1^T K = 0, the theta-method
-    step leaves 1^T M u invariant for any theta, so the mean temperature is
-    constant -- Crank-Nicolson (the default) included, not just backward Euler.
-    """
+    """A theta-method with no-flux boundaries conserves total heat: K annihilates constants,
+    so 1^T M u is invariant for any theta."""
     mesh = make_unit_square(20)
     corner = mesh.vertices.max(axis=0)
     u0 = bump_function(mesh.vertices, corner, mag=50, size=0.3) + 300
@@ -35,12 +26,8 @@ def test_heat_conserves_mean_temperature(make_unit_square):
 
 
 def test_l2_projection_reproduces_linear_field(make_unit_square):
-    """Projecting a field that already lives in the P1 space returns it exactly.
-
-    A linear function is representable exactly by linear elements, so its L2
-    projection onto the FE space must equal it at every node (to solver
-    tolerance). This is a patch test for the mass-matrix assembly and solve.
-    """
+    """A linear function is representable exactly by linear elements, so its L2 projection
+    equals it at every node."""
     mesh = make_unit_square(20)
 
     def linear_field(p):
@@ -62,12 +49,8 @@ def _pinned_square(make_unit_square, n=12):
 
 
 def test_wave_holds_static_equilibrium_under_load(make_unit_square):
-    """Started *at* the static solution with zero velocity, the wave must sit still.
-
-    Equilibrium of M u" + c^2 K u = b at rest means c^2 K u = b, which for c = 1
-    is exactly the Poisson solution. Newmark starting there computes a zero initial
-    acceleration and never moves, so a nonzero load is held exactly.
-    """
+    """Started at the static solution with zero velocity, the wave sits still: Newmark
+    computes a zero initial acceleration and never moves."""
     mesh, bc = _pinned_square(make_unit_square)
     source = 1.0
 
@@ -97,12 +80,8 @@ def test_wave_honors_dirichlet_bcs(make_unit_square):
 
 
 def test_wave_conserves_energy(make_unit_square):
-    """Undamped, unforced, pinned: total energy is conserved.
-
-    Average-acceleration Newmark (beta=1/4, gamma=1/2) conserves
-    1/2 (c^2 u^T K u + v^T M v) exactly for a linear system, so this holds to
-    solver tolerance rather than discretization error.
-    """
+    """Average-acceleration Newmark conserves 1/2 (c^2 u^T K u + v^T M v) for a linear
+    system, to solver tolerance."""
     mesh, bc = _pinned_square(make_unit_square)
     u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=1.0, size=0.2)
     u0[mesh.boundary_idxs] = 0.0
@@ -130,13 +109,7 @@ def test_wave_rejects_inconsistent_initial_state(make_unit_square):
 
 
 def test_linear_elastic_stretches_under_tension(make_unit_square):
-    """A bar fixed on the left and pulled right elongates in +x.
-
-    Fixing the left edge (u = 0) and applying a +x traction on the right edge
-    should leave the left edge unmoved and push the right edge to positive x
-    displacement, with everything finite. Validates the elastic stiffness
-    assembly, the Neumann load path, and Dirichlet handling together.
-    """
+    """A bar fixed on the left and pulled right elongates in +x, with the left edge unmoved."""
     mesh = make_unit_square(20)
 
     bc = BoundaryConditions()

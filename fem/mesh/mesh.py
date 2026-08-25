@@ -105,9 +105,7 @@ class Mesh:
         '''Dimension of the space the nodes live in.
 
         Distinct from an element's `reference_dim`: a triangle mesh embedded in
-        3D has spatial_dim 3 but reference_dim 2. The two coincide only when the
-        elements fill their ambient space, which is why one number has served
-        for both so far.
+        3D has spatial_dim 3 but reference_dim 2.
         '''
         return int(self.vertices.shape[1])
 
@@ -137,7 +135,7 @@ class Mesh:
         what they are doing rather than reaching for the constructor. A remesher that
         keeps its boundary on the same curves passes the (remapped) `boundary_curves`;
         omitting them yields a straight-sided mesh, since the new facets are otherwise
-        unrelated to the old ones' curves.
+        unrelated to the original facets' curves.
         '''
         return Mesh(vertices, elements, boundary, boundary_curves)
 
@@ -227,7 +225,7 @@ class Mesh:
     def edges(self) -> IntArray:
         '''Every edge in the mesh, as sorted (v0, v1) index pairs.
 
-        For a linear simplex the edge set is exactly every pair of its nodes:
+        For a linear simplex the edge set is every pair of its nodes:
         1 pair for a line, 3 for a triangle, 6 for a tet. That makes this
         dimension-general without a per-shape table; it holds only for linear
         simplices, which the constructor guarantees (quadratic elements carry

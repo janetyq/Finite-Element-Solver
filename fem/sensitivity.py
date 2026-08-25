@@ -8,7 +8,7 @@ at the cost of one extra solve, not one solve per parameter. The derivation live
     adjoint solve:   Kᵀ λ = (∂J/∂u)ᵀ                      (one solve, reuses K's factorization)
     gradient:        dJ/dp = ∂J/∂p − λᵀ (∂K/∂p) u          (a cheap product per parameter)
 
-The design splits cleanly in three, none of them per-PDE:
+Three parts, none per-PDE:
 
 - `QuantityOfInterest` owns `∂J/∂u` (the adjoint load) and can score a state.
 - `Parameterization` owns `∂K/∂p` and turns the pair `(u, λ)` into the gradient.
@@ -16,11 +16,9 @@ The design splits cleanly in three, none of them per-PDE:
   solves share the factorization. For a symmetric `K` (Poisson, small-strain elasticity)
   the adjoint reuses it directly; `Kᵀ = K`.
 
-`TopologyOptimizer`'s compliance sensitivity is the self-adjoint special case of this:
-`J = fᵀu` gives the adjoint load `f`, so `λ = u` and no second solve is needed. That
-case is the correctness anchor (`tests/test_sensitivity.py` checks the general path
-reproduces it). Only linear, symmetric problems are handled here; the nonlinear tangent
-path is future work.
+`TopologyOptimizer`'s compliance sensitivity is the self-adjoint special case:
+`J = fᵀu` gives the adjoint load `f`, so `λ = u` and no second solve is needed. Only
+linear, symmetric problems are handled here.
 """
 from __future__ import annotations
 
@@ -118,7 +116,7 @@ class PointValue:
 # Scope: these supply `∂J/∂u` (the adjoint load) for a fixed material. Used with
 # `SensitivityAnalysis` over a parameter the stress does not explicitly depend on (an
 # applied load, or a design whose stress is read off a fixed reference material), the
-# gradient is complete. Over a parameter the stress *does* depend on directly (the same
+# gradient is complete. Over a parameter the stress does depend on directly (the same
 # modulus the measure evaluates the stress with), there is an additional explicit term
 # `∂J/∂p` the adjoint pass does not add; that coupling, the basis of stress-constrained
 # design, is a documented follow-up (see BACKLOG.md).
@@ -391,8 +389,7 @@ class SensitivityAnalysis:
     operator (the linear problems here) that factorization serves the adjoint directly.
 
     The adjoint carries homogeneous Dirichlet data (`λ` is zero at the fixed DOFs),
-    which is what `DiscreteSystem.solve_homogeneous` supplies while reusing the
-    factorization. A self-adjoint QoI under homogeneous supports skips the adjoint solve
+    through `DiscreteSystem.solve_homogeneous` on the same factorization. A self-adjoint QoI under homogeneous supports skips the adjoint solve
     entirely and takes `λ = u`.
     '''
 

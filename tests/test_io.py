@@ -1,9 +1,5 @@
-"""Round-trip tests for fem.io persistence.
-
-Meshes go to JSON, solutions to a pickle-free npz archive. The point of these
-tests is that a save/load cycle preserves everything a caller depends on --
-value arrays, mesh geometry, mesh class and n_components -- and that the load path never
-falls back to pickle.
+"""Round-trip tests for fem.io: a save/load cycle preserves value arrays, mesh geometry,
+mesh class, and n_components, and the load path never falls back to pickle.
 """
 import numpy as np
 import pytest
@@ -79,15 +75,14 @@ def test_elastic_solution_round_trip_preserves_fields_mesh_and_dim(make_unit_squ
 
 def test_loading_a_pre_tensor_elastic_solution_fails_loudly(make_unit_square):
     """Solutions saved when stress was a scalar per element cannot be read as
-    tensors. The archive has no format version, so the shape is the only signal --
-    and a silently-wrong axis is worse than a refusal."""
+    tensors. The archive has no format version, so the shape is the only signal."""
     mesh = make_unit_square(4)
     n_el = len(mesh.elements)
     with pytest.raises(ValueError, match='tensor field'):
         ElasticSolution(
             mesh, 2,
             np.zeros(len(mesh.vertices) * 2),
-            np.zeros(n_el),   # the old scalar shape
+            np.zeros(n_el),   # a scalar per element
             np.zeros(n_el),
             np.zeros(n_el),
         )
@@ -135,8 +130,7 @@ def test_transient_solution_round_trip_after_solve(make_unit_square, tmp_path):
 
 
 def test_solution_load_does_not_unpickle(make_unit_square, tmp_path):
-    """The archive must be readable with allow_pickle=False -- that is the whole
-    point of moving off pickle, so pin it rather than trusting the default."""
+    """The archive must be readable with allow_pickle=False."""
     mesh = make_unit_square(6)
     solution = FieldSolution(mesh, 1, np.zeros(len(mesh.vertices)))
     path = tmp_path / "solution.npz"
@@ -148,8 +142,7 @@ def test_solution_load_does_not_unpickle(make_unit_square, tmp_path):
 
 def test_saving_a_ragged_field_fails_loudly(make_unit_square, tmp_path):
     """A ragged field can only be stored as an object array (i.e. pickle), so it
-    must raise at save time rather than silently degrade. Typed solves never
-    produce one; a hand-built series with unequal-length steps does."""
+    must raise at save time."""
     mesh = make_unit_square(6)
     ragged = TransientSolution(mesh, 1, np.array([0.0, 1.0]), [np.zeros(3), np.zeros(5)])
 

@@ -1,26 +1,14 @@
 """Persistence for meshes and solutions.
 
-Both live here rather than on the classes themselves so there is a single place
-that knows the on-disk formats:
-
 - Meshes: JSON. Small, portable, human-readable.
-- Solutions: a single ``.npz`` archive holding the value arrays alongside the
-  mesh geometry and ``n_components`` needed to rebuild the object.
+- Solutions: a single ``.npz`` archive holding the value arrays alongside the mesh
+  geometry and ``n_components`` needed to rebuild the object.
 
-Solutions deliberately avoid ``pickle``. Pickle executes arbitrary code on load
-and is fragile across refactors, since it stores the class path: moving or
-renaming a class breaks every file previously written. The npz path reads plain
-numeric arrays and reconstructs a known mesh class by name, so loading a file
-can never run code from it. ``np.load`` is called with the default
-``allow_pickle=False``, which enforces that.
-
-Value arrays must be numeric and non-ragged (lists of equal-length arrays, such
-as a per-timestep ``u`` series, are fine; they stack). A ragged value fails at
-save time rather than silently becoming a pickled object array.
-
-Solutions are typed dataclasses (:mod:`fem.solution`), so the archive stores the
-class name and reflects over the dataclass fields; ``load`` reconstructs the same
-class. ``mesh`` and ``n_components`` are handled separately as the shared header.
+Solutions avoid ``pickle``, which executes arbitrary code on load and breaks when a
+class moves. The npz path reads plain numeric arrays (``allow_pickle=False``) and
+reconstructs a known class by name. Value arrays must be numeric and non-ragged; a
+ragged value fails at save time. The archive stores the solution's class name and
+reflects over its dataclass fields, with ``mesh`` and ``n_components`` as the header.
 """
 import dataclasses
 import json

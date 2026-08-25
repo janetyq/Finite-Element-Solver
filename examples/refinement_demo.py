@@ -27,7 +27,6 @@ def demo_refinement(_mesh):
     """Adaptive refinement on a peaked Poisson source: the error estimator tells
     the refiner which elements need splitting, concentrating the mesh where the
     solution is hardest to approximate."""
-    # Start with a moderate mesh so there is room to refine
     mesh = create_rect_mesh(corners=[[0.0, 0.0], [1.0, 1.0]], resolution=(20, 20))
     w, h = 1.0, 1.0
 
@@ -41,7 +40,6 @@ def demo_refinement(_mesh):
     bc.add(BCType.DIRICHLET, everywhere(), 0)
     equation = Poisson(source=peaked_source)
 
-    # Solve on the initial coarse mesh and compute error estimate
     coarse_solver = Solver(mesh.copy(), equation, bc)
     coarse_solution = coarse_solver.solve()
     coarse_mesh = coarse_solver.mesh
@@ -49,7 +47,6 @@ def demo_refinement(_mesh):
     coarse_error = estimator.estimate(coarse_solver)
     n_coarse = len(coarse_mesh.elements)
 
-    # Run adaptive refinement driven by the residual error estimator
     refined_solver = Solver(mesh.copy(), equation, bc)
     refined_solution = AdaptiveRefinement(
         refined_solver,
@@ -61,12 +58,11 @@ def demo_refinement(_mesh):
     refined_error = estimator.estimate(refined_solver)
     n_refined = len(refined_mesh.elements)
 
-    # Use a shared log scale for both error plots so they're comparable
+    # A shared log scale for both error plots.
     min_error = min(coarse_error.min(), refined_error.min())
     max_error = max(coarse_error.max(), refined_error.max())
     error_clim = (max(min_error, 1e-10), max_error)
 
-    # Compute error statistics for display
     coarse_max = coarse_error.max()
     coarse_norm = float(np.sqrt(np.sum(coarse_error**2)))
     refined_max = refined_error.max()
@@ -88,7 +84,7 @@ def demo_refinement(_mesh):
                title=f'Error η (max: {refined_max:.3f}, ‖η‖: {refined_norm:.2f})',
                idx=(0, 2), clim=error_clim, cmap='YlOrRd', log_scale=True)
 
-    # Show what red-green splitting does to an element: the mechanism beneath
+    # What red-green splitting does to an element.
     vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
     elements = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]])
     boundary = [[0, 1], [1, 2], [2, 3], [3, 0]]

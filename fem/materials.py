@@ -1,16 +1,13 @@
 """Material property conversions and the isotropic elastic constitutive law.
 
 Conversions between engineering constants (Young's modulus E, Poisson's ratio nu)
-and Lame parameters (shear modulus mu, lambda), plus `LinearElasticMaterial`: the
-map from strain to stress, which used to live on `Element` as `calculate_D`. It is
-a material law, not element geometry, so it belongs here rather than on the shape.
+and Lame parameters (shear modulus mu, lambda), plus `LinearElasticMaterial`, the
+map from strain to stress.
 
 `hooke_matrix` fixes the Voigt ordering of the constitutive matrix D; the
-strain-displacement matrix B in `fem.forms` must order its strain rows the same
-way, since D and B are contracted against each other. The two are the shared
-convention referred to in both files.
+strain-displacement matrix B in `fem.forms` orders its strain rows the same way.
 
-In 2D the law is **plane strain** throughout. `LinearElasticMaterial.out_of_plane_stress`
+In 2D the law is plane strain throughout. `LinearElasticMaterial.out_of_plane_stress`
 names that assumption and supplies the `sigma_zz` a 2D Voigt vector omits, which
 post-processing needs to build a complete stress tensor.
 """
@@ -92,7 +89,7 @@ class LinearElasticMaterial:
     def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
         '''The stress in the restrained z direction, which a 2D solve omits.
 
-        **2D here means plane strain**, the assumption `hooke_matrix(2, ...)`
+        2D here means plane strain, the assumption `hooke_matrix(2, ...)`
         already encodes: the body is held fixed in z, so `epsilon_zz = 0` and the
         material develops `sigma_zz = lambda * tr(epsilon)` resisting that. The
         stress is real, but it falls outside the three Voigt components a 2D

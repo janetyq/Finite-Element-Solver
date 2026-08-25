@@ -2,16 +2,13 @@
 
 `LinearSolve` and `NewtonSolve` consume a `Problem` and return a DOF vector;
 `EigenSolve` consumes an operator pair plus constraints and returns eigenpairs.
-The first two sit on the one algebra atom, `DiscreteSystem` (matrix + Dirichlet
-partition + factor-once solve), and know nothing about which PDE produced the
-`Problem`. `LinearSolve` assembles once and solves once; `NewtonSolve` iterates.
-The two are one engine: a `LinearProblem` has a constant tangent and an affine
-residual, so `NewtonSolve` reaches its solution in a single step from any seed;
-`LinearSolve` is that step done directly, skipping the residual evaluation.
+The first two sit on `DiscreteSystem` (matrix + Dirichlet partition + factor-once
+solve) and know nothing about which PDE produced the `Problem`. `LinearSolve`
+assembles once and solves once; `NewtonSolve` iterates, and on a `LinearProblem`
+(constant tangent, affine residual) reaches the solution in one step.
 
-`EigenSolve` is the eigen-analogue: an eigenproblem has no right-hand side, so it
-cannot go through `DiscreteSystem`, but the Dirichlet elimination is the same
-free-block reduction. `BucklingSolver` and `ModalSolver` are thin facades over it.
+`EigenSolve` is the eigen-analogue: no right-hand side, the same free-block Dirichlet
+elimination. `BucklingSolver` and `ModalSolver` are thin facades over it.
 """
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -250,9 +247,9 @@ class EigenSolve:
     does not interpret the eigenvalues: `BucklingSolver` reads `μ = 1/λ`, `ModalSolver`
     reads `μ = ω²`. Two modes, by one pair of knobs:
 
-    - **Regular** (`sigma=None`): the largest/smallest `μ` by `which` (buckling uses
+    - Regular (`sigma=None`): the largest/smallest `μ` by `which` (buckling uses
       `which='LA'` for the largest).
-    - **Shift-invert** (`sigma` set): the `μ` nearest `sigma`, factoring `A - sigma B`
+    - Shift-invert (`sigma` set): the `μ` nearest `sigma`, factoring `A - sigma B`
       once (modal uses `sigma=0, which='LM'` for the smallest `ω²`). Needs `A - sigma B`
       non-singular, so a structure with rigid-body modes needs a nonzero shift.
 

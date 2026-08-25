@@ -1,17 +1,9 @@
 """The domains the demos solve on, built rather than loaded.
 
-A demo's shape is part of what it says (a cantilever is a beam, and an SIMP result is
-a truss spanning one), so each demo names its domain here instead of solving on
-whatever mesh the caller happened to pass. `files/` used to hold six meshes for this,
-which were cached `create_rect_mesh` output: the same function reproduces any of them
-vertex for vertex in about 40 ms, so they were fixtures that could only drift.
-
-Sizes are chosen for what the figure needs to show, within what the gallery workflow
-can afford: it renders every demo on each push. There is more room there than the
-sizes suggest: a `tripcolor` is flat-shaded per element, so a coarse mesh is visibly
-faceted, while the build's cost sits mostly in rasterizing animation frames rather
-than in solving. `tests/test_demos.py` substitutes a tiny mesh for every domain, so
-none of this reaches the per-commit gate either.
+A demo's shape is part of what it says (a cantilever is a beam, a SIMP result is a
+truss spanning one), so each demo names its domain here. Sizes are chosen for what
+the figure needs to show within what the gallery build can afford; `tests/test_demos.py`
+substitutes a tiny mesh for every domain.
 """
 import numpy as np
 
@@ -30,8 +22,7 @@ def beam(length: float = 4.0, height: float = 1.0, n: int = 80) -> Mesh:
     """A `length` x `height` rectangle divided `n` ways along its length.
 
     The cross-wise count follows the aspect ratio, so the triangles stay near-isotropic
-    rather than becoming slivers as the beam gets longer: element quality bounds the
-    error, and a demo should not quietly hand the solver its worst case.
+    as the beam gets longer.
     """
     across = max(2, round(n * height / length))
     return create_rect_mesh(corners=[[0.0, 0.0], [length, height]], resolution=(n, across))
@@ -44,13 +35,10 @@ def column(length: float = 24.0, height: float = 1.0,
     Length runs along y (ends at y = 0 and y = length) so the mode shapes draw as columns
     stand, with `height` the thin cross-dimension along x.
 
-    Unlike `beam`, the through-thickness count is set independently of the aspect ratio
-    rather than following it. A buckling mode is bending, which the elements have to
-    resolve across the thin dimension; an isotropic-triangle slice of a long column would
-    leave only two or three of them there, far too few for the mode to curve. `n_across`
-    points evenly spaced across the thickness land on the neutral axis only when `n_across`
-    is odd (an even number of intervals, one landing dead-center); `n_across` is forced odd
-    so a pinned end has a vertex there to anchor.
+    Unlike `beam`, the through-thickness count is set independently of the aspect
+    ratio: a buckling mode is bending, which needs several elements across the thin
+    dimension. `n_across` is forced odd so a vertex lands on the neutral axis for a
+    pinned end to anchor.
     """
     n_across += 1 - n_across % 2
     return create_rect_mesh(corners=[[0.0, 0.0], [height, length]],
@@ -61,14 +49,10 @@ def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float
                          segments: int = 48) -> PSLG:
     """A `length` x `height` plate with a circular hole at its centre, as a PSLG.
 
-    Two loops: the outline and the hole. Under the even-odd rule the inner one is a
-    hole rather than a second region, so the mesh covers the material and stops at
-    the rim, which makes the rim a boundary the solver can see.
-
-    The hole loop carries a `Circle`, so refinement rounds it and an isoparametric
-    solve places its boundary nodes on the true rim, instead of the polygon corners
-    being stress concentrations of their own. `segments` still sets the initial
-    polygonisation; with curved elements far fewer are needed.
+    Two loops: the outline and the hole, which under the even-odd rule is a hole rather
+    than a second region. The hole loop carries a `Circle`, so refinement rounds it and
+    an isoparametric solve places its boundary nodes on the true rim; `segments` sets
+    only the initial polygonisation.
     """
     outline = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
     center = (length / 2, height / 2)
@@ -141,10 +125,9 @@ def _naca4_outline(camber: float, camber_pos: float, thickness: float, n: int,
     2412 is (0.02, 0.4, 0.12). Cosine node spacing clusters points at the leading and
     trailing edges, where the curvature is highest.
 
-    `te_trim` cuts that fraction of the chord off the trailing edge, leaving a blunt edge
-    of finite thickness in place of the near-cusp a full 4-digit section tapers to. The
-    cusp is a sliver the mesher would chase with unboundedly many tiny triangles; a blunt
-    edge meshes in a moment and barely changes the flow.
+    `te_trim` cuts that fraction of the chord off the trailing edge, leaving a blunt
+    edge in place of the near-cusp a full 4-digit section tapers to, which the mesher
+    would chase with unboundedly many tiny triangles.
     """
     beta = np.linspace(0, np.pi, n)
     x = 0.5 * (1 - np.cos(beta)) * (1 - te_trim)    # cosine spacing, 0 (LE) to 1-te_trim (TE)
@@ -194,16 +177,11 @@ def l_bracket_pslg(arm: float = 4.0, width: float = 1.2, fillet_radius: float = 
     Two limbs of thickness `width` and length `arm`: the vertical one up the left edge,
     the horizontal one along the bottom, meeting at a re-entrant (inner) corner at
     `(width, width)`. A sharp corner there is a stress singularity; `fillet_radius > 0`
-    rounds it with a concave arc of `n_fillet` points, the same way `tuning_fork_pslg`
-    rounds its slot root, which is what turns the peak into a finite, mesh-converged
-    value.
+    rounds it with a concave arc of `n_fillet` points carrying an `Arc` curve, so an
+    isoparametric solve reads a true circular fillet.
 
     Clamp the top of the vertical limb (`on_plane(1, arm)`) and load the tip of the
     horizontal one (`on_plane(0, arm)`); the concentration then sits at the inner corner.
-
-    With a fillet, the arc segments carry an `Arc` curve (the straight edges do not), so
-    an isoparametric solve reads a true circular fillet and refinement rounds it, rather
-    than the polygonal arc being a source of its own small stress ripples.
     """
     outline = [(0.0, 0.0), (arm, 0.0), (arm, width)]
     point_curves = [None, None, None]
@@ -231,12 +209,10 @@ def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,
                      n_fillet: int = 12) -> PSLG:
     """A two-tined tuning fork, upright with its tines pointing up, as a PSLG.
 
-    One non-convex outline, not a shape with holes: a stem rises into a base that
-    forks into two tines with a slot between them. Traced counter-clockwise from the
-    bottom-left of the stem, up the outer edges, across each tip, and down the inner
-    edges, with a rounded valley (radius `gap/2`) at the slot root in place of the two
-    sharp reentrant corners a straight slot bottom would leave. The mesher resolves the
-    straight edges; only the fillet is pre-sampled, into `n_fillet` points.
+    One non-convex outline: a stem rises into a base that forks into two tines with a
+    slot between them. Traced counter-clockwise from the bottom-left of the stem, with
+    a rounded valley (radius `gap/2`, `n_fillet` points) at the slot root in place of
+    two sharp reentrant corners.
 
     Dimensions are in metres; the defaults size a steel fork near concert A (see
     `demo_modal`). Centred on x = 0, with the stem base on y = 0, the line a modal solve
@@ -271,9 +247,8 @@ def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,
     return PSLG.from_loops([outline])
 
 
-# The generated shapes the outline-zoo demo meshes and solves on, alongside the traced
-# `files/*.svg` outlines. Each puts a different demand on the mesher: a star for sharp
-# reentrant corners, a gear for repeated teeth around a circular bore (a hole).
+# The generated shapes the outline demo meshes alongside the traced `files/*.svg`
+# outlines: a star for sharp reentrant corners, a gear for teeth around a circular bore.
 
 
 def star_pslg(points: int = 5, outer_radius: float = 1.0, inner_radius: float = 0.42,

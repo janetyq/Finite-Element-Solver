@@ -1,8 +1,5 @@
-"""Nodal recovery of derived fields, and the DerivedField seam that names them.
-
-The solve stores a per-element derived field (a scalar flux, an elastic stress); these
-tests cover recovering it to a continuous per-node field, the typed solutions that carry
-it, the equation hook that names it, and that it round-trips through `fem.io`.
+"""Nodal recovery of derived fields, the typed solutions that carry them, the equation
+hook that names them, and their round trip through `fem.io`.
 """
 import numpy as np
 import pytest

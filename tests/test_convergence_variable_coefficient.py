@@ -1,11 +1,7 @@
 """MMS for variable-coefficient diffusion: -div(kappa(x) grad u) = f.
 
-The Phase 2 capability -- a coefficient and a source that vary *within* an element,
-sampled at the quadrature points -- checked the only honest way: by confirming the
-solve still recovers a known field at the O(h^2) rate P1 promises. A
-constant-coefficient assembly cannot represent this problem at all, so a passing
-rate here is evidence the quadrature sampling on both the operator and the load is
-correct, not merely present.
+A coefficient and a source that vary within an element, sampled at the quadrature
+points, checked by recovering a known field at the O(h^2) rate P1 promises.
 """
 import pytest
 

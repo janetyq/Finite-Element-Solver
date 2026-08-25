@@ -2,9 +2,7 @@
 
 A PSLG loop that carries a `Circle` produces a mesh whose rim facets carry that circle,
 so Ruppert's split points and the red-green midpoints land on the true curve and an
-isoparametric solve reads a genuinely round boundary. The Kirsch test is the physical
-payoff: read at the rim node, a coarse hole sampling already carries most of the true
-stress concentration.
+isoparametric solve reads a round boundary. The Kirsch test is the physical payoff.
 """
 import numpy as np
 import pytest
@@ -130,10 +128,9 @@ def _kirsch_rim_sigma_xx(element_type, segments):
 @pytest.mark.parametrize('element_type', [IsoparametricTriangleElement, QuadraticTriangleElement])
 def test_hole_stress_concentration_is_read_from_the_rim(element_type):
     """Kirsch: a plate with a hole under tension S carries a hoop stress ~3S at the rim
-    (3.14S at this hole/height of 0.2, Howland's finite-width value). On a coarse mesh
-    from a 16-gon sampling, the P2 nodal stress read at the rim node gets within about
-    12% of that, on the curved and the straight element alike. The same solution's
-    per-element (centroid) stress sits far lower, since no centroid is on the rim."""
+    (3.14S at this hole/height of 0.2, Howland's value). On a coarse 16-gon mesh the P2
+    nodal stress at the rim node gets within 12% of that on the curved and straight
+    element alike; the per-element (centroid) stress sits far lower."""
     reference = 3.14
     rim = _kirsch_rim_sigma_xx(element_type, 16)
     for method in ('average', 'l2'):

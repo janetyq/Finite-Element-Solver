@@ -1,9 +1,8 @@
 """The gallery generator produces a browsable directory.
 
-Built on a small hand-made registry rather than the real one: rendering all of the
-real demos takes minutes, and what needs covering here is the generator's four paths -- a
-still figure, an animated figure rendered as frames, text output, and a demo skipped
-for a missing dependency -- not the demos themselves, which `test_demos.py` runs.
+Built on a small hand-made registry covering the generator's paths: a still figure, an
+animated figure rendered as frames, text output, and a demo skipped for a missing
+dependency. `test_demos.py` runs the real demos.
 """
 import json
 import re
@@ -98,12 +97,8 @@ def gallery(tmp_path_factory):
 
 
 def test_parallel_build_renders_every_demo(tmp_path):
-    """Across worker processes, each demo still produces its page and its figures.
-
-    Only module-level demos from `solver_demos` are used, since a worker unpickles each
-    by importing the module it lives in -- which is the constraint the real registry
-    already meets and the test-local demos above do not.
-    """
+    """Across worker processes, each demo still produces its page and its figures. Only
+    module-level demos are used, since a worker unpickles each by importing its module."""
     small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     registry = {
         'poisson': Demo('poisson', solver_demos.demo_poisson_equation, domain=small,
@@ -154,7 +149,7 @@ def test_only_into_a_fresh_dir_writes_the_page_but_no_index(tmp_path):
 
 
 def test_only_rejects_an_unknown_demo(tmp_path):
-    """A mistyped name rebuilds nothing silently; it names the demo that does not exist."""
+    """A mistyped name raises, naming the demo that does not exist."""
     registry = {'poisson': Demo('poisson', _text_only)}
     with pytest.raises(ValueError, match='no such demo'):
         build_gallery(registry, tmp_path / 'out', workers=1, only=['posson'])
@@ -236,7 +231,7 @@ def test_a_demo_declaring_no_section_still_appears(gallery):
 
 
 def test_a_demo_can_nominate_which_figure_is_its_card_image(gallery):
-    """Read in order, a pipeline demo opens on its setup; a card wants the payoff."""
+    """Read in order, a pipeline demo opens on its setup; a card wants the result."""
     out, _entries = gallery
     index = (out / 'index.html').read_text(encoding='utf-8')
     assert 'pipeline-result.png' in index
@@ -263,9 +258,7 @@ def test_a_setup_figure_gets_its_own_section_below_the_results(gallery):
 
 
 def test_a_setup_figure_is_not_the_card_image(gallery):
-    """A card is a picture and a name, and a picture of the conditions imposed says
-    nothing about what the demo found. Nothing enforces this: it follows from every
-    demo returning its results before its setup, which is what this holds in place."""
+    """A picture of the conditions imposed says nothing about what the demo found."""
     out, _entries = gallery
     index = (out / 'index.html').read_text(encoding='utf-8')
     assert 'posed-fields.png' in index
@@ -295,8 +288,7 @@ def test_missing_dependency_is_reported_not_omitted(gallery):
 
 
 def test_a_skipped_demo_gives_its_reason_on_its_card_too(gallery):
-    """The deployed gallery installs no extras, so `3d` is skipped there every time --
-    which is exactly the card that used to be blank."""
+    """The deployed gallery installs no extras, so `3d` is skipped there every time."""
     out, _entries = gallery
     index = (out / 'index.html').read_text(encoding='utf-8')
     assert 'thumb-note' in index

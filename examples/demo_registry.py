@@ -2,9 +2,8 @@
 
 `Demo` is what the registry lists; `DemoResult` is what running one gives back. The
 split matters: a demo never shows, saves, or prints anything itself, it returns what it
-produced and the caller decides. That is what lets `run`, the gallery, and
-`tests/test_demos.py` treat every demo the same way instead of special-casing the ones
-that used to write a GIF into the working directory or print a table to stdout.
+produced and the caller decides, so `run`, the gallery, and `tests/test_demos.py`
+treat every demo the same way.
 """
 import functools
 import inspect

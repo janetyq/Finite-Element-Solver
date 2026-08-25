@@ -1,17 +1,13 @@
 """Design optimization over the adjoint core: objective + constraint -> optimizer.
 
-The general sibling of `TopologyOptimizer`. Where that class hard-codes minimum
-compliance under a volume constraint, this drives an arbitrary `QuantityOfInterest`
-(compliance, a point deflection, ...) over a SIMP density field, using `fem.sensitivity`
-for the gradient. The optimizer is factored out so the same adjoint gradient feeds any
-objective, and so the optimality-criteria update lives in one place that
+The general sibling of `TopologyOptimizer`: drives an arbitrary `QuantityOfInterest`
+(compliance, a point deflection, ...) over a SIMP density field, using
+`fem.sensitivity` for the gradient and the optimality-criteria (OC) update that
 `TopologyOptimizer` shares.
 
-Scope: SIMP density design of a linear-elastic problem under a single volume constraint,
-solved by the optimality-criteria (OC) update. That is the setting where OC applies (a
-monotone sensitivity and one resource constraint); a general objective-and-constraint
-solver over `scipy.optimize` is a natural next engine behind the same gradient, and is
-noted in `attic/fem-adjoint-sensitivity-design-2026-08-18.md`.
+Scope: SIMP density design of a linear-elastic problem under a single volume
+constraint, the setting where OC applies. A general constrained solver over
+`scipy.optimize` is noted in `attic/fem-adjoint-sensitivity-design-2026-08-18.md`.
 """
 from __future__ import annotations
 

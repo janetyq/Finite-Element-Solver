@@ -1,10 +1,8 @@
 """Scalar measures of a stress or strain tensor.
 
 A solve produces tensors; a plot or a failure criterion wants one number per
-element. Reducing a tensor to a scalar is a choice, with one hard constraint: the
-result must be **rotation invariant**. A material does not know which way the
-axes point, so a scalar that changes when the frame turns describes the
-bookkeeping, not the state.
+element. The one hard constraint on the reduction is rotation invariance: a scalar
+that changes when the frame turns describes the bookkeeping, not the state.
 
 Everything here takes full `(n_elements, d, d)` tensors, never the Voigt vectors
 assembly packs; a norm or eigenvalue of the packed form is not the tensor's
@@ -53,7 +51,7 @@ def von_mises(stress: FloatArray) -> ElementField:
     it ignores hydrostatic pressure: a body under uniform compression is not
     yielding, however large the pressure.
 
-    Takes the **full 3x3 tensor**. A 2D solve must supply the out-of-plane
+    Takes the full 3x3 tensor. A 2D solve must supply the out-of-plane
     component before calling this (see `LinearElasticMaterial.out_of_plane_stress`):
     under plane strain `sigma_zz` is nonzero, and dropping it does not give the
     2D von Mises stress, it gives a different number entirely.

@@ -1,10 +1,5 @@
-"""Quadrature rules and the element sampling API.
-
-The rules are the foundation the higher-order assembly stands on, so they are
-certified directly against the closed form for a monomial integrated over a
-simplex, `prod(a_i!) / (d + sum(a_i))!`. A rule of degree p must reproduce that
-exactly for every monomial of total degree <= p; a mistyped point or weight fails
-here rather than biasing every downstream integral.
+"""Quadrature rules and the element sampling API, certified against the closed form for
+a monomial over a simplex, `prod(a_i!) / (d + sum(a_i))!`.
 """
 import math
 
@@ -73,9 +68,7 @@ def test_rules_integrate_monomials_up_to_their_degree(dim):
 
 @pytest.mark.parametrize("dim", sorted(_RULES))
 def test_a_rule_fails_one_degree_above_its_own(dim):
-    """Sharpness: the degree claim is tight, not merely a lower bound. A rule should
-    miss at least one monomial one degree past what it advertises -- otherwise the
-    `degree` field understates it and rule selection wastes points."""
+    """The degree claim is tight: a rule misses at least one monomial one degree past it."""
     for rule in _RULES[dim]:
         beyond = list(_monomials(dim, rule.degree + 1))
         errors = [
@@ -95,8 +88,7 @@ def test_rule_selection_returns_the_cheapest_adequate_rule():
 
 @pytest.mark.parametrize("element", list(REFERENCE_NODES))
 def test_shape_functions_are_nodal(element):
-    """1 at their own node, 0 at the others -- the property that makes a DOF the
-    value at its node. Holds for linear and quadratic elements alike."""
+    """1 at their own node, 0 at the others, for linear and quadratic elements alike."""
     nodes = np.asarray(REFERENCE_NODES[element], dtype=float)
     np.testing.assert_allclose(element.shape_values(nodes), np.eye(element.N), atol=1e-14)
 

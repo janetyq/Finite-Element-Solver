@@ -1,8 +1,4 @@
-"""Unit tests for the pure geometry / material helper functions.
-
-These are deterministic, dependency-free functions with known closed-form
-answers, so they make a good first regression net.
-"""
+"""Unit tests for the pure geometry and material helpers, against closed-form answers."""
 import numpy as np
 import pytest
 
@@ -92,8 +88,7 @@ class TestCircumcenter:
         np.array([[1e6, 1e6], [1e6 + 1, 1e6], [1e6, 1e6 + 1]]),  # far from the origin
     ])
     def test_is_equidistant_from_all_three_vertices(self, triangle):
-        """The defining property, and the one the old slope-based solution lost:
-        a near-horizontal edge gave it a slope of ~1e13 and about eight digits."""
+        """The defining property of the circumcenter, including a near-horizontal edge."""
         center = calculate_circumcenter(triangle)
         radii = np.linalg.norm(triangle - center, axis=1)
         assert radii.max() - radii.min() == pytest.approx(0.0, abs=1e-9 * radii.mean())
@@ -143,11 +138,8 @@ class TestMassMatrix:
 
 
 class TestDimensions:
-    """spatial_dim and reference_dim must stay distinguishable.
-
-    They coincide for a planar triangle mesh and a tet mesh, which is why one
-    number served for both. The surface case is what separates them.
-    """
+    """spatial_dim and reference_dim coincide for planar and tet meshes; the surface case
+    separates them."""
 
     def test_planar_triangle_mesh(self):
         mesh = Mesh([[0, 0], [1, 0], [0, 1]], [[0, 1, 2]], [[0, 1], [1, 2], [2, 0]])
@@ -168,8 +160,7 @@ class TestDimensions:
         )
         assert mesh.spatial_dim == 3
         geometry = LinearTriangleElement.geometry(mesh.vertices[mesh.elements])
-        # The gradients carry all three ambient components, but the element is
-        # still 2D -- this is the pair that a single `dim` used to conflate.
+        # The gradients carry all three ambient components, but the element is still 2D.
         assert (geometry.reference_dim, geometry.spatial_dim) == (2, 3)
         # (n_el, n_qp, N, spatial): one element, one quad point, 3 nodes, 3D grads.
         assert geometry.grad_phi.shape == (1, 1, 3, 3)

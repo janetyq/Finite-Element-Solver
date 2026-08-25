@@ -44,8 +44,7 @@ def test_spatial_dim_is_not_n_components(unit_square):
 # --- the property that motivated the split ---
 
 def test_two_spaces_share_one_mesh_without_interfering(unit_square):
-    """Two discretizations of one domain must not share mutable operator state,
-    which is what forces the space to be a separate object from the mesh."""
+    """Two discretizations of one domain do not share mutable operator state."""
     scalar = FunctionSpace(unit_square, n_components=1)
     vector = FunctionSpace(unit_square, n_components=2)
 
@@ -69,8 +68,8 @@ def test_operators_and_geometry_are_cached(unit_square):
 # --- guardrails ---
 
 def test_element_without_facets_is_rejected(unit_square):
-    """A line element's facets would be points, which no boundary integral
-    supports yet -- refuse at construction rather than fail on a None call."""
+    """A line element's facets would be points, which no boundary integral supports; refused
+    at construction."""
     with pytest.raises(NotImplementedError):
         FunctionSpace(unit_square, element_type=LinearLineElement)
 
@@ -88,11 +87,8 @@ def test_nonpositive_n_components_is_rejected(unit_square):
 
 
 def _two_triangle_square() -> Mesh:
-    """The unit square as two equal triangles sharing the diagonal 0--2.
-
-    Vertices 0 and 2 lie on the shared diagonal (in both elements); 1 and 3 each
-    belong to a single element -- the configuration a last-writer bug corrupts.
-    """
+    """The unit square as two equal triangles sharing the diagonal 0-2, so vertices 0 and 2
+    belong to both elements and 1 and 3 to one each."""
     return Mesh(
         vertices=[[0, 0], [1, 0], [1, 1], [0, 1]],
         elements=[[0, 1, 2], [0, 2, 3]],
@@ -112,9 +108,8 @@ def test_shared_vertex_combines_the_values_of_its_elements():
 
 
 def test_projection_does_not_depend_on_element_ordering():
-    """An earlier version assigned rather than accumulated, so a shared vertex
-    kept only the last element to touch it -- an order-dependent, silently wrong
-    field. Reversing the elements must leave the result unchanged."""
+    """A shared vertex accumulates every element's contribution, so reversing the elements
+    leaves the result unchanged."""
     mesh = _two_triangle_square()
     reversed_mesh = Mesh(
         vertices=mesh.vertices, elements=mesh.elements[::-1], boundary=mesh.boundary,
@@ -133,11 +128,9 @@ def test_constant_element_field_is_reproduced_at_every_vertex(make_unit_square):
 
 
 def test_projection_weights_by_element_volume():
-    """A large element and a sliver meeting at a node are not equally good
-    evidence about the field there, so the projection weights by measure. Pinned
-    on a deliberately graded mesh, where an unweighted mean gives a different
-    answer -- vertex 0 is shared by a triangle of area 0.5 and one of area 0.05.
-    """
+    """The projection weights by element measure: on a graded mesh (vertex 0 shared by a
+    triangle of area 0.5 and one of area 0.05) an unweighted mean gives a different
+    answer."""
     mesh = Mesh(
         vertices=[[0, 0], [1, 0], [0, 1], [-0.1, 0]],
         elements=[[0, 1, 2], [0, 2, 3]],
@@ -191,7 +184,7 @@ def test_l2_recovery_conserves_the_field_integral():
 
 
 def test_l2_and_average_recovery_differ_on_a_varying_field():
-    """The two recoveries are genuinely different operators: the local weighted average
+    """The two recoveries are different operators: the local weighted average
     and the global mass projection agree only on a field the space reproduces exactly
     (a constant), and differ on one that varies element to element."""
     mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [8, 8])

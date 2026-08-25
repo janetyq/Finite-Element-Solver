@@ -1,12 +1,7 @@
-"""Per-component Dirichlet conditions: pinning one component of a vector field
-while leaving another free, rather than pinning all of them at once.
-
-`None` in a Dirichlet value marks a free component (`[0, None]` pins x, leaves y
-natural) -- the mechanism a roller/symmetry support needs and a full clamp does
-not. These tests pin down the two things that make it work: two conditions on
-different components of the same vertex merge instead of conflicting, and
-`None` is rejected outright anywhere it would be meaningless (a load has no
-"free" component).
+"""Per-component Dirichlet conditions: `None` in a value marks a free component
+(`[0, None]` pins x, leaves y natural), the mechanism a roller needs. Two conditions on
+different components of one vertex merge, and `None` is rejected where it is
+meaningless (a load has no free component).
 """
 import numpy as np
 import pytest
@@ -37,9 +32,8 @@ def test_partial_pin_leaves_the_other_component_free(make_unit_square):
 
 def test_two_conditions_merge_different_components_at_one_vertex(make_unit_square):
     """The corner where a roller edge meets its rigid-body-mode pin: two `add`
-    calls, each naming one component, must both land in `fixed_idxs` rather than
-    the second silently overwriting the first (or the two being flagged a
-    conflict, since they never actually disagree)."""
+    calls, each naming one component, both land in `fixed_idxs`; they do not
+    conflict, since they never disagree."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, None])
@@ -56,8 +50,8 @@ def test_two_conditions_merge_different_components_at_one_vertex(make_unit_squar
 
 
 def test_conflicting_component_still_raises(make_unit_square):
-    """Two conditions naming the *same* component of the same vertex with
-    different values is a real conflict -- merging must not paper over it."""
+    """Two conditions naming the same component of the same vertex with different values
+    is a real conflict."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, None])
@@ -72,8 +66,7 @@ def test_conflicting_component_still_raises(make_unit_square):
     lambda bc, region: bc.add_robin(region, kappa=1.0, g=[1.0, None]),
 ], ids=['neumann', 'robin'])
 def test_a_load_rejects_a_free_component(make_unit_square, add):
-    """None has no meaning for a load -- catch it at resolve() rather than let it
-    become a silent NaN in the assembled traction."""
+    """None has no meaning for a load; it is caught at resolve()."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     add(bc, on_plane(0, 1.0))

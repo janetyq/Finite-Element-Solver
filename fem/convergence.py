@@ -3,12 +3,11 @@ that is known exactly. It runs backwards from an ordinary solve: the exact solut
 u is chosen first and the forcing f (and boundary data) derived from it, so the answer
 is known before the solver runs, and the solver never sees it.
 
-Nothing here validates a model. The manufactured solution is picked for convenience
-rather than for physics. What it establishes is that the assembly, the boundary
-handling and the solve together reproduce a known field, and that the gap between them
-closes at the rate the theory predicts. For P1 elements that rate is O(h^2) in L2, and
-an implementation with a subtly wrong element matrix typically still converges, just at
-order 1. The rate is the sharper claim, which is why it is what the study reports.
+The manufactured solution is picked for convenience, not physics. What it establishes
+is that assembly, boundary handling, and the solve together reproduce a known field,
+and that the error closes at the rate the theory predicts: O(h^2) in L2 for P1. An
+implementation with a subtly wrong element matrix typically still converges, just at
+order 1, so the rate is the sharper claim and is what the study reports.
 
 The manufactured problem is Poisson's on the unit square:
 
@@ -81,7 +80,7 @@ def l2_norm(space: FunctionSpace, values: VertexField) -> float:
     with resolution and cannot be compared across a refinement sequence.
 
     This measures the distance to the interpolant of a reference field (it reads the
-    reference only at the nodes). For the honest continuous error against a closed-form
+    reference only at the nodes). For the continuous error against a closed-form
     field, integrated at the quadrature points, see `quadrature_l2`.
     """
     return float(np.sqrt(values @ space.mass_matrix @ values))
@@ -336,9 +335,8 @@ def variable_coefficient_convergence(resolutions: tuple[int, ...]) -> list[MMSSo
 # The same manufactured u = sin(pi x) sin(pi y), solved on the quadratic space. The
 # only differences from solve_poisson_mms are the element type and that the exact
 # solution and the error norm are sampled at all the P2 nodes (corners and edge
-# midpoints) since the extra DOFs live there. The payoff is the rate: P2 is O(h^3)
-# in L2 where P1 is O(h^2), which is what test_convergence_p2.py asserts and what
-# Fact B (the edge-node DOFs) was built to deliver.
+# midpoints) since the extra DOFs live there. P2 is O(h^3) in L2 where P1 is O(h^2),
+# which test_convergence_p2.py asserts.
 
 
 def solve_poisson_mms_p2(n: int) -> MMSSolve:
@@ -414,7 +412,7 @@ def elastic_p2_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 # of order h^2 caps its accuracy however high the element order. Isoparametric P2 puts
 # its boundary edge nodes on the true circle and recovers the O(h^3) rate. That gap,
 # the geometry floor against the recovered rate, is what test_convergence_curved.py
-# asserts, and it is the payoff curved elements exist to deliver.
+# asserts.
 
 ANNULUS_INNER, ANNULUS_OUTER = 1.0, 2.0
 

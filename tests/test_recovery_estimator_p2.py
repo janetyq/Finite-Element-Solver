@@ -1,11 +1,6 @@
-"""The recovery estimator on quadratic (P2) elements.
-
-A P2 solution's flux varies linearly within each element, where a P1 flux is
-element-constant. The estimator samples the discrete flux at quadrature points (not
-once per element) and recovers a continuous field by L2 projection, so its indicator
-follows that within-element variation. These tests pin the mechanism (`sample` sees the
-variation), the correctness (it vanishes on a field P2 represents exactly and its
-effectivity stays bounded), and that it drives adaptive refinement on a P2 space.
+"""The recovery estimator on quadratic (P2) elements: `sample` sees the within-element
+variation, the estimate vanishes on a field P2 represents exactly, its effectivity
+stays bounded, and it drives adaptive refinement on a P2 space.
 """
 import numpy as np
 import pytest

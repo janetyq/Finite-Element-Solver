@@ -1,10 +1,8 @@
 """Ruppert's algorithm: the guarantees it makes about the mesh it returns.
 
-The algorithm terminates only when no triangle is skinny and no segment is
-encroached, and then keeps only what the PSLG encloses. Those are what it
-promises a caller. The tests below assert them directly rather than pinning a
-particular triangulation -- any correct refinement satisfies them, which keeps
-the suite useful across changes to insertion order or the underlying Delaunay.
+The algorithm terminates only when no triangle is skinny and no segment is encroached,
+and then keeps only what the PSLG encloses. The tests assert those directly rather than
+pinning a particular triangulation.
 """
 import logging
 
@@ -31,7 +29,7 @@ PLATE_OUTLINE = np.array([[-3.0, -3.0], [5.0, -3.0], [5.0, 5.0], [-3.0, 5.0]])
 
 # `files/cloud.svg` simplified at tolerance 0.02, from the backlog's qhull-precision
 # report. Its tight curvature makes qhull fan a segment split's collinear triple into a
-# zero-area sliver that used to crash refinement. Regular shapes do not reproduce it, so
+# zero-area sliver that crashes an unguarded refinement. Regular shapes do not reproduce it, so
 # the exact coordinates are pinned here rather than generated.
 CLOUD_OUTLINE = np.array([
     [3.0000, 786.3507], [3.2753, 784.6595], [4.5816, 782.5672], [6.6932, 781.2728],
@@ -43,8 +41,8 @@ CLOUD_OUTLINE = np.array([
 
 # A slender L-bracket (arm 4, limb width 1.2) with a sharp re-entrant corner. Its long
 # axis-aligned edges and the circumcenters refinement inserts along the corner are
-# nearly cocircular, which used to trip qhull's *incremental* insertion with a "wide
-# merge" precision error partway through a run. Distinct from CLOUD_OUTLINE's failure,
+# nearly cocircular, which trips qhull's incremental insertion with a "wide merge"
+# precision error partway through a run. Distinct from CLOUD_OUTLINE's failure,
 # which was a segment-split sliver; this one is in add_points, and the coordinates are
 # pinned because a regular shape does not reproduce it.
 L_BRACKET_OUTLINE = np.array([
@@ -57,7 +55,7 @@ REFINING_AREA = 0.05
 
 
 def _l_shape() -> PSLG:
-    """A non-convex outline. The reflex corner is the point: the convex hull spans
+    """A non-convex outline. The reflex corner matters: the convex hull spans
     it, so refinement produces triangles outside the domain that have to go."""
     return PSLG(L_SHAPE_OUTLINE.copy())
 
@@ -87,14 +85,9 @@ def test_every_triangle_meets_the_angle_bound(min_angle):
 
 
 def test_growing_the_triangulation_keeps_it_delaunay():
-    """Refinement adds points to the triangulation instead of rebuilding it from
-    scratch, so the property everything else rests on has to survive the growing:
-    no vertex strictly inside any triangle's circumcircle.
-
-    Not the same triangulation as a rebuild, though, and it cannot be asserted to
-    be one. Refinement inserts circumcentres, so cocircular quadrilaterals are
-    everywhere, and either diagonal of one is Delaunay.
-    """
+    """Refinement grows the triangulation incrementally, so it must stay Delaunay: no vertex
+    strictly inside any triangle's circumcircle. (Not the same triangulation as a
+    rebuild: cocircular quadrilaterals are everywhere and either diagonal is Delaunay.)"""
     algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
     algo.refine()
 
@@ -114,9 +107,8 @@ def test_growing_the_triangulation_keeps_it_delaunay():
 
 
 def test_an_outline_qhull_cannot_start_incrementally_from_still_meshes():
-    """Incremental mode needs a non-degenerate initial simplex, and four
-    cocircular points do not give it one -- a rectangle is the common case, not
-    a corner one. Such a run rebuilds until qhull will take the point set."""
+    """Incremental mode needs a non-degenerate initial simplex, which four cocircular points
+    (a rectangle) do not give; such a run rebuilds until qhull takes the point set."""
     algo = RuppertsAlgorithm(_thin_slab(), min_angle=25)
     with pytest.raises(QhullError):
         Delaunay(SLAB_OUTLINE, incremental=True)
@@ -148,16 +140,9 @@ def test_nothing_bad_survives_the_queue():
 
 
 def test_a_segment_between_two_sharp_corners_lands_on_shells_at_both():
-    """Segments off a sharp corner split at power-of-two distances from it, which
-    is what eventually makes two of them equidistant and stops the cascade that
-    would otherwise refine into the corner forever.
-
-    `_split_point` ladders from one end per split, so a segment sharp at *both*
-    ends only works because the half left beside the other corner ladders from
-    there next time -- which holds because the midpoint is always the newest
-    vertex, and so never the lower index. That is implicit and easy to break by
-    renumbering, so it is pinned here rather than left to the docstring.
-    """
+    """Segments off a sharp corner split at power-of-two distances from it, which stops the
+    cascade into the corner. A segment sharp at both ends ladders from each end in
+    turn, which depends on the midpoint always being the newest vertex."""
     # A sliver: the base runs between two 3.4 degree corners.
     sliver = np.array([[0.0, 0.0], [10.0, 0.0], [5.0, 0.3]])
     algo = RuppertsAlgorithm(PSLG(sliver.copy()), min_angle=25)
@@ -210,9 +195,8 @@ def _scanned_encroachment(algo):
 
 def test_encroachment_tracking_does_not_drift_from_a_full_scan():
     """Encroachment is carried in a mask updated as vertices and segments are
-    added, rather than rescanned every pass. That is state that can go wrong
-    silently and still return a plausible mesh, so hold it against the
-    definition through both of the mutations refinement makes."""
+    added, rather than rescanned every pass. That state can drift and still return a
+    plausible mesh, so it is held against the definition through both mutations."""
     algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
     assert np.array_equal(algo._encroached, _scanned_encroachment(algo))
 
@@ -229,9 +213,8 @@ def test_encroachment_tracking_does_not_drift_from_a_full_scan():
 
 
 def test_refinement_preserves_the_input_geometry():
-    """Refinement only ever appends vertices and splits segments in place, so
-    input vertices keep their indices and the final segments still trace the
-    input outline exactly -- no corner is cut or moved."""
+    """Refinement only appends vertices and splits segments in place, so input vertices keep
+    their indices and the final segments still trace the input outline."""
     pslg = _l_shape()
     original_vertices = np.array(pslg.vertices)
     original_segments = np.array(pslg.segments)
@@ -257,11 +240,8 @@ def test_refinement_preserves_the_input_geometry():
 
 
 def test_segments_survive_as_edges_of_the_triangulation():
-    """Conformity: the mesh resolves the outline instead of cutting across it.
-
-    Compared in coordinates, because the returned mesh is renumbered onto the
-    vertices it kept while `algo.segments` still indexes the full working set.
-    """
+    """Conformity: the mesh resolves the outline instead of cutting across it. Compared in
+    coordinates, since the returned mesh is renumbered."""
     algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
     mesh = algo.refine()
 
@@ -294,9 +274,8 @@ def test_max_area_bounds_every_element_without_losing_the_angle_bound():
 
 
 def test_the_area_cap_does_not_break_conformity():
-    """Regression: area refinement used to insert circumcenters without checking
-    encroachment, which let a segment stop being an edge of the mesh. The domain
-    then leaked into the exterior and the whole triangulation was discarded."""
+    """Area refinement checks encroachment before inserting a circumcenter, so every segment
+    stays an edge of the mesh."""
     algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
     mesh = algo.refine()
 
@@ -330,9 +309,8 @@ def test_mesh_covers_the_outline_and_nothing_else():
 
 
 def test_convex_outline_keeps_everything():
-    """The seeding case that is easy to get wrong: when the outline *is* the
-    convex hull, every hull edge is a segment, so nothing can be reached from
-    outside and the whole triangulation is the domain."""
+    """When the outline is the convex hull, every hull edge is a segment and the whole
+    triangulation is the domain."""
     algo = RuppertsAlgorithm(PSLG(SQUARE_OUTLINE.copy()), min_angle=20)
     mesh = algo.refine()
 
@@ -341,8 +319,7 @@ def test_convex_outline_keeps_everything():
 
 
 def test_returned_mesh_carries_a_usable_boundary():
-    """A mesh with no boundary facets cannot take a boundary condition, which is
-    what the refinement used to hand back."""
+    """The returned mesh has boundary facets, so it can take a boundary condition."""
     mesh = RuppertsAlgorithm(_l_shape(), min_angle=20).refine()
 
     assert len(mesh.boundary) > 0
@@ -492,9 +469,8 @@ def test_sharp_input_corners_are_reported(caplog):
 
 
 def test_a_sharp_corner_terminates_and_costs_only_itself():
-    """A 15 degree wedge cannot meet a 25 degree bound at its tip, and chasing
-    it is what used to make refinement run away. The corner triangle is taken as
-    it comes; everything else still meets the bound."""
+    """A 15 degree wedge cannot meet a 25 degree bound at its tip; the corner triangle is
+    taken as it comes and everything else still meets the bound."""
     wedge = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10 * np.tan(np.radians(15))]])
     algo = RuppertsAlgorithm(PSLG(wedge), min_angle=25, max_area=1.0)
     mesh = algo.refine()
@@ -539,8 +515,7 @@ def test_segments_from_a_sharp_corner_split_onto_a_shared_shell():
 
 
 def test_a_segment_away_from_a_sharp_corner_splits_at_its_midpoint():
-    """Shell splitting is the exception. Everywhere else the midpoint is what
-    makes each half shorter than the parent, which is why refinement converges."""
+    """Away from a sharp corner a segment splits at its midpoint."""
     algo = RuppertsAlgorithm(_l_shape(), min_angle=20)
 
     for segment in algo.segments:
@@ -557,7 +532,7 @@ def test_a_square_does_not_warn(caplog):
 
 def test_crossing_segments_are_refused():
     """A bow-tie is not a planar straight-line graph. Meshing it does not fail,
-    it silently meshes the wrong region."""
+    it meshes the wrong region."""
     bowtie = np.array([[0.0, 0.0], [1.0, 1.0], [1.0, 0.0], [0.0, 1.0]])
 
     with pytest.raises(ValueError, match='cross'):
@@ -570,8 +545,7 @@ def test_a_valid_outline_passes_validation():
 
 
 def test_repeated_vertices_are_refused():
-    """Two vertices at one place cannot both be triangulated -- qhull keeps one,
-    so a segment ending on the other never becomes an edge of the mesh."""
+    """Two vertices at one place cannot both be triangulated (qhull keeps one)."""
     repeated = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 0.0]])
 
     with pytest.raises(ValueError, match='more than once'):
@@ -608,11 +582,8 @@ def test_degenerate_triangle_has_a_zero_angle():
 
 
 def test_a_collinear_sliver_is_never_treated_as_a_bad_triangle():
-    """Splitting a segment drops its midpoint exactly on the line through its
-    endpoints, and qhull can fan that collinear triple into a zero-area sliver.
-    A sliver has no circumcenter to refine towards -- it lands ~1e12 away -- so it
-    is excluded from the bad set however far below the bound its zero angle sits,
-    while a genuinely skinny triangle is still refined as before."""
+    """A zero-area sliver from a collinear triple has no circumcenter to refine towards, so
+    it is excluded from the bad set, while a skinny triangle is still refined."""
     algo = RuppertsAlgorithm(PSLG(SQUARE_OUTLINE.copy()), min_angle=30)
     start, end = np.array([0.0, 0.0]), np.array([2.0, 1.0])
     extra = np.array([
@@ -632,15 +603,12 @@ def test_a_collinear_sliver_is_never_treated_as_a_bad_triangle():
 
 
 def test_a_tight_outline_meshes_without_a_qhull_precision_error():
-    """Regression for the backlog's qhull-precision bug: `CLOUD_OUTLINE` under an
-    area cap used to raise QhullError partway through refinement. The mesh must come
-    back, honour the angle bound (no collinear element dragging an angle to zero),
-    and fill exactly what the outline encloses, so discarding the sliver drops no
-    real region."""
+    """`CLOUD_OUTLINE` under an area cap meshes without a QhullError, honours the angle
+    bound, and fills what the outline encloses."""
     pslg = PSLG(CLOUD_OUTLINE.copy())
     algo = RuppertsAlgorithm(pslg, min_angle=30, max_area=0.005 * pslg.area())
 
-    mesh = algo.refine()  # used to raise scipy.spatial.QhullError
+    mesh = algo.refine()
 
     assert _min_angles(mesh).min() >= 30
     vertices = np.asarray(mesh.vertices)
@@ -650,15 +618,13 @@ def test_a_tight_outline_meshes_without_a_qhull_precision_error():
 
 @pytest.mark.parametrize('max_area_fraction', [0.04, 0.06, 0.08, 0.10])
 def test_a_reentrant_corner_meshes_through_an_incremental_precision_error(max_area_fraction):
-    """Regression for a qhull precision error in *incremental* insertion: refining the
-    sharp re-entrant `L_BRACKET_OUTLINE` under an area cap used to raise QhullError from
-    `add_points` partway through, aborting the run. The wide merge is caught and the
-    triangulation rebuilt in batch, so the mesh comes back honouring the angle bound and
-    filling exactly what the outline encloses."""
+    """The sharp re-entrant `L_BRACKET_OUTLINE` under an area cap meshes through qhull's
+    incremental precision error (the wide merge is caught and the triangulation rebuilt
+    in batch), honouring the angle bound and filling the outline."""
     pslg = PSLG(L_BRACKET_OUTLINE.copy())
     algo = RuppertsAlgorithm(pslg, min_angle=25, max_area=max_area_fraction * pslg.area())
 
-    mesh = algo.refine()  # used to raise scipy.spatial.QhullError from add_points
+    mesh = algo.refine()
 
     assert _min_angles(mesh).min() >= 25
     vertices = np.asarray(mesh.vertices)
@@ -678,12 +644,9 @@ def test_refinement_is_reproducible_despite_the_perturbation():
 
 
 def test_a_short_segment_far_from_the_origin_is_not_encroached_by_its_own_endpoints():
-    """Regression for a floating-point non-termination. A segment short next to the
-    coordinate magnitude (here length ~1e-3 at coordinates ~5) has endpoints that the
-    old center-and-radius test computed as strictly inside its own diametral circle,
-    from catastrophic cancellation. The segment then read as forever encroached and was
-    split without end. The Thales dot-product form is exactly zero at an endpoint, so it
-    cannot happen."""
+    """A segment short next to the coordinate magnitude (length ~1e-3 at coordinates ~5) is
+    not judged to contain its own endpoints: the Thales dot-product form is exactly zero
+    there, where a center-and-radius test lost that to cancellation."""
     corner = np.array([4.72, 1.735])
     vertices = np.array([corner, corner + [1.1e-3, 5e-4], [0.0, 0.0], [7.0, 0.0]])
     algo = RuppertsAlgorithm(PSLG(vertices, segments=np.array([[0, 1]])), min_angle=20)

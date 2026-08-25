@@ -2,18 +2,16 @@
 rather than vertex indices.
 
 A region is any callable mapping an (N, spatial_dim) array of point coordinates to an
-(N,) boolean mask, so a bare lambda qualifies. The helpers below just name the
-cases that kept recurring and own the coordinate tolerance, which was previously
-an ad-hoc `< 1e-6` re-derived at every call site.
+(N,) boolean mask, so a bare lambda qualifies. The helpers below name the common
+cases and own the coordinate tolerance.
 
-A field is a value that may be either a constant or a callable of position;
-`evaluate_field` normalizes both into a (N, n_components) array.
+A field is a constant or a callable of position; `evaluate_field` normalizes both
+into a (N, n_components) array.
 
-Both are deliberately mesh-independent, and that is the point: a boundary
-condition described this way can be resolved afresh against whatever mesh is
-current, which lets it survive refinement. `at_indices` is the escape hatch for
-genuinely node-specific work; it marks itself mesh-bound so remeshers can refuse
-it instead of silently relocating it.
+Both are mesh-independent, so a boundary condition described this way can be
+resolved again against whatever mesh is current and survives refinement.
+`at_indices` is the escape hatch for node-specific work; it marks itself mesh-bound
+so remeshers can refuse it.
 """
 from collections.abc import Sequence
 
@@ -79,8 +77,8 @@ def union(*regions: Region) -> Region:
 
 
 class at_indices:  # noqa: N801 - lowercase to read like the function helpers above
-    '''Named vertex indices. The escape hatch for work that is genuinely about
-    specific nodes rather than a place in the domain.
+    '''Named vertex indices. The escape hatch for work that is about specific nodes
+    rather than a place in the domain.
 
     Mesh-bound by construction: indices mean nothing once a remesher renumbers
     vertices, so `is_mesh_bound` reports True and callers that remesh refuse it.
@@ -137,11 +135,8 @@ def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -
 def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
     '''Normalize a constant or a callable-of-position into an (N, n_components) array.
 
-    A single rule, "the value at a point", for both forms. The previous API
-    chose between "one value per index" and "one value shared by all indices" by
-    comparing `len(indices) == len(values)`, so `add('dirichlet', left, [0, 0])`
-    on 2D elasticity silently changed meaning when the edge happened to hold
-    exactly two nodes.
+    A single rule, "the value at a point", for both forms; a value's width is
+    checked against `n_components`, never inferred from the point count.
 
     Every component must be a real number: `None` has no meaning for a source,
     a traction, or a Robin `g`: there is nothing "left free" about a load. Use

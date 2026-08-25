@@ -120,11 +120,8 @@ def voigt_to_tensor(voigt: FloatArray, shear_factor: float = 1.0) -> FloatArray:
     tensor = np.zeros((n_elements, d, d))
     for i in range(d):
         tensor[:, i, i] = voigt[:, i]
-    # These pairs must match the shear rows `strain_displacement` writes above
-    # (xy, then yz, then xz in 3D). The ordering is spelled out in both places
-    # because B is built by direct assignment and cannot read a shared table.
-    # `tests/test_invariants.py` pins the pairing; a mismatch also breaks the
-    # convergence tests, so it cannot drift silently.
+    # These pairs must match the shear rows `strain_displacement` writes (xy, then
+    # yz, then xz in 3D); `tests/test_invariants.py` pins the pairing.
     for offset, (i, j) in enumerate(shears):
         tensor[:, i, j] = tensor[:, j, i] = voigt[:, d + offset] / shear_factor
     return tensor
@@ -207,10 +204,8 @@ class Form(Protocol):
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         '''(n_elements, k, k) dense element matrices for every element at once.
 
-        Batched rather than one element at a time: a P1 element matrix is a
-        handful of flops, so evaluating them in a Python loop spends nearly all
-        of its time in per-call numpy overhead. One vectorized pass over the
-        whole mesh is roughly 30x faster on a 3D solve.
+        Batched over the mesh: a Python loop over elements spends nearly all its time
+        in per-call numpy overhead, and one vectorized pass is roughly 30x faster.
         '''
         ...
 
@@ -280,8 +275,7 @@ class LaplacianForm:
     '''The scalar Laplacian ∫ ∇u·∇v: material-free, so G = grad_phi, C = I.'''
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
-        # Sum over quadrature points q and spatial index d. For a 1-point P1 rule
-        # this is the old `eid,ejd,e->eij` with a singleton q axis, identical.
+        # Sum over quadrature points q and spatial index d.
         grad_phi = geometry.grad_phi
         return np.einsum('eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ)
 
@@ -354,10 +348,9 @@ class LinearElasticForm:
             geometry.reference_dim, geometry.n_elements
         )
         # B^T D B summed over quadrature points q and strain indices j, k, weighted
-        # per point. D does not vary within an element, so it carries no q axis. For
-        # a 1-point P1 rule this is the old `eji,ejk,ekl,e->eil`, identical.
-        # optimize=True is load-bearing rather than cosmetic: the default
-        # left-to-right order forms a large intermediate and runs far slower here.
+        # per point. D does not vary within an element, so it carries no q axis.
+        # optimize=True matters: the default left-to-right order forms a large
+        # intermediate and runs far slower.
         return np.einsum('eqji,ejk,eqkl,eq->eil', B, D, B, geometry.weight_detJ, optimize=True)
 
     def fields_at(
@@ -435,7 +428,7 @@ class GeometricStiffnessForm:
     tension and softens it in compression, to the point of buckling, where `K + λ K_g`
     loses positive-definiteness.
 
-    It is exactly `term1` of the St-Venant–Kirchhoff consistent tangent
+    It is `term1` of the St-Venant–Kirchhoff consistent tangent
     (`EnergyForm.element_tangents`), where the prestress is the second Piola–Kirchhoff
     stress `dW/dS` contracted through the constant kernel `d²S/dF²`. Here the prestress
     is supplied (recovered once from a reference linear solve), so the geometric
@@ -537,8 +530,8 @@ class EnergyForm:
     - its gradient (the residual, one vector per element),
     - its Hessian (the tangent, one matrix per element).
 
-    A quadratic energy gives a constant tangent independent of the state. The linear
-    stiffness `Form` is that special case, which is why these are siblings.
+    A quadratic energy gives a constant tangent independent of the state; the linear
+    stiffness `Form` is that special case.
 
     The physics is delegated to an energy density (`fem.energies`), which evaluates
     the full derivative chain once for the whole mesh and returns a
@@ -555,7 +548,7 @@ class EnergyForm:
         The displacement gradient has degree `shape_degree - 1`, and the density's energy
         is `energy_degree`-degree in it, so the energy integrand is their product. This is
         higher than the linear stiffness's default on P2 (quartic St-VK reaches degree 4),
-        which is why the energy path asks for its own rule rather than sharing that default.
+        so the energy path asks for its own rule.
         '''
         return self.energy_density.energy_degree * max(0, shape_degree - 1)
 
@@ -567,12 +560,8 @@ class EnergyForm:
     def element_energies(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> FloatArray:
-        '''(n_elements,) element energies at the given nodal displacements.
-
-        Summed over the quadrature points, each contributing its density evaluated
-        at that point weighted by `weight_detJ`. One iteration for a 1-point P1
-        rule. The density's derivative chain is reused across orders unchanged.
-        '''
+        '''(n_elements,) element energies at the given nodal displacements: the
+        density at each quadrature point, weighted by `weight_detJ` and summed.'''
         grad_u = geometry.gradients(u_elements)   # (n_el, n_qp, d, d)
         total = np.zeros(geometry.n_elements)
         for q in range(geometry.n_qp):
@@ -612,8 +601,7 @@ class EnergyForm:
         # a leading "e" element axis on everything that varies per element).
         #
         # Summed over the quadrature points, each evaluated at its own dF_dx and
-        # weighted by `weight_detJ`. The per-point contraction is exactly the old
-        # single-pass one, so a 1-point P1 rule reproduces it term for term.
+        # weighted by `weight_detJ`.
         grad_u = geometry.gradients(u_elements)
         n_nodes, d = geometry.grad_phi.shape[2], geometry.spatial_dim
         tangent = np.zeros((geometry.n_elements, n_nodes, d, n_nodes, d))
@@ -666,9 +654,7 @@ class EnergyForm:
         J = np.linalg.det(F)
         cauchy = np.einsum('e,eij,ekj->eik', 1.0 / J, P, F)
 
-        # The density's own measure (Green-Lagrange for St-VK, eps for its
-        # linearisation) is asked for rather than branched on here, so the class
-        # that owns the choice is the one that answers.
+        # The density's own measure: Green-Lagrange for St-VK, eps for its linearisation.
         strain = self.energy_density.strain(grad_u)
 
         if d == 2:
@@ -696,9 +682,9 @@ class EnergyForm:
 
         Strain and stress are the element mean of `fields_at` over the rule,
         matching the linear path. Compliance is twice the stored energy integrated
-        over the element, which for a quadratic W is exactly `∫ S : E`, the
-        work-conjugate pair. Contracting the *reported* Cauchy stress with E instead
-        mixes measures and runs ~30% wrong at finite strain.
+        over the element, which for a quadratic W is `∫ S : E`, the work-conjugate
+        pair. Contracting the reported Cauchy stress with E instead mixes measures
+        and runs ~30% wrong at finite strain.
         '''
         strain, cauchy, W = self._point_state(geometry, u_elements)
         compliance = 2.0 * np.einsum('eq,eq->e', W, geometry.weight_detJ)

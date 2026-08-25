@@ -37,7 +37,7 @@ def _tessellates_field(space):
 
 
 def _curved_boundary(space, mesh):
-    """Whether the boundary genuinely bends: a curved element over a mesh with curves."""
+    """Whether the boundary bends: a curved element over a mesh with curves."""
     return (space is not None
             and getattr(space.element_type, 'GEOMETRY_DEGREE', 1) > 1
             and mesh.boundary_curves is not None)
@@ -178,8 +178,8 @@ def face_values(mesh, values):
     """The per-face array a flat-shaded 2D `tripcolor` carries.
 
     A per-element field is already one value per triangle; a per-vertex field is
-    averaged over each triangle's corners, which is exactly what `tripcolor` does
-    internally for flat shading. This lets an animation update the collection's array
+    averaged over each triangle's corners, as `tripcolor` does internally for flat
+    shading. This lets an animation update the collection's array
     frame to frame instead of rebuilding it.
     """
     values = np.asarray(values)

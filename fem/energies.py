@@ -15,9 +15,9 @@ They differ only in how S depends on F, so the derivative chain factorises as
 dW/dF = dW/dS : dS/dF. The parent-child split below mirrors that: `StVenantKirchhoff`
 owns the S-to-F map, `SmallStrain` overrides it with the linear one.
 
-Dimension-general: every tensor is built from `d = grad_u.shape[-1]`, not a fixed
-DIM = 2. The constant tensors (d²S/dF² for Green-Lagrange, d²W/dS²) are precomputed
-once at construction and broadcast over elements.
+Dimension-general: every tensor is built from `d = grad_u.shape[-1]`. The constant
+tensors (d²S/dF² for Green-Lagrange, d²W/dS²) are precomputed at construction and
+broadcast over elements.
 
 
 Solving versus reporting
@@ -26,18 +26,16 @@ Solving versus reporting
 `evaluate` feeds the Newton solve; `strain` and `out_of_plane_stress` feed
 post-processing. Two conventions differ between the two jobs.
 
-**Gradient orientation.** `ElementGeometry.gradients` puts `du_c/dx_i` at entry
+Gradient orientation. `ElementGeometry.gradients` puts `du_c/dx_i` at entry
 `[i, c]`, the transpose of the usual convention, so the `F` built here is
 `F_standardᵀ` and `evaluate`'s whole chain works in that orientation. W is blind to
 it, using S only through `tr S` and `tr(SᵀS)`, which `½(FFᵀ - I)` and `½(FᵀF - I)`
 share. A reported tensor is not blind to it, so `strain` transposes back and returns
 the textbook `½(FᵀF - I)`.
 
-**Plane strain.** A 2D density models a 3D body held fixed in z, so `S_zz = 0`.
-That is why a stress appears there: material squeezed in x and y pushes outward
-in z, the restraint pushes back, and the law gives `sigma_zz = lambda * tr(S)`.
-A 2D assembly produces only the three in-plane Voigt components, so von Mises
-built from those alone is missing this one. `out_of_plane_stress` supplies it.
+Plane strain. A 2D density models a 3D body held fixed in z, so `S_zz = 0` and the
+restraint develops `sigma_zz = lambda * tr(S)`. A 2D assembly produces only the three
+in-plane Voigt components, so `out_of_plane_stress` supplies this one for von Mises.
 """
 from dataclasses import dataclass
 

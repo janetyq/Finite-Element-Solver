@@ -1,9 +1,7 @@
-"""Tests for the general design optimizer over the adjoint core.
+"""The general design optimizer over the adjoint core.
 
-The key equivalence: `DesignOptimizer` with a compliance objective, configured to match
-`TopologyOptimizer` (same filter, move limit, volume target), produces the same density
-trajectory. Both now draw their sensitivity from the same adjoint core and share one
-optimality-criteria update, so they must agree step for step.
+`DesignOptimizer` with a compliance objective, configured to match `TopologyOptimizer`
+(same filter, move limit, volume target), produces the same density trajectory.
 """
 import numpy as np
 

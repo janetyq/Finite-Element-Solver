@@ -1,14 +1,9 @@
 """What to solve: the PDE identity, its physical constants, and its physics.
 
-An `Equation` is typed data naming a PDE and carrying its genuinely physical
-parameters. It sits in the physics layer next to `fem.forms` and `fem.energies`,
-not with the solvers: `Solver` and `EnergySolver` both consume equations, so
-neither module owns them.
-
-Each subclass answers "what physics do I mean?" for both assembly paths:
-`operator` gives the bilinear form the linear path assembles, `energy_density`
-gives the strain-energy density the nonlinear path differentiates. A solver picks
-a path; it does not decide what material an equation implies.
+An `Equation` is typed data naming a PDE and carrying its physical parameters.
+Each subclass answers for both assembly paths: `operator` gives the bilinear form the
+linear path assembles, `energy_density` the strain-energy density the nonlinear path
+differentiates, and `derived_field` the flux post-processing recovers.
 """
 from __future__ import annotations
 
@@ -29,19 +24,13 @@ if TYPE_CHECKING:
 class Equation:
     '''Base class for a PDE to solve.
 
-    An Equation is typed data: it says what to solve and carries the physical
-    parameters, while a solve strategy owns how (the same equation, e.g.
-    LinearElastic, may be handled by several solvers). Transient problems are not
-    equation types: heat and wave are a steady operator paired with a time
-    integrator (see fem.problem.heat / .wave and fem.integrators).
+    An Equation says what to solve and carries the physical parameters; a solver
+    owns how. Transient problems are not equation types: heat and wave are a steady
+    operator paired with a time integrator (see `fem.problem.heat` / `.wave`).
 
-    `field` says what kind of value the unknown takes; the DOFs per node follow
-    from it and the mesh, so no subclass writes the count down. Not a ClassVar:
-    a system of k equations would carry its count as constructor data.
-
-    `source` is the PDE's right-hand side f (a body force for elasticity), given
-    as a constant or a callable of position. It lives here rather than on
-    BoundaryConditions because it is data of the equation, not of the boundary.
+    `field` says what kind of value the unknown takes; the DOFs per node follow from
+    it and the mesh. `source` is the PDE's right-hand side f (a body force for
+    elasticity), a constant or a callable of position.
     '''
     field: FieldShape = Scalar()
 
@@ -69,13 +58,9 @@ class Equation:
         )
 
     def derived_field(self) -> 'DerivedField | None':
-        '''The derived field this equation recovers, or None if it has none.
-
-        Names the physics (Poisson's gradient, elasticity's stress) that post-processing
-        recovers to nodes and `fem.estimators` builds a per-element indicator from, the
-        post-processing analogue of `operator`. None where no such field is defined (a
-        pure projection), so a caller dispatches on it without catching.
-        '''
+        '''The derived field this equation recovers (Poisson's gradient, elasticity's
+        stress), which post-processing recovers to nodes and `fem.estimators` builds an
+        indicator from. None where there is none (a pure projection).'''
         return None
 
 
@@ -131,7 +116,7 @@ class LinearElastic(Equation):
 
         The bilinear form exists only for the small-strain measure: a
         Green-Lagrange energy is not quadratic, so it has no constant stiffness.
-        A finite-strain LinearElastic is rejected rather than silently linearised.
+        A finite-strain LinearElastic is rejected.
         '''
         if self.kinematics is not StrainMeasure.SMALL:
             raise NotImplementedError(
@@ -162,11 +147,7 @@ class LinearElastic(Equation):
         return density(self.E, self.nu)
 
     def derived_field(self) -> 'DerivedField':
-        '''The elastic flux to recover and estimate from: the in-plane Cauchy stress.
-
-        Carries the masked Neumann/free boundary residual as well, the term that lets a
-        traction-free stress concentration register (see `fem.postprocess`). It also holds
-        the small-strain form, so the recovery estimator can sample stress at quadrature
-        points for a P2 solution.
-        '''
+        '''The elastic flux to recover and estimate from: the in-plane Cauchy stress,
+        with its Neumann boundary residual and the small-strain form that samples it
+        at quadrature points.'''
         return StressField(LinearElasticForm(LinearElasticMaterial(self.E, self.nu)))

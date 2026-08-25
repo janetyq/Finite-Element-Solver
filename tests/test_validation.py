@@ -1,7 +1,5 @@
-"""Tests for the guardrails around half-implemented / easily-misused surfaces.
-
-These lock in that the gated features fail loudly (with a clear error) rather
-than silently returning wrong or empty results.
+"""Guardrails around half-implemented or easily-misused surfaces fail loudly rather than
+returning wrong or empty results.
 """
 import numpy as np
 import pytest
@@ -15,16 +13,15 @@ from fem.regions import everywhere, on_plane, at_indices
 
 
 def test_neohookean_is_gated():
-    """The unfinished Neohookean material must raise, not silently do nothing."""
+    """The unfinished Neohookean material raises."""
     density = NeohookeanEnergyDensity(E=200, nu=0.3)
     with pytest.raises(NotImplementedError):
         density.evaluate(np.zeros((1, 2, 2)))
 
 
 def test_named_interior_vertex_is_rejected(make_unit_square):
-    """Naming a node explicitly is a claim about that node, so an interior one is
-    a modeling error. (A *geometric* region intersects with the boundary instead,
-    which is why only the at_indices path can trip this.)"""
+    """Naming an interior node explicitly is a modelling error; only the at_indices path can
+    trip this, since a geometric region intersects with the boundary."""
     mesh = make_unit_square(8)
     interior = (set(range(len(mesh.vertices))) - set(int(i) for i in mesh.boundary_idxs)).pop()
 
@@ -50,8 +47,7 @@ def test_geometric_region_never_selects_interior_vertices(make_unit_square):
 
 
 def test_dirichlet_neumann_same_component_is_rejected(make_unit_square):
-    """A DOF fixed by Dirichlet silently ignores a traction on that same component, so
-    pinning and loading the *same* component is the ambiguity to flag."""
+    """Pinning and loading the same component is the ambiguity to flag."""
     mesh = make_unit_square(8)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])   # pin both components
@@ -61,8 +57,8 @@ def test_dirichlet_neumann_same_component_is_rejected(make_unit_square):
 
 
 def test_dirichlet_neumann_different_components_is_allowed(make_unit_square):
-    """Pinning one component while a traction drives a *different* one -- a roller carrying
-    a tangential load -- is well-posed and must resolve, not raise."""
+    """Pinning one component while a traction drives another (a roller carrying a tangential
+    load) is well-posed."""
     mesh = make_unit_square(8)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [None, 0])  # u_y pinned, u_x free
@@ -97,16 +93,14 @@ def test_bctype_accepts_enum_and_string_but_rejects_typo():
 
 
 def test_index_list_as_region_is_rejected():
-    """A bare index list is the old API's shape; it must fail with a message
-    pointing at regions rather than being silently treated as a callable."""
+    """A bare index list fails with a message pointing at regions."""
     bc = BoundaryConditions()
     with pytest.raises(TypeError):
         bc.add(BCType.DIRICHLET, [0, 1, 2], 0)
 
 
 def test_energy_solver_rejects_a_source_term(make_unit_square):
-    """EnergySolver builds no load vector, so a source term would be accepted and
-    then silently dropped, returning the unforced answer."""
+    """EnergySolver builds no load vector, so a source term would be dropped."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])

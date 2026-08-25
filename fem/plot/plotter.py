@@ -93,7 +93,7 @@ class Plotter:
         # see `chart_ax`.
         self._charts: dict[tuple[int, int], tuple[str, str]] = {}
 
-        # Panels of boundary conditions. Their axes *are* the domain's, so they keep
+        # Panels of boundary conditions. Their axes are the domain's, so they keep
         # equal aspect and their ticks, but not the x/y labels: `plot_bc` puts a legend
         # under the panel, which is where those words sit.
         self._bc_panels: set[tuple[int, int]] = set()
@@ -142,12 +142,9 @@ class Plotter:
         by later ones redrawing the same axes. `colorbar=False` colours by value but
         draws no bar, for a qualitative or arbitrary-amplitude field (a mode shape).
 
-        `clim` fixes the colour range instead of taking it from `values`, which is what
-        lets a grid of panels be compared. Each panel otherwise renormalizes to its own
-        extremes, so six snapshots of a field decaying by 70% draw as six near-identical
-        squares: the run is visible only in the colorbar's tick labels, and only to a
-        reader who thought to check them. `plot_animation` has always fixed this across
-        the frames of one panel; this is the same thing across panels.
+        `clim` fixes the colour range instead of taking it from `values`, so a grid of
+        panels can be compared. Each panel otherwise renormalizes to its own extremes,
+        and six snapshots of a decaying field draw as six near-identical squares.
 
         `cmap` selects the colormap (default 'viridis'); `log_scale` uses logarithmic
         normalization. `contour=n` overlays n isolines of the field on the colored
@@ -203,8 +200,7 @@ class Plotter:
             plot_surface(ax, mesh, values, clim=clim, space=space,
                          subdivisions=subdivisions, warp=warp)
         elif mode is PlotMode.SOLID:
-            # The colorbar is set up on the 3D axes, after the swap: attaching it to the
-            # 2D one it replaces is what left a stray bar beside a surface animation.
+            # The colorbar is set up on the 3D axes, after the swap.
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
             if values is not None and idx not in self.cbar_infos:
@@ -311,9 +307,7 @@ class Plotter:
         # anyway onto the 2D axes that change_ax_to_ax3d then replaces, leaving a stray
         # legend beside a plot that never used it.
         if mode in (PlotMode.COLORED, PlotMode.SOLID):
-            # Fixed across frames so they stay comparable, and spanning the series
-            # rather than a caller-supplied guess: the default used to be (0, 1),
-            # against which any field outside that range rendered as one flat block.
+            # Fixed across frames so they stay comparable, spanning the whole series.
             if cbar_lims is None:
                 cbar_lims = (min(np.min(v) for v in values), max(np.max(v) for v in values))
             ax = self.axs[idx]
@@ -402,9 +396,8 @@ class Plotter:
                 else:
                     ax.set_aspect('equal')
 
-            # Only where the caller has not placed one itself: `ax.legend()` replaces an
-            # existing legend with a default-positioned one, so an explicit `loc` was
-            # being discarded here rather than respected.
+            # Only where the caller has not placed one itself: `ax.legend()` would
+            # replace an existing legend with a default-positioned one.
             if ax.get_legend() is None and any(ax.get_legend_handles_labels()[1]):
                 ax.legend()
 
@@ -462,14 +455,12 @@ class Plotter:
         '''Write animation frames as still images; returns the paths written.
 
         `path_template` is formatted with the frame number, e.g. `'heat/{:03d}.png'`.
-        Every animation on this figure is stepped together, which is why this lives
-        here rather than on `FuncAnimation`: a figure with two animated panels has two
-        of those, and saving through either one leaves the other panel frozen.
+        Every animation on this figure is stepped together, so a figure with two
+        animated panels writes both.
 
         `max_frames` samples the run down to at most that many images, evenly and
-        keeping both ends: the last frame of a topology optimization is the result,
-        so it is never the one dropped. The solve is untouched; this is only how
-        much of it gets rasterized, which is what a frame sequence actually costs.
+        keeping both ends, so the last frame (a topology optimization's result) is
+        never dropped.
         '''
         if not self._anim_updates:
             raise ValueError('this figure has no animation to write frames for')

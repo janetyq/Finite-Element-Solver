@@ -1,11 +1,8 @@
 """How the free-free block gets solved: the linear-algebra backend.
 
-`DiscreteSystem` owns the Dirichlet elimination (the partition of the DOFs and
-the lifting of the fixed values to the right-hand side) but not the choice of
-how the remaining free-free block is solved. That choice is a `Backend`,
-injected so the two orthogonal axes stay separate: a `SolveStrategy` picks linear
-vs. Newton, a `Backend` picks direct vs. iterative, and they compose without a
-class per combination.
+`DiscreteSystem` owns the Dirichlet elimination but not how the remaining free-free
+block is solved. That choice is a `Backend`: a `SolveStrategy` picks linear vs.
+Newton, a `Backend` picks direct vs. iterative, and they compose.
 
 What a caller touches, versus what is plumbing:
 
@@ -17,30 +14,23 @@ What a caller touches, versus what is plumbing:
 nonsingular system, indefinite ones included, but its fill-in on a 3D mesh grows
 super-linearly and caps the reachable resolution. `IterativeBackend` runs
 preconditioned conjugate gradients with an algebraic-multigrid preconditioner
-(`pyamg`); CG is SPD-only, so it is opt-in (Poisson / small-strain elasticity
-stiffness, mass, the time-stepping operators), and on a large 3D system it is O(n)
-where the direct factorization is not, the whole point of the exercise.
+(`pyamg`); CG is SPD-only, so it is opt-in (Poisson, small-strain elasticity, mass,
+the time-stepping operators), and on a large 3D system it is O(n) where the direct
+factorization is not.
 
-`MinresBackend` is the iterative path for symmetric *indefinite* systems, which CG
-cannot take: MINRES needs only symmetry, not definiteness. It covers the operators
-`DirectBackend` handles but `IterativeBackend` rejects, a harmonic operator `K - w^2 M`
-above the first natural frequency or a Newton tangent away from a convex minimum, so a
-large indefinite system reaches an O(n) iterative solve rather than a direct factorization.
+`MinresBackend` is the iterative path for symmetric indefinite systems, which CG
+cannot take: a harmonic operator `K - w^2 M` above the first natural frequency, or a
+Newton tangent away from a convex minimum.
 
-Both `prepare` an operator into a `LinearSolver`: an object that has
-factored/preconditioned one matrix and can solve it against many right-hand sides.
-`DiscreteSystem` builds one per operator and reuses it across solves, so a
-time-stepper or Newton loop with a constant operator pays the setup once. scipy's
-`SuperLU` already is such an object; the iterative path wraps CG in one.
+Both `prepare` an operator into a `LinearSolver`, an object that has factored or
+preconditioned one matrix and solves it against many right-hand sides.
+`DiscreteSystem` builds one per operator and reuses it, so a time-stepper or Newton
+loop with a constant operator pays the setup once. The `Backend` is the recipe and
+the `LinearSolver` the bound solver, since the matrix actually solved (the eliminated
+free-free block) is built inside `DiscreteSystem`.
 
-Config (the immutable `Backend`) and the bound solver (`LinearSolver`) are two
-objects rather than one because the matrix actually solved (the eliminated
-free-free block) is born inside `DiscreteSystem`, so a caller can only hand in
-a recipe for building the solver, never the solver itself.
-
-The AMG preconditioner is currently `pyamg`'s smoothed aggregation. A hand-rolled
-geometric two-grid V-cycle could replace it behind this same `Backend` seam
-without touching a caller (see BACKLOG.md).
+The AMG preconditioner is `pyamg`'s smoothed aggregation (see BACKLOG.md for a
+geometric alternative).
 """
 from typing import Protocol
 
@@ -187,9 +177,8 @@ class _CGSolver:
     '''Preconditioned CG bound to one operator and its AMG preconditioner.
 
     Holds the AMG hierarchy built by `IterativeBackend.prepare`, so each `solve`
-    reuses it rather than re-coarsening. Fails loudly: CG reports non-convergence
-    (or an illegal input) through a nonzero `info`, and a silently-wrong vector is
-    worse than a raise, so we raise.
+    reuses it rather than re-coarsening. Raises when CG reports non-convergence or an
+    illegal input through a nonzero `info`.
     '''
 
     def __init__(self, A: csr_array, preconditioner, rtol: float, maxiter: int | None) -> None:
@@ -216,8 +205,8 @@ class _CGSolver:
 class _MinresSolver:
     '''MINRES bound to one symmetric (possibly indefinite) operator.
 
-    Holds the operator and an optional SPD preconditioner. Fails loudly, as `_CGSolver`
-    does: a silently unconverged iterate is worse than a raise.
+    Holds the operator and an optional SPD preconditioner. Raises on non-convergence,
+    as `_CGSolver` does.
     '''
 
     def __init__(
