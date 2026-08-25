@@ -902,7 +902,7 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
              f'  finned sink   {q_fin:.1f}   ({effectiveness:.1f}x, on {metal_ratio:.2f}x the metal)\n'
              f'fin efficiency at L = 1.4:  {eta_here:.2f}  (beam theory close)'))
 
-def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=200,
+def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400,
                        min_angle=28, max_area=0.04, uniform_rounds=2):
     """A wave front meeting a harbor breakwater, diffracting through its gap into the
     sheltered water behind."""
@@ -938,18 +938,15 @@ def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=200,
     # One colour scale, set by the harbor side, so the diffracted wave reads even
     # though it is far lower than the front that made it (which doubles again when it
     # reflects off the far wall).
-    shown = [int(i) for i in np.linspace(len(u_values) // 4, len(u_values) - 1, 8)]
+    shown = [int(i) for i in np.linspace(len(u_values) // 8, len(u_values) - 1, 8)]
     harbor = x > wall_x + wall_thickness
     span = float(max(abs(u_values[i][harbor]).max() for i in shown))
     clim = (-span, span)
 
-    # The starting front beside the run, so the animation stands on its own.
-    animation = Plotter(1, 2, figsize=(13.0, 4.4))
-    animation.plot(mesh, u_initial, mode='colored', idx=(0, 0), clim=clim, cmap='RdBu_r',
-                   colorbar=False, title='Initial front; every edge is a wall')
+    animation = Plotter(1, 1, figsize=(7.4, 4.8))
     animation.plot_animation(mesh, u_values, mode='colored', cbar_lims=clim, label='height',
                              cmap='RdBu_r', titles=[f'Harbor breakwater  t={t:.2f}' for t in t_values],
-                             idx=(0, 1))
+                             idx=(0, 0))
 
     snapshots = Plotter(2, 4, figsize=(18.0, 6.4), title='Diffraction through the gap')
     for panel, i in enumerate(shown):
@@ -960,14 +957,14 @@ def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=200,
 
     return DemoResult([
         Figure(animation,
-               'Newmark time integration of the front, beside the state it started from.',
+               'Newmark time integration of the front.',
                'animation'),
         Figure(snapshots,
                'The front reaches the breakwater, reflects off the wall, and passes the '
                'gap, where it spreads into the harbor as a circular wave centred on the '
-               'opening, lower than the front that made it. The last frames show that wave '
-               'reflecting off the harbor walls while the reflected front returns on the '
-               'open side.',
+               'opening, lower than the front that made it. The later frames show that wave '
+               'reflecting around the harbor while the front, reflected off the wall and '
+               'then the far edge, comes back through the gap.',
                'snapshots'),
         Figure(setup,
                'A basin with a breakwater across it, open on the left and sheltered on the '
