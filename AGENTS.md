@@ -6,10 +6,19 @@ Working guidelines for agents on this repo. `CLAUDE.md` imports this file. Do no
 
 - Prefer quality, simplicity, robustness, scalability, and long-term maintainability over minimizing development cost or churn.
 - Surface meaningful design alternatives before implementing, with a recommendation. Don't ask about choices with an obvious default.
-- Comments should be concise and carry only what the next reader needs to understand and use the code correctly, not why you wrote it that way.
-- Keep docstrings, comments, and demo text concise and clear: simple language, no em-dashes.
 - Report results honestly. If something is skipped, unverified, or failing, say so.
 - Treat inline `TODO`s as intentional unless told otherwise. Ask before deleting them.
+
+## Prose
+
+Applies to docstrings, comments, README/ARCHITECTURE, demo text, and PR titles and descriptions.
+
+- A docstring says what a thing is and returns; a comment says the mechanism. Lead with the one-line what.
+- Write for the next reader of the code as it stands. No history: never describe what the code used to do or why it changed ("previously", "no longer", "now", "instead of", "rather than").
+- No contrast phrasing: state what the code does and drop the negated alternative ("X, not Y"). This includes titles.
+- No design arguments or emphatic asides in code. The case for a choice belongs in the PR; if the next reader needs a constraint the code cannot show, state the constraint in one sentence.
+- Simple language. No em-dashes; rewrite an aside as its own sentence.
+- Tests carry a claim: the name or docstring states what would break if the test failed.
 
 ## Git
 
