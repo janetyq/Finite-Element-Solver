@@ -47,7 +47,7 @@ def test_element_compliance_sums_to_the_strain_energy_form(make_unit_square):
     mesh = make_unit_square(8)
     solver, solution = _solved(mesh)
 
-    K = solver._steady_problem().tangent(None)
+    K = solver.problem().tangent(None)
     np.testing.assert_allclose(
         solution.compliance.sum(), solution.u @ (K @ solution.u), rtol=1e-10
     )

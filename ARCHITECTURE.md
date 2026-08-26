@@ -146,8 +146,8 @@ reduces them to frame-independent scalars.
 A `Problem` is the assembly-ready composition for one mesh: space, operator, load, constraints.
 `LinearProblem` has `tangent(u) = A` and `residual(u) = A·u − b`; `EnergyProblem` has
 `tangent(u) = ∇²Π(u)` and `residual(u) = ∇Π(u)`. The `Problem` owns its constraints, so nothing
-index-keyed is carried across a mesh change: a driver that remeshes builds a new one. It also
-answers the two questions that depend on which physics it was composed from: `solution(u)`
+index-keyed is carried across a mesh change: a driver that remeshes builds a new one. `bc` is the
+spec the constraints came from and `resolved` that resolution on this space. It also answers the two questions that depend on which physics it was composed from: `solution(u)`
 packages a solved vector as the typed `Solution` its operator recovers (`ElasticSolution` for a
 form that recovers stress, `ScalarFieldSolution` for one naming a flux, else `FieldSolution`), and
 `near_null_space()` is the operator's AMG near-kernel, if it has one. Both delegate to the form,
@@ -192,13 +192,16 @@ Two more resolve it against a discretization: `space(mesh, element_type)` builds
 
 ### Facades and drivers
 
-`Solver` and `EnergySolver` have the same shape: hold a mesh, an equation, and a BC spec; build a
-`Problem` per solve (`Equation.problem`, or an `EnergyProblem` over the equation's energy
-density); hand it to a strategy; return `problem.solution(u)`; expose `remesh(mesh)`. Each fills
-in defaults and holds no other solve policy.
+`Solver` and `EnergySolver` have the same shape: hold an equation, a BC spec, and the space on a
+mesh; build a `Problem` per solve (`Equation.problem`, or an `EnergyProblem` over the equation's energy
+density); hand it to a strategy (`LinearSolve` over a `Backend`, or a caller-supplied `NewtonSolve`
+defaulting to line-searched Newton); return `problem.solution(u)`. Each fills in defaults and holds
+no other solve policy and no state between solves.
 
-Two drivers, each over one spec. `AdaptiveRefinement` owns a `RefinableSolver` (either facade) and
-advances it across meshes. `DesignOptimizer` owns a `SIMPModel` (a space, a `LinearElastic`
+Two drivers, each over one spec. `AdaptiveRefinement` owns a mesh and a `problem_for(mesh)`
+builder (`equation.problem(equation.space(mesh), bc)` on the linear path, an `EnergyProblem` on
+the nonlinear one), solves each round's problem with a strategy, hands `(problem, solution)` to the
+estimator, and refines. `DesignOptimizer` owns a `SIMPModel` (a space, a `LinearElastic`
 equation, and supports; `Equation.problem` resolved once as the template) and each iteration
 derives the diluted `LinearProblem` from the current density with `with_operator`, solves it
 through `SensitivityAnalysis`, and moves the density by the optimality-criteria update.
@@ -207,7 +210,8 @@ through `SensitivityAnalysis`, and moves the density by the optimality-criteria 
 
 `fem/estimators.py` provides the residual estimator (2D, straight-sided), the Zienkiewicz-Zhu
 recovery estimator (dimension-general, curved elements included), and the goal-oriented estimator
-(the product of primal and dual recovery indicators). Each reads the equation's `DerivedField`.
+(the product of primal and dual recovery indicators). Each takes `(problem, solution)` and reads
+the equation's `DerivedField`.
 `fem/sensitivity.py` computes `dJ/dp` for a `QuantityOfInterest` through one adjoint solve on the
 forward factorization; `fem/design.py` drives an optimality-criteria update from that gradient.
 
