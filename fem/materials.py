@@ -79,7 +79,7 @@ def hooke_matrix(reference_dim: int, mu: float, lamb: float) -> Matrix:
 class LinearElasticMaterial:
     '''Isotropic linear-elastic constitutive law, parameterised by E and nu.
 
-    E may be a scalar or a per-element array (TopologyOptimizer scales it by a
+    E may be a scalar or a per-element array (SIMP density design scales it by a
     density cubed each iteration), so the constitutive matrix is requested per
     element rather than built once. nu is uniform.
     '''

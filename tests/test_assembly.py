@@ -159,7 +159,7 @@ def test_elastic_stiffness_annihilates_rigid_translations(mesh):
 
 
 def test_per_element_modulus_reaches_the_global_matrix(mesh):
-    """TopologyOptimizer's per-element E must survive the scatter, not just the form."""
+    """A per-element E (SIMP's density-scaled modulus) must survive the scatter."""
     d = mesh.spatial_dim
     V = FunctionSpace(mesh, n_components=d)
     uniform = V.assemble(LinearElasticForm(LinearElasticMaterial(200.0, 0.3))).toarray()

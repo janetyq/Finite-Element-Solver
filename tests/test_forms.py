@@ -123,7 +123,7 @@ def test_elastic_stiffness_is_symmetric_with_rigid_body_nullspace(geometry):
 
 
 def test_elastic_form_reads_per_element_modulus():
-    """A per-element E array is applied element-wise, as TopologyOptimizer relies on."""
+    """A per-element E array is applied element-wise, as SIMP density design relies on."""
     triangles = LinearTriangleElement.geometry(
         np.repeat(np.array([[[0.0, 0], [1, 0], [0, 1]]]), 3, axis=0)
     )

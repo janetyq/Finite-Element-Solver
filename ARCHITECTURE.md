@@ -9,9 +9,43 @@ A solve is a composition assembled from parts, not a method looked up by PDE. Th
 parts (`FunctionSpace`, `Form`, `Material`, `DiscreteSystem`, `ResolvedBC`), the object that holds
 a composition (`Problem`), the strategies that consume one (`LinearSolve`, `NewtonSolve`, the time
 integrators), and the drivers that wrap a strategy to re-solve (`AdaptiveRefinement`,
-`TopologyOptimizer`, `DesignOptimizer`). A transient problem is a steady operator paired with a time
-integrator, not a PDE type, so `Equation` carries only the identity of a PDE and its physical
-constants. "What to solve" is the `Problem`; "how" is the strategy.
+`DesignOptimizer`). A transient problem is a steady operator paired with a time integrator, not a
+PDE type, so `Equation` carries only the identity of a PDE and its physical constants. "What to
+solve" is the `Problem`; "how" is the strategy.
+
+## Building a solve
+
+The chain is the same for every problem. Each step has one required object and a few options with
+defaults; a facade is this chain with the defaults filled in from an `Equation`.
+
+| Step | Required | Options (default) |
+|---|---|---|
+| Geometry | `Mesh` | |
+| Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) |
+| Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; `EnergyForm` for the nonlinear path |
+| Statement | `LinearProblem(space, form)` / `EnergyProblem`, or `Equation.problem(space, bc)` | `source` (none), `bc` (none) |
+| Solve | `LinearSolve`, `NewtonSolve`, or an integrator | `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta` |
+| Result | `problem.solution(u)` | |
+| Outer loop | | `AdaptiveRefinement` over a facade; `DesignOptimizer` over a `SIMPModel` |
+
+Composed by hand:
+
+```python
+space = FunctionSpace(mesh, n_components=1)
+problem = LinearProblem(space, LaplacianForm(), source=1.0, bc=bc)
+u = LinearSolve(backend=IterativeBackend()).solve(problem)
+solution = problem.solution(u)
+```
+
+The same solve through the facade, which builds the space and problem from the equation and
+packages the result:
+
+```python
+solution = Solver(mesh, Poisson(source=1.0), bc, backend=IterativeBackend()).solve()
+```
+
+The two agree exactly: the facade holds no policy of its own, so anything it can do can be composed,
+and anything composed (a different form, a hand-built load, a custom strategy) needs no facade.
 
 ## Layers
 
@@ -38,7 +72,7 @@ refined mesh (1) without re-resolving constraints by hand (5).
 | 1. Primitives | the parts a composition is built from | `Form` / `EnergyForm` (+ `ScaledForm`, `MaskedMassForm`, `PrecomputedForm`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
 | 2. `Problem` | a composition: space + operator + load + constraints | `LinearProblem`, `EnergyProblem`; factories `poisson`, `linear_elastic`, `heat`, `wave`, `projection` |
 | 3. Solve strategy | consumes a `Problem`, returns the solution | `LinearSolve`, `NewtonSolve`, `EigenSolve`; integrators `ThetaMethod`, `NewmarkMethod` |
-| 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `TopologyOptimizer`, `DesignOptimizer` |
+| 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
 
 Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
 direct vs. iterative. Named PDEs are factory functions, not dispatch keys: `poisson(mesh, f, bc)`
@@ -66,7 +100,7 @@ composition.
 | `LinearSolve` / `NewtonSolve` / `EigenSolve` | | | | | | ▒ | | | |
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
 | `Solver`, `EnergySolver`, `BucklingSolver`, `ModalSolver` | | | | | ▒ | ▒ | | | |
-| `AdaptiveRefinement`, `TopologyOptimizer`, `DesignOptimizer` | | | | | | | | █ | ▒ |
+| `AdaptiveRefinement`, `SIMPModel` / `DesignOptimizer` | | | | | | | | █ | ▒ |
 | Error estimators, `SensitivityAnalysis` | | | | | | | | ▒ | █ |
 | `Solution` (typed) | | | | | | | ▒ | | █ |
 | `invariants`, `Plotter`, `io` | | | | | | | | | █ |
@@ -196,11 +230,13 @@ density); hand it to a strategy (`LinearSolve` over a `Backend`, or a caller-sup
 defaulting to line-searched Newton); return `problem.solution(u)`; expose `remesh(mesh)`. Each
 fills in defaults and holds no other solve policy. `BucklingSolver` and
 `ModalSolver` state the same `Problem` and read its `tangent` and `constraints` for the
-eigenproblem, buckling after solving it once for the prestress; `TopologyOptimizer` takes its
-element stiffness and its constraints-and-load template from it. `AdaptiveRefinement` owns a
-`RefinableSolver` (either facade) and advances it across meshes; `TopologyOptimizer` and
-`DesignOptimizer` own a strategy and derive a fresh `LinearProblem` from the current density each
-iteration.
+eigenproblem, buckling after solving it once for the prestress.
+
+Two drivers, each over one spec. `AdaptiveRefinement` owns a `RefinableSolver` (either facade) and
+advances it across meshes. `DesignOptimizer` owns a `SIMPModel` (a space, a `LinearElastic`
+equation, and supports; `Equation.problem` resolved once as the template) and each iteration
+derives the diluted `LinearProblem` from the current density with `with_operator`, solves it
+through `SensitivityAnalysis`, and moves the density by the optimality-criteria update.
 
 ### Error estimation and sensitivity
 

@@ -51,7 +51,7 @@ def test_scalar_equations_have_no_energy_density():
 
 def test_per_element_modulus_has_no_single_energy_density():
     """A density carries one pair of Lame parameters for the whole mesh, so a
-    density-scaled modulus (TopologyOptimizer's) has no scalar answer here."""
+    density-scaled modulus (SIMP's) has no scalar answer here."""
     equation = LinearElastic(E=np.full(8, 200.0), nu=0.4)
 
     with pytest.raises(NotImplementedError, match='scalar Youngs modulus'):

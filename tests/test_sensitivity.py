@@ -1,5 +1,5 @@
 """The adjoint sensitivity core, anchored two ways: the general adjoint pass with a
-`Compliance` quantity of interest reproduces `TopologyOptimizer`'s hand-written
+`Compliance` quantity of interest reproduces the hand-written SIMP compliance
 sensitivity, and the adjoint gradient matches a central-difference gradient for both a
 self-adjoint and a non-self-adjoint quantity of interest.
 """
@@ -18,7 +18,6 @@ from fem.sensitivity import (
     SensitivityAnalysis,
 )
 from fem.space import FunctionSpace
-from fem.topology import MinCompliance
 
 
 def _cantilever_bc():
@@ -38,8 +37,8 @@ def _density_problem(space, rho, base_E, nu, penalty):
 
 
 def test_compliance_density_gradient_matches_the_hand_written_sensitivity(make_unit_square):
-    """The general adjoint pass equals MinCompliance.gradient up to sign (the core returns
-    dC/drho, MinCompliance the positive ascent sensitivity)."""
+    """The general adjoint pass equals the closed-form SIMP sensitivity p/rho * c_e up to
+    sign (the core returns dC/drho, the formula the positive ascent sensitivity)."""
     space = FunctionSpace(make_unit_square(6), n_components=2)
     base_E, nu, penalty = 1.0, 0.3, 3.0
     rho = np.linspace(0.3, 1.0, len(space.element_nodes))
@@ -56,7 +55,8 @@ def test_compliance_density_gradient_matches_the_hand_written_sensitivity(make_u
     compliance = form.derived_fields(
         space.geometry, u.reshape(-1, 2)[space.element_nodes]
     ).compliance
-    hand_written = MinCompliance().gradient(compliance, rho, penalty)
+    # For E = rho^p E_0 the element compliance is linear in E, so dc_e/drho = p/rho * c_e.
+    hand_written = compliance * penalty / rho
 
     np.testing.assert_allclose(core_gradient, -hand_written, rtol=1e-10, atol=1e-12)
 

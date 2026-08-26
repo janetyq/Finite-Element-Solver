@@ -117,7 +117,7 @@ class LinearElastic(Equation):
     '''Elasticity with a selectable strain measure. `kinematics` is SMALL by
     default (infinitesimal strain, a linear solve); GREEN_LAGRANGE selects the
     St-Venant–Kirchhoff model (an energy minimisation). E may be a scalar or a
-    per-element array (TopologyOptimizer sets a density-scaled modulus).'''
+    per-element array (a SIMP density-scaled modulus).'''
     field: FieldShape = Vector()
 
     def __init__(
@@ -156,7 +156,7 @@ class LinearElastic(Equation):
         StVenantKirchhoff and overrides only the strain, so both satisfy the
         return type.
         '''
-        # E may be per-element (TopologyOptimizer sets a density-scaled modulus),
+        # E may be per-element (a SIMP density-scaled modulus),
         # but a density carries one pair of Lame parameters for the whole mesh,
         # and an array lamb broadcasts wrongly against the constant d2W/dS2.
         if not isinstance(self.E, int | float):

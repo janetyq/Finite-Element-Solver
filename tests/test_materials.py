@@ -47,7 +47,7 @@ def test_out_of_plane_stress_is_batched():
 
 
 def test_per_element_modulus_gives_a_per_element_out_of_plane_stress():
-    """TopologyOptimizer scales E per element, so lambda is an array there too."""
+    """SIMP design scales E per element, so lambda is an array there too."""
     moduli = np.array([1.0, 2.0, 4.0])
     strain = np.tile(np.eye(2) * 0.01, (3, 1, 1))
 

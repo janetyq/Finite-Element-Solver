@@ -1,13 +1,13 @@
-"""Design optimization over the adjoint core: objective + constraint -> optimizer.
+"""Density (SIMP) design optimization over the adjoint core.
 
-The general sibling of `TopologyOptimizer`: drives an arbitrary `QuantityOfInterest`
-(compliance, a point deflection, ...) over a SIMP density field, using
-`fem.sensitivity` for the gradient and the optimality-criteria (OC) update that
-`TopologyOptimizer` shares.
+`SIMPModel` is the specification: a linear-elastic equation on a space with supports,
+whose stiffness a density field dilutes as `E(rho) = rho^p E0`. `DesignOptimizer` is
+the driver: each iteration solves the diluted problem, scores a `QuantityOfInterest`,
+takes its gradient through `fem.sensitivity`, filters it, and moves the density by the
+optimality-criteria (OC) update under a volume constraint.
 
-Scope: SIMP density design of a linear-elastic problem under a single volume
-constraint, the setting where OC applies. A general constrained solver over
-`scipy.optimize` is noted in `attic/fem-adjoint-sensitivity-design-2026-08-18.md`.
+Scope: a single volume constraint, the setting where OC applies. A general constrained
+solver over `scipy.optimize` is noted in `attic/fem-adjoint-sensitivity-design-2026-08-18.md`.
 """
 from __future__ import annotations
 
@@ -16,20 +16,60 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
+from scipy.sparse import csr_array
+from scipy.spatial import KDTree
 
 from fem.boundary import BoundaryConditions
-from fem.forms import PrecomputedForm
-from fem.problem import LinearProblem
+from fem.equations import LinearElastic
+from fem.forms import LinearElasticForm, PrecomputedForm
+from fem.materials import LinearElasticMaterial
+from fem.mesh.mesh import Mesh
+from fem.problem import LinearProblem, Problem
 from fem.sensitivity import (
     Compliance,
     DensityField,
     QuantityOfInterest,
     SensitivityAnalysis,
 )
+from fem.solution import ElasticSolution
 from fem.space import FunctionSpace
-from fem.typing import DofVector, ElementField, FieldValue, FloatArray, SparseMatrix
+from fem.typing import DofVector, ElementField, FloatArray, SparseMatrix
 
 logger = logging.getLogger(__name__)
+
+
+def calculate_smoothing_matrix(mesh: Mesh, r: float) -> SparseMatrix:
+    '''Row-normalized cone weights over the element centers within radius `r`.
+
+    The SIMP sensitivity filter: an element's smoothed sensitivity is a weighted
+    mean of the sensitivities within `r` of it, under the weight `r - distance`
+    falling linearly to zero at the radius. Filtering keeps the optimizer off
+    checkerboard designs, and `r` sets the design's feature size.
+
+    Sparse, off a KD-tree neighbour query, so the filter costs O(n_elements) when `r`
+    tracks the element size. Rows sum to 1, except at `r = 0`, where every weight is
+    zero and the row is too.
+    '''
+    centers = mesh.vertices[mesh.elements].mean(axis=1)
+    n_elements = len(centers)
+
+    # Distinct pairs (i < j) within the radius, mirrored below; the diagonal is the
+    # self-pair at distance zero, weight r.
+    pairs = KDTree(centers).query_pairs(r, output_type='ndarray')
+    i, j = pairs[:, 0], pairs[:, 1]
+    off_diagonal = r - np.linalg.norm(centers[i] - centers[j], axis=1)
+
+    diagonal = np.arange(n_elements)
+    rows = np.concatenate([i, j, diagonal])
+    cols = np.concatenate([j, i, diagonal])
+    weights = np.concatenate([off_diagonal, off_diagonal, np.full(n_elements, float(r))])
+
+    # The 1e-16 keeps a weightless row (only at r = 0) at zero.
+    row_sums = np.bincount(rows, weights=weights, minlength=n_elements)
+    return csr_array(
+        (weights / (row_sums[rows] + 1e-16), (rows, cols)),
+        shape=(n_elements, n_elements),
+    )
 
 
 def optimality_criteria_update(
@@ -47,8 +87,7 @@ def optimality_criteria_update(
     where adding material helps), which the OC heuristic `rho * sqrt(sensitivity / m)`
     needs. Each candidate is capped by the `move` limit and clipped to `[1e-6, 1]`, and
     the multiplier `m` is bisected until the volume-weighted mean density meets
-    `volume_frac`. Extracted here so `TopologyOptimizer` and `DesignOptimizer` share one
-    update rather than two copies that could drift.
+    `volume_frac`.
     '''
     if np.any(sensitivity < 0.0):
         raise ValueError(
@@ -74,37 +113,61 @@ def optimality_criteria_update(
     return rho_new
 
 
+@dataclass(frozen=True)
+class TargetCompliance:
+    '''Drive the total compliance toward `target`: `J = (C - target)^2`.
+
+    `dJ/du = 2 (C - target) f`, so the OC update accepts it only while `C > target`
+    (a stiffer-than-target design has a signed sensitivity).
+    '''
+    target: float
+    self_adjoint: bool = False
+
+    def value(self, problem: Problem, u: DofVector) -> float:
+        return (Compliance().value(problem, u) - self.target) ** 2
+
+    def dJ_du(self, problem: Problem, u: DofVector) -> DofVector:
+        residual = Compliance().value(problem, u) - self.target
+        return 2.0 * residual * Compliance().dJ_du(problem, u)
+
+
 @dataclass
 class SIMPModel:
-    '''A SIMP density design of a linear-elastic problem: geometry, material, supports.
+    '''A SIMP density design: a linear-elastic equation on a space, with supports.
 
-    Bundles what a design iteration needs from a density field: the diluted `Problem` to
-    solve (`E(rho) = rho^p E0`, the stiffness rescaled from a cached solid set) and the
-    `DensityField` parameterization that differentiates it. The solid element stiffness
-    and the constraints and load are built once; a step rescales the cached matrices
-    rather than reassembling.
+    `problem(rho)` is the elastic problem at density `rho`, its stiffness rescaled by
+    `rho^p` from one cached set of solid element matrices; `parameterization(rho)` is the
+    `DensityField` that differentiates it. The constraints and load are resolved once
+    (`Equation.problem`) and shared by every density.
 
-    An optional `sensitivity_filter` is the SIMP cone filter (`calculate_smoothing_matrix`):
-    applied to the raw sensitivity in the optimizer, not here, since filtering is a
-    property of density design rather than of the adjoint gradient.
+    `sensitivity_filter` is the SIMP cone filter (`calculate_smoothing_matrix`), applied
+    to the raw sensitivity by the optimizer.
     '''
     space: FunctionSpace
-    base_E: float
-    nu: float
+    equation: LinearElastic
     bc: BoundaryConditions
-    source: FieldValue = None
     penalty: float = 3.0
     sensitivity_filter: SparseMatrix | None = None
+    _template: LinearProblem = field(init=False, repr=False)
     _density: DensityField = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._density = DensityField.create(
-            self.space, np.ones(len(self.space.element_nodes)), self.base_E, self.nu, self.penalty,
+        if not isinstance(self.equation.E, int | float):
+            raise ValueError('SIMP scales one solid modulus; E must be a scalar')
+        self._template = self.equation.problem(self.space, self.bc)
+        solid = self._template.operator.element_matrices(self.space.geometry)
+        self._density = DensityField(
+            space=self.space, nu=self.equation.nu, _K0=solid,
+            rho=np.ones(len(self.space.element_nodes)), penalty=self.penalty,
         )
 
     @property
     def volumes(self) -> FloatArray:
         return self.space.element_volumes
+
+    def scaled_modulus(self, rho: ElementField) -> ElementField:
+        '''The SIMP-scaled modulus `E(rho) = rho^p E0`, one value per element.'''
+        return np.asarray(rho, dtype=float) ** self.penalty * self.equation.E
 
     def parameterization(self, rho: ElementField) -> DensityField:
         return self._density.with_density(rho)
@@ -113,7 +176,13 @@ class SIMPModel:
         '''The elastic problem at density `rho`, its stiffness rescaled by `rho^p`.'''
         dilution = np.asarray(rho, dtype=float) ** self.penalty
         stiffness = PrecomputedForm(dilution[:, None, None] * self._density._K0)
-        return LinearProblem(self.space, stiffness, self.source, self.bc)
+        return self._template.with_operator(stiffness)
+
+    def solution(self, rho: ElementField, u: DofVector) -> ElasticSolution:
+        '''The displacement `u` at density `rho` with the stress of the diluted material.'''
+        # Stress wants the diluted material itself: sigma = D(E(rho)) eps.
+        form = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus(rho), self.equation.nu))
+        return ElasticSolution.from_solve(self.space, u, form)
 
 
 @dataclass(frozen=True, eq=False)
@@ -132,6 +201,7 @@ class DesignOptimizer:
     sensitivity if the model carries a filter, and takes an OC step. The gradient of a
     self-adjoint objective (compliance) costs no extra solve; a general one (a point
     deflection) costs a single adjoint solve reusing the forward factorization.
+    `solution` is the most recent iterate's `ElasticSolution`.
     '''
 
     def __init__(
@@ -148,6 +218,7 @@ class DesignOptimizer:
         self.iters = iters
         self.move = move
         self.rho: ElementField = np.full(len(model.space.element_nodes), volume_frac)
+        self.solution: ElasticSolution | None = None
         self.history: DesignHistory | None = None
 
     def step(self) -> tuple[DofVector, float]:
@@ -156,6 +227,7 @@ class DesignOptimizer:
         analysis = SensitivityAnalysis(problem)
         u = analysis.solve_forward()
         objective_value = self.objective.value(problem, u)
+        self.solution = self.model.solution(self.rho, u)
 
         parameterization = self.model.parameterization(self.rho)
         gradient = analysis.gradient(self.objective, parameterization, u)
