@@ -49,15 +49,13 @@ class Problem(Protocol):
         '''Package a solved DOF vector as the typed `Solution` this physics recovers.'''
         ...
 
+    def near_null_space(self) -> FloatArray | None:
+        '''The operator's AMG near-kernel over all DOFs (see `HasNearNullSpace`), or None.
 
-@runtime_checkable
-class SupportsNearNullSpace(Protocol):
-    '''A `Problem` whose operator has a known AMG near-kernel (see `HasNearNullSpace`).
-
-    `LinearSolve` reads it to give an `IterativeBackend` the modes it needs, so an
-    elastic solve composed by hand converges as well as one through the facade.
-    '''
-    def near_null_space(self) -> FloatArray | None: ...
+        `LinearSolve` hands it to an `IterativeBackend`, so an elastic solve composed
+        by hand converges as well as one through the facade.
+        '''
+        ...
 
 
 @runtime_checkable
@@ -204,7 +202,6 @@ class LinearProblem:
         return FieldSolution(space.mesh, space.n_components, u, element_type=space.element_type)
 
     def near_null_space(self) -> FloatArray | None:
-        '''The operator's AMG near-kernel over all DOFs, or None if it has none.'''
         if isinstance(self.operator, HasNearNullSpace):
             return self.operator.near_null_space(self.space)
         return None
@@ -265,6 +262,11 @@ class EnergyProblem:
         # The energy form recovers Cauchy stress from the same derivative chain Newton
         # used, so the nonlinear path reports the stress state the linear one does.
         return ElasticSolution.from_solve(self.space, u, self.operator)
+
+    def near_null_space(self) -> None:
+        # The tangent is indefinite away from a minimum, so an iterative solve of it is
+        # MINRES, not AMG-CG; there is no near-kernel to offer.
+        return None
 
 
 # -- named PDE factories: compose a space, an operator, a load, and constraints --

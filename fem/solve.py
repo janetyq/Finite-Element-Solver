@@ -19,7 +19,7 @@ from scipy.sparse import eye_array
 from scipy.sparse.linalg import ArpackNoConvergence, eigsh
 
 from fem.backends import Backend, IterativeBackend
-from fem.problem import Problem, SupportsEnergy, SupportsNearNullSpace
+from fem.problem import Problem, SupportsEnergy
 from fem.system import DiscreteSystem
 from fem.typing import Constraints, DofIndices, DofVector, FloatArray, Operator
 
@@ -33,12 +33,12 @@ def backend_for(problem: Problem, backend: Backend | None) -> Backend | None:
 
     An elasticity stiffness has the rigid-body modes as its low-energy near-kernel,
     and AMG needs them to keep CG's iteration count flat under refinement. The problem
-    supplies them over all DOFs (`SupportsNearNullSpace`); they are restricted here to
-    the free block the backend factors. A near-kernel the caller set is left untouched.
+    supplies them over all DOFs; they are restricted here to the free block the backend
+    factors. A near-kernel the caller set is left untouched.
     '''
     if not isinstance(backend, IterativeBackend) or backend.near_null_space is not None:
         return backend
-    modes = problem.near_null_space() if isinstance(problem, SupportsNearNullSpace) else None
+    modes = problem.near_null_space()
     if modes is None:
         return backend
     free = problem.constraints[0]
