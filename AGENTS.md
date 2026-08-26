@@ -36,7 +36,8 @@ Applies to docstrings, comments, docs, demo text, and PR titles and descriptions
 - Every PR runs `uv run pytest`, `uv run ruff check`, and `uv run pyright` in CI, and all must pass before merging. Rely on CI for the full suite rather than running it locally; run only targeted checks locally (a single test, or `ruff`/`pyright` on changed files) when useful. If CI has not run by merge time, ask.
 - Use `uv`; don't invoke `pip` or bare `python`. The dev env is pinned to 3.11 (`.python-version`); the package itself supports 3.10+.
 - Add test coverage before refactoring untested code.
-- New physics or numerics ships with a demo in `examples/` and a test against an analytic or manufactured solution.
+- New physics or numerics ships with a test against an analytic or manufactured solution.
+- Demos tell a physical story, one per story. Show a new feature by extending an existing demo; propose a new one only when no existing demo can carry it.
 - When fixing a defect, search for the same pattern elsewhere and fix every instance in the same PR.
 - Keep the MMS convergence test (`tests/test_convergence.py`) passing through numerical refactors; don't weaken it to accommodate changes.
 
