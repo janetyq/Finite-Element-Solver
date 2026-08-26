@@ -58,7 +58,7 @@ class AdaptiveRefinement:
         self.solution: FieldSolution | None = None
 
     def _solve(self) -> FieldSolution:
-        self.problem = self.problem_for(self.mesh)
+        assert self.problem is not None
         self.solution = self.problem.solution(self.strategy.solve(self.problem))
         return self.solution
 
@@ -68,9 +68,9 @@ class AdaptiveRefinement:
         Elements whose estimate is within `refine_fraction` of the largest are
         refined each round.
         '''
-        solution = self._solve()
-        assert self.problem is not None
+        self.problem = self.problem_for(self.mesh)
         self.problem.bc.check_remeshable()
+        solution = self._solve()
 
         # RedGreenRefiner is stateful (it tracks the current mesh and returns the
         # refined one), so it is built once and kept in step with the loop's mesh.
@@ -90,6 +90,7 @@ class AdaptiveRefinement:
                 break
 
             self.mesh = refiner.refine([int(i) for i in refine_idxs])
+            self.problem = self.problem_for(self.mesh)
             solution = self._solve()
 
         return solution

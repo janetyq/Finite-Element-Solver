@@ -52,7 +52,6 @@ class EnergySolver:
                 'silently dropped; a forced problem needs a LinearProblem.'
             )
 
-        self.mesh = mesh
         self.equation = equation
         self.boundary_conditions = (
             boundary_conditions if boundary_conditions is not None else BoundaryConditions()
@@ -69,9 +68,7 @@ class EnergySolver:
                 regularization=TangentRegularization() if backend is not None else None,
             )
         self.strategy = strategy
-        self.element_type = element_type
         self.space = equation.space(mesh, element_type)
-        self.n_components = self.space.n_components
         # The equation names its own material law; this facade only asks for it.
         self.form = EnergyForm(equation.energy_density())
 

@@ -27,16 +27,13 @@ class Solver:
         backend: Backend | None = None,
         element_type: type[Element] | None = None,
     ) -> None:
-        self.mesh = mesh
         self.equation = equation
         self.boundary_conditions = boundary_conditions if boundary_conditions is not None else BoundaryConditions()
         # Direct by default, or an IterativeBackend for a large SPD system.
         self.backend = backend
-        # `None` means the linear element for the mesh's node count; pass
+        # `element_type` None is the linear element for the mesh; pass
         # `QuadraticTriangleElement` for a P2 solve.
-        self.element_type = element_type
         self.space = equation.space(mesh, element_type)
-        self.n_components = self.space.n_components
 
     def problem(self) -> LinearProblem:
         '''The composition on the solver's space: operator, source, constraints.'''
