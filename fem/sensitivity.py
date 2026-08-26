@@ -32,6 +32,7 @@ from fem.forms import LinearElasticForm
 from fem.materials import LinearElasticMaterial
 from fem.problem import Problem
 from fem.space import FunctionSpace
+from fem.solve import backend_for
 from fem.system import DiscreteSystem
 from fem.typing import BoolArray, DofVector, ElementField, FloatArray, IntArray
 
@@ -399,7 +400,8 @@ class SensitivityAnalysis:
         # The λ = u shortcut is exact only when the forward supports are homogeneous;
         # a prescribed nonzero displacement breaks the self-adjoint identity.
         self._homogeneous_supports = bool(np.allclose(fixed_values, 0.0))
-        self._system = DiscreteSystem(problem.tangent(None), problem.constraints, backend)
+        self._system = DiscreteSystem(
+            problem.tangent(None), problem.constraints, backend_for(problem, backend))
 
     def solve_forward(self) -> DofVector:
         '''The forward solution `u` of `K u = f`.'''

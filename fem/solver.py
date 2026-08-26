@@ -1,20 +1,19 @@
 """The steady-solve facade: mesh + equation + boundary conditions -> Solution.
 
-`Solver` builds a `LinearProblem` from the three and hands it to `LinearSolve`.
-The physics is the equation's (`Equation.operator`), the algebra the backend's, and
-the constraints the problem's. `remesh` is what `AdaptiveRefinement` advances the
-solver through.
+`Solver` builds a `LinearProblem` from the three and hands it to `LinearSolve`; the
+problem packages the result. The physics is the equation's (`Equation.operator`), the
+algebra the backend's, and the constraints the problem's. `remesh` is what
+`AdaptiveRefinement` advances the solver through.
 """
 import logging
 
 from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
 from fem.elements import Element
-from fem.equations import Equation, LinearElastic
-from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution, Solution
+from fem.equations import Equation
+from fem.solution import Solution
 from fem.space import FunctionSpace
-from fem.forms import RecoversElasticFields
-from fem.backends import Backend, IterativeBackend, rigid_body_modes
+from fem.backends import Backend
 from fem.problem import LinearProblem
 from fem.solve import LinearSolve
 
@@ -55,7 +54,10 @@ class Solver:
         self.space = FunctionSpace(mesh, self.element_type, n_components=self.n_components)
 
     def solve(self) -> Solution:
-        self.solution = self._solve_steady()
+        logger.info('Solving steady system...')
+        problem = self._steady_problem()
+        u = LinearSolve(self.backend).solve(problem)
+        self.solution = problem.solution(u)
         return self.solution
 
     def _steady_problem(self) -> LinearProblem:
@@ -63,35 +65,3 @@ class Solver:
         solver's current space.'''
         operator = self.equation.operator(self.n_components)
         return LinearProblem(self.space, operator, self.equation.source, self.boundary_conditions)
-
-    def _backend_for(self, problem: LinearProblem) -> Backend | None:
-        '''The solve backend, giving an elastic AMG solve its rigid-body near-kernel.
-
-        An elasticity stiffness has the rigid-body modes as its low-energy near-kernel,
-        and AMG needs them to keep CG's iteration count flat under refinement. They are
-        restricted to the free DOFs to match the block the backend factors. An explicit
-        near-kernel the caller set is left untouched.
-        '''
-        if isinstance(self.equation, LinearElastic) and isinstance(self.backend, IterativeBackend) \
-                and self.backend.near_null_space is None:
-            free = problem.constraints[0]
-            # Built from the space's node coordinates, not the mesh vertices, so a P2
-            # elastic solve gives AMG the rigid-body modes at its edge nodes too.
-            modes = rigid_body_modes(self.space.node_coords, self.n_components)[free]
-            return self.backend.with_near_null_space(modes)
-        return self.backend
-
-    def _solve_steady(self) -> Solution:
-        '''Steady linear solve, packaged by what the form can recover: an
-        `ElasticSolution` for a form that recovers stress, a `ScalarFieldSolution` for an
-        equation naming a derived field (Poisson's flux), else a bare `FieldSolution`.'''
-        logger.info('Solving steady system...')
-        problem = self._steady_problem()
-        u = LinearSolve(self._backend_for(problem)).solve(problem)
-
-        if isinstance(problem.operator, RecoversElasticFields):
-            return ElasticSolution.from_solve(self.space, u, problem.operator)
-        if self.equation.derived_field() is not None:
-            return ScalarFieldSolution.from_solve(self.space, u)
-        return FieldSolution(self.mesh, self.n_components, u,
-                             element_type=self.space.element_type)
