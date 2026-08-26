@@ -16,7 +16,7 @@ Applies to docstrings, comments, docs, demo text, and PR titles and descriptions
 
 - A docstring says what a thing is and returns; a comment says the mechanism.
 - Describe the code as it stands. No history ("previously", "no longer", "now", "instead of").
-- No contrast phrasing ("X, not Y"), titles included.
+- Use contrast phrasing ("X, not Y") only where it adds clarity, titles included.
 - No design arguments or asides in code; the case for a choice goes in the PR. State a constraint the code cannot show in one sentence.
 - Simple language, no em-dashes.
 - A test's name or docstring states the claim it checks.
