@@ -12,7 +12,7 @@ from fem.materials import LinearElasticMaterial
 from fem.problem import EnergyProblem, LinearProblem
 from fem.regions import everywhere, on_plane
 from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
-from fem.equations import LinearElastic, Poisson, linear_elastic, poisson
+from fem.equations import LinearElastic, Poisson, Projection
 from fem.solver import Solver
 from fem.space import FunctionSpace
 
@@ -21,10 +21,14 @@ def _mms_source(p):
     return [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]
 
 
+def _problem(equation, mesh, bc=None):
+    return equation.problem(equation.space(mesh), bc)
+
+
 def _poisson_problem(mesh):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    return poisson(mesh, _mms_source, bc)
+    return _problem(Poisson(source=_mms_source), mesh, bc)
 
 
 def test_linear_solve_and_newton_agree_on_a_linear_problem(make_unit_square):
@@ -59,39 +63,40 @@ def test_line_search_is_a_noop_on_a_linear_problem(make_unit_square):
     np.testing.assert_allclose(searched, NewtonSolve().solve(problem), atol=1e-12)
 
 
-def test_poisson_factory_matches_the_solver_facade(make_unit_square):
+def test_composed_poisson_matches_the_solver_facade(make_unit_square):
     mesh = make_unit_square(15)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    equation = Poisson(source=_mms_source)
 
-    u_factory = LinearSolve().solve(poisson(mesh, _mms_source, bc))
-    u_solver = Solver(mesh, Poisson(source=_mms_source), bc).solve().u
-    np.testing.assert_allclose(u_factory, u_solver, atol=1e-12)
+    u_composed = LinearSolve().solve(_problem(equation, mesh, bc))
+    u_solver = Solver(mesh, equation, bc).solve().u
+    np.testing.assert_allclose(u_composed, u_solver, atol=1e-12)
 
 
-def test_linear_elastic_factory_matches_the_solver_facade(make_unit_square):
+def test_composed_linear_elastic_matches_the_solver_facade(make_unit_square):
     mesh = make_unit_square(12)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
+    equation = LinearElastic(E=200, nu=0.4)
 
-    u_factory = LinearSolve().solve(linear_elastic(mesh, LinearElasticMaterial(200, 0.4), bc))
-    u_solver = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().u
-    np.testing.assert_allclose(u_factory, u_solver, atol=1e-12)
+    u_composed = LinearSolve().solve(_problem(equation, mesh, bc))
+    u_solver = Solver(mesh, equation, bc).solve().u
+    np.testing.assert_allclose(u_composed, u_solver, atol=1e-12)
 
 
 def test_problem_packages_its_solution_by_physics(make_unit_square):
     """`Problem.solution` packages by physics: stress for an elastic operator, flux for
     a diffusion one, a bare field for a projection. The facade returns the same typed
     result."""
-    from fem.equations import projection
     from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 
     mesh = make_unit_square(8)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
-    elastic = linear_elastic(mesh, LinearElasticMaterial(200, 0.4), bc)
+    elastic = _problem(LinearElastic(E=200, nu=0.4), mesh, bc)
     solution = elastic.solution(LinearSolve().solve(elastic))
     assert isinstance(solution, ElasticSolution)
     facade = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
@@ -101,7 +106,7 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     scalar = _poisson_problem(mesh)
     assert isinstance(scalar.solution(LinearSolve().solve(scalar)), ScalarFieldSolution)
 
-    projected = projection(mesh, 2.0)
+    projected = _problem(Projection(source=2.0), mesh)
     assert type(projected.solution(LinearSolve().solve(projected))) is FieldSolution
     assert projected.near_null_space() is None
     assert elastic.near_null_space().shape == (elastic.space.n_dofs, 3)

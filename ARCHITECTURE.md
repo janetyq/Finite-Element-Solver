@@ -70,12 +70,12 @@ refined mesh (1) without re-resolving constraints by hand (5).
 | Tier | Role | Objects |
 |---|---|---|
 | 1. Primitives | the parts a composition is built from | `Form` / `EnergyForm` (+ `ScaledForm`, `MaskedMassForm`, `PrecomputedForm`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
-| 2. `Problem` | a composition: space + operator + load + constraints | `LinearProblem`, `EnergyProblem`; factories `poisson`, `linear_elastic`, `heat`, `wave`, `projection` |
+| 2. `Problem` | a composition: space + operator + load + constraints | `LinearProblem`, `EnergyProblem`; `Equation.problem` builds one from a named PDE |
 | 3. Solve strategy | consumes a `Problem`, returns the solution | `LinearSolve`, `NewtonSolve`, `EigenSolve`; integrators `ThetaMethod`, `NewmarkMethod` |
 | 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
 
 Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
-direct vs. iterative. Named PDEs are factory functions, not dispatch keys: `poisson(mesh, f, bc)`
+direct vs. iterative. Named PDEs are `Equation`s, not dispatch keys: `Poisson(f).problem(space, bc)`
 returns `LinearProblem(space, LaplacianForm(), f, bc)`, and a PDE with no name is just a different
 composition.
 

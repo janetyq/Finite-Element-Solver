@@ -5,10 +5,13 @@ import pytest
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane
-from fem.equations import Projection, Poisson, LinearElastic
+from fem.equations import Projection, Poisson, LinearElastic, Wave
 from fem.solver import Solver
-from fem.equations import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod, wave_energy
+
+
+def _on(equation, mesh, bc=None):
+    return equation.problem(equation.space(mesh), bc)
 
 
 def test_heat_conserves_mean_temperature(make_unit_square):
@@ -18,7 +21,7 @@ def test_heat_conserves_mean_temperature(make_unit_square):
     corner = mesh.vertices.max(axis=0)
     u0 = bump_function(mesh.vertices, corner, mag=50, size=0.3) + 300
 
-    problem = heat(mesh)  # no source, no BC -> natural (no-flux) boundaries
+    problem = _on(Poisson(), mesh)  # no source, no BC -> natural (no-flux) boundaries
     solution = ThetaMethod(dt=0.01, steps=5).run(problem, u0.copy())
 
     means = [problem.space.mean_value(u) for u in solution.u]
@@ -57,7 +60,7 @@ def test_wave_holds_static_equilibrium_under_load(make_unit_square):
     u_static = Solver(mesh, Poisson(source=source), bc).solve().u
     assert np.abs(u_static).max() > 0, "static solution is trivial; test proves nothing"
 
-    problem = wave(mesh, c=1, bc=bc, source=source)
+    problem = _on(Wave(c=1, source=source), mesh, bc)
     v0 = np.zeros(len(u_static))
     u_values = NewmarkMethod(dt=0.01, steps=20).run(problem, u_static.copy(), v0).u
 
@@ -70,7 +73,7 @@ def test_wave_honors_dirichlet_bcs(make_unit_square):
     u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=1.0, size=0.2)
     u0[mesh.boundary_idxs] = 0.0
 
-    problem = wave(mesh, c=1, bc=bc)
+    problem = _on(Wave(c=1), mesh, bc)
     u_values = NewmarkMethod(dt=0.01, steps=20).run(problem, u0.copy(), np.zeros(len(u0))).u
 
     for step, u in enumerate(u_values):
@@ -86,7 +89,7 @@ def test_wave_conserves_energy(make_unit_square):
     u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=1.0, size=0.2)
     u0[mesh.boundary_idxs] = 0.0
 
-    problem = wave(mesh, c=2, bc=bc)
+    problem = _on(Wave(c=2), mesh, bc)
     solution = NewmarkMethod(dt=0.005, steps=40).run(problem, u0.copy(), np.zeros(len(u0)))
 
     energies = [
@@ -103,7 +106,7 @@ def test_wave_rejects_inconsistent_initial_state(make_unit_square):
     n = len(mesh.vertices)
     u0 = np.ones(n)  # nonzero on the pinned boundary
 
-    problem = wave(mesh, c=1, bc=bc)
+    problem = _on(Wave(c=1), mesh, bc)
     with pytest.raises(ValueError):
         NewmarkMethod(dt=0.01, steps=2).run(problem, u0, np.zeros(n))
 

@@ -163,6 +163,12 @@ gap is the transient path.
 
 **Design / maintainability**
 
+- 💡 **One `derived_field`.** `Form.derived_field` names the recoverable flux for the linear path
+  and `Equation.derived_field` mirrors it for the estimators, because `EnergyProblem`'s operator is
+  an `EnergyForm` with no small-strain form to ask. Give `EnergyForm` a `derived_field` (a
+  `StressField` sampling through its own `fields_at`) and the estimators can read the flux off
+  `problem.operator`, dropping the equation-level copy.
+
 - 💡 **Lazy plot and `pyamg` imports for headless use.** `fem/__init__.py` re-exports `Plotter` /
   `PlotMode`, and `fem.backends` imports `pyamg` at module scope, so `import fem` always pulls in a
   plotting backend and `pyamg`. Making both edges lazy would let the package import without them.

@@ -52,12 +52,6 @@ from fem.equations import (
     Wave,
     LinearElastic,
     StrainMeasure,
-    projection,
-    poisson,
-    diffusion,
-    linear_elastic,
-    heat,
-    wave,
 )
 from fem.solver import Solver
 from fem.forms import LinearForm
@@ -148,12 +142,6 @@ __all__ = [
     "LinearProblem",
     "EnergyProblem",
     "LinearForm",
-    "projection",
-    "poisson",
-    "diffusion",
-    "linear_elastic",
-    "heat",
-    "wave",
     "LinearSolve",
     "NewtonSolve",
     "BacktrackingLineSearch",

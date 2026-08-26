@@ -29,7 +29,7 @@ from fem.elements import (
     IsoparametricTriangleElement,
     QuadraticTriangleElement,
 )
-from fem.equations import LinearElastic, Poisson, heat
+from fem.equations import LinearElastic, Poisson
 from fem.forms import DiffusionForm, LaplacianForm, LinearElasticForm, LinearForm
 from fem.geometry import get_boundary_from_vertices_elements
 from fem.integrators import ThetaMethod
@@ -600,7 +600,7 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     u0 = exact_solution(mesh.vertices)   # an eigenmode, and zero on the boundary
 
-    problem = heat(mesh, bc=bc)
+    problem = Poisson().problem(Poisson().space(mesh), bc)
     free = problem.constraints[0]
     M = problem.space.mass_matrix.toarray()
     K = problem.tangent(None).toarray()

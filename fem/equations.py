@@ -5,8 +5,7 @@ Each subclass answers for both assembly paths: `operator` gives the bilinear for
 linear path assembles, `energy_density` the strain-energy density the nonlinear path
 differentiates, and `derived_field` the flux post-processing recovers. `space` and
 `problem` resolve the equation against a mesh and a BC spec, the two steps every
-facade shares. The factories at the end (`poisson`, `heat`, ...) are those two steps
-in one call.
+facade shares.
 """
 from __future__ import annotations
 
@@ -210,50 +209,3 @@ class LinearElastic(Equation):
         Cauchy stress, for either kinematics.'''
         return LinearElasticForm(self.material).derived_field()
 
-
-# -- named problems: an equation resolved on a mesh, in one call ------------------
-
-
-def projection(mesh: Mesh, source: FieldValue, bc: BoundaryConditions | None = None) -> LinearProblem:
-    '''L2 projection of `source` onto the P1 space (M u = M f).'''
-    equation = Projection(source)
-    return equation.problem(equation.space(mesh), bc)
-
-
-def poisson(mesh: Mesh, source: FieldValue, bc: BoundaryConditions | None = None) -> LinearProblem:
-    '''Poisson K u = b, the material-free Laplacian.'''
-    equation = Poisson(source)
-    return equation.problem(equation.space(mesh), bc)
-
-
-def diffusion(
-    mesh: Mesh,
-    coefficient: FieldValue,
-    source: FieldValue | LinearForm = None,
-    bc: BoundaryConditions | None = None,
-) -> LinearProblem:
-    '''Variable-coefficient diffusion -div(κ(x) grad u) = f.'''
-    equation = Diffusion(coefficient, source)
-    return equation.problem(equation.space(mesh), bc)
-
-
-def linear_elastic(
-    mesh: Mesh,
-    material: LinearElasticMaterial,
-    bc: BoundaryConditions | None = None,
-    source: FieldValue = None,
-) -> LinearProblem:
-    '''Small-strain linear elasticity; a vector field, one component per spatial dim.'''
-    equation = LinearElastic(material.E, material.nu, source)
-    return equation.problem(equation.space(mesh), bc)
-
-
-def heat(mesh: Mesh, source: FieldValue = None, bc: BoundaryConditions | None = None) -> LinearProblem:
-    '''Transient heat: Poisson's operator, to be stepped by a `ThetaMethod`.'''
-    return poisson(mesh, source, bc)
-
-
-def wave(mesh: Mesh, c: float, bc: BoundaryConditions | None = None, source: FieldValue = None) -> LinearProblem:
-    '''Transient wave with speed `c`: c²K, to be stepped by a `NewmarkMethod`.'''
-    equation = Wave(c, source)
-    return equation.problem(equation.space(mesh), bc)

@@ -46,23 +46,17 @@ def test_finite_strain_has_no_bilinear_form(make_unit_square):
         equation.operator(FunctionSpace(make_unit_square(3), n_components=2))
 
 
-def test_factories_are_equations_resolved_on_a_mesh(make_unit_square):
-    """`heat` is Poisson's operator, `wave` the c²-scaled Laplacian, `diffusion` the
-    coefficient form; each factory equals its equation's `problem` on the mesh."""
-    from fem.equations import Diffusion, Wave, diffusion, heat, poisson, wave
+def test_wave_and_diffusion_name_their_operators(make_unit_square):
+    """`Wave` is the c²-scaled Laplacian; `Diffusion` the coefficient form, with the
+    gradient as its recoverable flux."""
+    from fem.equations import Diffusion, Wave
     from fem.forms import DiffusionForm, ScaledForm
 
-    mesh = make_unit_square(4)
-    assert isinstance(heat(mesh).operator, LaplacianForm)
-    np.testing.assert_array_equal(heat(mesh, 2.0).load, poisson(mesh, 2.0).load)
+    space = FunctionSpace(make_unit_square(4))
+    w = Wave(3.0).operator(space)
+    assert isinstance(w, ScaledForm) and w.factor == 9.0
 
-    w = wave(mesh, c=3.0)
-    assert isinstance(w.operator, ScaledForm) and w.operator.factor == 9.0
-    np.testing.assert_allclose(w.tangent().toarray(),
-                               Wave(3.0).problem(Wave(3.0).space(mesh)).tangent().toarray())
-
-    d = diffusion(mesh, coefficient=2.0, source=1.0)
-    assert isinstance(d.operator, DiffusionForm)
+    assert isinstance(Diffusion(2.0).operator(space), DiffusionForm)
     assert Diffusion(2.0).derived_field() is not None
 
 

@@ -17,10 +17,9 @@ from dataclasses import dataclass
 
 from fem.boundary import BCType, BoundaryConditions
 from fem.backends import DirectBackend, IterativeBackend
-from fem.materials import LinearElasticMaterial
 from fem.mesh.structured import create_box_mesh
 from fem.plot.plotter import Plotter
-from fem.equations import linear_elastic
+from fem.equations import LinearElastic
 from fem.regions import everywhere
 from fem.system import DiscreteSystem
 
@@ -58,12 +57,10 @@ def benchmark(n: int) -> Timing:
     mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0, 0.0])
-    material = LinearElasticMaterial(E=200.0, nu=0.3)
+    equation = LinearElastic(E=200.0, nu=0.3, source=lambda p: [1.0, 0.0, 0.0])
 
     # Building the LinearProblem assembles the stiffness and the load.
-    problem, t_assemble = _time(
-        lambda: linear_elastic(mesh, material, bc, source=lambda p: [1.0, 0.0, 0.0])
-    )
+    problem, t_assemble = _time(lambda: equation.problem(equation.space(mesh), bc))
     A, b = problem.tangent(None), problem.load
 
     # Each backend factors/preconditions in DiscreteSystem's constructor and solves
