@@ -16,7 +16,7 @@ from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.fields import FieldShape, Scalar, Vector
 from fem.forms import EnergyDensity, Form, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
-from fem.postprocess import GradientField, StressField
+from fem.postprocess import GradientField
 from fem.problem import LinearProblem
 from fem.space import FunctionSpace
 from fem.typing import ElementField, FieldValue
@@ -74,8 +74,8 @@ class Equation:
         family has none, so the base raises rather than returning a stand-in.
         '''
         raise NotImplementedError(
-            f'{type(self).__name__} has no strain-energy density, so it cannot be '
-            'solved by minimising an energy. Use Solver.'
+            f'{type(self).__name__} has no strain-energy density to minimise; '
+            'solve it through its operator.'
         )
 
     def derived_field(self) -> 'DerivedField | None':
@@ -104,10 +104,10 @@ class StrainMeasure(Enum):
     '''Which strain the elastic energy is built on: the kinematics axis.
 
     The material `W` is one function; the two paths differ only in the strain fed
-    to it (see `fem.energies`). SMALL is the infinitesimal `ε = ½(∇u + ∇uᵀ)`,
-    solved directly by `Solver`; GREEN_LAGRANGE is the geometrically exact
-    `S = ½(FᵀF − I)` (St-Venant–Kirchhoff), which only `EnergySolver` can solve
-    because its energy is not quadratic.
+    to it (see `fem.energies`). SMALL is the infinitesimal `ε = ½(∇u + ∇uᵀ)`, whose
+    energy is quadratic and so has a constant stiffness; GREEN_LAGRANGE is the
+    geometrically exact `S = ½(FᵀF − I)` (St-Venant–Kirchhoff), whose energy is not
+    and so is solved by minimising it.
     '''
     SMALL = 'small'
     GREEN_LAGRANGE = 'green_lagrange'
@@ -115,9 +115,9 @@ class StrainMeasure(Enum):
 
 class LinearElastic(Equation):
     '''Elasticity with a selectable strain measure. `kinematics` is SMALL by
-    default (infinitesimal strain, the linear `Solver` path); GREEN_LAGRANGE
-    selects the St-Venant–Kirchhoff model, which needs `EnergySolver`. E may be a
-    scalar or a per-element array (TopologyOptimizer sets a density-scaled modulus).'''
+    default (infinitesimal strain, a linear solve); GREEN_LAGRANGE selects the
+    St-Venant–Kirchhoff model (an energy minimisation). E may be a scalar or a
+    per-element array (TopologyOptimizer sets a density-scaled modulus).'''
     field: FieldShape = Vector()
 
     def __init__(
@@ -132,19 +132,22 @@ class LinearElastic(Equation):
         self.nu = nu
         self.kinematics = kinematics
 
+    @property
+    def material(self) -> LinearElasticMaterial:
+        return LinearElasticMaterial(self.E, self.nu)
+
     def operator(self, n_components: int) -> Form:
         '''The small-strain stiffness form, built from this equation's material.
 
         The bilinear form exists only for the small-strain measure: a
         Green-Lagrange energy is not quadratic, so it has no constant stiffness.
-        A finite-strain LinearElastic is rejected.
         '''
         if self.kinematics is not StrainMeasure.SMALL:
             raise NotImplementedError(
-                f'a linear solve is small-strain only; {self.kinematics.name} kinematics '
-                'has no constant stiffness. Use EnergySolver.'
+                f'{self.kinematics.name} kinematics has no constant stiffness; '
+                'solve it by minimising its energy (EnergyProblem).'
             )
-        return LinearElasticForm(LinearElasticMaterial(self.E, self.nu))
+        return LinearElasticForm(self.material)
 
     def energy_density(self) -> StVenantKirchhoff:
         '''The stored-energy density for this equation's kinematics.
@@ -159,7 +162,7 @@ class LinearElastic(Equation):
         if not isinstance(self.E, int | float):
             raise NotImplementedError(
                 'an energy density needs a scalar Youngs modulus, got a per-element '
-                'array. Use Solver for density-scaled moduli.'
+                'array; a density-scaled modulus solves through the linear operator.'
             )
         density = {
             StrainMeasure.SMALL: SmallStrain,
@@ -168,7 +171,6 @@ class LinearElastic(Equation):
         return density(self.E, self.nu)
 
     def derived_field(self) -> 'DerivedField':
-        '''The elastic flux to recover and estimate from: the in-plane Cauchy stress,
-        with its Neumann boundary residual and the small-strain form that samples it
-        at quadrature points.'''
-        return StressField(LinearElasticForm(LinearElasticMaterial(self.E, self.nu)))
+        '''The elastic flux to recover and estimate from: the small-strain form's
+        Cauchy stress, for either kinematics.'''
+        return LinearElasticForm(self.material).derived_field()

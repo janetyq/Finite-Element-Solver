@@ -252,6 +252,19 @@ def test_energy_solver_reaches_the_minres_backend(make_unit_square):
     np.testing.assert_allclose(iterative, direct, atol=1e-7 * np.abs(direct).max())
 
 
+def test_energy_solver_uses_the_strategy_it_is_given(make_unit_square):
+    """A caller's `NewtonSolve` replaces the default; the facade adds no policy of its own."""
+    from fem.solve import NewtonSolve
+
+    mesh, equation, bc = _stretched_stvk(make_unit_square)
+    plain = NewtonSolve(line_search=None)
+    solver = EnergySolver(mesh, equation, bc, strategy=plain)
+
+    assert solver.strategy is plain
+    reference = EnergySolver(mesh, equation, bc).solve().u
+    np.testing.assert_allclose(solver.solve().u, reference, atol=1e-7 * np.abs(reference).max())
+
+
 def test_regularization_leaves_an_spd_tangent_unshifted(make_unit_square):
     """On a LinearProblem (SPD tangent), regularization changes nothing: tau stays 0."""
     from fem.problem import linear_elastic

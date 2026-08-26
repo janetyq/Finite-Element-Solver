@@ -192,8 +192,9 @@ Two more resolve it against a discretization: `space(mesh, element_type)` builds
 
 `Solver` and `EnergySolver` have the same shape: hold a mesh, an equation, and a BC spec; build a
 `Problem` per solve (`Equation.problem`, or an `EnergyProblem` over the equation's energy
-density); hand it to a strategy; return `problem.solution(u)`; expose `remesh(mesh)`. Each fills
-in defaults and holds no other solve policy. `BucklingSolver` and
+density); hand it to a strategy (`LinearSolve` over a `Backend`, or a caller-supplied `NewtonSolve`
+defaulting to line-searched Newton); return `problem.solution(u)`; expose `remesh(mesh)`. Each
+fills in defaults and holds no other solve policy. `BucklingSolver` and
 `ModalSolver` state the same `Problem` and read its `tangent` and `constraints` for the
 eigenproblem, buckling after solving it once for the prestress; `TopologyOptimizer` takes its
 element stiffness and its constraints-and-load template from it. `AdaptiveRefinement` owns a

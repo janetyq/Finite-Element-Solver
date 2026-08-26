@@ -38,7 +38,7 @@ def test_finite_strain_has_no_bilinear_form():
     to assemble."""
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
 
-    with pytest.raises(NotImplementedError, match='small-strain'):
+    with pytest.raises(NotImplementedError, match='no constant stiffness'):
         equation.operator(n_components=2)
 
 
@@ -84,11 +84,11 @@ def test_equation_resolves_its_space_and_problem(make_unit_square):
 
 def test_solver_refuses_finite_strain_through_the_equation_itself(make_unit_square):
     """A Green-Lagrange equation has no constant stiffness, so `Solver.solve` refuses with
-    a message pointing at EnergySolver."""
+    a message pointing at the energy path."""
     from fem.solver import Solver
 
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
     solver = Solver(make_unit_square(4), equation)
 
-    with pytest.raises(NotImplementedError, match='EnergySolver'):
+    with pytest.raises(NotImplementedError, match='minimising its energy'):
         solver.solve()

@@ -3,8 +3,9 @@
 `EnergySolver` is to the energy path what `Solver` is to the linear one, and the
 two are the same shape: hold a mesh, an equation, and a boundary-
 condition spec; build a `Problem` per solve; hand it to a strategy. Here the
-problem is an `EnergyProblem` and the strategy is `NewtonSolve`, because the
-tangent depends on the state.
+problem is an `EnergyProblem` and the strategy a `NewtonSolve`, because the
+tangent depends on the state; the default strategy is line-searched, and a caller
+may pass its own.
 
 Nothing index-keyed lives on the solver. The DOF partition belongs to the
 `EnergyProblem` built for the current mesh, which lets `remesh` rebuild
@@ -42,19 +43,18 @@ class EnergySolver:
         boundary_conditions: BoundaryConditions | None = None,
         backend: Backend | None = None,
         element_type: 'type[Element] | None' = None,
+        strategy: NewtonSolve | None = None,
     ) -> None:
         if not isinstance(equation, LinearElastic):
             raise ValueError(
                 f'EnergySolver solves elastic energies; got {type(equation).__name__}.'
             )
-        # This solver minimizes the internal elastic energy and never builds a
-        # load vector, so a source term would be accepted and then quietly
-        # ignored: the answer would just be the unforced one.
+        # The minimised energy has no external work term, so a source would be
+        # silently dropped.
         if equation.source is not None:
             raise NotImplementedError(
-                'EnergySolver does not support a source term yet: it minimizes the '
-                'internal energy only, with no external work term, so the source '
-                'would be silently dropped. Use Solver for forced problems.'
+                'EnergySolver has no external work term, so a source term would be '
+                'silently dropped; a forced problem needs a LinearProblem.'
             )
 
         self.mesh = mesh
@@ -62,12 +62,18 @@ class EnergySolver:
         self.boundary_conditions = (
             boundary_conditions if boundary_conditions is not None else BoundaryConditions()
         )
-        # The linear-algebra backend for each Newton tangent solve. The St-Venant-Kirchhoff
-        # Hessian is indefinite near the seed, so an iterative backend must be indefinite-
-        # capable (MinresBackend, not the SPD-only CG). solve() pairs any backend with the
-        # regularization that keeps each step a descent direction. Direct by default, which
-        # handles the indefinite tangent unaided.
-        self.backend = backend
+        # The default strategy is line-searched Newton: the St-Venant-Kirchhoff energy is
+        # non-convex, so a full step from the seed can raise the energy and diverge.
+        # Its Hessian is indefinite near the seed, so an iterative `backend` must handle
+        # that (MinresBackend), and is paired with the regularization that keeps each
+        # step a descent direction; the direct default needs neither.
+        if strategy is None:
+            strategy = NewtonSolve(
+                line_search=BacktrackingLineSearch(),
+                backend=backend,
+                regularization=TangentRegularization() if backend is not None else None,
+            )
+        self.strategy = strategy
         self.element_type = element_type
         self.space = equation.space(mesh, element_type)
         self.n_components = self.space.n_components
@@ -108,32 +114,14 @@ class EnergySolver:
     def energy_hessian(self, u: DofVector) -> SparseMatrix:
         return self.space.assemble_tangent(self.form, u)
 
-    def solve(self, max_iters: int = 100) -> Solution:
-        '''Minimise the energy from a seed carrying the Dirichlet values.
-
-        The seed is built from the problem's own constraints rather than from a
-        partition stored on the solver, so it cannot disagree with the system
-        `NewtonSolve` goes on to eliminate.
-        '''
+    def solve(self) -> Solution:
+        '''Minimise the energy from a seed carrying the Dirichlet values.'''
         problem = self.problem()
         _, fixed, fixed_values = problem.constraints
         u = np.zeros(self.space.n_dofs)
         u[fixed] = fixed_values
 
         logger.info('Initial energy: %s', self.energy(u))
-        # Line-searched: the St-Venant–Kirchhoff energy is non-convex, so a full Newton
-        # step from this seed can raise the energy and diverge. Backtracking on Π(u)
-        # keeps each step a descent, at no cost near the solution where alpha = 1.
-        # An iterative backend is paired with the regularization that keeps each step a
-        # descent direction on the indefinite tangent; the direct default needs neither and
-        # is left unregularized, so its path (and the recorded results) are unchanged.
-        regularization = TangentRegularization() if self.backend is not None else None
-        newton = NewtonSolve(
-            max_iters=max_iters,
-            line_search=BacktrackingLineSearch(),
-            backend=self.backend,
-            regularization=regularization,
-        )
-        u = newton.solve(problem, u0=u)
+        u = self.strategy.solve(problem, u0=u)
         self.solution = problem.solution(u)
         return self.solution
