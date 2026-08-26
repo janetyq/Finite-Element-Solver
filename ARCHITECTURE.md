@@ -180,8 +180,8 @@ reduces them to frame-independent scalars.
 A `Problem` is the assembly-ready composition for one mesh: space, operator, load, constraints.
 `LinearProblem` has `tangent(u) = A` and `residual(u) = A·u − b`; `EnergyProblem` has
 `tangent(u) = ∇²Π(u)` and `residual(u) = ∇Π(u)`. The `Problem` owns its constraints, so nothing
-index-keyed is carried across a mesh change: a driver that remeshes builds a new one. It also
-answers the two questions that depend on which physics it was composed from: `solution(u)`
+index-keyed is carried across a mesh change: a driver that remeshes builds a new one. `bc` is the
+spec the constraints came from and `resolved` that resolution on this space. It also answers the two questions that depend on which physics it was composed from: `solution(u)`
 packages a solved vector as the typed `Solution` its operator recovers (`ElasticSolution` for a
 form that recovers stress, `ScalarFieldSolution` for one naming a flux, else `FieldSolution`), and
 `near_null_space()` is the operator's AMG near-kernel, if it has one. Both delegate to the form,
@@ -216,18 +216,18 @@ and `NewmarkMethod` (average acceleration, solving for the acceleration against 
 
 ### `Equation`
 
-`Equation` is typed data: `Projection`, `Poisson`, and `LinearElastic`, each carrying its physical
-constants. One method per consumer: `operator` returns the bilinear form, `energy_density` the
-density the nonlinear path differentiates, and `derived_field` the flux post-processing recovers
-and estimators jump. Each refuses rather than approximates when the physics does not apply.
+`Equation` is typed data: `Projection`, `Poisson`, `Diffusion`, `Wave`, and `LinearElastic`, each
+carrying its physical constants. One method per consumer: `operator(space)` returns the bilinear
+form, `energy_density` the density the nonlinear path differentiates, and `derived_field` the flux
+post-processing recovers and estimators jump. Each refuses rather than approximates when the physics does not apply.
 Two more resolve it against a discretization: `space(mesh, element_type)` builds the
 `FunctionSpace` with the component count the field implies, and `problem(space, bc)` the
 `LinearProblem`. Every facade goes through these two.
 
 ### Facades and drivers
 
-`Solver` and `EnergySolver` have the same shape: hold a mesh, an equation, and a BC spec; build a
-`Problem` per solve (`Equation.problem`, or an `EnergyProblem` over the equation's energy
+`Solver` and `EnergySolver` have the same shape: hold an equation, a BC spec, and the space on a
+mesh; build a `Problem` per solve (`Equation.problem`, or an `EnergyProblem` over the equation's energy
 density); hand it to a strategy (`LinearSolve` over a `Backend`, or a caller-supplied `NewtonSolve`
 defaulting to line-searched Newton); return `problem.solution(u)`. Each fills in defaults and holds
 no other solve policy and no state between solves.
@@ -251,9 +251,10 @@ forward factorization; `fem/design.py` drives an optimality-criteria update from
 
 ### `Solution`
 
-One dataclass per shape: `FieldSolution` (the field `u`), `ScalarFieldSolution` (adds the flux),
-`ElasticSolution` (adds strain, stress, compliance), `TransientSolution` / `WaveSolution` (time
-series), `BucklingSolution` / `ModalSolution`. `ElasticSolution` stores the full tensors and derives
+One dataclass per shape, each holding the `FunctionSpace` it was solved on: `FieldSolution` (the
+field `u`), `ScalarFieldSolution` (adds the flux), `ElasticSolution` (adds strain, stress,
+compliance), `TransientSolution` / `WaveSolution` (time series), `BucklingSolution` (adds the
+prestress `reference` solve) / `ModalSolution`. `ElasticSolution` stores the full tensors and derives
 `von_mises`, `pressure`, and `principal_stress` on demand; `nodal_stress` re-evaluates the form at
 the nodes so a P2 stress keeps its within-element variation. `save` / `load` round-trip any of them
 through `fem/io`.
