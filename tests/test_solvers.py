@@ -7,7 +7,7 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane
 from fem.equations import Projection, Poisson, LinearElastic
 from fem.solver import Solver
-from fem.problem import heat, wave
+from fem.equations import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod, wave_energy
 
 

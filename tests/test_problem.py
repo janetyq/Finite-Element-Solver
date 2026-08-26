@@ -9,10 +9,10 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.energies import StVenantKirchhoff
 from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, ScaledForm
 from fem.materials import LinearElasticMaterial
-from fem.problem import EnergyProblem, LinearProblem, linear_elastic, poisson
+from fem.problem import EnergyProblem, LinearProblem
 from fem.regions import everywhere, on_plane
 from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
-from fem.equations import LinearElastic, Poisson
+from fem.equations import LinearElastic, Poisson, linear_elastic, poisson
 from fem.solver import Solver
 from fem.space import FunctionSpace
 
@@ -84,7 +84,7 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     """`Problem.solution` packages by physics: stress for an elastic operator, flux for
     a diffusion one, a bare field for a projection. The facade returns the same typed
     result."""
-    from fem.problem import projection
+    from fem.equations import projection
     from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 
     mesh = make_unit_square(8)

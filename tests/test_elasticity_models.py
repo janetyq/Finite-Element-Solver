@@ -267,7 +267,7 @@ def test_energy_solver_uses_the_strategy_it_is_given(make_unit_square):
 
 def test_regularization_leaves_an_spd_tangent_unshifted(make_unit_square):
     """On a LinearProblem (SPD tangent), regularization changes nothing: tau stays 0."""
-    from fem.problem import linear_elastic
+    from fem.equations import linear_elastic
 
     mesh = make_unit_square(8)
     bc = BoundaryConditions()

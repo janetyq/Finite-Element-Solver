@@ -10,7 +10,7 @@ the typed `Solution` its physics recovers (stress for elasticity, flux for Poiss
 `LinearProblem` and `EnergyProblem` share that protocol, mirroring the `Form` /
 `EnergyForm` split: the linear one has a state-independent tangent. Both own their
 constraints, resolved from the BC spec once; a driver that remeshes builds a new
-`Problem`. Named PDEs are factory functions (`poisson`, `linear_elastic`, ...).
+`Problem`. Named PDEs are `Equation`s (`fem.equations`), whose `problem` builds one.
 """
 import copy
 from dataclasses import dataclass
@@ -20,11 +20,9 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions
 from fem.forms import (
-    DiffusionForm, EnergyForm, Form, HasNearNullSpace, LaplacianForm, LinearElasticForm, LinearForm,
-    MaskedMassForm, MassForm, NamesDerivedField, RecoversElasticFields, ScaledForm,
+    EnergyForm, Form, HasNearNullSpace, LinearForm, MaskedMassForm, NamesDerivedField,
+    RecoversElasticFields,
 )
-from fem.materials import LinearElasticMaterial
-from fem.mesh.mesh import Mesh
 from fem.regions import evaluate_field
 from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 from fem.space import FunctionSpace
@@ -267,65 +265,3 @@ class EnergyProblem:
         # The tangent is indefinite away from a minimum, so its iterative solve is
         # MINRES, which takes no near-kernel.
         return None
-
-
-# -- named PDE factories: compose a space, an operator, a load, and constraints --
-
-
-def projection(mesh: Mesh, source: FieldValue, bc: BoundaryConditions | None = None) -> LinearProblem:
-    '''L2 projection of `source` onto the P1 space (M u = M f).'''
-    space = FunctionSpace(mesh, n_components=1)
-    return LinearProblem(space, MassForm(space.n_components), source, bc)
-
-
-def poisson(mesh: Mesh, source: FieldValue, bc: BoundaryConditions | None = None) -> LinearProblem:
-    '''Poisson K u = b, the material-free Laplacian.'''
-    space = FunctionSpace(mesh, n_components=1)
-    return LinearProblem(space, LaplacianForm(), source, bc)
-
-
-def diffusion(
-    mesh: Mesh,
-    coefficient: FieldValue,
-    source: FieldValue | LinearForm = None,
-    bc: BoundaryConditions | None = None,
-) -> LinearProblem:
-    '''Variable-coefficient diffusion -div(κ(x) grad u) = f.
-
-    Poisson with a position-dependent coefficient κ, sampled at the quadrature
-    points rather than assumed constant. Pass a `LinearForm` source to sample f at
-    the quadrature points too; a plain field is integrated as its nodal interpolant.
-    '''
-    space = FunctionSpace(mesh, n_components=1)
-    return LinearProblem(space, DiffusionForm(coefficient), source, bc)
-
-
-def linear_elastic(
-    mesh: Mesh,
-    material: LinearElasticMaterial,
-    bc: BoundaryConditions | None = None,
-    source: FieldValue = None,
-) -> LinearProblem:
-    '''Small-strain linear elasticity; a vector field, one component per spatial dim.'''
-    space = FunctionSpace(mesh, n_components=mesh.spatial_dim)
-    return LinearProblem(space, LinearElasticForm(material), source, bc)
-
-
-def heat(mesh: Mesh, source: FieldValue = None, bc: BoundaryConditions | None = None) -> LinearProblem:
-    '''Transient heat: the same Laplacian operator Poisson uses, to be time-stepped.
-
-    A heat problem is not a distinct operator: it is Poisson's, integrated in
-    time, so this is `poisson` under another name, paired with a `ThetaMethod`.
-    '''
-    space = FunctionSpace(mesh, n_components=1)
-    return LinearProblem(space, LaplacianForm(), source, bc)
-
-
-def wave(mesh: Mesh, c: float, bc: BoundaryConditions | None = None, source: FieldValue = None) -> LinearProblem:
-    '''Transient wave with speed `c`: the Laplacian scaled by c², to be Newmark-stepped.
-
-    The wave speed lives in the operator (`ScaledForm(c², …)`), so the integrator sees
-    only c²K and never learns `c`.
-    '''
-    space = FunctionSpace(mesh, n_components=1)
-    return LinearProblem(space, ScaledForm(c**2, LaplacianForm()), source, bc)

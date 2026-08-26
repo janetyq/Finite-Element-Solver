@@ -5,7 +5,8 @@ Each subclass answers for both assembly paths: `operator` gives the bilinear for
 linear path assembles, `energy_density` the strain-energy density the nonlinear path
 differentiates, and `derived_field` the flux post-processing recovers. `space` and
 `problem` resolve the equation against a mesh and a BC spec, the two steps every
-facade shares.
+facade shares. The factories at the end (`poisson`, `heat`, ...) are those two steps
+in one call.
 """
 from __future__ import annotations
 
@@ -14,9 +15,11 @@ from typing import TYPE_CHECKING
 
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.fields import FieldShape, Scalar, Vector
-from fem.forms import EnergyDensity, Form, LaplacianForm, LinearElasticForm, MassForm
+from fem.forms import (
+    DiffusionForm, EnergyDensity, Form, LaplacianForm, LinearElasticForm, LinearForm, MassForm,
+    ScaledForm,
+)
 from fem.materials import LinearElasticMaterial
-from fem.postprocess import GradientField
 from fem.problem import LinearProblem
 from fem.space import FunctionSpace
 from fem.typing import ElementField, FieldValue
@@ -32,16 +35,18 @@ class Equation:
     '''Base class for a PDE to solve.
 
     An Equation says what to solve and carries the physical parameters; a solver
-    owns how. Transient problems are not equation types: heat and wave are a steady
-    operator paired with a time integrator (see `fem.problem.heat` / `.wave`).
+    owns how. A transient problem is a steady operator paired with a time integrator,
+    so `Poisson` under a `ThetaMethod` is the heat equation and `Wave` under a
+    `NewmarkMethod` the wave equation.
 
     `field` says what kind of value the unknown takes; the DOFs per node follow from
     it and the mesh. `source` is the PDE's right-hand side f (a body force for
-    elasticity), a constant or a callable of position.
+    elasticity): a constant, a callable of position, or a `LinearForm` sampled at the
+    quadrature points.
     '''
     field: FieldShape = Scalar()
 
-    def __init__(self, source: FieldValue = None) -> None:
+    def __init__(self, source: FieldValue | LinearForm = None) -> None:
         self.source = source
 
     def space(self, mesh: Mesh, element_type: type[Element] | None = None) -> FunctionSpace:
@@ -56,14 +61,13 @@ class Equation:
 
     def problem(self, space: FunctionSpace, bc: BoundaryConditions | None = None) -> LinearProblem:
         '''The linear composition on `space`: this operator, this source, `bc`.'''
-        return LinearProblem(space, self.operator(space.n_components), self.source, bc)
+        return LinearProblem(space, self.operator(space), self.source, bc)
 
-    def operator(self, n_components: int) -> Form:
-        '''The bilinear form a linear solve assembles for this equation.
+    def operator(self, space: FunctionSpace) -> Form:
+        '''The bilinear form a linear solve assembles for this equation on `space`.
 
-        The scalar diffusion family (Poisson, and the Laplacian behind the heat
-        and wave problems) shares the material-free Laplacian, so it is the base
-        answer; subclasses that mean something else override.
+        The scalar diffusion family shares the material-free Laplacian, so it is the
+        base answer; subclasses that mean something else override.
         '''
         return LaplacianForm()
 
@@ -88,16 +92,47 @@ class Equation:
 class Projection(Equation):
     '''L2 projection of the source field onto the FE space (M u = b).'''
 
-    def operator(self, n_components: int) -> Form:
-        return MassForm(n_components)
+    def operator(self, space: FunctionSpace) -> Form:
+        return MassForm(space.n_components)
 
 
 class Poisson(Equation):
-    '''Poisson equation (K u = b).'''
+    '''Poisson equation (K u = b); under a `ThetaMethod`, the heat equation.'''
 
     def derived_field(self) -> 'DerivedField':
-        '''The diffusion flux to recover and estimate from: the field gradient ∇u.'''
-        return GradientField()
+        return LaplacianForm().derived_field()
+
+
+class Diffusion(Equation):
+    '''Variable-coefficient diffusion -div(κ(x) grad u) = f.
+
+    `coefficient` is κ, a constant or a callable of position, sampled at the
+    quadrature points.
+    '''
+
+    def __init__(self, coefficient: FieldValue, source: FieldValue | LinearForm = None) -> None:
+        super().__init__(source)
+        self.coefficient = coefficient
+
+    def operator(self, space: FunctionSpace) -> Form:
+        return DiffusionForm(self.coefficient)
+
+    def derived_field(self) -> 'DerivedField':
+        return DiffusionForm(self.coefficient).derived_field()
+
+
+class Wave(Equation):
+    '''The wave operator c²K, to be stepped by a `NewmarkMethod` as M u'' + c²K u = b.
+
+    The wave speed lives in the operator, so the integrator sees only c²K.
+    '''
+
+    def __init__(self, c: float, source: FieldValue | LinearForm = None) -> None:
+        super().__init__(source)
+        self.c = c
+
+    def operator(self, space: FunctionSpace) -> Form:
+        return ScaledForm(self.c**2, LaplacianForm())
 
 
 class StrainMeasure(Enum):
@@ -124,7 +159,7 @@ class LinearElastic(Equation):
         self,
         E: float | ElementField,
         nu: float,
-        source: FieldValue = None,
+        source: FieldValue | LinearForm = None,
         kinematics: StrainMeasure = StrainMeasure.SMALL,
     ) -> None:
         super().__init__(source)
@@ -136,7 +171,7 @@ class LinearElastic(Equation):
     def material(self) -> LinearElasticMaterial:
         return LinearElasticMaterial(self.E, self.nu)
 
-    def operator(self, n_components: int) -> Form:
+    def operator(self, space: FunctionSpace) -> Form:
         '''The small-strain stiffness form, built from this equation's material.
 
         The bilinear form exists only for the small-strain measure: a
@@ -174,3 +209,51 @@ class LinearElastic(Equation):
         '''The elastic flux to recover and estimate from: the small-strain form's
         Cauchy stress, for either kinematics.'''
         return LinearElasticForm(self.material).derived_field()
+
+
+# -- named problems: an equation resolved on a mesh, in one call ------------------
+
+
+def projection(mesh: Mesh, source: FieldValue, bc: BoundaryConditions | None = None) -> LinearProblem:
+    '''L2 projection of `source` onto the P1 space (M u = M f).'''
+    equation = Projection(source)
+    return equation.problem(equation.space(mesh), bc)
+
+
+def poisson(mesh: Mesh, source: FieldValue, bc: BoundaryConditions | None = None) -> LinearProblem:
+    '''Poisson K u = b, the material-free Laplacian.'''
+    equation = Poisson(source)
+    return equation.problem(equation.space(mesh), bc)
+
+
+def diffusion(
+    mesh: Mesh,
+    coefficient: FieldValue,
+    source: FieldValue | LinearForm = None,
+    bc: BoundaryConditions | None = None,
+) -> LinearProblem:
+    '''Variable-coefficient diffusion -div(κ(x) grad u) = f.'''
+    equation = Diffusion(coefficient, source)
+    return equation.problem(equation.space(mesh), bc)
+
+
+def linear_elastic(
+    mesh: Mesh,
+    material: LinearElasticMaterial,
+    bc: BoundaryConditions | None = None,
+    source: FieldValue = None,
+) -> LinearProblem:
+    '''Small-strain linear elasticity; a vector field, one component per spatial dim.'''
+    equation = LinearElastic(material.E, material.nu, source)
+    return equation.problem(equation.space(mesh), bc)
+
+
+def heat(mesh: Mesh, source: FieldValue = None, bc: BoundaryConditions | None = None) -> LinearProblem:
+    '''Transient heat: Poisson's operator, to be stepped by a `ThetaMethod`.'''
+    return poisson(mesh, source, bc)
+
+
+def wave(mesh: Mesh, c: float, bc: BoundaryConditions | None = None, source: FieldValue = None) -> LinearProblem:
+    '''Transient wave with speed `c`: c²K, to be stepped by a `NewmarkMethod`.'''
+    equation = Wave(c, source)
+    return equation.problem(equation.space(mesh), bc)

@@ -280,7 +280,14 @@ def _derived_field(equation: Equation) -> DerivedField:
 
 def residual_estimator(equation: Equation) -> ResidualEstimator:
     '''The residual estimator for `equation`, from its derived field and source.'''
-    return ResidualEstimator(_derived_field(equation), equation.source)
+    from fem.forms import LinearForm
+
+    source = equation.source
+    # The interior residual reads the source pointwise at centroids; a LinearForm
+    # source is that field wrapped for quadrature sampling.
+    if isinstance(source, LinearForm):
+        source = source.field
+    return ResidualEstimator(_derived_field(equation), source)
 
 
 def recovery_estimator(equation: Equation) -> RecoveryEstimator:
@@ -331,17 +338,13 @@ class GoalOrientedEstimator:
     quantity_of_interest: 'QuantityOfInterest'
 
     def estimate(self, solver: RefinableSolver) -> ElementField:
-        from fem.problem import LinearProblem
         from fem.sensitivity import SensitivityAnalysis
 
         base = recovery_estimator(self.equation)
         eta_primal = base.estimate(solver)          # reads solver.solution (the primal)
 
         space = solver.space
-        problem = LinearProblem(
-            space, self.equation.operator(space.n_components),
-            self.equation.source, solver.boundary_conditions,
-        )
+        problem = self.equation.problem(space, solver.boundary_conditions)
         primal = _solved(solver).solution
         z = SensitivityAnalysis(problem).adjoint(self.quantity_of_interest, primal.u)
 

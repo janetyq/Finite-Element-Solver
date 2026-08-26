@@ -28,7 +28,7 @@ from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.mesh.refinement import RedGreenRefiner
-from fem.problem import heat, wave
+from fem.equations import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.design import DesignOptimizer, SIMPModel, calculate_smoothing_matrix
 from fem.energy_solver import EnergySolver

@@ -146,7 +146,7 @@ def _cantilever():
 def test_linear_solve_gives_elasticity_its_rigid_body_modes():
     """An elastic problem composed by hand hands its rigid-body modes, restricted to the
     free DOFs, to an iterative backend: the same near-kernel the facade path gets."""
-    from fem.problem import linear_elastic, poisson
+    from fem.equations import linear_elastic, poisson
     from fem.solve import backend_for
 
     mesh, bc = _cantilever()
@@ -170,7 +170,7 @@ def test_linear_solve_gives_elasticity_its_rigid_body_modes():
 
 
 def test_iterative_elastic_solve_matches_direct_through_facade_and_composition():
-    from fem.problem import linear_elastic
+    from fem.equations import linear_elastic
     from fem.solve import LinearSolve
 
     mesh, bc = _cantilever()
@@ -189,7 +189,7 @@ def test_iterative_backend_matches_direct_through_a_time_step():
     """A heat step's effective operator M + θdtK is SPD, so AMG-CG matches direct."""
     from fem.integrators import ThetaMethod
     from fem.numerics import bump_function
-    from fem.problem import heat
+    from fem.equations import heat
 
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(21, 21))
     u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=10, size=0.2) + 300

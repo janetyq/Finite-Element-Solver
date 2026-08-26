@@ -20,7 +20,7 @@ from fem.backends import DirectBackend, IterativeBackend
 from fem.materials import LinearElasticMaterial
 from fem.mesh.structured import create_box_mesh
 from fem.plot.plotter import Plotter
-from fem.problem import linear_elastic
+from fem.equations import linear_elastic
 from fem.regions import everywhere
 from fem.system import DiscreteSystem
 

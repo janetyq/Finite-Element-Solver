@@ -8,7 +8,7 @@ from fem.integrators import ThetaMethod
 from fem.io import load_mesh, save_mesh, save_solution
 from fem.mesh.mesh import Mesh
 from fem.numerics import bump_function
-from fem.problem import heat
+from fem.equations import heat
 from fem.solution import (
     BucklingSolution, ElasticSolution, FieldSolution, Solution, TransientSolution,
 )

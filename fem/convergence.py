@@ -29,7 +29,7 @@ from fem.elements import (
     IsoparametricTriangleElement,
     QuadraticTriangleElement,
 )
-from fem.equations import LinearElastic, Poisson
+from fem.equations import LinearElastic, Poisson, heat
 from fem.forms import DiffusionForm, LaplacianForm, LinearElasticForm, LinearForm
 from fem.geometry import get_boundary_from_vertices_elements
 from fem.integrators import ThetaMethod
@@ -37,7 +37,7 @@ from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import create_rect_mesh
-from fem.problem import LinearProblem, Source, heat
+from fem.problem import LinearProblem, Source
 from fem.regions import everywhere
 from fem.solution import FieldSolution, TransientSolution
 from fem.solve import LinearSolve

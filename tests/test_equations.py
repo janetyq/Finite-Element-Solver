@@ -6,40 +6,64 @@ import pytest
 
 from fem.equations import Equation, LinearElastic, Poisson, Projection, StrainMeasure
 from fem.forms import LaplacianForm, LinearElasticForm, MassForm
+from fem.space import FunctionSpace
 
 
-def test_projection_assembles_a_mass_matrix():
+def test_projection_assembles_a_mass_matrix(make_unit_square):
     """An L2 projection solves M u = b, so its operator is the mass form, carrying the
-    component count."""
-    operator = Projection().operator(n_components=2)
+    space's component count."""
+    space = FunctionSpace(make_unit_square(3), n_components=2)
+    operator = Projection().operator(space)
 
     assert isinstance(operator, MassForm)
     assert operator.n_components == 2
 
 
-def test_scalar_family_shares_the_material_free_laplacian():
-    """Poisson (and the Laplacian behind heat/wave) needs no material, so the base
-    class answer is the right one and Poisson does not override it."""
-    assert isinstance(Poisson().operator(n_components=1), LaplacianForm)
-    assert isinstance(Equation().operator(n_components=1), LaplacianForm)
+def test_scalar_family_shares_the_material_free_laplacian(make_unit_square):
+    """Poisson needs no material, so the base class answer is the right one and Poisson
+    does not override it."""
+    space = FunctionSpace(make_unit_square(3))
+    assert isinstance(Poisson().operator(space), LaplacianForm)
+    assert isinstance(Equation().operator(space), LaplacianForm)
 
 
-def test_linear_elastic_builds_its_form_from_its_own_constants():
+def test_linear_elastic_builds_its_form_from_its_own_constants(make_unit_square):
     """The equation carries E and nu and turns them into the form the solver assembles."""
-    operator = LinearElastic(E=210.0, nu=0.3).operator(n_components=2)
+    space = FunctionSpace(make_unit_square(3), n_components=2)
+    operator = LinearElastic(E=210.0, nu=0.3).operator(space)
 
     assert isinstance(operator, LinearElasticForm)
     assert operator.material.E == 210.0
     assert operator.material.nu == 0.3
 
 
-def test_finite_strain_has_no_bilinear_form():
+def test_finite_strain_has_no_bilinear_form(make_unit_square):
     """A Green-Lagrange energy is not quadratic, so there is no constant stiffness
     to assemble."""
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
 
     with pytest.raises(NotImplementedError, match='no constant stiffness'):
-        equation.operator(n_components=2)
+        equation.operator(FunctionSpace(make_unit_square(3), n_components=2))
+
+
+def test_factories_are_equations_resolved_on_a_mesh(make_unit_square):
+    """`heat` is Poisson's operator, `wave` the c²-scaled Laplacian, `diffusion` the
+    coefficient form; each factory equals its equation's `problem` on the mesh."""
+    from fem.equations import Diffusion, Wave, diffusion, heat, poisson, wave
+    from fem.forms import DiffusionForm, ScaledForm
+
+    mesh = make_unit_square(4)
+    assert isinstance(heat(mesh).operator, LaplacianForm)
+    np.testing.assert_array_equal(heat(mesh, 2.0).load, poisson(mesh, 2.0).load)
+
+    w = wave(mesh, c=3.0)
+    assert isinstance(w.operator, ScaledForm) and w.operator.factor == 9.0
+    np.testing.assert_allclose(w.tangent().toarray(),
+                               Wave(3.0).problem(Wave(3.0).space(mesh)).tangent().toarray())
+
+    d = diffusion(mesh, coefficient=2.0, source=1.0)
+    assert isinstance(d.operator, DiffusionForm)
+    assert Diffusion(2.0).derived_field() is not None
 
 
 def test_scalar_equations_have_no_energy_density():
