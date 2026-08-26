@@ -24,6 +24,7 @@ from fem.space import FunctionSpace
 from fem.regions import on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
+from fem.solve import LinearSolve
 from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
@@ -311,12 +312,13 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     # measured below is read off the refined mesh. The rim splits project onto the true
     # circle, so more refinement keeps rounding the hole.
     equation = LinearElastic(E=200, nu=0.3)
-    solver = Solver(mesh, equation, bc, element_type=IsoparametricTriangleElement)
-    solution = AdaptiveRefinement(
-        solver, recovery_estimator(equation),
+    refinement = AdaptiveRefinement(
+        mesh, lambda m: equation.problem(equation.space(m, IsoparametricTriangleElement), bc),
+        recovery_estimator(equation),
         max_triangles=n_initial + refinement_budget, max_iters=refinement_iters,
-    ).run()
-    mesh = solver.mesh
+    )
+    solution = refinement.run()
+    mesh = refinement.mesh
     # The stress at the nodes: each element evaluated at its own nodes and averaged
     # where they meet, so the rim value is read on the rim itself.
     nodes = solution.space.node_coords
@@ -453,21 +455,26 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
         pslg.validate()
         mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=max_area_fraction * pslg.area()).refine()
-        solver = Solver(mesh, equation, make_bc(), element_type=element_type)
-        refiner = RedGreenRefiner(solver.mesh)
+        bc = make_bc()
+
+        def solve(m):
+            problem = equation.problem(equation.space(m, element_type), bc)
+            return problem, problem.solution(LinearSolve().solve(problem))
+
+        refiner = RedGreenRefiner(mesh)
         estimator = recovery_estimator(equation)
-        solution = solver.solve()
+        problem, solution = solve(mesh)
         sizes, peaks = [], []
         for _ in range(n_rounds):
-            sizes.append(len(solver.mesh.elements))
+            sizes.append(len(mesh.elements))
             peaks.append(corner_peak(solution))
-            residuals = estimator.estimate(solver)
+            residuals = estimator.estimate(problem, solution)
             refine_idxs = np.flatnonzero(residuals >= refine_fraction * residuals.max())
-            solver.remesh(refiner.refine([int(i) for i in refine_idxs]))
-            solution = solver.solve()
-        sizes.append(len(solver.mesh.elements))
+            mesh = refiner.refine([int(i) for i in refine_idxs])
+            problem, solution = solve(mesh)
+        sizes.append(len(mesh.elements))
         peaks.append(corner_peak(solution))
-        return solver.mesh, solution, np.array(sizes), np.array(peaks)
+        return mesh, solution, np.array(sizes), np.array(peaks)
 
     sharp_mesh, sharp, sharp_sizes, sharp_peaks = refine_and_track(0.0, QuadraticTriangleElement)
     round_mesh, rounded, round_sizes, round_peaks = refine_and_track(

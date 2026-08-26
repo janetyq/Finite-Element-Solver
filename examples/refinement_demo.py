@@ -18,7 +18,7 @@ from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.structured import create_rect_mesh
 from fem.plot.plotter import Plotter
 from fem.regions import everywhere
-from fem.solver import Solver
+from fem.solve import LinearSolve
 
 from demo_registry import Demo, DemoResult, Figure
 from domains import square
@@ -46,23 +46,31 @@ def demo_refinement(_mesh, uniform_resolutions=(10, 20, 40, 80, 160), adaptive_r
     bc.add(BCType.DIRICHLET, everywhere(), 0)
     equation = Poisson(source=peaked_source)
 
-    coarse_solver = Solver(mesh.copy(), equation, bc)
-    coarse_solution = coarse_solver.solve()
-    coarse_mesh = coarse_solver.mesh
+    def problem_for(m):
+        return equation.problem(equation.space(m), bc)
+
+    def solve(m):
+        problem = problem_for(m)
+        return problem, problem.solution(LinearSolve().solve(problem))
+
+    coarse_mesh = mesh.copy()
+    coarse_problem, coarse_solution = solve(coarse_mesh)
     estimator = residual_estimator(equation)
-    coarse_error = estimator.estimate(coarse_solver)
+    coarse_error = estimator.estimate(coarse_problem, coarse_solution)
     n_coarse = len(coarse_mesh.elements)
 
-    refined_solver = Solver(mesh.copy(), equation, bc)
-    refined_solution = AdaptiveRefinement(
-        refined_solver,
+    refinement = AdaptiveRefinement(
+        mesh.copy(),
+        problem_for,
         estimator,
         max_triangles=3000,
         max_iters=20,
         refine_fraction=0.5,
-    ).run()
-    refined_mesh = refined_solver.mesh
-    refined_error = estimator.estimate(refined_solver)
+    )
+    refined_solution = refinement.run()
+    refined_mesh = refinement.mesh
+    assert refinement.problem is not None
+    refined_error = estimator.estimate(refinement.problem, refined_solution)
     n_refined = len(refined_mesh.elements)
 
     # A shared log scale for both error plots.
@@ -93,26 +101,29 @@ def demo_refinement(_mesh, uniform_resolutions=(10, 20, 40, 80, 160), adaptive_r
 
     # The payoff: error against cost, refining uniformly and adaptively. Each adaptive
     # round refines the worst elements once and re-solves; each point is one round.
-    def error_of(solver, solution):
-        return l2_norm(solver.space, solution.u - exact(solver.space.node_coords))
+    def error_of(solution):
+        space = solution.space
+        return l2_norm(space, solution.u - exact(space.node_coords))
 
     uniform_dofs, uniform_errors = [], []
     for n in uniform_resolutions:
-        solver = Solver(create_rect_mesh(corners=[[0.0, 0.0], [1.0, 1.0]],
-                                         resolution=(n, n)), equation, bc)
-        uniform_dofs.append(solver.space.n_dofs)
-        uniform_errors.append(error_of(solver, solver.solve()))
+        _, solution = solve(create_rect_mesh(corners=[[0.0, 0.0], [1.0, 1.0]], resolution=(n, n)))
+        uniform_dofs.append(solution.space.n_dofs)
+        uniform_errors.append(error_of(solution))
 
-    adaptive_solver = Solver(mesh.copy(), equation, bc)
-    adaptive_dofs = [adaptive_solver.space.n_dofs]
-    adaptive_errors = [error_of(adaptive_solver, adaptive_solver.solve())]
+    adaptive_mesh = mesh.copy()
+    _, solution = solve(adaptive_mesh)
+    adaptive_dofs = [solution.space.n_dofs]
+    adaptive_errors = [error_of(solution)]
     for _ in range(adaptive_rounds):
-        solution = AdaptiveRefinement(adaptive_solver, estimator, max_triangles=10**9,
-                                      max_iters=1, refine_fraction=0.5).run()
-        if adaptive_solver.space.n_dofs > max(uniform_dofs) // 2:
+        step = AdaptiveRefinement(adaptive_mesh, problem_for, estimator, max_triangles=10**9,
+                                  max_iters=1, refine_fraction=0.5)
+        solution = step.run()
+        adaptive_mesh = step.mesh
+        if solution.space.n_dofs > max(uniform_dofs) // 2:
             break
-        adaptive_dofs.append(adaptive_solver.space.n_dofs)
-        adaptive_errors.append(error_of(adaptive_solver, solution))
+        adaptive_dofs.append(solution.space.n_dofs)
+        adaptive_errors.append(error_of(solution))
 
     payoff = Plotter(title='Error against cost')
     chart = payoff.chart_ax(xlabel='degrees of freedom', ylabel='L2 error')

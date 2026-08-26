@@ -18,7 +18,7 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions
+from fem.boundary import BoundaryConditions, ResolvedBC
 from fem.forms import (
     EnergyForm, Form, HasNearNullSpace, LinearForm, MaskedMassForm, NamesDerivedField,
     RecoversElasticFields,
@@ -30,8 +30,16 @@ from fem.typing import Constraints, DofVector, FieldValue, FloatArray, Operator
 
 
 class Problem(Protocol):
-    '''What a solve strategy consumes: constraints, a load, and residual/tangent.'''
+    '''What a solve strategy consumes: constraints, a load, and residual/tangent.
+
+    `bc` is the mesh-independent spec the constraints were resolved from, and
+    `resolved` that resolution on this space (the estimators read its Neumann load).
+    '''
     space: FunctionSpace
+    bc: BoundaryConditions
+
+    @property
+    def resolved(self) -> ResolvedBC: ...
 
     @property
     def constraints(self) -> Constraints: ...
@@ -102,8 +110,8 @@ class LinearProblem:
     ) -> None:
         self.space = space
         self.operator = operator
-        bc = bc if bc is not None else BoundaryConditions()
-        self._resolved = bc.resolve(space.nodes, space.n_components)
+        self.bc = bc if bc is not None else BoundaryConditions()
+        self._resolved = self.bc.resolve(space.nodes, space.n_components)
 
         # A Robin condition contributes to both sides: κ∫_∂Ω_R u·v on the operator
         # and ∫_∂Ω_R g·v on the load, each the region-restricted boundary mass. The
@@ -170,6 +178,10 @@ class LinearProblem:
         return derived
 
     @property
+    def resolved(self) -> ResolvedBC:
+        return self._resolved
+
+    @property
     def constraints(self) -> Constraints:
         r = self._resolved
         return (r.free_idxs, r.fixed_idxs, r.fixed_values)
@@ -227,12 +239,17 @@ class EnergyProblem:
             )
         self.space = space
         self.operator = operator
+        self.bc = bc
         self._resolved = bc.resolve(space.nodes, space.n_components)
         if self._resolved.robin:
             raise NotImplementedError(
                 'EnergyProblem does not support Robin conditions: the energy path has '
                 'no boundary term for them. Use a LinearProblem.'
             )
+
+    @property
+    def resolved(self) -> ResolvedBC:
+        return self._resolved
 
     @property
     def constraints(self) -> Constraints:

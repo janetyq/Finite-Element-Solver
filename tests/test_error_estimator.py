@@ -3,8 +3,6 @@ from math import e
 
 import numpy as np
 
-from fem.space import FunctionSpace
-
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.equations import LinearElastic, Poisson
@@ -12,7 +10,17 @@ from fem.estimators import residual_estimator
 from fem.mesh.mesh import Mesh
 from fem.regions import everywhere, on_plane
 from fem.solution import ElasticSolution
-from fem.solver import Solver
+from fem.solve import LinearSolve
+
+
+def _solved(mesh, equation, bc):
+    """The problem on `mesh` and its solution."""
+    problem = equation.problem(equation.space(mesh), bc)
+    return problem, problem.solution(LinearSolve().solve(problem))
+
+
+def _for(equation, bc):
+    return lambda mesh: equation.problem(equation.space(mesh), bc)
 
 
 def test_error_estimator_linear_solution_small_jumps(make_unit_square):
@@ -20,10 +28,10 @@ def test_error_estimator_linear_solution_small_jumps(make_unit_square):
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), lambda p: p[0])
-    solver = Solver(mesh, Poisson(source=None), bc)
-    solver.solve()
+    equation = Poisson(source=None)
+    problem, solution = _solved(mesh, equation, bc)
 
-    eta = residual_estimator(solver.equation).estimate(solver)
+    eta = residual_estimator(equation).estimate(problem, solution)
 
     # Linear u = x has constant gradient, so jumps are numerical only
     assert np.all(eta < 1e-10)
@@ -41,10 +49,10 @@ def test_error_estimator_concentrates_near_peak(make_unit_square):
 
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    solver = Solver(mesh, Poisson(source=peaked_source), bc)
-    solver.solve()
+    equation = Poisson(source=peaked_source)
+    problem, solution = _solved(mesh, equation, bc)
 
-    eta = residual_estimator(solver.equation).estimate(solver)
+    eta = residual_estimator(equation).estimate(problem, solution)
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     center_dist = np.linalg.norm(centroids - 0.5, axis=1)
 
@@ -59,20 +67,16 @@ def test_adaptive_refinement_with_error_estimator(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
-    solver = Solver(mesh, equation, bc)
 
     n_before = len(mesh.elements)
-    AdaptiveRefinement(
-        solver,
-        residual_estimator(equation),
-        max_triangles=300,
-        max_iters=5,
-    ).run()
+    driver = AdaptiveRefinement(mesh, _for(equation, bc), residual_estimator(equation),
+                                max_triangles=300, max_iters=5)
+    driver.run()
 
-    assert len(solver.mesh.elements) > n_before
+    assert len(driver.mesh.elements) > n_before
 
     # Verify refinement concentrates near the source
-    centroids = solver.mesh.vertices[solver.mesh.elements].mean(axis=1)
+    centroids = driver.mesh.vertices[driver.mesh.elements].mean(axis=1)
     center_dist = np.linalg.norm(centroids - 0.5, axis=1)
     near_center = (center_dist < 0.2).sum()
     far_away = (center_dist > 0.35).sum()
@@ -80,7 +84,7 @@ def test_adaptive_refinement_with_error_estimator(make_unit_square):
     assert near_center > far_away * 0.3
 
 
-# -- LinearElastic.error_estimate --------------------------------------------
+# -- the elastic boundary term ------------------------------------------------
 #
 # An error estimator can be tested two ways, and these tests use the second:
 #
@@ -96,22 +100,22 @@ def test_adaptive_refinement_with_error_estimator(make_unit_square):
 # assertion about *where* refinement lands would test this problem's physics,
 # not whether the formula is implemented correctly.
 #
-# Way 2 works because error_estimate never solves -- it only reads `.mesh`,
-# `.space`, `.solution.stress`, and `.boundary_conditions`. So these tests set a
-# known constant stress on a hand-sized mesh (`_inject_constant_stress`) and
-# check eta against a value worked out by hand.
+# Way 2 works because the estimator never solves: it reads the problem's space and
+# resolved conditions and the solution's stress. So these tests state the problem on a
+# hand-sized mesh, pair it with a synthetic solution carrying a known constant stress
+# (`_constant_stress`), and check eta against a value worked out by hand.
 
-def _inject_constant_stress(solver, sigma_xx, sigma_yy, sigma_xy):
-    """Replace `solver.solution` with a synthetic ElasticSolution carrying the same
-    constant in-plane stress on every element."""
-    mesh = solver.mesh
-    n = len(mesh.elements)
+def _constant_stress(problem, sigma_xx, sigma_yy, sigma_xy):
+    """A synthetic ElasticSolution carrying the same constant in-plane stress on every
+    element of `problem`'s space."""
+    space = problem.space
+    n = len(space.mesh.elements)
     stress = np.zeros((n, 3, 3))
     stress[:, 0, 0] = sigma_xx
     stress[:, 1, 1] = sigma_yy
     stress[:, 0, 1] = stress[:, 1, 0] = sigma_xy
-    solver.solution = ElasticSolution(
-        FunctionSpace(mesh, n_components=2), u=np.zeros(2 * len(mesh.vertices)),
+    return ElasticSolution(
+        space, u=np.zeros(space.n_dofs),
         strain=np.zeros((n, 3, 3)), stress=stress, compliance=np.zeros(n),
     )
 
@@ -133,10 +137,9 @@ def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), lambda p: [0.01 * p[0], -0.003 * p[1]])
     equation = LinearElastic(E=200, nu=0.3)
-    solver = Solver(mesh, equation, bc)
-    solver.solve()
+    problem, solution = _solved(mesh, equation, bc)
 
-    eta = residual_estimator(equation).estimate(solver)
+    eta = residual_estimator(equation).estimate(problem, solution)
 
     assert np.all(eta < 1e-8)
 
@@ -149,12 +152,10 @@ def test_elastic_error_estimator_boundary_term_matches_hand_derivation():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])  # bottom edge only
     equation = LinearElastic(E=200, nu=0.3)
-    solver = Solver(mesh, equation, bc)  # no .solve() -- only .mesh/.space are needed
+    problem = equation.problem(equation.space(mesh), bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
-    _inject_constant_stress(solver, Sxx, Syy, Sxy)
-
-    eta = residual_estimator(equation).estimate(solver)
+    eta = residual_estimator(equation).estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
 
     h_K = np.sqrt(2.0)
     right_residual = Sxx**2 + Sxy**2          # element 0: bottom (skip) + right
@@ -175,12 +176,10 @@ def test_elastic_error_estimator_neumann_matching_traction_is_quiet():
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])   # bottom: skip
     bc.add(BCType.NEUMANN, on_plane(1, 1.0), [0.5, 1.0])  # top: matches sigma.n exactly
     equation = LinearElastic(E=200, nu=0.3)
-    solver = Solver(mesh, equation, bc)
+    problem = equation.problem(equation.space(mesh), bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
-    _inject_constant_stress(solver, Sxx, Syy, Sxy)
-
-    eta = residual_estimator(equation).estimate(solver)
+    eta = residual_estimator(equation).estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
 
     h_K = np.sqrt(2.0)
     # top's g=[0.5, 1.0] is shared by nodes 2 and 3; right (1,2) and left (0,3)
@@ -203,12 +202,10 @@ def test_elastic_error_estimator_roller_edge_only_tests_its_free_component():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, None])  # bottom: roller
     equation = LinearElastic(E=200, nu=0.3)
-    solver = Solver(mesh, equation, bc)
+    problem = equation.problem(equation.space(mesh), bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
-    _inject_constant_stress(solver, Sxx, Syy, Sxy)
-
-    eta = residual_estimator(equation).estimate(solver)
+    eta = residual_estimator(equation).estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
 
     h_K = np.sqrt(2.0)
     # bottom's outward normal is (0, -1), so sigma.n = (-Sxy, -Syy); only the
@@ -232,14 +229,13 @@ def test_adaptive_refinement_elasticity_runs_end_to_end(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])
     equation = LinearElastic(E=200, nu=0.3)
-    solver = Solver(mesh, equation, bc)
 
     n_before = len(mesh.elements)
-    solution = AdaptiveRefinement(
-        solver, residual_estimator(equation), max_triangles=n_before + 200, max_iters=5,
-    ).run()
+    driver = AdaptiveRefinement(mesh, _for(equation, bc), residual_estimator(equation),
+                                max_triangles=n_before + 200, max_iters=5)
+    solution = driver.run()
 
-    final = solver.mesh
+    final = driver.mesh
     assert len(final.elements) > n_before
     assert solution.mesh is final
     assert np.all(np.isfinite(solution.u))

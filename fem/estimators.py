@@ -33,11 +33,10 @@ from fem.regions import evaluate_field
 _REFERENCE_EDGE_MIDPOINTS = np.array([[0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
 if TYPE_CHECKING:
-    from fem.adaptivity import RefinableSolver
-    from fem.boundary import BoundaryConditions, ResolvedBC
-    from fem.mesh.mesh import Mesh
+    from fem.boundary import ResolvedBC
     from fem.postprocess import DerivedField
     from fem.equations import Equation
+    from fem.problem import Problem
     from fem.sensitivity import QuantityOfInterest
     from fem.solution import FieldSolution
     from fem.space import FunctionSpace
@@ -62,14 +61,10 @@ class Solved:
     is_fixed: BoolArray   # (n_vertices, n_components)
 
 
-def _solved(solver: RefinableSolver) -> Solved:
-    '''Resolve `solver`'s latest solve into the view the flux hooks read; raises if
-    the solver has not solved yet.'''
-    solution = solver.solution
-    if solution is None:
-        raise ValueError('the error estimator requires a solved system')
-    space = solver.space
-    resolved = solver.boundary_conditions.resolve(space.nodes, space.n_components)
+def _solved(problem: Problem, solution: FieldSolution) -> Solved:
+    '''The view the flux hooks read, from a problem and its solution.'''
+    space = problem.space
+    resolved = problem.resolved
     # Sized by nodes, not mesh vertices: a P2 space fixes edge-midpoint DOFs too, whose
     # indices run past the vertex count. The residual estimator reads only vertex rows,
     # so this stays a strict generalization of the P1 mask.
@@ -83,11 +78,11 @@ def _solved(solver: RefinableSolver) -> Solved:
 
 @runtime_checkable
 class ErrorEstimator(Protocol):
-    '''A per-element error indicator over a solved system: the one method
+    '''A per-element error indicator over a solved problem: the one method
     `AdaptiveRefinement` drives.'''
 
-    def estimate(self, solver: RefinableSolver) -> ElementField:
-        '''(n_elements,) non-negative error indicator for `solver`'s latest solve.'''
+    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
+        '''(n_elements,) non-negative error indicator for `solution` of `problem`.'''
         ...
 
 
@@ -116,8 +111,9 @@ class ResidualEstimator:
     flux: DerivedField
     source: FieldValue = None
 
-    def estimate(self, solver: RefinableSolver) -> ElementField:
-        mesh, space = solver.mesh, solver.space
+    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
+        space = problem.space
+        mesh = space.mesh
         if mesh.spatial_dim != 2:
             raise NotImplementedError('the residual error estimator needs face normals (2D only)')
         if space.element_type.GEOMETRY_DEGREE > 1:
@@ -129,7 +125,7 @@ class ResidualEstimator:
                 f'{space.element_type.__name__} is curved. Use recovery_estimator.'
             )
 
-        ctx = _solved(solver)                    # raises if the solver has not solved
+        ctx = _solved(problem, solution)
         flux = self.flux.evaluate(ctx.solution)  # (n_el, k, d)
 
         h_K = mesh.element_diameters
@@ -245,9 +241,9 @@ class RecoveryEstimator:
     '''
     flux: DerivedField
 
-    def estimate(self, solver: RefinableSolver) -> ElementField:
-        space = solver.space
-        ctx = _solved(solver)                             # raises if the solver has not solved
+    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
+        space = problem.space
+        ctx = _solved(problem, solution)
         degree = 2 * space.element_type.SHAPE_DEGREE
         geometry = space.geometry_at(degree)
         sigma_h = self.flux.sample(ctx.solution, geometry)      # (n_el, n_qp, k, d)
@@ -298,26 +294,6 @@ def recovery_estimator(equation: Equation) -> RecoveryEstimator:
 # -- goal-oriented (dual-weighted) refinement ---------------------------------
 
 
-@dataclass
-class _SolvedView:
-    '''A minimal `RefinableSolver` view wrapping one solution, for the dual estimate.
-
-    The recovery estimator reads only `mesh`, `space`, `boundary_conditions`, and
-    `solution` off a solver, so the dual solution is packaged into that shape;
-    `remesh` and `solve` are never called on an estimate.
-    '''
-    mesh: 'Mesh'
-    space: FunctionSpace
-    boundary_conditions: 'BoundaryConditions'
-    solution: 'FieldSolution | None'
-
-    def remesh(self, mesh: 'Mesh') -> None:
-        raise NotImplementedError('a dual view is not advanced across meshes')
-
-    def solve(self) -> FieldSolution:
-        raise NotImplementedError('a dual view wraps an existing solution')
-
-
 @dataclass(frozen=True)
 class GoalOrientedEstimator:
     '''Dual-weighted-residual refinement: reduce the error in a quantity of interest.
@@ -337,28 +313,23 @@ class GoalOrientedEstimator:
     equation: Equation
     quantity_of_interest: 'QuantityOfInterest'
 
-    def estimate(self, solver: RefinableSolver) -> ElementField:
+    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
         from fem.sensitivity import SensitivityAnalysis
+        from fem.solution import FieldSolution
 
         base = recovery_estimator(self.equation)
-        eta_primal = base.estimate(solver)          # reads solver.solution (the primal)
+        eta_primal = base.estimate(problem, solution)
 
-        space = solver.space
-        problem = self.equation.problem(space, solver.boundary_conditions)
-        primal = _solved(solver).solution
-        z = SensitivityAnalysis(problem).adjoint(self.quantity_of_interest, primal.u)
-
+        z = SensitivityAnalysis(problem).adjoint(self.quantity_of_interest, solution.u)
         # The same typed solution a forward solve gives, so the recovery estimator can
         # read the dual flux like the primal's.
-        from fem.solution import FieldSolution
-        dual_solution = problem.solution(z)
-        if type(dual_solution) is FieldSolution:
+        dual = problem.solution(z)
+        if type(dual) is FieldSolution:
             raise NotImplementedError(
                 f'{type(self.equation).__name__} names no derived field, so goal-oriented '
                 'refinement (which recovers the dual flux) is not defined for it.'
             )
-        dual_view = _SolvedView(solver.mesh, space, solver.boundary_conditions, dual_solution)
-        eta_dual = base.estimate(dual_view)
+        eta_dual = base.estimate(problem, dual)
 
         return eta_primal * eta_dual
 

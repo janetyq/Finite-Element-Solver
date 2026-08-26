@@ -10,20 +10,23 @@ from fem.estimators import goal_oriented_estimator, recovery_estimator
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere
 from fem.sensitivity import PointValue
-from fem.solver import Solver
+from fem.solve import LinearSolve
+
+EQUATION = Poisson(source=lambda p: 1.0)
 
 
 def _nearest_node(space, point):
     return int(np.argmin(np.linalg.norm(space.node_coords - np.asarray(point), axis=1)))
 
 
-def _poisson_solver(n=12):
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+def _problem_for(mesh):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    solver = Solver(mesh, Poisson(source=lambda p: 1.0), bc)
-    solver.solve()
-    return solver
+    return EQUATION.problem(EQUATION.space(mesh), bc)
+
+
+def _square(n):
+    return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
 
 def _near_far(mesh, point, near=0.15, far=0.35):
@@ -35,12 +38,14 @@ def _near_far(mesh, point, near=0.15, far=0.35):
 def test_indicator_peaks_near_the_quantity_of_interest():
     """The dual solution is the influence function of the point value, peaked at the
     point, so the product indicator is largest near it."""
-    solver = _poisson_solver(16)
+    mesh = _square(16)
+    problem = _problem_for(mesh)
+    solution = problem.solution(LinearSolve().solve(problem))
     target = (0.72, 0.72)
-    qoi = PointValue(_nearest_node(solver.space, target))
-    eta = goal_oriented_estimator(solver.equation, qoi).estimate(solver)
+    qoi = PointValue(_nearest_node(problem.space, target))
+    eta = goal_oriented_estimator(EQUATION, qoi).estimate(problem, solution)
 
-    centroids = solver.mesh.vertices[solver.mesh.elements].mean(axis=1)
+    centroids = mesh.vertices[mesh.elements].mean(axis=1)
     dist = np.linalg.norm(centroids - np.asarray(target), axis=1)
     # The largest-indicator element sits near the quantity of interest, not across the
     # domain: the peak of the indicator tracks the goal.
@@ -53,21 +58,18 @@ def test_refines_toward_the_quantity_of_interest_more_than_global():
     therefore has a higher near-to-far element ratio around the point."""
     target = (0.72, 0.72)
 
-    goal_solver = _poisson_solver(12)
-    qoi = PointValue(_nearest_node(goal_solver.space, target))
-    AdaptiveRefinement(
-        goal_solver, goal_oriented_estimator(goal_solver.equation, qoi),
-        max_triangles=400, max_iters=6,
-    ).run()
+    mesh = _square(12)
+    qoi = PointValue(_nearest_node(EQUATION.space(mesh), target))
+    goal = AdaptiveRefinement(mesh, _problem_for, goal_oriented_estimator(EQUATION, qoi),
+                              max_triangles=400, max_iters=6)
+    goal.run()
 
-    global_solver = _poisson_solver(12)
-    AdaptiveRefinement(
-        global_solver, recovery_estimator(global_solver.equation),
-        max_triangles=400, max_iters=6,
-    ).run()
+    global_ = AdaptiveRefinement(_square(12), _problem_for, recovery_estimator(EQUATION),
+                                 max_triangles=400, max_iters=6)
+    global_.run()
 
-    goal_near, goal_far = _near_far(goal_solver.mesh, target)
-    global_near, global_far = _near_far(global_solver.mesh, target)
+    goal_near, goal_far = _near_far(goal.mesh, target)
+    global_near, global_far = _near_far(global_.mesh, target)
 
     goal_ratio = goal_near / max(goal_far, 1)
     global_ratio = global_near / max(global_far, 1)

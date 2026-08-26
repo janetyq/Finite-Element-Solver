@@ -6,11 +6,6 @@ condition spec; build a `Problem` per solve; hand it to a strategy. Here the
 problem is an `EnergyProblem` and the strategy a `NewtonSolve`, because the
 tangent depends on the state; the default strategy is line-searched, and a caller
 may pass its own.
-
-Nothing index-keyed lives on the solver. The DOF partition belongs to the
-`EnergyProblem` built for the current mesh, which lets `remesh` rebuild
-everything from the mesh-independent specification rather than carrying stale
-indices across a refinement.
 """
 import logging
 from typing import TYPE_CHECKING
@@ -79,26 +74,9 @@ class EnergySolver:
         self.n_components = self.space.n_components
         # The equation names its own material law; this facade only asks for it.
         self.form = EnergyForm(equation.energy_density())
-        # The most recent solve, so an adaptive-refinement estimator can read it.
-        self.solution: Solution | None = None
-
-    def remesh(self, mesh: Mesh) -> None:
-        '''Rebind the solver to a new mesh, rebuilding the space.
-
-        The mirror of `Solver.remesh`: a refined mesh renumbers vertices, so every
-        derived object is rebuilt from its specification rather than carried over.
-        The boundary conditions need no rebinding here because the `EnergyProblem`
-        resolves them per solve.
-        '''
-        self.mesh = mesh
-        self.space = self.equation.space(mesh, self.element_type)
 
     def problem(self) -> EnergyProblem:
-        '''The composition for the current mesh: space + energy form + constraints.
-
-        Built per call rather than cached, so a `remesh` is picked up on the next
-        solve and the resolved constraints are never older than the space.
-        '''
+        '''The composition on the solver's space: energy form and constraints.'''
         return EnergyProblem(self.space, self.form, self.boundary_conditions)
 
     # energy / gradient / hessian are the raw, unconstrained quantities: the total
@@ -122,6 +100,4 @@ class EnergySolver:
         u[fixed] = fixed_values
 
         logger.info('Initial energy: %s', self.energy(u))
-        u = self.strategy.solve(problem, u0=u)
-        self.solution = problem.solution(u)
-        return self.solution
+        return problem.solution(self.strategy.solve(problem, u0=u))

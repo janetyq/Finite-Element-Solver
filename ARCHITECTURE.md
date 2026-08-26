@@ -26,7 +26,7 @@ defaults; a facade is this chain with the defaults filled in from an `Equation`.
 | Statement | `LinearProblem(space, form)` / `EnergyProblem`, or `Equation.problem(space, bc)` | `source` (none), `bc` (none) |
 | Solve | `LinearSolve`, `NewtonSolve`, or an integrator | `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta` |
 | Result | `problem.solution(u)` | |
-| Outer loop | | `AdaptiveRefinement` over a facade; `DesignOptimizer` over a `SIMPModel` |
+| Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` |
 
 Composed by hand:
 
@@ -229,11 +229,13 @@ Two more resolve it against a discretization: `space(mesh, element_type)` builds
 `Solver` and `EnergySolver` have the same shape: hold a mesh, an equation, and a BC spec; build a
 `Problem` per solve (`Equation.problem`, or an `EnergyProblem` over the equation's energy
 density); hand it to a strategy (`LinearSolve` over a `Backend`, or a caller-supplied `NewtonSolve`
-defaulting to line-searched Newton); return `problem.solution(u)`; expose `remesh(mesh)`. Each
-fills in defaults and holds no other solve policy.
+defaulting to line-searched Newton); return `problem.solution(u)`. Each fills in defaults and holds
+no other solve policy and no state between solves.
 
-Two drivers, each over one spec. `AdaptiveRefinement` owns a `RefinableSolver` (either facade) and
-advances it across meshes. `DesignOptimizer` owns a `SIMPModel` (a space, a `LinearElastic`
+Two drivers, each over one spec. `AdaptiveRefinement` owns a mesh and a `problem_for(mesh)`
+builder (`equation.problem(equation.space(mesh), bc)` on the linear path, an `EnergyProblem` on
+the nonlinear one), solves each round's problem with a strategy, hands `(problem, solution)` to the
+estimator, and refines. `DesignOptimizer` owns a `SIMPModel` (a space, a `LinearElastic`
 equation, and supports; `Equation.problem` resolved once as the template) and each iteration
 derives the diluted `LinearProblem` from the current density with `with_operator`, solves it
 through `SensitivityAnalysis`, and moves the density by the optimality-criteria update.
@@ -242,7 +244,8 @@ through `SensitivityAnalysis`, and moves the density by the optimality-criteria 
 
 `fem/estimators.py` provides the residual estimator (2D, straight-sided), the Zienkiewicz-Zhu
 recovery estimator (dimension-general, curved elements included), and the goal-oriented estimator
-(the product of primal and dual recovery indicators). Each reads the equation's `DerivedField`.
+(the product of primal and dual recovery indicators). Each takes `(problem, solution)` and reads
+the equation's `DerivedField`.
 `fem/sensitivity.py` computes `dJ/dp` for a `QuantityOfInterest` through one adjoint solve on the
 forward factorization; `fem/design.py` drives an optimality-criteria update from that gradient.
 

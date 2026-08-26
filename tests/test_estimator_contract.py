@@ -1,8 +1,8 @@
 """The contract every error estimator shares, checked once for all of them.
 
-Each estimator returns one finite, non-negative value per element and refuses a solver
-that has not been solved. The estimator-specific files test what each one measures;
-this file is the only place the shared shape and precondition are asserted.
+Each estimator returns one finite, non-negative value per element. The
+estimator-specific files test what each one measures; this file is the only place the
+shared shape is asserted.
 """
 import numpy as np
 import pytest
@@ -14,14 +14,15 @@ from fem.estimators import goal_oriented_estimator, recovery_estimator, residual
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere, on_plane
 from fem.sensitivity import PointValue
-from fem.solver import Solver
+from fem.solve import LinearSolve
 
 
 def _poisson(element_type):
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(8, 8))
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    return Solver(mesh, Poisson(source=1.0), bc, element_type=element_type)
+    equation = Poisson(source=1.0)
+    return equation, equation.problem(equation.space(mesh, element_type), bc)
 
 
 def _elastic(element_type):
@@ -29,7 +30,8 @@ def _elastic(element_type):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])
-    return Solver(mesh, LinearElastic(E=200, nu=0.3), bc, element_type=element_type)
+    equation = LinearElastic(E=200, nu=0.3)
+    return equation, equation.problem(equation.space(mesh, element_type), bc)
 
 
 def _goal_oriented(equation):
@@ -45,16 +47,9 @@ ELEMENTS = [LinearTriangleElement, QuadraticTriangleElement]
 @pytest.mark.parametrize('problem', PROBLEMS, ids=lambda p: p.__name__.strip('_'))
 @pytest.mark.parametrize('estimator', ESTIMATORS, ids=lambda f: f.__name__.strip('_'))
 def test_returns_one_finite_nonnegative_value_per_element(estimator, problem, element_type):
-    solver = problem(element_type)
-    solver.solve()
-    eta = estimator(solver.equation).estimate(solver)
-    assert eta.shape == (len(solver.mesh.elements),)
+    equation, problem = problem(element_type)
+    solution = problem.solution(LinearSolve().solve(problem))
+    eta = estimator(equation).estimate(problem, solution)
+    assert eta.shape == (len(problem.space.mesh.elements),)
     assert np.all(np.isfinite(eta))
     assert np.all(eta >= 0)
-
-
-@pytest.mark.parametrize('estimator', ESTIMATORS, ids=lambda f: f.__name__.strip('_'))
-def test_requires_a_solved_system(estimator):
-    solver = _poisson(LinearTriangleElement)   # not solved
-    with pytest.raises(ValueError, match='requires a solved system'):
-        estimator(solver.equation).estimate(solver)
