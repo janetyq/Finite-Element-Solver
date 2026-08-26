@@ -81,8 +81,8 @@ from fem.solution import (
     TransientSolution,
     WaveSolution,
 )
-from fem.buckling import BucklingSolver
-from fem.modal import ModalSolver
+from fem.buckling import BucklingAnalysis
+from fem.modal import ModalAnalysis
 from fem.energy_solver import EnergySolver
 from fem.sensitivity import (
     SensitivityAnalysis,
@@ -173,8 +173,8 @@ __all__ = [
     "ModalSolution",
     "TransientSolution",
     "WaveSolution",
-    "BucklingSolver",
-    "ModalSolver",
+    "BucklingAnalysis",
+    "ModalAnalysis",
     "EnergySolver",
     "SensitivityAnalysis",
     "Compliance",

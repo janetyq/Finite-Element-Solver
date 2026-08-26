@@ -32,8 +32,8 @@ from fem.equations import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.design import DesignOptimizer, SIMPModel, calculate_smoothing_matrix
 from fem.energy_solver import EnergySolver
-from fem.buckling import BucklingSolver
-from fem.modal import ModalSolver
+from fem.buckling import BucklingAnalysis
+from fem.modal import ModalAnalysis
 
 from demo_registry import Demo, DemoResult, Figure
 from domains import (
@@ -1086,7 +1086,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     """Buckling loads and modes of a slender column, checked against Euler's column
     formula."""
     # Buckling is an eigenproblem: a reference load puts the column under a prestress,
-    # BucklingSolver assembles the geometric stiffness K_g from it and solves
+    # BucklingAnalysis assembles the geometric stiffness K_g from it and solves
     # K phi = -lambda K_g phi, and lambda multiplies the reference load. P2 elements
     # throughout: the constant-strain triangle locks in bending.
     E, nu = 200.0, 0.3
@@ -1096,16 +1096,16 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     equation = LinearElastic(E, nu)
 
     def solve_buckling(mesh, bc, span, modes=n_modes):
-        solver = BucklingSolver(mesh, equation, bc, n_modes=modes,
-                                element_type=QuadraticTriangleElement)
-        solution = solver.solve()
+        problem = equation.problem(equation.space(mesh, QuadraticTriangleElement), bc)
+        solution = BucklingAnalysis(n_modes=modes).solve(problem)
         # The load factor multiplies the reference load; the physical buckling load is
         # that factor times the actual axial force the column carries, read at mid-span
         # where it is uniform and clear of the end disturbances.
         centroids = mesh.vertices[mesh.elements].mean(axis=1)
         dy = span / (len(np.unique(mesh.vertices[:, 1])) - 1)
         midspan = np.abs(centroids[:, 1] - span / 2) < dy
-        axial = -float(np.mean(solver.reference.stress[midspan, 1, 1])) * height
+        assert solution.reference is not None
+        axial = -float(np.mean(solution.reference.stress[midspan, 1, 1])) * height
         return solution, solution.load_factors * axial
 
     # The four classic end conditions. What sets an end's effective-length factor is
@@ -1298,8 +1298,9 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         # Element size is set by resolving the thin tine: bending curves across it.
         mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=0.5*(tine_thickness/across)**2).refine()
-        solution = ModalSolver(mesh, LinearElastic(E, NU), clamp(), n_modes=modes,
-                               element_type=QuadraticTriangleElement, density=RHO).solve()
+        equation = LinearElastic(E, NU)
+        problem = equation.problem(equation.space(mesh, QuadraticTriangleElement), clamp())
+        solution = ModalAnalysis(n_modes=modes, density=RHO).solve(problem)
         return mesh, solution
 
     def voice_index(mesh, solution):
