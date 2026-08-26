@@ -150,7 +150,7 @@ answers the two questions that depend on which physics it was composed from: `so
 packages a solved vector as the typed `Solution` its operator recovers (`ElasticSolution` for a
 form that recovers stress, `ScalarFieldSolution` for one naming a flux, else `FieldSolution`), and
 `near_null_space()` is the operator's AMG near-kernel, if it has one. Both delegate to the form,
-so a solve composed by hand and one through a facade cannot drift apart.
+so a solve composed by hand and one through a facade give the same answer.
 
 ### Solve strategies and backends
 

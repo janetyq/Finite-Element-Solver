@@ -81,9 +81,9 @@ def test_linear_elastic_factory_matches_the_solver_facade(make_unit_square):
 
 
 def test_problem_packages_its_solution_by_physics(make_unit_square):
-    """`Problem.solution` is the packaging the facade used to do: stress for an elastic
-    operator, flux for a diffusion one, a bare field for a projection, and the same
-    typed result the facade returns."""
+    """`Problem.solution` packages by physics: stress for an elastic operator, flux for
+    a diffusion one, a bare field for a projection. The facade returns the same typed
+    result."""
     from fem.problem import projection
     from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 

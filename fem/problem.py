@@ -264,8 +264,8 @@ class EnergyProblem:
         return ElasticSolution.from_solve(self.space, u, self.operator)
 
     def near_null_space(self) -> None:
-        # The tangent is indefinite away from a minimum, so an iterative solve of it is
-        # MINRES, not AMG-CG; there is no near-kernel to offer.
+        # The tangent is indefinite away from a minimum, so its iterative solve is
+        # MINRES, which takes no near-kernel.
         return None
 
 

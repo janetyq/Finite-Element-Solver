@@ -388,8 +388,8 @@ class LinearElasticForm:
         return StressField(self)
 
     def near_null_space(self, space: 'FunctionSpace') -> FloatArray:
-        # The space's node coordinates, not the mesh vertices: a P2 space has edge
-        # nodes of its own, and AMG wants the modes at every DOF.
+        # Built at the space's node coordinates: a P2 space has edge nodes of its own,
+        # and AMG wants the modes at every DOF.
         return rigid_body_modes(space.node_coords, space.n_components)
 
     def fields_at(
