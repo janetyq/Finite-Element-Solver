@@ -184,12 +184,19 @@ and `NewmarkMethod` (average acceleration, solving for the acceleration against 
 constants. One method per consumer: `operator` returns the bilinear form, `energy_density` the
 density the nonlinear path differentiates, and `derived_field` the flux post-processing recovers
 and estimators jump. Each refuses rather than approximates when the physics does not apply.
+Two more resolve it against a discretization: `space(mesh, element_type)` builds the
+`FunctionSpace` with the component count the field implies, and `problem(space, bc)` the
+`LinearProblem`. Every facade goes through these two.
 
 ### Facades and drivers
 
 `Solver` and `EnergySolver` have the same shape: hold a mesh, an equation, and a BC spec; build a
-`Problem` per solve; hand it to a strategy; return `problem.solution(u)`; expose `remesh(mesh)`.
-Neither holds any solve policy of its own beyond the defaults it fills in. `AdaptiveRefinement` owns a
+`Problem` per solve (`Equation.problem`, or an `EnergyProblem` over the equation's energy
+density); hand it to a strategy; return `problem.solution(u)`; expose `remesh(mesh)`. Each fills
+in defaults and holds no other solve policy. `BucklingSolver` and
+`ModalSolver` state the same `Problem` and read its `tangent` and `constraints` for the
+eigenproblem, buckling after solving it once for the prestress; `TopologyOptimizer` takes its
+element stiffness and its constraints-and-load template from it. `AdaptiveRefinement` owns a
 `RefinableSolver` (either facade) and advances it across meshes; `TopologyOptimizer` and
 `DesignOptimizer` own a strategy and derive a fresh `LinearProblem` from the current density each
 iteration.

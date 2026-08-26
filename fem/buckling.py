@@ -5,7 +5,8 @@ formula: how far can a load be scaled before the structure snaps sideways into a
 different shape? The result is the load factor λ and the mode it buckles into.
 
 1. Reference solve. Apply a reference load and solve the linear-elastic problem
-   (through `Solver`), recovering the membrane prestress σ₀ in every element.
+   (`Equation.problem` through `LinearSolve`), recovering the membrane prestress σ₀ in
+   every element.
 2. Geometric stiffness. Assemble `K_g(σ₀)` (`GeometricStiffnessForm`), the
    initial-stress matrix that softens the structure under compression.
 3. Eigenproblem. Solve `K φ = -λ K_g φ` for the lowest few λ through `EigenSolve`.
@@ -18,12 +19,10 @@ import numpy as np
 from fem.boundary import BoundaryConditions
 from fem.elements import Element
 from fem.equations import LinearElastic, StrainMeasure
-from fem.forms import GeometricStiffnessForm, LinearElasticForm
-from fem.materials import LinearElasticMaterial
+from fem.forms import GeometricStiffnessForm
 from fem.mesh.mesh import Mesh
 from fem.solution import BucklingSolution, ElasticSolution
-from fem.solve import EigenSolve
-from fem.solver import Solver
+from fem.solve import EigenSolve, LinearSolve
 from fem.typing import FloatArray
 
 logger = logging.getLogger(__name__)
@@ -85,18 +84,17 @@ class BucklingSolver:
     def solve(self) -> BucklingSolution:
         '''Solve the buckling eigenproblem and return its factors and modes.'''
         logger.info('Buckling: reference solve for the prestress state...')
-        ref_solver = Solver(self.mesh, self.equation, self.boundary_conditions,
-                            element_type=self.element_type)
-        reference = ref_solver.solve()
+        space = self.equation.space(self.mesh, self.element_type)
+        problem = self.equation.problem(space, self.boundary_conditions)
+        reference = problem.solution(LinearSolve().solve(problem))
         if not isinstance(reference, ElasticSolution):
             raise TypeError('buckling needs the recovered stress; got a bare FieldSolution')
         self.reference = reference
 
-        space = ref_solver.space
         d = space.spatial_dim
-
-        material = LinearElasticMaterial(self.equation.E, self.equation.nu)
-        K = space.assemble(LinearElasticForm(material))
+        # The stiffness the reference solve already assembled, including any Robin
+        # (elastic support) term, which stiffens the structure in the eigenproblem too.
+        K = problem.tangent()
         # The in-plane prestress drives the geometric stiffness; σ_zz (the plane-strain
         # out-of-plane component) has no in-plane displacement gradient to couple to.
         prestress = np.ascontiguousarray(reference.stress[:, :d, :d])
@@ -120,12 +118,12 @@ class BucklingSolver:
 
         K_g = space.assemble(GeometricStiffnessForm(prestress))
 
-        resolved = self.boundary_conditions.resolve(space.nodes, space.n_components)
         logger.info('Buckling: solving the eigenproblem K phi = -lambda K_g phi...')
         # -K_g φ = μ K φ with K the PD side; μ = 1/λ, so the largest μ ('LA') are the
         # smallest load factors, reached directly without shift-invert.
         eigensolve = EigenSolve(self.n_modes, which='LA')
-        mu, modes = eigensolve.solve(-K_g, K, resolved.free_idxs, space.n_dofs)
+        free = problem.constraints[0]
+        mu, modes = eigensolve.solve(-K_g, K, free, space.n_dofs)
         factors, modes = self._buckling_factors(mu, modes)
         return BucklingSolution(self.mesh, space.n_components, factors, modes)
 

@@ -58,6 +58,30 @@ def test_per_element_modulus_has_no_single_energy_density():
         equation.energy_density()
 
 
+def test_equation_resolves_its_space_and_problem(make_unit_square):
+    """`space` sizes the discretization from the field (one component for Poisson, one
+    per spatial dimension for elasticity), and `problem` composes the equation's own
+    operator, source, and the given constraints on it."""
+    from fem.boundary import BCType, BoundaryConditions
+    from fem.elements import QuadraticTriangleElement
+    from fem.regions import everywhere
+
+    mesh = make_unit_square(4)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+
+    assert Poisson().space(mesh).n_components == 1
+    assert LinearElastic(E=1.0, nu=0.3).space(mesh).n_components == 2
+    assert Poisson().space(mesh, QuadraticTriangleElement).element_type is QuadraticTriangleElement
+
+    space = Poisson(source=2.0).space(mesh)
+    problem = Poisson(source=2.0).problem(space, bc)
+    assert isinstance(problem.operator, LaplacianForm)
+    assert problem.space is space
+    np.testing.assert_allclose(problem.load, 2.0 * space.mass_matrix @ np.ones(space.n_dofs))
+    assert len(problem.constraints[1]) == len(np.unique(space.boundary_nodes))
+
+
 def test_solver_refuses_finite_strain_through_the_equation_itself(make_unit_square):
     """A Green-Lagrange equation has no constant stiffness, so `Solver.solve` refuses with
     a message pointing at EnergySolver."""

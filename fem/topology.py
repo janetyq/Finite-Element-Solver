@@ -24,13 +24,11 @@ from fem.design import optimality_criteria_update
 from fem.forms import LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
-from fem.problem import LinearProblem
 from fem.sensitivity import Compliance, DensityField, SensitivityAnalysis
 from fem.solution import ElasticSolution
 from fem.solve import LinearSolve, SolveStrategy
 from fem.equations import LinearElastic
-from fem.space import FunctionSpace
-from fem.typing import DofVector, ElementField, FieldValue, FloatArray, SparseMatrix
+from fem.typing import DofVector, ElementField, FloatArray, SparseMatrix
 
 
 def calculate_smoothing_matrix(mesh: Mesh, r: float) -> SparseMatrix:
@@ -156,11 +154,11 @@ class TopologyOptimizer:
             'TopologyOptimizer only supports LinearElastic equations'
         self.mesh = mesh
         self.bc = boundary_conditions if boundary_conditions is not None else BoundaryConditions()
-        # The solid-material modulus every density scaling is measured against, and
-        # the rest of the problem spec. Kept as data, not as a mutable equation.
+        # The solid-material modulus every density scaling is measured against, kept as
+        # data so the diluted stress recovery can re-state the material per iteration.
         self.base_E: float | ElementField = equation.E
         self.nu = equation.nu
-        self.source: FieldValue = equation.source
+        self.source = equation.source
 
         self.iters = iters
         self.volume_frac = volume_frac
@@ -171,8 +169,7 @@ class TopologyOptimizer:
         self.objective: Objective = objective if objective is not None else MinCompliance()
 
         self.strategy: SolveStrategy = strategy if strategy is not None else LinearSolve()
-        # Geometry-only space, for element volumes (the volume constraint).
-        self.space = FunctionSpace(mesh, n_components=mesh.spatial_dim)
+        self.space = equation.space(mesh)
         self.rho: ElementField = np.full(len(self.mesh.elements), self.volume_frac)
         self.smoothing_matrix = calculate_smoothing_matrix(self.mesh, r=smoothing_radius)
 
@@ -184,13 +181,12 @@ class TopologyOptimizer:
         # rather than re-contracting B^T D B over the mesh.
         #
         # `_problem` carries the constraints and the load, which the density does not
-        # reach; an iteration derives its own from this one with `with_operator`.
-        self._solid_stiffness: FloatArray = LinearElasticForm(
-            LinearElasticMaterial(self.base_E, self.nu)
-        ).element_matrices(self.space.geometry)
-        self._problem = LinearProblem(
-            self.space, PrecomputedForm(self._solid_stiffness), self.source, self.bc,
-        )
+        # reach; an iteration derives its own from this one with `with_operator`. The
+        # equation's own operator is stated but never assembled: only its element
+        # matrices are taken, once.
+        template = equation.problem(self.space, self.bc)
+        self._solid_stiffness: FloatArray = template.operator.element_matrices(self.space.geometry)
+        self._problem = template.with_operator(PrecomputedForm(self._solid_stiffness))
         # The adjoint-core parameterization, sharing the solid stiffness just built:
         # `_solve` computes each iteration's sensitivity through it rather than from a
         # hand-written formula. Only its density changes per iteration.

@@ -1,7 +1,7 @@
 """The steady-solve facade: mesh + equation + boundary conditions -> Solution.
 
-`Solver` builds a `LinearProblem` from the three and hands it to `LinearSolve`; the
-problem packages the result. The physics is the equation's (`Equation.operator`), the
+`Solver` builds a `LinearProblem` from the three (`Equation.problem`) and hands it to
+`LinearSolve`; the problem packages the result. The physics is the equation's, the
 algebra the backend's, and the constraints the problem's. `remesh` is what
 `AdaptiveRefinement` advances the solver through.
 """
@@ -12,7 +12,6 @@ from fem.boundary import BoundaryConditions
 from fem.elements import Element
 from fem.equations import Equation
 from fem.solution import Solution
-from fem.space import FunctionSpace
 from fem.backends import Backend
 from fem.problem import LinearProblem
 from fem.solve import LinearSolve
@@ -37,9 +36,8 @@ class Solver:
         # `None` means the linear element for the mesh's node count; pass
         # `QuadraticTriangleElement` for a P2 solve.
         self.element_type = element_type
-        # Derived from the equation's field and the mesh, never passed.
-        self.n_components = self.equation.field.components_for(mesh.spatial_dim)
-        self.space = FunctionSpace(mesh, element_type, n_components=self.n_components)
+        self.space = equation.space(mesh, element_type)
+        self.n_components = self.space.n_components
         # The most recent solve, so an adaptive-refinement estimator can read it.
         self.solution: Solution | None = None
 
@@ -51,7 +49,7 @@ class Solver:
         solve.
         '''
         self.mesh = mesh
-        self.space = FunctionSpace(mesh, self.element_type, n_components=self.n_components)
+        self.space = self.equation.space(mesh, self.element_type)
 
     def solve(self) -> Solution:
         logger.info('Solving steady system...')
@@ -61,7 +59,5 @@ class Solver:
         return self.solution
 
     def _steady_problem(self) -> LinearProblem:
-        '''The problem for a steady equation: operator + source + constraints, on the
-        solver's current space.'''
-        operator = self.equation.operator(self.n_components)
-        return LinearProblem(self.space, operator, self.equation.source, self.boundary_conditions)
+        '''The problem for the solver's current space.'''
+        return self.equation.problem(self.space, self.boundary_conditions)

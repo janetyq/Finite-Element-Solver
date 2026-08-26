@@ -3,7 +3,9 @@
 An `Equation` is typed data naming a PDE and carrying its physical parameters.
 Each subclass answers for both assembly paths: `operator` gives the bilinear form the
 linear path assembles, `energy_density` the strain-energy density the nonlinear path
-differentiates, and `derived_field` the flux post-processing recovers.
+differentiates, and `derived_field` the flux post-processing recovers. `space` and
+`problem` resolve the equation against a mesh and a BC spec, the two steps every
+facade shares.
 """
 from __future__ import annotations
 
@@ -15,9 +17,14 @@ from fem.fields import FieldShape, Scalar, Vector
 from fem.forms import EnergyDensity, Form, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
 from fem.postprocess import GradientField, StressField
+from fem.problem import LinearProblem
+from fem.space import FunctionSpace
 from fem.typing import ElementField, FieldValue
 
 if TYPE_CHECKING:
+    from fem.boundary import BoundaryConditions
+    from fem.elements import Element
+    from fem.mesh.mesh import Mesh
     from fem.postprocess import DerivedField
 
 
@@ -36,6 +43,20 @@ class Equation:
 
     def __init__(self, source: FieldValue = None) -> None:
         self.source = source
+
+    def space(self, mesh: Mesh, element_type: type[Element] | None = None) -> FunctionSpace:
+        '''The discretization of this equation's unknown on `mesh`.
+
+        The component count follows from the equation's field and the mesh, so a space
+        that disagrees with the equation it solves is not constructible here.
+        `element_type` None is the linear element for the mesh.
+        '''
+        n_components = self.field.components_for(mesh.spatial_dim)
+        return FunctionSpace(mesh, element_type, n_components=n_components)
+
+    def problem(self, space: FunctionSpace, bc: BoundaryConditions | None = None) -> LinearProblem:
+        '''The linear composition on `space`: this operator, this source, `bc`.'''
+        return LinearProblem(space, self.operator(space.n_components), self.source, bc)
 
     def operator(self, n_components: int) -> Form:
         '''The bilinear form a linear solve assembles for this equation.

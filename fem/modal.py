@@ -27,12 +27,9 @@ import numpy as np
 from fem.boundary import BoundaryConditions
 from fem.elements import Element
 from fem.equations import LinearElastic, StrainMeasure
-from fem.forms import LinearElasticForm
-from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.solution import ModalSolution
 from fem.solve import EigenSolve
-from fem.solver import Solver
 from fem.typing import FloatArray
 
 logger = logging.getLogger(__name__)
@@ -94,21 +91,19 @@ class ModalSolver:
 
     def solve(self) -> ModalSolution:
         '''Solve the modal eigenproblem and return its frequencies and mode shapes.'''
-        # Only the discretization is needed, not a solved state: modal analysis reads no
-        # prestress, unlike buckling, so the Solver is built for its space and not run.
-        space = Solver(self.mesh, self.equation, self.boundary_conditions,
-                       element_type=self.element_type).space
-
-        material = LinearElasticMaterial(self.equation.E, self.equation.nu)
-        K = space.assemble(LinearElasticForm(material))
+        # The problem is stated but never solved: modal analysis reads no prestress,
+        # unlike buckling, and wants only its stiffness and its constraints.
+        space = self.equation.space(self.mesh, self.element_type)
+        problem = self.equation.problem(space, self.boundary_conditions)
+        K = problem.tangent()
         M = self.density * space.mass_matrix
 
-        resolved = self.boundary_conditions.resolve(space.nodes, space.n_components)
         logger.info('Modal: solving the eigenproblem K phi = omega^2 M phi...')
         # Shift-invert about zero returns the smallest omega^2 (the lowest frequencies,
         # the ones a forcing resonates with) factoring K on the free block once.
         eigensolve = EigenSolve(self.n_modes, sigma=0.0, which='LM')
-        omega_squared, modes = eigensolve.solve(K, M, resolved.free_idxs, space.n_dofs)
+        free = problem.constraints[0]
+        omega_squared, modes = eigensolve.solve(K, M, free, space.n_dofs)
 
         frequencies, modes = self._natural_frequencies(omega_squared, modes)
         return ModalSolution(self.mesh, space.n_components, frequencies, modes)
