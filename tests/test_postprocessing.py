@@ -15,7 +15,6 @@ from fem.forms import EnergyForm, LinearElasticForm
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.regions import on_plane
 from fem.solver import Solver
-from fem.topology import TopologyOptimizer
 
 E, NU = 210.0, 0.3
 REFERENCE_TRIANGLE = np.array([[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]])
@@ -62,23 +61,22 @@ def test_compliance_is_positive_and_finite(make_unit_square):
     assert np.all(solution.compliance >= 0.0)
 
 
-def test_solver_and_optimizer_recover_the_same_fields(make_unit_square):
-    """`Solver` and `TopologyOptimizer` recover the same fields: at a uniform unit density
-    the optimizer's first iterate is the plain elastic solve."""
+def test_solver_and_design_model_recover_the_same_fields(make_unit_square):
+    """`Solver` and `SIMPModel` recover the same fields: at a uniform unit density the
+    diluted problem is the plain elastic solve."""
+    from fem.design import SIMPModel
+    from fem.solve import LinearSolve
+
     mesh = make_unit_square(6)
     _, solution = _solved(mesh)
 
-    optimizer = TopologyOptimizer(
-        mesh, LinearElastic(E=1.0, nu=0.3), _cantilever_bc(),
-        iters=1, volume_frac=1.0, penalty=1.0,
-    )
-    # rho = 1 and p = 1 leaves E(rho) = E_0, so this is the same elastic problem.
-    optimizer_solution = optimizer._solve()
+    equation = LinearElastic(E=1.0, nu=0.3)
+    model = SIMPModel(equation.space(mesh), equation, _cantilever_bc(), penalty=1.0)
+    rho = np.ones(len(mesh.elements))
+    design_solution = model.solution(rho, LinearSolve().solve(model.problem(rho)))
 
-    np.testing.assert_allclose(optimizer_solution.u, solution.u, rtol=1e-10)
-    np.testing.assert_allclose(
-        optimizer_solution.compliance, solution.compliance, rtol=1e-10
-    )
+    np.testing.assert_allclose(design_solution.u, solution.u, rtol=1e-10)
+    np.testing.assert_allclose(design_solution.compliance, solution.compliance, rtol=1e-10)
 
 
 # -- what the recovered tensors actually are ---------------------------------

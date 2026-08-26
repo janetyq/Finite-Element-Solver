@@ -35,7 +35,7 @@ No open correctness bugs.
 ### 🟠 Every `solve()` re-assembles from scratch
 `Solver._steady_problem` builds a fresh `LinearProblem` per call, whose constructor assembles the
 operator and load. The two looping drivers already avoid this: the integrators build one
-`DiscreteSystem` and reuse its factorization across steps, and `TopologyOptimizer` rescales one set
+`DiscreteSystem` and reuse its factorization across steps, and `SIMPModel` rescales one set
 of element matrices via `LinearProblem.with_operator`. The remaining case is a repeated steady
 `solve()`.
 
@@ -177,9 +177,9 @@ gap is the transient path.
 **Features**
 - 💡 **Adjoint sensitivity: follow-ups.** The core shipped (`fem/sensitivity.py`:
   `SensitivityAnalysis`, `Compliance` / `PointValue` quantities of interest, `DensityField` /
-  `ModulusField` parameterizations), a general `DesignOptimizer` over it (`fem/design.py`), and
-  `TopologyOptimizer` now draws its compliance sensitivity from the core rather than a hand-written
-  formula. Design record in `attic/fem-adjoint-sensitivity-design-2026-08-18.md`; the follow-up plan
+  `ModulusField` parameterizations) and the `DesignOptimizer` over it (`fem/design.py`, SIMP density
+  design with the compliance sensitivity from the core). Design record in
+  `attic/fem-adjoint-sensitivity-design-2026-08-18.md`; the follow-up plan
   is `attic/fem-adjoint-followups-2026-08-19.md`. **Stress-based quantities of interest** shipped
   (`MeanStress`, `SoftMaxStress` in `fem/sensitivity.py`): they supply the adjoint load `∂J/∂u` for a
   fixed material, validated by finite differences. The remaining piece for stress-*constrained design*
