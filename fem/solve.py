@@ -18,8 +18,8 @@ import numpy as np
 from scipy.sparse import eye_array
 from scipy.sparse.linalg import ArpackNoConvergence, eigsh
 
-from fem.backends import Backend
-from fem.problem import Problem, SupportsEnergy
+from fem.backends import Backend, IterativeBackend
+from fem.problem import Problem, SupportsEnergy, SupportsNearNullSpace
 from fem.system import DiscreteSystem
 from fem.typing import Constraints, DofIndices, DofVector, FloatArray, Operator
 
@@ -28,18 +28,37 @@ class SolveStrategy(Protocol):
     def solve(self, problem: Problem, u0: DofVector | None = None) -> DofVector: ...
 
 
+def backend_for(problem: Problem, backend: Backend | None) -> Backend | None:
+    '''`backend`, given the problem's AMG near-kernel if it is iterative and has none.
+
+    An elasticity stiffness has the rigid-body modes as its low-energy near-kernel,
+    and AMG needs them to keep CG's iteration count flat under refinement. The problem
+    supplies them over all DOFs (`SupportsNearNullSpace`); they are restricted here to
+    the free block the backend factors. A near-kernel the caller set is left untouched.
+    '''
+    if not isinstance(backend, IterativeBackend) or backend.near_null_space is not None:
+        return backend
+    modes = problem.near_null_space() if isinstance(problem, SupportsNearNullSpace) else None
+    if modes is None:
+        return backend
+    free = problem.constraints[0]
+    return backend.with_near_null_space(modes[free])
+
+
 class LinearSolve:
     '''Assemble once, solve once: for a `Problem` with a state-independent tangent.
 
     `backend` selects the linear algebra for the one solve: direct by default,
-    or an `IterativeBackend` for a large SPD system (Poisson, small-strain elasticity).
+    or an `IterativeBackend` for a large SPD system (Poisson, small-strain elasticity),
+    which is handed the problem's near-kernel (see `backend_for`).
     '''
 
     def __init__(self, backend: Backend | None = None) -> None:
         self.backend = backend
 
     def solve(self, problem: Problem, u0: DofVector | None = None) -> DofVector:
-        system = DiscreteSystem(problem.tangent(None), problem.constraints, self.backend)
+        backend = backend_for(problem, self.backend)
+        system = DiscreteSystem(problem.tangent(None), problem.constraints, backend)
         return system.solve(problem.load)
 
 

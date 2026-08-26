@@ -60,7 +60,7 @@ composition.
 | `Material` / energy densities | | | █ | | | | | | |
 | `Equation` | | | █ | | | | | | |
 | `BoundaryConditions` / `ResolvedBC` | | | | | █ | | | | |
-| `Problem` (`LinearProblem` / `EnergyProblem`) | | | ▒ | ▒ | █ | | | | |
+| `Problem` (`LinearProblem` / `EnergyProblem`) | | | ▒ | ▒ | █ | | | | ▒ |
 | `DiscreteSystem` | | | | | ▒ | █ | | | |
 | `Backend` (`Direct`, `Iterative`, `Minres`) | | | | | | █ | | | |
 | `LinearSolve` / `NewtonSolve` / `EigenSolve` | | | | | | ▒ | | | |
@@ -80,8 +80,9 @@ mapping from equation to material.
 
 Post-processing (9) is distributed under one rule: a derived quantity lives on the object that
 owns the data it needs. `FunctionSpace` owns `integrate`, `recover_nodal`, and `nodal_gradient`;
-a `Form` owns `fields_at` / `derived_fields`; `Equation` owns `derived_field` (which flux is
-recoverable); `Solution` owns the packaging (`ElasticSolution.stress`, `nodal_stress`,
+a `Form` owns `fields_at` / `derived_fields` and `derived_field` (which flux is recoverable, which
+`Equation` mirrors for the estimators); `Problem.solution(u)` picks the typed `Solution` for its
+operator; `Solution` owns the packaging (`ElasticSolution.stress`, `nodal_stress`,
 `deformed_mesh`); `invariants` owns the frame-independent reductions.
 
 ## Role by role
@@ -144,7 +145,12 @@ reduces them to frame-independent scalars.
 A `Problem` is the assembly-ready composition for one mesh: space, operator, load, constraints.
 `LinearProblem` has `tangent(u) = A` and `residual(u) = A·u − b`; `EnergyProblem` has
 `tangent(u) = ∇²Π(u)` and `residual(u) = ∇Π(u)`. The `Problem` owns its constraints, so nothing
-index-keyed is carried across a mesh change: a driver that remeshes builds a new one.
+index-keyed is carried across a mesh change: a driver that remeshes builds a new one. It also
+answers the two questions that depend on which physics it was composed from: `solution(u)`
+packages a solved vector as the typed `Solution` its operator recovers (`ElasticSolution` for a
+form that recovers stress, `ScalarFieldSolution` for one naming a flux, else `FieldSolution`), and
+`near_null_space()` is the operator's AMG near-kernel, if it has one. Both delegate to the form,
+so a solve composed by hand and one through a facade cannot drift apart.
 
 ### Solve strategies and backends
 
@@ -155,9 +161,10 @@ problem has one, else `½‖r‖²`).
 
 `DiscreteSystem` eliminates the Dirichlet DOFs and hands the free-free block to a `Backend`, which
 prepares it into a `LinearSolver` solved against many right-hand sides. `DirectBackend` is sparse
-LU; `IterativeBackend` is AMG-preconditioned CG, SPD-only and opt-in, with `rigid_body_modes` as
-the near-kernel for elasticity; `MinresBackend` handles symmetric indefinite systems. Strategies
-whose operators are SPD by construction take a backend; `NewtonSolve` does not.
+LU; `IterativeBackend` is AMG-preconditioned CG, SPD-only and opt-in; `MinresBackend` handles
+symmetric indefinite systems. `backend_for(problem, backend)` hands an `IterativeBackend` the
+problem's near-kernel (`LinearElasticForm.near_null_space`, the rigid-body modes, restricted to
+the free DOFs) unless the caller set one; `LinearSolve` and `SensitivityAnalysis` go through it.
 
 `EigenSolve` covers the solves that are not `Ax = b`: linearised buckling (`K φ = -λ K_g φ`) and
 modal analysis (`K φ = ω² M φ`) share the Dirichlet elimination, the `eigsh` call, and the lift of
@@ -181,7 +188,8 @@ and estimators jump. Each refuses rather than approximates when the physics does
 ### Facades and drivers
 
 `Solver` and `EnergySolver` have the same shape: hold a mesh, an equation, and a BC spec; build a
-`Problem` per solve; hand it to a strategy; expose `remesh(mesh)`. `AdaptiveRefinement` owns a
+`Problem` per solve; hand it to a strategy; return `problem.solution(u)`; expose `remesh(mesh)`.
+Neither holds any solve policy of its own beyond the defaults it fills in. `AdaptiveRefinement` owns a
 `RefinableSolver` (either facade) and advances it across meshes; `TopologyOptimizer` and
 `DesignOptimizer` own a strategy and derive a fresh `LinearProblem` from the current density each
 iteration.

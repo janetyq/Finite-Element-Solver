@@ -23,15 +23,20 @@ The two families
    (hyperelasticity).
 """
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
+from fem.backends import rigid_body_modes
 from fem.elements import ElementGeometry
 from fem.energies import StrainEnergyDerivatives
 from fem.materials import LinearElasticMaterial
+from fem.postprocess import DerivedField, GradientField, StressField
 from fem.regions import evaluate_field
 from fem.typing import BoolArray, ElementField, FieldValue, FloatArray
+
+if TYPE_CHECKING:
+    from fem.space import FunctionSpace
 
 
 def strain_displacement(grad_phi: FloatArray) -> FloatArray:
@@ -210,6 +215,26 @@ class Form(Protocol):
         ...
 
 
+@runtime_checkable
+class NamesDerivedField(Protocol):
+    '''A form whose solution carries a recoverable flux (Poisson's gradient, elasticity's
+    stress). `Problem.solution` packages the solve as the typed `Solution` that holds it.'''
+
+    def derived_field(self) -> DerivedField: ...
+
+
+@runtime_checkable
+class HasNearNullSpace(Protocol):
+    '''A form whose operator has a known low-energy near-kernel.
+
+    The AMG near-null space an iterative solve of this operator should be built with:
+    the rigid-body modes for elasticity. `(n_dofs, n_modes)` over every DOF of `space`;
+    the solve restricts it to the free block.
+    '''
+
+    def near_null_space(self, space: 'FunctionSpace') -> FloatArray: ...
+
+
 @dataclass(frozen=True)
 class MassForm:
     '''The mass form ∫ u·v: the consistent P1 mass matrix.
@@ -279,6 +304,9 @@ class LaplacianForm:
         grad_phi = geometry.grad_phi
         return np.einsum('eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ)
 
+    def derived_field(self) -> DerivedField:
+        return GradientField()
+
 
 def _sample_field(field: FieldValue, geometry: ElementGeometry, n_components: int) -> FloatArray:
     '''Evaluate a coefficient or source at every quadrature point: (n_el, n_qp, n_components).
@@ -313,6 +341,9 @@ class DiffusionForm:
         grad_phi = geometry.grad_phi
         return np.einsum(
             'eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ * kappa)
+
+    def derived_field(self) -> DerivedField:
+        return GradientField()
 
 
 @dataclass(frozen=True)
@@ -352,6 +383,14 @@ class LinearElasticForm:
         # optimize=True matters: the default left-to-right order forms a large
         # intermediate and runs far slower.
         return np.einsum('eqji,ejk,eqkl,eq->eil', B, D, B, geometry.weight_detJ, optimize=True)
+
+    def derived_field(self) -> DerivedField:
+        return StressField(self)
+
+    def near_null_space(self, space: 'FunctionSpace') -> FloatArray:
+        # The space's node coordinates, not the mesh vertices: a P2 space has edge
+        # nodes of its own, and AMG wants the modes at every DOF.
+        return rigid_body_modes(space.node_coords, space.n_components)
 
     def fields_at(
         self, geometry: ElementGeometry, u_elements: FloatArray,

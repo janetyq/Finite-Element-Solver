@@ -345,26 +345,19 @@ class GoalOrientedEstimator:
         primal = _solved(solver).solution
         z = SensitivityAnalysis(problem).adjoint(self.quantity_of_interest, primal.u)
 
-        dual_solution = self._package_dual(space, z, problem)
+        # The same typed solution a forward solve gives, so the recovery estimator can
+        # read the dual flux like the primal's.
+        from fem.solution import FieldSolution
+        dual_solution = problem.solution(z)
+        if type(dual_solution) is FieldSolution:
+            raise NotImplementedError(
+                f'{type(self.equation).__name__} names no derived field, so goal-oriented '
+                'refinement (which recovers the dual flux) is not defined for it.'
+            )
         dual_view = _SolvedView(solver.mesh, space, solver.boundary_conditions, dual_solution)
         eta_dual = base.estimate(dual_view)
 
         return eta_primal * eta_dual
-
-    def _package_dual(self, space: FunctionSpace, z, problem) -> FieldSolution:
-        '''Wrap the dual DOF vector in the same typed solution a forward solve would,
-        so the recovery estimator can read its flux like the primal's.'''
-        from fem.forms import RecoversElasticFields
-        from fem.solution import ElasticSolution, ScalarFieldSolution
-
-        if isinstance(problem.operator, RecoversElasticFields):
-            return ElasticSolution.from_solve(space, z, problem.operator)
-        if self.equation.derived_field() is not None:
-            return ScalarFieldSolution.from_solve(space, z)
-        raise NotImplementedError(
-            f'{type(self.equation).__name__} names no derived field, so goal-oriented '
-            'refinement (which recovers the dual flux) is not defined for it.'
-        )
 
 
 def goal_oriented_estimator(

@@ -23,7 +23,7 @@ from fem.forms import EnergyForm
 from fem.mesh.mesh import Mesh
 from fem.problem import EnergyProblem
 from fem.solve import BacktrackingLineSearch, NewtonSolve, TangentRegularization
-from fem.solution import ElasticSolution, Solution
+from fem.solution import Solution
 from fem.space import FunctionSpace
 from fem.typing import DofVector, SparseMatrix
 
@@ -139,8 +139,5 @@ class EnergySolver:
             regularization=regularization,
         )
         u = newton.solve(problem, u0=u)
-        # The energy form recovers Cauchy stress from the same derivative chain
-        # Newton just used, so the nonlinear path reports the stress state the
-        # linear one does rather than displacement alone.
-        self.solution = ElasticSolution.from_solve(self.space, u, self.form)
+        self.solution = problem.solution(u)
         return self.solution

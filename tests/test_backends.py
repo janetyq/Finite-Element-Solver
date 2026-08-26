@@ -135,17 +135,54 @@ def test_rigid_body_modes_are_in_the_stiffness_kernel():
     assert np.abs(residual).max() < 1e-8, "a rigid-body mode strained the body"
 
 
-def test_facade_gives_elasticity_its_rigid_body_modes():
-    """The Solver facade routes an iterative elastic solve through with_near_null_space."""
+def _cantilever():
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(25, 25))
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])          # cantilever: one edge
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [0, -20])
-    eq = LinearElastic(E=200, nu=0.3)
+    return mesh, bc
 
+
+def test_linear_solve_gives_elasticity_its_rigid_body_modes():
+    """An elastic problem composed by hand hands its rigid-body modes, restricted to the
+    free DOFs, to an iterative backend: the same near-kernel the facade path gets."""
+    from fem.problem import linear_elastic, poisson
+    from fem.solve import backend_for
+
+    mesh, bc = _cantilever()
+    problem = linear_elastic(mesh, LinearElasticMaterial(E=200, nu=0.3), bc)
+    backend = backend_for(problem, IterativeBackend())
+    assert isinstance(backend, IterativeBackend)
+    free = problem.constraints[0]
+    assert backend.near_null_space is not None
+    assert backend.near_null_space.shape == (len(free), 3)
+    np.testing.assert_array_equal(backend.near_null_space, problem.near_null_space()[free])
+
+    # A near-kernel the caller set is kept; a scalar problem and a direct backend get none.
+    preset = IterativeBackend(near_null_space=np.ones((len(free), 1)))
+    assert backend_for(problem, preset) is preset
+    scalar_bc = BoundaryConditions()
+    scalar_bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    scalar = backend_for(poisson(mesh, 1.0, scalar_bc), IterativeBackend())
+    assert isinstance(scalar, IterativeBackend) and scalar.near_null_space is None
+    direct = DirectBackend()
+    assert backend_for(problem, direct) is direct
+
+
+def test_iterative_elastic_solve_matches_direct_through_facade_and_composition():
+    from fem.problem import linear_elastic
+    from fem.solve import LinearSolve
+
+    mesh, bc = _cantilever()
+    eq = LinearElastic(E=200, nu=0.3)
     direct = Solver(mesh, eq, bc, backend=DirectBackend()).solve().u
+    tol = 1e-7 * np.abs(direct).max()
+
     iterative = Solver(mesh, eq, bc, backend=IterativeBackend()).solve().u
-    np.testing.assert_allclose(iterative, direct, atol=1e-7 * np.abs(direct).max())
+    np.testing.assert_allclose(iterative, direct, atol=tol)
+    problem = linear_elastic(mesh, LinearElasticMaterial(E=200, nu=0.3), bc)
+    composed = LinearSolve(IterativeBackend()).solve(problem)
+    np.testing.assert_allclose(composed, direct, atol=tol)
 
 
 def test_iterative_backend_matches_direct_through_a_time_step():

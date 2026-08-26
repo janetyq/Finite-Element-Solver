@@ -80,6 +80,47 @@ def test_linear_elastic_factory_matches_the_solver_facade(make_unit_square):
     np.testing.assert_allclose(u_factory, u_solver, atol=1e-12)
 
 
+def test_problem_packages_its_solution_by_physics(make_unit_square):
+    """`Problem.solution` is the packaging the facade used to do: stress for an elastic
+    operator, flux for a diffusion one, a bare field for a projection, and the same
+    typed result the facade returns."""
+    from fem.problem import projection
+    from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
+
+    mesh = make_unit_square(8)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
+    elastic = linear_elastic(mesh, LinearElasticMaterial(200, 0.4), bc)
+    solution = elastic.solution(LinearSolve().solve(elastic))
+    assert isinstance(solution, ElasticSolution)
+    facade = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
+    assert isinstance(facade, ElasticSolution)
+    np.testing.assert_allclose(solution.stress, facade.stress, atol=1e-12)
+
+    scalar = _poisson_problem(mesh)
+    assert isinstance(scalar.solution(LinearSolve().solve(scalar)), ScalarFieldSolution)
+
+    projected = projection(mesh, 2.0)
+    assert type(projected.solution(LinearSolve().solve(projected))) is FieldSolution
+    assert projected.near_null_space() is None
+    assert elastic.near_null_space().shape == (elastic.space.n_dofs, 3)
+
+
+def test_energy_problem_packages_an_elastic_solution(make_unit_square):
+    from fem.solution import ElasticSolution
+
+    space = FunctionSpace(make_unit_square(5), n_components=2)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.05, 0])
+    problem = EnergyProblem(space, EnergyForm(StVenantKirchhoff(200, 0.4)), bc)
+    u = NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem)
+    solution = problem.solution(u)
+    assert isinstance(solution, ElasticSolution)
+    assert solution.stress.shape == (len(space.mesh.elements), 3, 3)
+
+
 def test_with_operator_matches_a_problem_built_from_scratch(make_unit_square):
     """Deriving a problem under a new operator is indistinguishable from stating it directly."""
     mesh = make_unit_square(10)

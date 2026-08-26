@@ -4,7 +4,8 @@ A `Problem` is the resolved, immutable view of a physics composition, built for 
 mesh. It answers the four questions a solver needs: `constraints` (which DOFs are
 fixed), `load` (the right-hand side), `tangent(u)`, and `residual(u)`. Below it,
 `DiscreteSystem` sees only a matrix and a partition, so a solve strategy never learns
-which PDE it is solving.
+which PDE it is solving. After the solve, `solution(u)` packages the DOF vector as
+the typed `Solution` its physics recovers (stress for elasticity, flux for Poisson).
 
 `LinearProblem` and `EnergyProblem` share that protocol, mirroring the `Form` /
 `EnergyForm` split: the linear one has a state-independent tangent. Both own their
@@ -19,14 +20,15 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions
 from fem.forms import (
-    DiffusionForm, EnergyForm, Form, LaplacianForm, LinearElasticForm, LinearForm, MaskedMassForm,
-    MassForm, ScaledForm,
+    DiffusionForm, EnergyForm, Form, HasNearNullSpace, LaplacianForm, LinearElasticForm, LinearForm,
+    MaskedMassForm, MassForm, NamesDerivedField, RecoversElasticFields, ScaledForm,
 )
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.regions import evaluate_field
+from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 from fem.space import FunctionSpace
-from fem.typing import Constraints, DofVector, FieldValue, Operator
+from fem.typing import Constraints, DofVector, FieldValue, FloatArray, Operator
 
 
 class Problem(Protocol):
@@ -42,6 +44,20 @@ class Problem(Protocol):
     def tangent(self, u: DofVector | None) -> Operator: ...
 
     def residual(self, u: DofVector) -> DofVector: ...
+
+    def solution(self, u: DofVector) -> FieldSolution:
+        '''Package a solved DOF vector as the typed `Solution` this physics recovers.'''
+        ...
+
+
+@runtime_checkable
+class SupportsNearNullSpace(Protocol):
+    '''A `Problem` whose operator has a known AMG near-kernel (see `HasNearNullSpace`).
+
+    `LinearSolve` reads it to give an `IterativeBackend` the modes it needs, so an
+    elastic solve composed by hand converges as well as one through the facade.
+    '''
+    def near_null_space(self) -> FloatArray | None: ...
 
 
 @runtime_checkable
@@ -176,6 +192,23 @@ class LinearProblem:
     def residual(self, u: DofVector) -> DofVector:
         return self.tangent() @ u - self._b
 
+    def solution(self, u: DofVector) -> FieldSolution:
+        '''An `ElasticSolution` for an operator that recovers stress, a
+        `ScalarFieldSolution` for one naming a flux (Poisson's gradient), else a bare
+        `FieldSolution` (a projection).'''
+        space = self.space
+        if isinstance(self.operator, RecoversElasticFields):
+            return ElasticSolution.from_solve(space, u, self.operator)
+        if isinstance(self.operator, NamesDerivedField):
+            return ScalarFieldSolution.from_solve(space, u)
+        return FieldSolution(space.mesh, space.n_components, u, element_type=space.element_type)
+
+    def near_null_space(self) -> FloatArray | None:
+        '''The operator's AMG near-kernel over all DOFs, or None if it has none.'''
+        if isinstance(self.operator, HasNearNullSpace):
+            return self.operator.near_null_space(self.space)
+        return None
+
 
 class EnergyProblem:
     '''∇Π(u) = 0: a nonlinear operator whose tangent depends on the state.
@@ -227,6 +260,11 @@ class EnergyProblem:
 
     def energy(self, u: DofVector) -> float:
         return self.space.total_energy(self.operator, u)
+
+    def solution(self, u: DofVector) -> ElasticSolution:
+        # The energy form recovers Cauchy stress from the same derivative chain Newton
+        # used, so the nonlinear path reports the stress state the linear one does.
+        return ElasticSolution.from_solve(self.space, u, self.operator)
 
 
 # -- named PDE factories: compose a space, an operator, a load, and constraints --
