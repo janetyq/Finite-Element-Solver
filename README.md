@@ -131,7 +131,7 @@ tenth of this plate's width is 3.02.
 ### Buckling analysis
 
 A slender column under compression does not fail by crushing. It snaps sideways once
-the load crosses a critical value. `BucklingSolver` finds that value and the buckled
+the load crosses a critical value. `BucklingAnalysis` finds that value and the buckled
 shapes by linearised (eigenvalue) buckling. A reference load sets up a prestress, the
 geometric stiffness $K_g$ is assembled from it, and the generalized eigenproblem
 $K \phi = -\lambda K_g \phi$ gives the critical load factors and mode shapes. The
@@ -325,8 +325,8 @@ fem/                 # the solver package
 │   # facades and drivers
 ├── solver.py        # Solver: the steady linear facade
 ├── energy_solver.py # EnergySolver: the nonlinear facade
-├── buckling.py      # BucklingSolver: linearised (eigenvalue) buckling
-├── modal.py         # ModalSolver: free-vibration analysis
+├── buckling.py      # BucklingAnalysis: linearised (eigenvalue) buckling of a Problem
+├── modal.py         # ModalAnalysis: free-vibration modes of a Problem
 ├── adaptivity.py    # AdaptiveRefinement driver
 ├── estimators.py    # residual, recovery, and goal-oriented error estimators
 ├── sensitivity.py   # adjoint sensitivity: quantities of interest and their gradients
