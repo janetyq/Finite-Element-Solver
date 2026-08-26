@@ -6,7 +6,6 @@ velocity series. `save`/`load` round-trip any of them through `fem.io`, which
 reflects over the dataclass fields.
 """
 from dataclasses import dataclass, field
-from functools import cached_property
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -23,26 +22,25 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, eq=False)
 class Solution:
-    '''Base: every solution knows the discretization it was computed on.
+    '''Base: every solution holds the `FunctionSpace` its DOFs live on.
 
-    `element_type` is the element the DOFs live on (None means the linear element for
-    the mesh). Without it `u` is under-specified: which node each entry belongs to
-    is the space's numbering, not the mesh's.
+    The space fixes which node each entry of a DOF vector belongs to; `mesh`,
+    `n_components`, and `element_type` are read off it. `save` stores the mesh and the
+    space's parameters, and `load` rebuilds the space, whose numbering is deterministic.
     '''
-    mesh: 'Mesh'
-    n_components: int
-    element_type: 'type[Element] | None' = field(default=None, kw_only=True)
+    space: 'FunctionSpace'
 
-    @cached_property
-    def space(self) -> 'FunctionSpace':
-        '''The `FunctionSpace` this solution's DOFs live on.
+    @property
+    def mesh(self) -> 'Mesh':
+        return self.space.mesh
 
-        Rebuilt from `(mesh, element_type, n_components)`, whose node numbering is
-        deterministic, so it matches the space the solve used and reconstructs after
-        `load` too. Cached, so nodal recovery and P2 plotting build it once.
-        '''
-        from fem.space import FunctionSpace
-        return FunctionSpace(self.mesh, self.element_type, n_components=self.n_components)
+    @property
+    def n_components(self) -> int:
+        return self.space.n_components
+
+    @property
+    def element_type(self) -> 'type[Element]':
+        return self.space.element_type
 
     def save(self, path: str) -> None:
         from fem.io import save_solution
@@ -84,8 +82,7 @@ class ScalarFieldSolution(FieldSolution):
     @classmethod
     def from_solve(cls, space: 'FunctionSpace', u: DofVector) -> 'ScalarFieldSolution':
         '''Package a scalar solve, recovering its per-element diffusion flux grad u.'''
-        return cls(space.mesh, space.n_components, u,
-                   flux=space.gradient(u), element_type=space.element_type)
+        return cls(space, u, flux=space.gradient(u))
 
     def nodal_flux(self, method: str = 'average') -> FloatArray:
         '''(n_nodes, spatial_dim) continuous flux at the nodes.
@@ -130,14 +127,12 @@ class ElasticSolution(FieldSolution):
         form: 'RecoversElasticFields',
     ) -> 'ElasticSolution':
         '''Recover the elastic fields for `u` and package them.'''
-        mesh, n_components = space.mesh, space.n_components
         # (n_elements, N, n_components): the layout RecoversElasticFields takes,
         # and the same one FunctionSpace.assemble_residual gathers. Indexed by the
         # space's element nodes, not the mesh triangles: a P2 element has six nodes.
-        u_elements = np.asarray(u).reshape(-1, n_components)[space.element_nodes]
+        u_elements = np.asarray(u).reshape(-1, space.n_components)[space.element_nodes]
         fields = form.derived_fields(space.geometry, u_elements)
-        return cls(mesh, n_components, u, fields.strain, fields.stress, fields.compliance,
-                   element_type=space.element_type, form=form)
+        return cls(space, u, fields.strain, fields.stress, fields.compliance, form=form)
 
     @property
     def von_mises(self) -> ElementField:

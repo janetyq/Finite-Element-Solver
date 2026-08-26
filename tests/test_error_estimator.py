@@ -115,7 +115,7 @@ def _constant_stress(problem, sigma_xx, sigma_yy, sigma_xy):
     stress[:, 1, 1] = sigma_yy
     stress[:, 0, 1] = stress[:, 1, 0] = sigma_xy
     return ElasticSolution(
-        space.mesh, space.n_components, u=np.zeros(space.n_dofs),
+        space, u=np.zeros(space.n_dofs),
         strain=np.zeros((n, 3, 3)), stress=stress, compliance=np.zeros(n),
     )
 

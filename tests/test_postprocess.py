@@ -129,7 +129,7 @@ def test_derived_field_reads_the_stored_field_and_checks_its_solution():
     assert np.allclose(field[:, 0, :], solution.flux)
 
     with pytest.raises(TypeError, match='scalar solution'):
-        GradientField().evaluate(FieldSolution(mesh, 1, space.node_coords[:, 0]))
+        GradientField().evaluate(FieldSolution(space, space.node_coords[:, 0]))
 
 
 def test_element_type_round_trips_through_save_and_load(tmp_path):

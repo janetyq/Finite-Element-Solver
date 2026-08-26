@@ -445,8 +445,7 @@ def _p2_scalar_solution(n=5):
     from fem.solution import ScalarFieldSolution
     mesh, space = _p2_square(n)
     u = space.node_coords[:, 0] ** 2
-    return ScalarFieldSolution(mesh, 1, u, flux=np.zeros((len(mesh.elements), 2)),
-                               element_type=QuadraticTriangleElement), space
+    return ScalarFieldSolution(space, u, flux=np.zeros((len(mesh.elements), 2))), space
 
 
 def test_a_solution_supplies_its_own_space():
@@ -485,9 +484,8 @@ def test_warp_true_deforms_by_the_solutions_own_displacement():
     u = np.column_stack([0.1 * vspace.node_coords[:, 1],
                          -0.05 * vspace.node_coords[:, 0]]).ravel()
     n_el = len(mesh.elements)
-    solution = ElasticSolution(mesh, 2, u, strain=np.zeros((n_el, 3, 3)),
-                               stress=np.zeros((n_el, 3, 3)), compliance=np.zeros(n_el),
-                               element_type=QuadraticTriangleElement)
+    solution = ElasticSolution(vspace, u, strain=np.zeros((n_el, 3, 3)),
+                               stress=np.zeros((n_el, 3, 3)), compliance=np.zeros(n_el))
 
     plotter = Plotter(1, 1)
     plotter.plot(solution, solution.nodal_von_mises(), mode='colored', idx=(0, 0), warp=True)

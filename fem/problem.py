@@ -209,7 +209,7 @@ class LinearProblem:
             return ElasticSolution.from_solve(space, u, self.operator)
         if isinstance(self.operator, NamesDerivedField):
             return ScalarFieldSolution.from_solve(space, u)
-        return FieldSolution(space.mesh, space.n_components, u, element_type=space.element_type)
+        return FieldSolution(space, u)
 
     def near_null_space(self) -> FloatArray | None:
         if isinstance(self.operator, HasNearNullSpace):

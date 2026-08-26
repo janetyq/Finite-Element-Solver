@@ -70,8 +70,7 @@ class ModalAnalysis:
         omega_squared, modes = eigensolve.solve(K, M, free, space.n_dofs)
 
         frequencies, modes = _natural_frequencies(omega_squared, modes)
-        return ModalSolution(space.mesh, space.n_components, frequencies, modes,
-                             element_type=space.element_type)
+        return ModalSolution(space, frequencies, modes)
 
 
 def _natural_frequencies(

@@ -217,9 +217,10 @@ forward factorization; `fem/design.py` drives an optimality-criteria update from
 
 ### `Solution`
 
-One dataclass per shape: `FieldSolution` (the field `u`), `ScalarFieldSolution` (adds the flux),
-`ElasticSolution` (adds strain, stress, compliance), `TransientSolution` / `WaveSolution` (time
-series), `BucklingSolution` / `ModalSolution`. `ElasticSolution` stores the full tensors and derives
+One dataclass per shape, each holding the `FunctionSpace` it was solved on: `FieldSolution` (the
+field `u`), `ScalarFieldSolution` (adds the flux), `ElasticSolution` (adds strain, stress,
+compliance), `TransientSolution` / `WaveSolution` (time series), `BucklingSolution` (adds the
+prestress `reference` solve) / `ModalSolution`. `ElasticSolution` stores the full tensors and derives
 `von_mises`, `pressure`, and `principal_stress` on demand; `nodal_stress` re-evaluates the form at
 the nodes so a P2 stress keeps its within-element variation. `save` / `load` round-trip any of them
 through `fem/io`.
