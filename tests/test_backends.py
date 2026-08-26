@@ -146,11 +146,11 @@ def _cantilever():
 def test_linear_solve_gives_elasticity_its_rigid_body_modes():
     """An elastic problem composed by hand hands its rigid-body modes, restricted to the
     free DOFs, to an iterative backend: the same near-kernel the facade path gets."""
-    from fem.problem import linear_elastic, poisson
     from fem.solve import backend_for
 
     mesh, bc = _cantilever()
-    problem = linear_elastic(mesh, LinearElasticMaterial(E=200, nu=0.3), bc)
+    elastic = LinearElastic(E=200, nu=0.3)
+    problem = elastic.problem(elastic.space(mesh), bc)
     backend = backend_for(problem, IterativeBackend())
     assert isinstance(backend, IterativeBackend)
     free = problem.constraints[0]
@@ -163,14 +163,13 @@ def test_linear_solve_gives_elasticity_its_rigid_body_modes():
     assert backend_for(problem, preset) is preset
     scalar_bc = BoundaryConditions()
     scalar_bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    scalar = backend_for(poisson(mesh, 1.0, scalar_bc), IterativeBackend())
+    scalar = backend_for(Poisson(1.0).problem(Poisson(1.0).space(mesh), scalar_bc), IterativeBackend())
     assert isinstance(scalar, IterativeBackend) and scalar.near_null_space is None
     direct = DirectBackend()
     assert backend_for(problem, direct) is direct
 
 
 def test_iterative_elastic_solve_matches_direct_through_facade_and_composition():
-    from fem.problem import linear_elastic
     from fem.solve import LinearSolve
 
     mesh, bc = _cantilever()
@@ -180,7 +179,7 @@ def test_iterative_elastic_solve_matches_direct_through_facade_and_composition()
 
     iterative = Solver(mesh, eq, bc, backend=IterativeBackend()).solve().u
     np.testing.assert_allclose(iterative, direct, atol=tol)
-    problem = linear_elastic(mesh, LinearElasticMaterial(E=200, nu=0.3), bc)
+    problem = eq.problem(eq.space(mesh), bc)
     composed = LinearSolve(IterativeBackend()).solve(problem)
     np.testing.assert_allclose(composed, direct, atol=tol)
 
@@ -189,11 +188,10 @@ def test_iterative_backend_matches_direct_through_a_time_step():
     """A heat step's effective operator M + θdtK is SPD, so AMG-CG matches direct."""
     from fem.integrators import ThetaMethod
     from fem.numerics import bump_function
-    from fem.problem import heat
 
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(21, 21))
     u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=10, size=0.2) + 300
-    problem = heat(mesh)
+    problem = Poisson().problem(Poisson().space(mesh))
 
     direct = ThetaMethod(dt=0.01, steps=5).run(problem, u0.copy()).u[-1]
     iterative = ThetaMethod(dt=0.01, steps=5, backend=IterativeBackend()).run(problem, u0.copy()).u[-1]

@@ -23,12 +23,11 @@ from fem.forms import MaskedMassForm
 from fem.space import FunctionSpace
 from fem.regions import on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
-from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure
+from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure, Wave
 from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.mesh.refinement import RedGreenRefiner
-from fem.problem import heat, wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.topology import TopologyOptimizer
 from fem.energy_solver import EnergySolver
@@ -712,7 +711,8 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), u_hot)
     bc.add_robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
     u_initial = np.full(len(mesh.vertices), u_ambient)
-    solution = ThetaMethod(dt=dt, steps=steps).run(heat(mesh, bc=bc), u_initial)
+    heat = Poisson().problem(Poisson().space(mesh), bc)
+    solution = ThetaMethod(dt=dt, steps=steps).run(heat, u_initial)
     u_values, t_values = solution.u, solution.t
 
     # -- effectiveness: block vs finned, posed two ways --------------------------------
@@ -876,7 +876,8 @@ def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400,
     # No conditions, so every edge is a wall: the natural du/dn = 0 reflects a wave
     # the same way up.
     bc = BoundaryConditions()
-    solution = NewmarkMethod(dt=dt, steps=steps).run(wave(mesh, c=c, bc=bc),
+    wave = Wave(c).problem(Wave(c).space(mesh), bc)
+    solution = NewmarkMethod(dt=dt, steps=steps).run(wave,
                                                      u_initial, dudt_initial)
     u_values, t_values = solution.u, solution.t
 

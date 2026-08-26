@@ -37,7 +37,7 @@ from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import create_rect_mesh
-from fem.problem import LinearProblem, Source, heat
+from fem.problem import LinearProblem, Source
 from fem.regions import everywhere
 from fem.solution import FieldSolution, TransientSolution
 from fem.solve import LinearSolve
@@ -600,7 +600,7 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     u0 = exact_solution(mesh.vertices)   # an eigenmode, and zero on the boundary
 
-    problem = heat(mesh, bc=bc)
+    problem = Poisson().problem(Poisson().space(mesh), bc)
     free = problem.constraints[0]
     M = problem.space.mass_matrix.toarray()
     K = problem.tangent(None).toarray()
