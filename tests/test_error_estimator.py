@@ -3,6 +3,8 @@ from math import e
 
 import numpy as np
 
+from fem.space import FunctionSpace
+
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.equations import LinearElastic, Poisson
@@ -109,7 +111,7 @@ def _inject_constant_stress(solver, sigma_xx, sigma_yy, sigma_xy):
     stress[:, 1, 1] = sigma_yy
     stress[:, 0, 1] = stress[:, 1, 0] = sigma_xy
     solver.solution = ElasticSolution(
-        mesh=mesh, n_components=2, u=np.zeros(2 * len(mesh.vertices)),
+        FunctionSpace(mesh, n_components=2), u=np.zeros(2 * len(mesh.vertices)),
         strain=np.zeros((n, 3, 3)), stress=stress, compliance=np.zeros(n),
     )
 

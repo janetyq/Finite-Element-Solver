@@ -85,8 +85,7 @@ def test_p2_poisson_divergence_is_the_laplacian():
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=1)
     x, y = space.node_coords[:, 0], space.node_coords[:, 1]
     u = x**2 + 2 * y**2
-    solution = ScalarFieldSolution(mesh, 1, u, flux=np.zeros((len(mesh.elements), 2)),
-                                   element_type=QuadraticTriangleElement)
+    solution = ScalarFieldSolution(space, u, flux=np.zeros((len(mesh.elements), 2)))
 
     div = Poisson().derived_field().divergence(solution)
     assert np.allclose(div, 6.0)
@@ -103,9 +102,8 @@ def test_p2_elastic_divergence_is_the_navier_operator():
     u = np.zeros((space.n_nodes, 2))
     u[:, 0] = space.node_coords[:, 0]**2
     n_el = len(mesh.elements)
-    solution = ElasticSolution(mesh, 2, u.ravel(), strain=np.zeros((n_el, 3, 3)),
-                               stress=np.zeros((n_el, 3, 3)), compliance=np.zeros(n_el),
-                               element_type=QuadraticTriangleElement)
+    solution = ElasticSolution(space, u.ravel(), strain=np.zeros((n_el, 3, 3)),
+                               stress=np.zeros((n_el, 3, 3)), compliance=np.zeros(n_el))
 
     div = LinearElastic(E, nu).derived_field().divergence(solution)
     assert np.allclose(div, [2 * lamb + 4 * mu, 0.0])

@@ -21,11 +21,10 @@ from fem.typing import DofVector
 def _history(problem: Problem, t_values: list[float], u_values: list[DofVector],
              dudt_values: list[DofVector] | None = None) -> Solution:
     '''Package a time series into the matching transient solution type.'''
-    mesh, n_components = problem.space.mesh, problem.space.n_components
     t = np.asarray(t_values)
     if dudt_values is not None:
-        return WaveSolution(mesh, n_components, t, u_values, dudt_values)
-    return TransientSolution(mesh, n_components, t, u_values)
+        return WaveSolution(problem.space, t, u_values, dudt_values)
+    return TransientSolution(problem.space, t, u_values)
 
 
 class ThetaMethod:
