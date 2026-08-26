@@ -13,6 +13,40 @@ integrators), and the drivers that wrap a strategy to re-solve (`AdaptiveRefinem
 PDE type, so `Equation` carries only the identity of a PDE and its physical constants. "What to
 solve" is the `Problem`; "how" is the strategy.
 
+## Building a solve
+
+The chain is the same for every problem. Each step has one required object and a few options with
+defaults; a facade is this chain with the defaults filled in from an `Equation`.
+
+| Step | Required | Options (default) |
+|---|---|---|
+| Geometry | `Mesh` | |
+| Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) |
+| Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; `EnergyForm` for the nonlinear path |
+| Statement | `LinearProblem(space, form)` / `EnergyProblem`, or `Equation.problem(space, bc)` | `source` (none), `bc` (none) |
+| Solve | `LinearSolve`, `NewtonSolve`, or an integrator | `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta` |
+| Result | `problem.solution(u)` | |
+| Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` |
+
+Composed by hand:
+
+```python
+space = FunctionSpace(mesh, n_components=1)
+problem = LinearProblem(space, LaplacianForm(), source=1.0, bc=bc)
+u = LinearSolve(backend=IterativeBackend()).solve(problem)
+solution = problem.solution(u)
+```
+
+The same solve through the facade, which builds the space and problem from the equation and
+packages the result:
+
+```python
+solution = Solver(mesh, Poisson(source=1.0), bc, backend=IterativeBackend()).solve()
+```
+
+The two agree exactly: the facade holds no policy of its own, so anything it can do can be composed,
+and anything composed (a different form, a hand-built load, a custom strategy) needs no facade.
+
 ## Layers
 
 | # | Layer | Question it answers | Varies with |

@@ -243,6 +243,20 @@ plotter.plot(mesh, solution.u, mode="surface")
 plotter.show()
 ```
 
+`Solver` is a convenience over the parts, which compose directly. The same solve, by hand:
+
+```python
+from fem import FunctionSpace, LinearProblem, LinearSolve
+from fem.forms import LaplacianForm
+
+space = FunctionSpace(mesh, n_components=1)
+problem = LinearProblem(space, LaplacianForm(), source=1, bc=bc)
+solution = problem.solution(LinearSolve().solve(problem))
+```
+
+Swap the form, the source, the boundary conditions, the element type, the solve strategy, or the
+linear-algebra backend independently; `ARCHITECTURE.md` lists the steps and their options.
+
 A solution is a typed dataclass. An elastic solve returns an `ElasticSolution`, which
 carries the stress and strain as full tensors and derives the scalar measures on
 demand:
