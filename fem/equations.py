@@ -7,14 +7,14 @@ facade shares.
 """
 from __future__ import annotations
 
-from enum import Enum
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.fields import FieldShape, Scalar, Vector
 from fem.forms import (
-    DiffusionForm, EnergyForm, Form, LaplacianForm, LinearElasticForm, LinearForm, MassForm,
-    ScaledForm,
+    DiffusionForm, EnergyDensity, EnergyForm, Form, LaplacianForm, LinearElasticForm, LinearForm,
+    MassForm, ScaledForm,
 )
 from fem.materials import LinearElasticMaterial
 from fem.problem import LinearProblem, Problem
@@ -134,25 +134,10 @@ class Wave(Equation):
         return ScaledForm(self.c**2, LaplacianForm())
 
 
-class StrainMeasure(Enum):
-    '''Which strain the elastic energy is built on: the kinematics axis.
-
-    The material `W` is one function; the two paths differ only in the strain fed
-    to it (see `fem.energies`). SMALL is the infinitesimal `ε = ½(∇u + ∇uᵀ)`, whose
-    energy is quadratic and so has a constant stiffness; GREEN_LAGRANGE is the
-    geometrically exact `S = ½(FᵀF − I)` (St-Venant–Kirchhoff), whose energy is not
-    and so is solved by minimising it.
-    '''
-    SMALL = 'small'
-    GREEN_LAGRANGE = 'green_lagrange'
-
-
 class Elasticity(Equation):
-    '''Elasticity with a selectable strain measure. `kinematics` is SMALL by
-    default (infinitesimal strain, a constant stiffness, linear elasticity);
-    GREEN_LAGRANGE selects the St-Venant–Kirchhoff model (an energy minimised by
-    Newton). E may be a scalar or a per-element array (a SIMP density-scaled modulus)
-    on the small-strain path.'''
+    '''Base of the elastic equations: a vector unknown with Young's modulus `E`,
+    Poisson's ratio `nu`, and a mass `density`. `LinearElastic` and
+    `FiniteStrainElastic` name the two models.'''
     field: FieldShape = Vector()
 
     def __init__(
@@ -160,47 +145,62 @@ class Elasticity(Equation):
         E: float | ElementField,
         nu: float,
         source: FieldValue | LinearForm = None,
-        kinematics: StrainMeasure = StrainMeasure.SMALL,
         density: float = 1.0,
     ) -> None:
         super().__init__(source, density)
         self.E = E
         self.nu = nu
-        self.kinematics = kinematics
 
     @property
     def material(self) -> LinearElasticMaterial:
         return LinearElasticMaterial(self.E, self.nu)
 
-    def operator(self, space: FunctionSpace) -> Form:
-        '''The form for this equation's kinematics: the small-strain stiffness
-        (constant tangent) for SMALL, the St-Venant-Kirchhoff `EnergyForm` for
-        GREEN_LAGRANGE.'''
-        if self.kinematics is StrainMeasure.SMALL:
-            return LinearElasticForm(self.material)
-        return EnergyForm(self.energy_density())
+    def energy_density(self) -> EnergyDensity:
+        '''The stored-energy density `W` of this model, for an `EnergyForm`.'''
+        raise NotImplementedError
 
-    def energy_density(self) -> StVenantKirchhoff:
-        '''The stored-energy density for this equation's kinematics.
-
-        Same `W`, different strain measure: SmallStrain subclasses
-        StVenantKirchhoff and overrides only the strain, so both satisfy the
-        return type.
-        '''
-        # E may be per-element (a SIMP density-scaled modulus),
-        # but a density carries one pair of Lame parameters for the whole mesh,
-        # and an array lamb broadcasts wrongly against the constant d2W/dS2.
+    def _scalar_modulus(self) -> float:
+        # A density carries one pair of Lame parameters for the whole mesh; an array
+        # lamb would broadcast wrongly against the constant d2W/dS2.
         if not isinstance(self.E, int | float):
             raise NotImplementedError(
                 'an energy density needs a scalar Youngs modulus, got a per-element '
                 'array; a density-scaled modulus solves through the linear operator.'
             )
-        density = {
-            StrainMeasure.SMALL: SmallStrain,
-            StrainMeasure.GREEN_LAGRANGE: StVenantKirchhoff,
-        }[self.kinematics]
-        return density(self.E, self.nu)
+        return float(self.E)
 
 
-LinearElastic = Elasticity
-'''Alias of `Elasticity`.'''
+class LinearElastic(Elasticity):
+    '''Small-strain linear elasticity: the infinitesimal strain `ε = ½(∇u + ∇uᵀ)`
+    under Hooke's law, a constant stiffness solved in one linear solve. `E` may be a
+    scalar or a per-element array (a SIMP density-scaled modulus).'''
+
+    def operator(self, space: FunctionSpace) -> Form:
+        return LinearElasticForm(self.material)
+
+    def energy_density(self) -> SmallStrain:
+        '''The quadratic energy the stiffness is the Hessian of.'''
+        return SmallStrain(self._scalar_modulus(), self.nu)
+
+
+class FiniteStrainElastic(Elasticity):
+    '''Finite-strain elasticity on the Green-Lagrange strain `S = ½(FᵀF − I)`, a
+    stored energy minimised by Newton. `law` builds the energy density from `(E, nu)`;
+    St-Venant-Kirchhoff by default.'''
+
+    def __init__(
+        self,
+        E: float,
+        nu: float,
+        source: FieldValue | LinearForm = None,
+        density: float = 1.0,
+        law: Callable[[float, float], EnergyDensity] = StVenantKirchhoff,
+    ) -> None:
+        super().__init__(E, nu, source, density)
+        self.law = law
+
+    def operator(self, space: FunctionSpace) -> Form:
+        return EnergyForm(self.energy_density())
+
+    def energy_density(self) -> EnergyDensity:
+        return self.law(self._scalar_modulus(), self.nu)

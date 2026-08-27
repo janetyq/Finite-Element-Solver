@@ -5,7 +5,7 @@ import pytest
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, BCType
 from fem.regions import everywhere, on_plane
-from fem.equations import Projection, Poisson, Elasticity, Wave
+from fem.equations import Projection, Poisson, LinearElastic, Wave
 from fem.solver import Solver
 from fem.integrators import NewmarkMethod, ThetaMethod, wave_energy
 
@@ -119,7 +119,7 @@ def test_linear_elastic_stretches_under_tension(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])  # +x traction
 
-    eq = Elasticity(E=200, nu=0.4)
+    eq = LinearElastic(E=200, nu=0.4)
     solution = Solver(mesh, eq, bc).solve()
 
     bidx = mesh.boundary_idxs

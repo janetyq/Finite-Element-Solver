@@ -14,14 +14,14 @@ from fem.convergence import (
     h1_seminorm_error,
     quadrature_l2,
 )
-from fem.equations import Elasticity, Poisson
+from fem.equations import LinearElastic, Poisson
 from fem.estimators import RecoveryEstimator
 from fem.materials import Enu_to_Lame
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere
 
 POISSON = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
-ELASTIC = Elasticity(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
+ELASTIC = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
 
 
 def _global(eta):

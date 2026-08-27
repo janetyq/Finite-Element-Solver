@@ -270,7 +270,7 @@ carries the stress and strain as full tensors and derives the scalar measures on
 demand:
 
 ```python
-solution = Solver(mesh, Elasticity(E=200, nu=0.3), bc).solve()
+solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
 
 solution.u                 # (n_vertices * n_components,) displacement
 solution.stress            # (n_elements, 3, 3) Cauchy stress tensors
@@ -327,7 +327,7 @@ fem/                 # the solver package
 ├── space.py         # FunctionSpace: DOF numbering, cached operators, assembly
 │
 │   # physics: what equation, what material
-├── equations.py     # Equation: Projection, Poisson, Elasticity
+├── equations.py     # Equation: Projection, Poisson, LinearElastic, FiniteStrainElastic
 ├── forms.py         # Form: bilinear and energy integrands; derived-field recovery
 ├── materials.py     # Hooke's law, Lame conversions (2D is plane strain)
 ├── energies.py      # hyperelastic strain-energy densities and their derivatives

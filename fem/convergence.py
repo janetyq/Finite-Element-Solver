@@ -29,7 +29,7 @@ from fem.elements import (
     IsoparametricTriangleElement,
     QuadraticTriangleElement,
 )
-from fem.equations import Elasticity, Poisson
+from fem.equations import LinearElastic, Poisson
 from fem.forms import DiffusionForm, LaplacianForm, LinearElasticForm, LinearForm
 from fem.geometry import get_boundary_from_vertices_elements
 from fem.integrators import ThetaMethod
@@ -243,7 +243,7 @@ def solve_elastic_mms(n: int) -> MMSSolve:
 
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0])
-    equation = Elasticity(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
+    equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
     assert isinstance(solution, FieldSolution)

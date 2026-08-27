@@ -1,10 +1,10 @@
-"""An equation names its own physics: the `operator` for its kinematics and the
-refusals where the physics does not apply.
+"""An equation names its own physics: the `operator` of its model and the refusals
+where the physics does not apply.
 """
 import numpy as np
 import pytest
 
-from fem.equations import Equation, Elasticity, Poisson, Projection, StrainMeasure
+from fem.equations import Equation, LinearElastic, Poisson, Projection, FiniteStrainElastic
 from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, MassForm
 from fem.problem import LinearProblem, Problem
 from fem.space import FunctionSpace
@@ -31,7 +31,7 @@ def test_poisson_names_the_laplacian_and_the_base_equation_names_nothing(make_un
 def test_linear_elastic_builds_its_form_from_its_own_constants(make_unit_square):
     """The equation carries E and nu and turns them into the form the solver assembles."""
     space = FunctionSpace(make_unit_square(3), n_components=2)
-    operator = Elasticity(E=210.0, nu=0.3).operator(space)
+    operator = LinearElastic(E=210.0, nu=0.3).operator(space)
 
     assert isinstance(operator, LinearElasticForm)
     assert operator.material.E == 210.0
@@ -42,14 +42,14 @@ def test_finite_strain_operator_is_an_energy_form(make_unit_square):
     """A Green-Lagrange energy is not quadratic, so its operator is the St-VK
     `EnergyForm`, its problem a `Problem` with a state-dependent tangent, and a
     `LinearProblem` over it is refused."""
-    equation = Elasticity(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E=200, nu=0.4)
     space = FunctionSpace(make_unit_square(3), n_components=2)
 
     operator = equation.operator(space)
     assert isinstance(operator, EnergyForm)
     problem = equation.problem(space)
     assert type(problem) is Problem and not problem.is_linear
-    assert isinstance(Elasticity(E=200, nu=0.4).problem(space), LinearProblem)
+    assert isinstance(LinearElastic(E=200, nu=0.4).problem(space), LinearProblem)
     with pytest.raises(TypeError, match='state-dependent'):
         LinearProblem(space, operator)
 
@@ -69,7 +69,7 @@ def test_wave_and_diffusion_name_their_operators(make_unit_square):
 def test_per_element_modulus_has_no_single_energy_density():
     """A density carries one pair of Lame parameters for the whole mesh, so a
     density-scaled modulus (SIMP's) has no scalar answer here."""
-    equation = Elasticity(E=np.full(8, 200.0), nu=0.4)
+    equation = LinearElastic(E=np.full(8, 200.0), nu=0.4)
 
     with pytest.raises(NotImplementedError, match='scalar Youngs modulus'):
         equation.energy_density()
@@ -88,7 +88,7 @@ def test_equation_resolves_its_space_and_problem(make_unit_square):
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
 
     assert Poisson().space(mesh).n_components == 1
-    assert Elasticity(E=1.0, nu=0.3).space(mesh).n_components == 2
+    assert LinearElastic(E=1.0, nu=0.3).space(mesh).n_components == 2
     assert Poisson().space(mesh, QuadraticTriangleElement).element_type is QuadraticTriangleElement
 
     space = Poisson(source=2.0).space(mesh)
@@ -106,8 +106,8 @@ def test_default_strategy_follows_the_tangent(make_unit_square):
     from fem.solve import LinearSolve, NewtonSolve, default_strategy
 
     mesh = make_unit_square(4)
-    linear = Elasticity(E=200, nu=0.4)
-    finite = Elasticity(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    linear = LinearElastic(E=200, nu=0.4)
+    finite = FiniteStrainElastic(E=200, nu=0.4)
 
     assert isinstance(default_strategy(linear.problem(mesh)), LinearSolve)
     newton = default_strategy(finite.problem(mesh))

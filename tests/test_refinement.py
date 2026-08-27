@@ -12,7 +12,7 @@ from fem.estimators import RecoveryEstimator
 from fem.forms import EnergyForm
 from fem.problem import Problem
 from fem.regions import everywhere, at_indices, on_plane
-from fem.equations import Elasticity, Projection, Poisson, StrainMeasure
+from fem.equations import LinearElastic, Projection, Poisson, FiniteStrainElastic
 
 
 def refine_near_centre(problem, solution):
@@ -129,7 +129,7 @@ def test_adaptive_refinement_drives_a_finite_strain_problem(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.02, 0.0])
-    equation = Elasticity(E=200, nu=0.3, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E=200, nu=0.3)
 
     driver = AdaptiveRefinement(
         mesh, _for(equation, bc), refine_near_centre, max_triangles=200, max_iters=2,
@@ -150,7 +150,7 @@ def test_recovery_estimator_reads_the_flux_off_an_energy_problem(make_unit_squar
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.02, 0.0])
-    space = Elasticity(E=200, nu=0.3).space(mesh)
+    space = LinearElastic(E=200, nu=0.3).space(mesh)
     problem = Problem(space, EnergyForm(StVenantKirchhoff(200, 0.3)), bc=bc)
     solution = problem.solve()
 

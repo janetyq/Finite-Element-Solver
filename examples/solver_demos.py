@@ -24,7 +24,7 @@ from fem.problem import Problem
 from fem.space import FunctionSpace
 from fem.regions import on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
-from fem.equations import Projection, Poisson, Elasticity, StrainMeasure, Wave
+from fem.equations import Projection, Poisson, LinearElastic, FiniteStrainElastic, Wave
 from fem.solve import BacktrackingLineSearch, NewtonSolve
 from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
@@ -310,7 +310,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     # estimator, which reads the curved rim's stress correctly. Everything plotted and
     # measured below is read off the refined mesh. The rim splits project onto the true
     # circle, so more refinement keeps rounding the hole.
-    equation = Elasticity(E=200, nu=0.3)
+    equation = LinearElastic(E=200, nu=0.3)
     refinement = AdaptiveRefinement(
         mesh, lambda m: equation.problem(m, bc, element_type=IsoparametricTriangleElement),
         RecoveryEstimator(),
@@ -426,7 +426,7 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     # At the re-entrant corner the exact elastic stress is infinite (it grows like
     # r^(-0.46) into the corner), so no mesh resolves it and the computed peak keeps
     # climbing under refinement. A fillet removes the singularity and the peak settles.
-    equation = Elasticity(E, nu)
+    equation = LinearElastic(E, nu)
     corner = np.array([width, width])
 
     def make_bc():
@@ -560,8 +560,8 @@ def demo_elasticity_models(mesh, stretch=0.5):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, w), [stretch*w, 0])
 
-    linear = Elasticity(E=200, nu=0.4)
-    finite = Elasticity(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    linear = LinearElastic(E=200, nu=0.4)
+    finite = FiniteStrainElastic(E=200, nu=0.4)
     # Panel 2 states small strain as an energy and minimises it: the same density the
     # linear stiffness is the Hessian of, under Newton.
     energy_problem = Problem(linear.space(mesh), EnergyForm(linear.energy_density()), bc=bc)
@@ -950,7 +950,7 @@ def demo_linear_elastic(mesh, n_3d=14):
     bc.add(BCType.NEUMANN,
            intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])),
            [0, -0.5])
-    solution = Solver(mesh, Elasticity(E, nu), bc).solve()
+    solution = Solver(mesh, LinearElastic(E, nu), bc).solve()
     deformed = solution.deformed_mesh()
 
     # -- 3D: the same clamp-and-load, one dimension up ---------------------------------
@@ -962,7 +962,7 @@ def demo_linear_elastic(mesh, n_3d=14):
     bc_3d = BoundaryConditions()
     bc_3d.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])
     bc_3d.add(BCType.NEUMANN, on_plane(0, 4.0), [0, 0, -0.5])
-    solution_3d = Solver(box, Elasticity(E, nu), bc_3d, backend=IterativeBackend()).solve()
+    solution_3d = Solver(box, LinearElastic(E, nu), bc_3d, backend=IterativeBackend()).solve()
     tip_3d = float(np.abs(solution_3d.u.reshape(-1, 3)[:, 2]).max())
 
     fields = Plotter(1, 2, figsize=(10.5, 4.2), title='Linear elasticity in 2D and 3D')
@@ -1026,7 +1026,7 @@ def demo_topology_optimization(mesh, iters=60):
     # boundary edge on any mesh, including the tiny smoke-test one.
     bc.add(BCType.NEUMANN, intersect(top, in_box([0.4 * w, None], [0.6 * w, None])), [0, -0.5])
 
-    equation = Elasticity(E, nu)
+    equation = LinearElastic(E, nu)
 
     # The solid block first: 100% material, the baseline the optimized one is measured against.
     solid = Solver(mesh, equation, bc).solve()
@@ -1104,7 +1104,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     E_star = E / (1 - nu**2)     # plane-strain effective modulus, the one bending sees
     moment = height**3 / 12      # second moment of area of the rectangular section
     n_across += n_across % 2      # a vertex on the neutral axis, for the pinned anchor
-    equation = Elasticity(E, nu)
+    equation = LinearElastic(E, nu)
 
     def solve_buckling(mesh, bc, span, modes=n_modes):
         problem = equation.problem(mesh, bc, element_type=QuadraticTriangleElement)
@@ -1309,7 +1309,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         # Element size is set by resolving the thin tine: bending curves across it.
         mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=0.5*(tine_thickness/across)**2).refine()
-        equation = Elasticity(E, NU, density=RHO)
+        equation = LinearElastic(E, NU, density=RHO)
         problem = equation.problem(mesh, clamp(), element_type=QuadraticTriangleElement)
         solution = ModalAnalysis(n_modes=modes).solve(problem)
         return mesh, solution

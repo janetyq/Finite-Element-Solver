@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, BCType
-from fem.equations import Elasticity
+from fem.equations import LinearElastic
 from fem.regions import at_indices, intersect, on_plane
 from fem.solver import Solver
 
@@ -21,7 +21,7 @@ def test_partial_pin_leaves_the_other_component_free(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, None])
     bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])
-    solution = Solver(mesh, Elasticity(E=200, nu=0.3), bc).solve()
+    solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
 
     u = solution.u.reshape(-1, 2)
     left = np.flatnonzero(mesh.vertices[:, 0] == 0.0)

@@ -80,9 +80,13 @@ refined mesh (1) without re-resolving constraints by hand (5).
 
 Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
 direct vs. iterative. Named PDEs are `Equation`s, not dispatch keys: `Poisson(f).problem(space, bc)`
-returns `LinearProblem(space, LaplacianForm(), f, bc)`, `Elasticity(E, nu,
-kinematics=GREEN_LAGRANGE).problem(space, bc)` a `Problem` over an `EnergyForm`, and a PDE with
-no name is just a different composition.
+returns `LinearProblem(space, LaplacianForm(), f, bc)`, `FiniteStrainElastic(E, nu).problem(space,
+bc)` a `Problem` over an `EnergyForm`, and a PDE with no name is just a different composition.
+
+A choice is a parameter when it changes numbers inside one computation (a modulus, a density,
+plane stress against plane strain) and a class when it changes what the object is: which solve
+runs, what it returns, what it composes with. `LinearElastic` and `FiniteStrainElastic` are two
+classes for that reason, as are the backends, the estimators, and `Problem` / `LinearProblem`.
 
 A form is one base class. Every `Form` writes `element_residuals` and `element_tangents` at a
 state; what else it can answer is a hook with a default of "no": `constant_tangent` (every
@@ -125,8 +129,8 @@ Constraints (5) have one owner, the `Problem`, whose constructor resolves the bo
 against the space and folds the Dirichlet partition, the Neumann load, and any Robin contribution
 into the operator and load. Algebra (6) is split: `DiscreteSystem` owns the Dirichlet elimination
 and the `Backend` owns how the free-free block is solved. Physics (3) is owned by the physics
-layer alone: an `Equation` answers `operator` itself, for either kinematics, so no facade holds a
-mapping from equation to material.
+layer alone: an `Equation` answers `operator` itself, so no facade holds a mapping from equation
+to material.
 
 Post-processing (9) is distributed under one rule: a derived quantity lives on the object that
 owns the data it needs. `FunctionSpace` owns `integrate`, `recover_nodal`, and `nodal_gradient`;
@@ -183,9 +187,9 @@ element's default rule and the one the form asks for.
 `Material` owns the constitutive matrix `D`; the strain-displacement matrix `B` sits in
 `fem/forms.py` next to the form that contracts it. The physics decomposes as material (the energy
 `W`) times kinematics (the strain measure): `SmallStrain` and `StVenantKirchhoff` feed one `W`
-either the small-strain `ε` or the Green-Lagrange `S`, chosen on the equation
-(`Elasticity(kinematics=...)`): `SMALL` gives the constant stiffness `LinearElasticForm`,
-`GREEN_LAGRANGE` the `EnergyForm` over `StVenantKirchhoff`. In 2D the law is plane strain
+either the small-strain `ε` or the Green-Lagrange `S`. The equation names the model:
+`LinearElastic` gives the constant stiffness `LinearElasticForm`, `FiniteStrainElastic` the
+`EnergyForm` over its `law` (`StVenantKirchhoff` by default). In 2D the law is plane strain
 throughout.
 
 Stress recovery is on the form (`RecoversElasticFields`): `fields_at` gives strain and stress at
@@ -245,10 +249,11 @@ and `NewmarkMethod` (average acceleration, solving for the acceleration against 
 
 ### `Equation`
 
-`Equation` is typed data: `Projection`, `Poisson`, `Diffusion`, `Wave`, and `Elasticity`, each
-carrying its physical constants, and a `density` for the time-derivative term. `operator(space)` returns the form for its physics: the
-small-strain stiffness or the St-Venant-Kirchhoff `EnergyForm`, by `Elasticity.kinematics`.
-It refuses rather than approximates when the physics does not apply.
+`Equation` is typed data: `Projection`, `Poisson`, `Diffusion`, `Wave`, `LinearElastic`, and
+`FiniteStrainElastic` (the last two over the `Elasticity` base), each carrying its physical
+constants, and a `density` for the time-derivative term. `operator(space)` returns the form for
+its physics: the small-strain stiffness, or the `EnergyForm` of a finite-strain law. It refuses
+rather than approximates when the physics does not apply.
 Two more resolve it against a discretization: `space(mesh, element_type)` builds the
 `FunctionSpace` with the component count the field implies, and `problem(mesh_or_space, bc,
 element_type)` the `LinearProblem` for a constant tangent, else a `Problem`. Every facade and

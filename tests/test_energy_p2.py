@@ -10,7 +10,7 @@ import pytest
 from fem.boundary import BCType, BoundaryConditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.energies import SmallStrain, StVenantKirchhoff
-from fem.equations import Elasticity, StrainMeasure
+from fem.equations import FiniteStrainElastic
 from fem.forms import EnergyForm
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import on_plane
@@ -80,7 +80,7 @@ def test_a_p2_hyperelastic_solve_converges_and_carries_its_element_type():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, 2.0), [0.3, 0.15])
-    equation = Elasticity(200.0, 0.3, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(200.0, 0.3)
 
     solution = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement).solve()
 

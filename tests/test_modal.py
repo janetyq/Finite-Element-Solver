@@ -14,7 +14,7 @@ import pytest
 
 from fem.boundary import BoundaryConditions, BCType
 from fem.elements import QuadraticTriangleElement
-from fem.equations import Elasticity, StrainMeasure
+from fem.equations import LinearElastic, FiniteStrainElastic
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import on_plane
 from fem.solution import ModalSolution, Solution
@@ -41,7 +41,7 @@ def clamped_bc():
 
 
 def solve_modes(mesh, n_modes=6, density=DENSITY, E=E):
-    equation = Elasticity(E, NU, density=density)
+    equation = LinearElastic(E, NU, density=density)
     problem = equation.problem(mesh, clamped_bc(), element_type=QuadraticTriangleElement)
     return ModalAnalysis(n_modes=n_modes).solve(problem)
 
@@ -115,7 +115,7 @@ def test_green_lagrange_equation_is_rejected():
     """Modal analysis linearises about the unstressed state; a finite-strain law has no
     constant stiffness, so its problem is refused."""
     mesh = cantilever(12.0, n_length=12, n_across=3)
-    equation = Elasticity(E, NU, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E, NU)
     with pytest.raises(TypeError, match='constant tangent'):
         ModalAnalysis(n_modes=2).solve(equation.problem(mesh))
 
@@ -125,4 +125,4 @@ def test_degenerate_parameters_are_rejected():
     with pytest.raises(ValueError, match='n_modes'):
         ModalAnalysis(n_modes=0)
     with pytest.raises(ValueError, match='density'):
-        Elasticity(E, NU, density=0.0)
+        LinearElastic(E, NU, density=0.0)

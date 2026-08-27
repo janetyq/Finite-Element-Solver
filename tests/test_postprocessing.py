@@ -10,7 +10,7 @@ import pytest
 from fem.boundary import BCType, BoundaryConditions
 from fem.elements import LinearTriangleElement
 from fem.energies import SmallStrain, StVenantKirchhoff
-from fem.equations import Elasticity
+from fem.equations import LinearElastic
 from fem.forms import EnergyForm, LinearElasticForm
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.regions import on_plane
@@ -37,7 +37,7 @@ def _cantilever_bc() -> BoundaryConditions:
 
 
 def _solved(mesh):
-    solver = Solver(mesh, Elasticity(E=1.0, nu=0.3), _cantilever_bc())
+    solver = Solver(mesh, LinearElastic(E=1.0, nu=0.3), _cantilever_bc())
     return solver, solver.solve()
 
 
@@ -70,7 +70,7 @@ def test_solver_and_design_model_recover_the_same_fields(make_unit_square):
     mesh = make_unit_square(6)
     _, solution = _solved(mesh)
 
-    equation = Elasticity(E=1.0, nu=0.3)
+    equation = LinearElastic(E=1.0, nu=0.3)
     model = SIMPModel(equation.problem(mesh, _cantilever_bc()), penalty=1.0)
     rho = np.ones(len(mesh.elements))
     design_solution = model.solution(rho, LinearSolve().solve(model.problem(rho)))

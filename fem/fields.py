@@ -2,7 +2,7 @@
 
 Elasticity's unknown is a vector field, so its component count follows from the
 domain: 2 on a triangle mesh, 3 on a tet mesh. Storing the shape and deriving the
-count lets one `Elasticity` class describe both. A small sum type rather than an
+count lets one `LinearElastic` class describe both. A small sum type rather than an
 `Enum`, so a k-component system can be added as a `System(n)` later.
 """
 from dataclasses import dataclass

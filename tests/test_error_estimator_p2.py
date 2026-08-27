@@ -13,7 +13,7 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import exact_gradient, h1_seminorm_error
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.energies import StVenantKirchhoff
-from fem.equations import Elasticity, Poisson
+from fem.equations import LinearElastic, Poisson
 from fem.estimators import ResidualEstimator
 from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
@@ -222,7 +222,7 @@ def test_p2_elastic_residual_runs_end_to_end():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])
-    equation = Elasticity(E=200, nu=0.3)
+    equation = LinearElastic(E=200, nu=0.3)
     problem, solution = _solved(equation, mesh, bc)
 
     eta = ResidualEstimator().estimate(problem, solution)

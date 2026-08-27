@@ -5,7 +5,7 @@ import numpy as np
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
-from fem.equations import Elasticity, Poisson
+from fem.equations import LinearElastic, Poisson
 from fem.estimators import ResidualEstimator
 from fem.mesh.mesh import Mesh
 from fem.regions import everywhere, on_plane
@@ -135,7 +135,7 @@ def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), lambda p: [0.01 * p[0], -0.003 * p[1]])
-    equation = Elasticity(E=200, nu=0.3)
+    equation = LinearElastic(E=200, nu=0.3)
     problem, solution = _solved(mesh, equation, bc)
 
     eta = ResidualEstimator().estimate(problem, solution)
@@ -150,7 +150,7 @@ def test_elastic_error_estimator_boundary_term_matches_hand_derivation():
     mesh = _unit_square_two_triangles()
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])  # bottom edge only
-    equation = Elasticity(E=200, nu=0.3)
+    equation = LinearElastic(E=200, nu=0.3)
     problem = equation.problem(mesh, bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
@@ -174,7 +174,7 @@ def test_elastic_error_estimator_neumann_matching_traction_is_quiet():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])   # bottom: skip
     bc.add(BCType.NEUMANN, on_plane(1, 1.0), [0.5, 1.0])  # top: matches sigma.n exactly
-    equation = Elasticity(E=200, nu=0.3)
+    equation = LinearElastic(E=200, nu=0.3)
     problem = equation.problem(mesh, bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
@@ -200,7 +200,7 @@ def test_elastic_error_estimator_roller_edge_only_tests_its_free_component():
     mesh = _unit_square_two_triangles()
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, None])  # bottom: roller
-    equation = Elasticity(E=200, nu=0.3)
+    equation = LinearElastic(E=200, nu=0.3)
     problem = equation.problem(mesh, bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
@@ -227,7 +227,7 @@ def test_adaptive_refinement_elasticity_runs_end_to_end(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])
-    equation = Elasticity(E=200, nu=0.3)
+    equation = LinearElastic(E=200, nu=0.3)
 
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(mesh, _for(equation, bc), ResidualEstimator(),
