@@ -80,7 +80,7 @@ refined mesh (1) without re-resolving constraints by hand (5).
 
 Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
 direct vs. iterative. Named PDEs are `Equation`s, not dispatch keys: `Poisson(f).problem(space, bc)`
-returns `LinearProblem(space, LaplacianForm(), f, bc)`, `LinearElastic(E, nu,
+returns `LinearProblem(space, LaplacianForm(), f, bc)`, `Elasticity(E, nu,
 kinematics=GREEN_LAGRANGE).problem(space, bc)` a `Problem` over an `EnergyForm`, and a PDE with
 no name is just a different composition.
 
@@ -184,7 +184,7 @@ element's default rule and the one the form asks for.
 `fem/forms.py` next to the form that contracts it. The physics decomposes as material (the energy
 `W`) times kinematics (the strain measure): `SmallStrain` and `StVenantKirchhoff` feed one `W`
 either the small-strain `ε` or the Green-Lagrange `S`, chosen on the equation
-(`LinearElastic(kinematics=...)`): `SMALL` gives the constant stiffness `LinearElasticForm`,
+(`Elasticity(kinematics=...)`): `SMALL` gives the constant stiffness `LinearElasticForm`,
 `GREEN_LAGRANGE` the `EnergyForm` over `StVenantKirchhoff`. In 2D the law is plane strain
 throughout.
 
@@ -245,9 +245,9 @@ and `NewmarkMethod` (average acceleration, solving for the acceleration against 
 
 ### `Equation`
 
-`Equation` is typed data: `Projection`, `Poisson`, `Diffusion`, `Wave`, and `LinearElastic`, each
+`Equation` is typed data: `Projection`, `Poisson`, `Diffusion`, `Wave`, and `Elasticity`, each
 carrying its physical constants, and a `density` for the time-derivative term. `operator(space)` returns the form for its physics: the
-small-strain stiffness or the St-Venant-Kirchhoff `EnergyForm`, by `LinearElastic.kinematics`.
+small-strain stiffness or the St-Venant-Kirchhoff `EnergyForm`, by `Elasticity.kinematics`.
 It refuses rather than approximates when the physics does not apply.
 Two more resolve it against a discretization: `space(mesh, element_type)` builds the
 `FunctionSpace` with the component count the field implies, and `problem(mesh_or_space, bc,

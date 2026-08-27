@@ -8,7 +8,7 @@ from fem.energies import NeohookeanEnergyDensity
 from fem.solver import Solver
 from fem.boundary import BoundaryConditions, BCType
 from fem.mesh.mesh import Mesh
-from fem.equations import LinearElastic, StrainMeasure
+from fem.equations import Elasticity, StrainMeasure
 from fem.regions import everywhere, on_plane, at_indices
 
 
@@ -109,7 +109,7 @@ def test_finite_strain_accepts_a_3d_mesh():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(2, 0.0), [0, 0, 0])
 
-    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = Elasticity(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
     assert Solver(mesh, equation, bc).space.n_components == 3
 
 
@@ -122,7 +122,7 @@ def test_finite_strain_rejects_a_per_element_modulus(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
 
     E = np.full(len(mesh.elements), 200.0)
-    equation = LinearElastic(E=E, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = Elasticity(E=E, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
     with pytest.raises(NotImplementedError):
         Solver(mesh, equation, bc).problem()
 

@@ -8,7 +8,7 @@ from fem.design import (
     DesignOptimizer, SIMPModel, TargetCompliance, calculate_smoothing_matrix,
     optimality_criteria_update,
 )
-from fem.equations import LinearElastic, Poisson
+from fem.equations import Elasticity, Poisson
 from fem.forms import LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
@@ -26,7 +26,7 @@ def _cantilever_bc():
 
 
 def _model(mesh, penalty=3.0, radius=None):
-    equation = LinearElastic(E=1.0, nu=0.3)
+    equation = Elasticity(E=1.0, nu=0.3)
     sensitivity_filter = calculate_smoothing_matrix(mesh, radius) if radius else None
     return SIMPModel(equation.problem(mesh, _cantilever_bc()), penalty=penalty,
                      sensitivity_filter=sensitivity_filter)
@@ -102,7 +102,7 @@ def test_precomputed_form_rejects_a_mismatched_geometry(make_unit_square):
 
 def test_model_rejects_a_per_element_modulus(make_unit_square):
     mesh = make_unit_square(4)
-    equation = LinearElastic(E=np.ones(len(mesh.elements)), nu=0.3)
+    equation = Elasticity(E=np.ones(len(mesh.elements)), nu=0.3)
     with pytest.raises(ValueError, match='scalar'):
         SIMPModel(equation.problem(mesh, _cantilever_bc()))
 

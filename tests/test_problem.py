@@ -13,7 +13,7 @@ from fem.numerics import central_difference_order
 from fem.problem import LinearProblem, Problem
 from fem.regions import everywhere, on_plane
 from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
-from fem.equations import LinearElastic, Poisson, Projection, StrainMeasure
+from fem.equations import Elasticity, Poisson, Projection, StrainMeasure
 from fem.solver import Solver
 from fem.space import FunctionSpace
 
@@ -79,7 +79,7 @@ def test_composed_linear_elastic_matches_the_solver_facade(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
-    equation = LinearElastic(E=200, nu=0.4)
+    equation = Elasticity(E=200, nu=0.4)
 
     u_composed = LinearSolve().solve(_problem(equation, mesh, bc))
     u_solver = Solver(mesh, equation, bc).solve().u
@@ -96,10 +96,10 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
-    elastic = _problem(LinearElastic(E=200, nu=0.4), mesh, bc)
+    elastic = _problem(Elasticity(E=200, nu=0.4), mesh, bc)
     solution = elastic.solve()
     assert isinstance(solution, ElasticSolution)
-    facade = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
+    facade = Solver(mesh, Elasticity(E=200, nu=0.4), bc).solve()
     assert isinstance(facade, ElasticSolution)
     np.testing.assert_allclose(solution.stress, facade.stress, atol=1e-12)
 
@@ -280,7 +280,7 @@ def test_composed_energy_residual_and_tangent_are_consistent(make_unit_square, k
     to O(eps^2) under central differences. Holds for the constant and the
     state-dependent tangent alike, so a line search on the energy and Newton on the
     residual agree on which way is downhill."""
-    equation = LinearElastic(E=200, nu=0.4, source=[1.0, -3.0], kinematics=kinematics)
+    equation = Elasticity(E=200, nu=0.4, source=[1.0, -3.0], kinematics=kinematics)
     problem = equation.problem(make_unit_square(5), _loaded_bc())
 
     rng = np.random.default_rng(1)
@@ -311,7 +311,7 @@ def test_forced_finite_strain_problem_balances_its_load(make_unit_square):
     mesh = make_unit_square(6)
     scale = 1e-3
     bc = _loaded_bc(scale)
-    finite = LinearElastic(E=200, nu=0.4, source=[scale, -3 * scale],
+    finite = Elasticity(E=200, nu=0.4, source=[scale, -3 * scale],
                            kinematics=StrainMeasure.GREEN_LAGRANGE)
     problem = finite.problem(mesh, bc)
     free = problem.constraints[0]
@@ -323,7 +323,7 @@ def test_forced_finite_strain_problem_balances_its_load(make_unit_square):
     np.testing.assert_allclose(problem.internal_residual(u)[free], problem.load[free],
                                atol=1e-8 * load_scale)
 
-    linear = LinearElastic(E=200, nu=0.4, source=[scale, -3 * scale])
+    linear = Elasticity(E=200, nu=0.4, source=[scale, -3 * scale])
     u_linear = LinearSolve().solve(linear.problem(mesh, bc))
     assert np.abs(u_linear).max() > 0
     rel = np.linalg.norm(u - u_linear) / np.linalg.norm(u_linear)
@@ -368,7 +368,7 @@ def test_problem_solve_picks_newton_for_a_state_dependent_operator(make_unit_squ
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.05, 0.0])
-    finite = LinearElastic(E=200, nu=0.3, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    finite = Elasticity(E=200, nu=0.3, kinematics=StrainMeasure.GREEN_LAGRANGE)
     problem = finite.problem(mesh, bc)
     assert type(problem) is Problem
     u_newton = NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem)
@@ -380,7 +380,7 @@ def test_equation_problem_takes_a_mesh_or_a_space(make_unit_square):
     `element_type`; on a space it uses that space and refuses an `element_type`."""
     from fem.elements import QuadraticTriangleElement
     mesh = make_unit_square(4)
-    equation = LinearElastic(E=1.0, nu=0.3)
+    equation = Elasticity(E=1.0, nu=0.3)
     from_mesh = equation.problem(mesh, element_type=QuadraticTriangleElement)
     assert from_mesh.space.element_type is QuadraticTriangleElement
     assert from_mesh.space.n_components == 2

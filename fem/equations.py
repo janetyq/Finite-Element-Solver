@@ -85,12 +85,8 @@ class Equation:
         return Problem(space, operator, self.source, bc, density=self.density)
 
     def operator(self, space: FunctionSpace) -> Form:
-        '''The form a solve assembles for this equation on `space`.
-
-        The scalar diffusion family shares the material-free Laplacian, so it is the
-        base answer; subclasses that mean something else override.
-        '''
-        return LaplacianForm()
+        '''The form a solve assembles for this equation on `space`.'''
+        raise NotImplementedError(f'{type(self).__name__} names no operator')
 
 
 class Projection(Equation):
@@ -102,6 +98,9 @@ class Projection(Equation):
 
 class Poisson(Equation):
     '''Poisson equation (K u = b); under a `ThetaMethod`, the heat equation.'''
+
+    def operator(self, space: FunctionSpace) -> Form:
+        return LaplacianForm()
 
 
 class Diffusion(Equation):
@@ -148,11 +147,12 @@ class StrainMeasure(Enum):
     GREEN_LAGRANGE = 'green_lagrange'
 
 
-class LinearElastic(Equation):
+class Elasticity(Equation):
     '''Elasticity with a selectable strain measure. `kinematics` is SMALL by
-    default (infinitesimal strain, a constant stiffness); GREEN_LAGRANGE selects the
-    St-Venant–Kirchhoff model (an energy minimised by Newton). E may be a scalar or a
-    per-element array (a SIMP density-scaled modulus) on the small-strain path.'''
+    default (infinitesimal strain, a constant stiffness, linear elasticity);
+    GREEN_LAGRANGE selects the St-Venant–Kirchhoff model (an energy minimised by
+    Newton). E may be a scalar or a per-element array (a SIMP density-scaled modulus)
+    on the small-strain path.'''
     field: FieldShape = Vector()
 
     def __init__(
@@ -201,3 +201,6 @@ class LinearElastic(Equation):
         }[self.kinematics]
         return density(self.E, self.nu)
 
+
+LinearElastic = Elasticity
+'''Alias of `Elasticity`.'''

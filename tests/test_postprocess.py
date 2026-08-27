@@ -8,7 +8,7 @@ from fem import invariants
 from fem.boundary import BCType, BoundaryConditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.energies import StVenantKirchhoff
-from fem.equations import LinearElastic, Poisson, Projection
+from fem.equations import Elasticity, Poisson, Projection
 from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.structured import create_rect_mesh
@@ -85,7 +85,7 @@ def test_nodal_von_mises_recovers_the_tensor_then_reduces():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 4.0), [0, -0.3])
-    solution = Solver(mesh, LinearElastic(200.0, 0.3), bc).solve()
+    solution = Solver(mesh, Elasticity(200.0, 0.3), bc).solve()
 
     assert isinstance(solution, ElasticSolution)
     assert solution.nodal_stress().shape == (solution.space.n_nodes, 3, 3)
@@ -104,7 +104,7 @@ def test_solution_carries_its_space_and_deformed_mesh_uses_only_vertex_dofs():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 4.0), [0, -0.2])
-    solution = Solver(mesh, LinearElastic(200.0, 0.3), bc,
+    solution = Solver(mesh, Elasticity(200.0, 0.3), bc,
                       element_type=QuadraticTriangleElement).solve()
 
     assert solution.element_type is QuadraticTriangleElement

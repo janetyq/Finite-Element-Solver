@@ -50,6 +50,7 @@ from fem.equations import (
     Poisson,
     Diffusion,
     Wave,
+    Elasticity,
     LinearElastic,
     StrainMeasure,
 )
@@ -161,6 +162,7 @@ __all__ = [
     "Poisson",
     "Diffusion",
     "Wave",
+    "Elasticity",
     "LinearElastic",
     "StrainMeasure",
     "LinearProblem",

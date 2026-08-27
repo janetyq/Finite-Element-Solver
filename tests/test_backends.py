@@ -13,7 +13,7 @@ from fem.backends import DirectBackend, IterativeBackend, MinresBackend, rigid_b
 from fem.materials import LinearElasticMaterial
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere, on_plane
-from fem.equations import LinearElastic, Poisson
+from fem.equations import Elasticity, Poisson
 from fem.solver import Solver
 from fem.space import FunctionSpace
 from fem.system import DiscreteSystem
@@ -66,7 +66,7 @@ def test_iterative_matches_direct_on_elasticity():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
-    eq = LinearElastic(E=200, nu=0.3)
+    eq = Elasticity(E=200, nu=0.3)
 
     direct = Solver(mesh, eq, bc, backend=DirectBackend()).solve().u
     iterative = Solver(mesh, eq, bc, backend=IterativeBackend()).solve().u
@@ -94,7 +94,7 @@ def test_iterative_matches_direct_on_3d_elasticity():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])       # cantilever: one face
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [0, -5, 0])
-    eq = LinearElastic(E=200, nu=0.3)
+    eq = Elasticity(E=200, nu=0.3)
 
     direct = Solver(mesh, eq, bc, backend=DirectBackend()).solve().u
     iterative = Solver(mesh, eq, bc, backend=IterativeBackend()).solve().u
@@ -149,7 +149,7 @@ def test_linear_solve_gives_elasticity_its_rigid_body_modes():
     from fem.solve import backend_for
 
     mesh, bc = _cantilever()
-    elastic = LinearElastic(E=200, nu=0.3)
+    elastic = Elasticity(E=200, nu=0.3)
     problem = elastic.problem(mesh, bc)
     backend = backend_for(problem, IterativeBackend())
     assert isinstance(backend, IterativeBackend)
@@ -173,7 +173,7 @@ def test_iterative_elastic_solve_matches_direct_through_facade_and_composition()
     from fem.solve import LinearSolve
 
     mesh, bc = _cantilever()
-    eq = LinearElastic(E=200, nu=0.3)
+    eq = Elasticity(E=200, nu=0.3)
     direct = Solver(mesh, eq, bc, backend=DirectBackend()).solve().u
     tol = 1e-7 * np.abs(direct).max()
 

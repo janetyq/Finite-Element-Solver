@@ -20,7 +20,7 @@ from fem.backends import IterativeBackend
 from fem.materials import Enu_to_Lame
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere
-from fem.equations import LinearElastic
+from fem.equations import Elasticity
 from fem.solver import Solver
 
 E, NU = 200.0, 0.3
@@ -60,7 +60,7 @@ def _solve_2d(n):
 
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0])
-    solver = Solver(mesh, LinearElastic(E=E, nu=NU, source=source), bc)
+    solver = Solver(mesh, Elasticity(E=E, nu=NU, source=source), bc)
     solution = solver.solve()
 
     exact = np.zeros((len(mesh.vertices), 2))
@@ -104,7 +104,7 @@ def _solve_3d(n):
     # system (proven equivalent in test_linalg) but stays cheap on the fine meshes
     # this sequence needs, and it is what the convergence measures -- the assembly --
     # regardless of how the block is solved.
-    solver = Solver(mesh, LinearElastic(E=E, nu=NU, source=source), bc, backend=IterativeBackend())
+    solver = Solver(mesh, Elasticity(E=E, nu=NU, source=source), bc, backend=IterativeBackend())
     solution = solver.solve()
 
     v = mesh.vertices

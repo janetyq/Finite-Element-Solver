@@ -9,7 +9,7 @@ import pytest
 
 from fem.boundary import BCType, BoundaryConditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
-from fem.equations import LinearElastic, Poisson
+from fem.equations import Elasticity, Poisson
 from fem.estimators import GoalOrientedEstimator, RecoveryEstimator, ResidualEstimator
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere, on_plane
@@ -29,7 +29,7 @@ def _elastic(element_type):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])
-    equation = LinearElastic(E=200, nu=0.3)
+    equation = Elasticity(E=200, nu=0.3)
     return equation, equation.problem(mesh, bc, element_type=element_type)
 
 
