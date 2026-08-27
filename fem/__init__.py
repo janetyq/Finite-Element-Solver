@@ -43,6 +43,7 @@ from fem.regions import (
     intersect,
     union,
     at_indices,
+    TimeDependent,
 )
 from fem.equations import (
     Equation,
@@ -156,6 +157,7 @@ __all__ = [
     "intersect",
     "union",
     "at_indices",
+    "TimeDependent",
     "Solver",
     "Equation",
     "Projection",

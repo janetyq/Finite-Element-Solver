@@ -18,7 +18,10 @@ and the tangent alike:
     load    -fᵀ u          -f            0
 
 A transient problem also has a mass side, `mass` = density times the space's consistent
-mass matrix, which the integrators and modal analysis pair with the tangent.
+mass matrix, which the integrators and modal analysis pair with the tangent. A source or
+boundary value may be a `TimeDependent` field; `load` and `constraints` are their values
+at `t = 0`, and `load_at(t)` / `constraints_at(t)` re-evaluate them, which the integrators
+call per step.
 
 `LinearProblem` is the case whose operator has a constant tangent (a `BilinearForm`):
 the matrix is assembled once and held, and the residual is affine. Everything that
@@ -35,6 +38,7 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions, ResolvedBC
 from fem.forms import BilinearForm, Form, LinearForm, MaskedMassForm, RecoversElasticFields
+from fem.regions import TimeDependent, field_at
 from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 from fem.space import FunctionSpace
 from fem.typing import Constraints, DofVector, FieldValue, FloatArray, Operator
@@ -86,7 +90,6 @@ class Problem:
             raise ValueError(f'density must be positive, got {density}')
         self.space = space
         self.operator = operator
-        self.source = source
         self.density = density
         self.bc = bc if bc is not None else BoundaryConditions()
         self._resolved = self.bc.resolve(space.nodes, space.n_components)
@@ -94,45 +97,85 @@ class Problem:
         # A Robin condition contributes to both sides: κ∫_∂Ω_R u·v on the operator
         # and ∫_∂Ω_R g·v on the load, each the region-restricted boundary mass. The
         # operator half is kept apart from `operator`'s own so that a problem derived
-        # under a new operator can re-apply it.
+        # under a new operator can re-apply it. The boundary masses are held so a
+        # time-dependent load re-evaluates only the values, never the integrals.
+        self._robin_masses = [
+            space.assemble(MaskedMassForm(space.n_components, robin.facet_mask), boundary=True)
+            for robin in self._resolved.robin
+        ]
         self._robin_operator: Operator | None = None
-        robin_load = np.zeros(space.n_dofs)
-        for robin in self._resolved.robin:
-            boundary_mass = space.assemble(MaskedMassForm(space.n_components, robin.facet_mask), boundary=True)
+        for robin, boundary_mass in zip(self._resolved.robin, self._robin_masses):
             term = robin.kappa * boundary_mass
             self._robin_operator = term if self._robin_operator is None else self._robin_operator + term
-            robin_load = robin_load + np.asarray(boundary_mass @ robin.g.flatten()).flatten()
 
         # Each Neumann traction is integrated over its own region's facets (as the Robin
         # load is), so it stays on that edge instead of spreading onto a neighbour through
         # a shared corner, which an unmasked global boundary mass would do.
-        traction_load = np.zeros(space.n_dofs)
-        for neumann in self._resolved.neumann:
-            boundary_mass = space.assemble(
-                MaskedMassForm(space.n_components, neumann.facet_mask), boundary=True)
-            traction_load = traction_load + np.asarray(
-                boundary_mass @ neumann.traction.flatten()).flatten()
+        self._neumann_masses = [
+            space.assemble(MaskedMassForm(space.n_components, neumann.facet_mask), boundary=True)
+            for neumann in self._resolved.neumann
+        ]
 
         # Callers pass only the volume source; the BC resolution supplies the traction
-        # terms above. A callable source is sampled at the quadrature points (as a
+        # terms. A callable source is sampled at the quadrature points (as a
         # LinearForm), which captures variation within an element; a constant or a
         # nodal array is integrated as its interpolant through the cached mass matrix.
         if callable(source) and not isinstance(source, (LinearForm, Source)):
             source = LinearForm(source, n_components=space.n_components)
-            self.source = source
-        if isinstance(source, LinearForm):
-            volume_load = space.assemble_load(source)
-        elif isinstance(source, Source):
-            volume_load = source.vector(space)
-        else:
-            volume_load = Source(source).vector(space)
-        self._b = volume_load + traction_load + robin_load
+        self.source = source
+        self._b = self._load(self._resolved, self._source_at(0.0))
         # A constant tangent is assembled on first use, not here. Stating a problem
         # is cheap; assembling its operator is the expensive half, and a problem can
         # be built without ever being solved: a topology optimization iteration
         # derives its own operator from a template whose own operator is never assembled.
         self._A: Operator | None = None
         self._M: Operator | None = None
+
+    def _source_at(self, t: float) -> FieldValue | LinearForm | Source:
+        source = self.source
+        if isinstance(source, (LinearForm, Source)):
+            return source
+        return field_at(source, t)
+
+    def _load(self, resolved: ResolvedBC, source: FieldValue | LinearForm | Source) -> DofVector:
+        '''The load vector for one resolution of the boundary conditions and one
+        source, both already at a time.'''
+        space = self.space
+        if callable(source) and not isinstance(source, (LinearForm, Source)):
+            source = LinearForm(source, n_components=space.n_components)
+        if isinstance(source, LinearForm):
+            load = space.assemble_load(source)
+        elif isinstance(source, Source):
+            load = source.vector(space)
+        else:
+            load = Source(source).vector(space)
+        for neumann, boundary_mass in zip(resolved.neumann, self._neumann_masses):
+            load = load + np.asarray(boundary_mass @ neumann.traction.flatten()).flatten()
+        for robin, boundary_mass in zip(resolved.robin, self._robin_masses):
+            load = load + np.asarray(boundary_mass @ robin.g.flatten()).flatten()
+        return load
+
+    @property
+    def is_time_dependent(self) -> bool:
+        '''Whether the source or any boundary value is a `TimeDependent` field.'''
+        return isinstance(self.source, TimeDependent) or self.bc.is_time_dependent
+
+    def load_at(self, t: float) -> DofVector:
+        '''The load at time `t`; `load` itself when nothing depends on time.'''
+        if not self.is_time_dependent:
+            return self._b
+        resolved = self._resolved
+        if self.bc.is_time_dependent:
+            resolved = self.bc.resolve(self.space.nodes, self.space.n_components, t)
+        return self._load(resolved, self._source_at(t))
+
+    def constraints_at(self, t: float) -> Constraints:
+        '''The Dirichlet partition at time `t`: the same DOFs as `constraints`, with
+        the prescribed values of a `TimeDependent` condition taken at `t`.'''
+        if not self.bc.is_time_dependent:
+            return self.constraints
+        r = self.bc.resolve(self.space.nodes, self.space.n_components, t)
+        return (r.free_idxs, r.fixed_idxs, r.fixed_values)
 
     @property
     def mass(self) -> Operator:

@@ -243,7 +243,11 @@ each eigenvector back to a full DOF vector. `BucklingAnalysis` and `ModalAnalysi
 
 Heat is first order and wave second, so there is one integrator family per order. Each forms a
 constant effective operator from `problem.mass` and `problem.tangent()`, factors it once, and
-steps by updating the right-hand side. `ThetaMethod` (Crank-Nicolson by default, backward Euler at θ=1)
+steps by updating the right-hand side. A `TimeDependent` source or boundary value (a callable of
+position and time) is re-evaluated each step through `problem.load_at(t)`; `ThetaMethod` also
+prescribes a time-dependent Dirichlet value per step through `problem.constraints_at(t)`, while
+`NewmarkMethod` refuses one (prescribed motion needs its velocity and acceleration too). Both
+return a `TransientSolution` whose `at(i)` packages a step as the typed steady solution. `ThetaMethod` (Crank-Nicolson by default, backward Euler at θ=1)
 and `NewmarkMethod` (average acceleration, solving for the acceleration against the SPD
 `M + β dt² K`) both take a `Backend`.
 
@@ -297,7 +301,8 @@ forward factorization; `fem/design.py` drives an optimality-criteria update from
 
 One dataclass per shape, each holding the `FunctionSpace` it was solved on: `FieldSolution` (the
 field `u`), `ScalarFieldSolution` (adds the flux), `ElasticSolution` (adds strain, stress,
-compliance), `TransientSolution` / `WaveSolution` (time series), `BucklingSolution` (adds the
+compliance), `TransientSolution` / `WaveSolution` (time series; `at(i)` is one step as a steady
+solution, flux or stress included), `BucklingSolution` (adds the
 prestress `reference` solve) / `ModalSolution`. `ElasticSolution` stores the full tensors and derives
 `von_mises`, `pressure`, and `principal_stress` on demand; `nodal_stress` re-evaluates the form at
 the nodes so a P2 stress keeps its within-element variation. `save` / `load` round-trip any of them

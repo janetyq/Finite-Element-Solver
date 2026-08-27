@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from fem.elements import Element
     from fem.forms import RecoversElasticFields
     from fem.mesh.mesh import Mesh
+    from fem.problem import Problem
     from fem.space import FunctionSpace
 
 
@@ -279,9 +280,27 @@ class ModalSolution(Solution):
 
 @dataclass(frozen=True, eq=False)
 class TransientSolution(Solution):
-    '''A time series: the times t and the field u at each step.'''
+    '''A time series: the times t and the field u at each step.
+
+    `problem` is the problem it was stepped from, kept so `at(i)` can package a step
+    as the typed steady solution its physics recovers (flux for heat, stress for
+    elasticity). It is not saved; a loaded series packages a bare `FieldSolution`.
+    '''
     t: FloatArray
     u: list[DofVector]
+    problem: 'Problem | None' = field(
+        default=None, kw_only=True, repr=False, metadata={'persist': False})
+
+    def at(self, i: int) -> FieldSolution:
+        '''Step `i` as a steady solution, with the derived field the problem recovers.'''
+        if self.problem is None:
+            return FieldSolution(self.space, self.u[i])
+        return self.problem.solution(self.u[i])
+
+    @property
+    def final(self) -> FieldSolution:
+        '''The last step, packaged; see `at`.'''
+        return self.at(-1)
 
 
 @dataclass(frozen=True, eq=False)

@@ -6,18 +6,20 @@ A region is any callable mapping an (N, spatial_dim) array of point coordinates 
 cases and own the coordinate tolerance.
 
 A field is a constant or a callable of position; `evaluate_field` normalizes both
-into a (N, n_components) array.
+into a (N, n_components) array. A `TimeDependent` field is a callable of position and
+time; `at(t)` turns it into a field of position, which is what every consumer takes.
 
 Both are mesh-independent, so a boundary condition described this way can be
 resolved again against whatever mesh is current and survives refinement.
 `at_indices` is the escape hatch for node-specific work; it marks itself mesh-bound
 so remeshers can refuse it.
 """
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
 
-from fem.typing import BoolArray, FieldValue, FloatArray, IntArray, Region, Vertices
+from fem.typing import BoolArray, FieldValue, FloatArray, IntArray, Point, Region, Vertices
 
 # Coordinates come from linspace/midpoint arithmetic, so exact boundary values
 # are representable; this only absorbs round-off, not genuine mesh spacing.
@@ -94,6 +96,28 @@ class at_indices:  # noqa: N801 - lowercase to read like the function helpers ab
         return mask
 
 
+class TimeDependent:
+    '''A field that varies in time: `fn(p, t)` is the value at point `p` and time `t`.
+
+    A source, a traction, a Robin `g`, or a Dirichlet value may be one; the
+    integrators evaluate it at each step through `Problem.load_at` and
+    `Problem.constraints_at`. `at(t)` fixes the time and returns the plain field of
+    position every other consumer takes.
+    '''
+
+    def __init__(self, fn: Callable[[Point, float], Any]) -> None:
+        self.fn = fn
+
+    def at(self, t: float) -> Callable[[Point], Any]:
+        fn = self.fn
+        return lambda p: fn(p, t)
+
+
+def field_at(value: FieldValue, t: float) -> FieldValue:
+    '''`value` at time `t`: a `TimeDependent` field fixed at `t`, anything else as is.'''
+    return value.at(t) if isinstance(value, TimeDependent) else value
+
+
 def is_mesh_bound(region: Region) -> bool:
     '''Whether `region` is tied to one specific mesh's vertex numbering.'''
     return bool(getattr(region, 'mesh_bound', False))
@@ -117,6 +141,8 @@ def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -
     '''
     if value is None:
         return np.zeros((len(points), n_components))
+    if isinstance(value, TimeDependent):
+        raise TypeError('a TimeDependent field has no value without a time; use field_at(value, t)')
 
     def coerce(raw: float | Sequence[float | None] | FloatArray) -> FloatArray:
         # object dtype defers numeric coercion to the comprehension below, so a

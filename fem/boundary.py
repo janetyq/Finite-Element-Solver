@@ -13,7 +13,7 @@ from typing import Protocol
 
 import numpy as np
 
-from fem.regions import _coerce_components, evaluate_field, is_mesh_bound
+from fem.regions import TimeDependent, _coerce_components, evaluate_field, field_at, is_mesh_bound
 from fem.typing import (
     BoolArray,
     DofIndices,
@@ -173,6 +173,12 @@ class BoundaryConditions:
         self._check_region(region)
         self.robin_conditions.append((region, float(kappa), g))
 
+    @property
+    def is_time_dependent(self) -> bool:
+        '''Whether any condition's value is a `TimeDependent` field.'''
+        values = [v for _, _, v in self.conditions] + [g for _, _, g in self.robin_conditions]
+        return any(isinstance(v, TimeDependent) for v in values)
+
     def is_mesh_bound(self) -> bool:
         '''Whether any condition is tied to one mesh's vertex numbering, and so
         cannot be carried across a remesh.'''
@@ -222,8 +228,9 @@ class BoundaryConditions:
             # bc_type the way resolve() does: a Dirichlet component may
             # legitimately be None/free, and a stray None elsewhere is a user
             # mistake worth seeing here (as a literal NaN) rather than one
-            # this inspection path hides by raising before resolve() can.
-            return _coerce_components(value, nodes.vertices[idxs], 1) if len(idxs) \
+            # this inspection path hides by raising before resolve() can. A
+            # time-dependent value is shown at t = 0.
+            return _coerce_components(field_at(value, 0.0), nodes.vertices[idxs], 1) if len(idxs) \
                 else np.zeros((0, 1))
 
         out = []
@@ -235,8 +242,9 @@ class BoundaryConditions:
             out.append((BCType.ROBIN, idxs, resolved_values(idxs, g)))
         return out
 
-    def resolve(self, nodes: NodeGeometry, n_components: int) -> ResolvedBC:
-        '''Reduce this specification to a `ResolvedBC` for `nodes` at `n_components` DOFs per node.'''
+    def resolve(self, nodes: NodeGeometry, n_components: int, t: float = 0.0) -> ResolvedBC:
+        '''Reduce this specification to a `ResolvedBC` for `nodes` at `n_components` DOFs
+        per node, with any `TimeDependent` value taken at time `t`.'''
         n = len(nodes.vertices)
         dirichlet: dict[int, FloatArray] = {}
         neumann = np.zeros((n, n_components))
@@ -246,6 +254,7 @@ class BoundaryConditions:
 
         for bc_type, region, value in self.conditions:
             idxs = self.select(nodes, region)
+            value = field_at(value, t)
 
             if bc_type is BCType.DIRICHLET:
                 values = _evaluate_dirichlet_value(value, nodes.vertices[idxs], n_components)
@@ -283,7 +292,7 @@ class BoundaryConditions:
         for region, kappa, g_field in self.robin_conditions:
             idxs = self.select(nodes, region)
             g = np.zeros((n, n_components))
-            g[idxs] = evaluate_field(g_field, nodes.vertices[idxs], n_components)
+            g[idxs] = evaluate_field(field_at(g_field, t), nodes.vertices[idxs], n_components)
             # A boundary facet is in the region iff all its nodes are: the
             # all-nodes rule that keeps the boundary integral crisp.
             facet_mask = np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
