@@ -15,7 +15,7 @@ import pytest
 
 from fem.boundary import BoundaryConditions, BCType
 from fem.elements import QuadraticTriangleElement
-from fem.equations import LinearElastic, StrainMeasure
+from fem.equations import LinearElastic, FiniteStrainElastic
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import intersect, on_plane
 from fem.buckling import BucklingAnalysis
@@ -155,7 +155,7 @@ def test_green_lagrange_equation_is_rejected():
     """Linearised buckling needs the constant small-strain stiffness; a finite-strain
     equation has none, so its problem is refused."""
     mesh = column(12.0, n_length=12, n_across=3)
-    equation = LinearElastic(E, NU, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E, NU)
     with pytest.raises(TypeError, match='constant tangent'):
         BucklingAnalysis(n_modes=2).solve(_problem(mesh, equation=equation))
 

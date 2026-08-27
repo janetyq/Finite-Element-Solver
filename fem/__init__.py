@@ -50,8 +50,9 @@ from fem.equations import (
     Poisson,
     Diffusion,
     Wave,
+    Elasticity,
     LinearElastic,
-    StrainMeasure,
+    FiniteStrainElastic,
 )
 from fem.solver import Solver
 from fem.forms import (
@@ -161,8 +162,9 @@ __all__ = [
     "Poisson",
     "Diffusion",
     "Wave",
+    "Elasticity",
     "LinearElastic",
-    "StrainMeasure",
+    "FiniteStrainElastic",
     "LinearProblem",
     "Problem",
     "Source",

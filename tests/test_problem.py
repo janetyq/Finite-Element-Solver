@@ -13,7 +13,7 @@ from fem.numerics import central_difference_order
 from fem.problem import LinearProblem, Problem
 from fem.regions import everywhere, on_plane
 from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
-from fem.equations import LinearElastic, Poisson, Projection, StrainMeasure
+from fem.equations import LinearElastic, Poisson, Projection, FiniteStrainElastic
 from fem.solver import Solver
 from fem.space import FunctionSpace
 
@@ -273,14 +273,14 @@ def _loaded_bc(scale=1.0):
     return bc
 
 
-@pytest.mark.parametrize('kinematics', [StrainMeasure.SMALL, StrainMeasure.GREEN_LAGRANGE])
-def test_composed_energy_residual_and_tangent_are_consistent(make_unit_square, kinematics):
+@pytest.mark.parametrize('model', [LinearElastic, FiniteStrainElastic])
+def test_composed_energy_residual_and_tangent_are_consistent(make_unit_square, model):
     """With a body force, a traction, and a Robin term all present, the problem's
     residual is the gradient of its energy and its tangent the gradient of its residual,
     to O(eps^2) under central differences. Holds for the constant and the
     state-dependent tangent alike, so a line search on the energy and Newton on the
     residual agree on which way is downhill."""
-    equation = LinearElastic(E=200, nu=0.4, source=[1.0, -3.0], kinematics=kinematics)
+    equation = model(E=200, nu=0.4, source=[1.0, -3.0])
     problem = equation.problem(make_unit_square(5), _loaded_bc())
 
     rng = np.random.default_rng(1)
@@ -288,7 +288,7 @@ def test_composed_energy_residual_and_tangent_are_consistent(make_unit_square, k
     residual = problem.residual(u)
     tangent = problem.tangent(u)
 
-    if kinematics is StrainMeasure.SMALL:
+    if model is LinearElastic:
         # A quadratic energy's central difference is exact at any step, so there is no
         # order to measure; check the values directly.
         d = rng.standard_normal(problem.space.n_dofs)
@@ -311,8 +311,7 @@ def test_forced_finite_strain_problem_balances_its_load(make_unit_square):
     mesh = make_unit_square(6)
     scale = 1e-3
     bc = _loaded_bc(scale)
-    finite = LinearElastic(E=200, nu=0.4, source=[scale, -3 * scale],
-                           kinematics=StrainMeasure.GREEN_LAGRANGE)
+    finite = FiniteStrainElastic(E=200, nu=0.4, source=[scale, -3 * scale])
     problem = finite.problem(mesh, bc)
     free = problem.constraints[0]
     load_scale = float(np.abs(problem.load).max())
@@ -368,7 +367,7 @@ def test_problem_solve_picks_newton_for_a_state_dependent_operator(make_unit_squ
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.05, 0.0])
-    finite = LinearElastic(E=200, nu=0.3, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    finite = FiniteStrainElastic(E=200, nu=0.3)
     problem = finite.problem(mesh, bc)
     assert type(problem) is Problem
     u_newton = NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem)

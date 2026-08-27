@@ -14,7 +14,7 @@ import pytest
 
 from fem.boundary import BoundaryConditions, BCType
 from fem.elements import QuadraticTriangleElement
-from fem.equations import LinearElastic, StrainMeasure
+from fem.equations import LinearElastic, FiniteStrainElastic
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import on_plane
 from fem.solution import ModalSolution, Solution
@@ -115,7 +115,7 @@ def test_green_lagrange_equation_is_rejected():
     """Modal analysis linearises about the unstressed state; a finite-strain law has no
     constant stiffness, so its problem is refused."""
     mesh = cantilever(12.0, n_length=12, n_across=3)
-    equation = LinearElastic(E, NU, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E, NU)
     with pytest.raises(TypeError, match='constant tangent'):
         ModalAnalysis(n_modes=2).solve(equation.problem(mesh))
 

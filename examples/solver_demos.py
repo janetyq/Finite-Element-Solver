@@ -24,7 +24,7 @@ from fem.problem import Problem
 from fem.space import FunctionSpace
 from fem.regions import on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
-from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure, Wave
+from fem.equations import Projection, Poisson, LinearElastic, FiniteStrainElastic, Wave
 from fem.solve import BacktrackingLineSearch, NewtonSolve
 from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
@@ -561,7 +561,7 @@ def demo_elasticity_models(mesh, stretch=0.5):
     bc.add(BCType.DIRICHLET, on_plane(0, w), [stretch*w, 0])
 
     linear = LinearElastic(E=200, nu=0.4)
-    finite = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    finite = FiniteStrainElastic(E=200, nu=0.4)
     # Panel 2 states small strain as an energy and minimises it: the same density the
     # linear stiffness is the Hessian of, under Newton.
     energy_problem = Problem(linear.space(mesh), EnergyForm(linear.energy_density()), bc=bc)

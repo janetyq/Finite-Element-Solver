@@ -1,10 +1,10 @@
-"""An equation names its own physics: the `operator` for its kinematics and the
-refusals where the physics does not apply.
+"""An equation names its own physics: the `operator` of its model and the refusals
+where the physics does not apply.
 """
 import numpy as np
 import pytest
 
-from fem.equations import Equation, LinearElastic, Poisson, Projection, StrainMeasure
+from fem.equations import Equation, LinearElastic, Poisson, Projection, FiniteStrainElastic
 from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, MassForm
 from fem.problem import LinearProblem, Problem
 from fem.space import FunctionSpace
@@ -20,12 +20,12 @@ def test_projection_assembles_a_mass_matrix(make_unit_square):
     assert operator.n_components == 2
 
 
-def test_scalar_family_shares_the_material_free_laplacian(make_unit_square):
-    """Poisson needs no material, so the base class answer is the right one and Poisson
-    does not override it."""
+def test_poisson_names_the_laplacian_and_the_base_equation_names_nothing(make_unit_square):
+    """`Equation` is abstract: an operator comes from a named PDE."""
     space = FunctionSpace(make_unit_square(3))
     assert isinstance(Poisson().operator(space), LaplacianForm)
-    assert isinstance(Equation().operator(space), LaplacianForm)
+    with pytest.raises(NotImplementedError, match='operator'):
+        Equation().operator(space)
 
 
 def test_linear_elastic_builds_its_form_from_its_own_constants(make_unit_square):
@@ -42,7 +42,7 @@ def test_finite_strain_operator_is_an_energy_form(make_unit_square):
     """A Green-Lagrange energy is not quadratic, so its operator is the St-VK
     `EnergyForm`, its problem a `Problem` with a state-dependent tangent, and a
     `LinearProblem` over it is refused."""
-    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E=200, nu=0.4)
     space = FunctionSpace(make_unit_square(3), n_components=2)
 
     operator = equation.operator(space)
@@ -107,7 +107,7 @@ def test_default_strategy_follows_the_tangent(make_unit_square):
 
     mesh = make_unit_square(4)
     linear = LinearElastic(E=200, nu=0.4)
-    finite = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    finite = FiniteStrainElastic(E=200, nu=0.4)
 
     assert isinstance(default_strategy(linear.problem(mesh)), LinearSolve)
     newton = default_strategy(finite.problem(mesh))

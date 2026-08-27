@@ -19,7 +19,7 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.materials import LinearElasticMaterial
 from fem.problem import Problem
 from fem.regions import on_plane
-from fem.equations import LinearElastic, StrainMeasure
+from fem.equations import LinearElastic, FiniteStrainElastic
 from fem.solver import Solver
 from fem.solve import BacktrackingLineSearch, NewtonSolve, TangentRegularization
 from fem.energies import SmallStrain, StVenantKirchhoff
@@ -56,10 +56,10 @@ def _stretched_square(make_unit_square, stretch=0.1, n=8):
     return mesh, bc
 
 
-def _energy_problem(mesh, bc, kinematics):
-    """The energy-minimisation statement of `LinearElastic` with the given strain
-    measure: its density under an `EnergyForm`, whichever the measure."""
-    equation = LinearElastic(E=200, nu=0.4, kinematics=kinematics)
+def _energy_problem(mesh, bc, model):
+    """The energy-minimisation statement of an elastic `model` (`LinearElastic` or
+    `FiniteStrainElastic`): its density under an `EnergyForm`."""
+    equation = model(E=200, nu=0.4)
     return Problem(equation.space(mesh), EnergyForm(equation.energy_density()), bc=bc)
 
 
@@ -80,7 +80,7 @@ def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_s
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [-0.7, 0])   # 70% compression
-    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E=200, nu=0.4)
     problem = equation.problem(mesh, bc)
     free = problem.constraints[0]
 
@@ -97,25 +97,20 @@ def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_s
     )
 
 
-def test_kinematics_is_an_equation_level_choice():
-    """The strain measure selects the density on the equation itself, not in a
-    solver: LinearElastic.energy_density owns the mapping, and defaults to small
-    strain (matching the equation's name and the linear path)."""
-    small = LinearElastic(200, 0.4, kinematics=StrainMeasure.SMALL)
-    finite = LinearElastic(200, 0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    default = LinearElastic(200, 0.4)
-
-    assert isinstance(small.energy_density(), SmallStrain)
-    assert isinstance(default.energy_density(), SmallStrain)
+def test_each_elastic_model_names_its_energy_density():
+    """`LinearElastic` minimises the small-strain energy, `FiniteStrainElastic` the
+    St-Venant-Kirchhoff one by default, and a `law` chooses another."""
+    assert isinstance(LinearElastic(200, 0.4).energy_density(), SmallStrain)
     # SmallStrain subclasses StVenantKirchhoff, so pin the finite member by exact type.
-    assert type(finite.energy_density()) is StVenantKirchhoff
+    assert type(FiniteStrainElastic(200, 0.4).energy_density()) is StVenantKirchhoff
+    assert type(FiniteStrainElastic(200, 0.4, law=SmallStrain).energy_density()) is SmallStrain
 
 
 def test_finite_strain_solve_matches_recorded_solution(make_unit_square):
     """Regression pin on the St Venant-Kirchhoff answer: values recorded from the
     implementation, so this catches drift rather than proving correctness."""
     mesh, bc = _stretched_square(make_unit_square)
-    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E=200, nu=0.4)
     solver = Solver(mesh, equation, bc)
     u = solver.solve().u
 
@@ -131,7 +126,7 @@ def test_residual_and_tangent_are_consistent_by_finite_difference(make_unit_squa
     transposes), which a density-level check cannot see. St-VK is used because its
     quartic energy gives a clean O(eps^2) slope."""
     mesh = make_unit_square(5)
-    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E=200, nu=0.4)
     # No BCs: energy, residual, and tangent are the raw, unconstrained quantities,
     # evaluated at an imposed state rather than a solve.
     problem = equation.problem(mesh)
@@ -156,7 +151,7 @@ def test_small_strain_energy_equals_direct_solve(make_unit_square):
     mesh, bc = _stretched_square(make_unit_square)
 
     u_direct = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().u.flatten()
-    u_energy = _one_newton_step(_energy_problem(mesh, bc, StrainMeasure.SMALL))
+    u_energy = _one_newton_step(_energy_problem(mesh, bc, LinearElastic))
 
     np.testing.assert_allclose(u_energy, u_direct, atol=1e-12)
 
@@ -164,7 +159,7 @@ def test_small_strain_energy_equals_direct_solve(make_unit_square):
 def test_stvk_needs_more_than_one_newton_step(make_unit_square):
     """St-VK is nonlinear in u, so one Newton step leaves a residual."""
     mesh, bc = _stretched_square(make_unit_square)
-    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E=200, nu=0.4)
 
     u_one = _one_newton_step(equation.problem(mesh, bc))
     u_converged = Solver(mesh, equation, bc).solve().u
@@ -179,8 +174,8 @@ def test_models_agree_to_second_order_in_strain(make_unit_square):
     gaps = []
     for stretch in (0.08, 0.04, 0.02, 0.01):
         mesh, bc = _stretched_square(make_unit_square, stretch=stretch)
-        u_small = _minimise(_energy_problem(mesh, bc, StrainMeasure.SMALL))
-        u_stvk = _minimise(_energy_problem(mesh, bc, StrainMeasure.GREEN_LAGRANGE))
+        u_small = _minimise(_energy_problem(mesh, bc, LinearElastic))
+        u_stvk = _minimise(_energy_problem(mesh, bc, FiniteStrainElastic))
         gaps.append(np.linalg.norm(u_small - u_stvk))
 
     ratios = [a / b for a, b in zip(gaps[:-1], gaps[1:])]
@@ -228,7 +223,7 @@ def _stretched_stvk(make_unit_square, n=8, stretch=0.1):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [stretch, 0])
-    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    equation = FiniteStrainElastic(E=200, nu=0.4)
     return mesh, equation, bc
 
 
