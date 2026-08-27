@@ -194,3 +194,28 @@ def test_l2_and_average_recovery_differ_on_a_varying_field():
     average = space.recover_nodal(field, method='average')
     l2 = space.recover_nodal(field, method='l2')
     assert not np.allclose(average, l2)
+
+
+# --- interpolation ---
+
+@pytest.mark.parametrize('element_type', [LinearTriangleElement, QuadraticTriangleElement])
+@pytest.mark.parametrize('value', [1.5, [1.5, 1.5]])
+def test_interpolate_fills_every_dof_of_the_space(unit_square, element_type, value):
+    n_components = 1 if np.isscalar(value) else len(value)
+    space = FunctionSpace(unit_square, element_type, n_components=n_components)
+    assert space.interpolate(value).shape == (space.n_dofs,)
+    assert np.all(space.interpolate(value) == 1.5)
+
+
+def test_interpolate_samples_a_callable_at_the_p2_edge_nodes(unit_square):
+    space = FunctionSpace(unit_square, QuadraticTriangleElement)
+    u = space.interpolate(lambda p: p[0] + 2 * p[1])
+    expected = space.node_coords[:, 0] + 2 * space.node_coords[:, 1]
+    np.testing.assert_allclose(u, expected)
+    assert len(u) > len(unit_square.vertices)
+
+
+def test_interpolate_interleaves_vector_components(unit_square):
+    space = FunctionSpace(unit_square, n_components=2)
+    u = space.interpolate([1.0, 2.0])
+    assert np.all(u[0::2] == 1.0) and np.all(u[1::2] == 2.0)
