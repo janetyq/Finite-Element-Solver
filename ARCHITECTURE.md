@@ -247,7 +247,9 @@ steps by updating the right-hand side. A `TimeDependent` source or boundary valu
 position and time) is re-evaluated each step through `problem.load_at(t)`; `ThetaMethod` also
 prescribes a time-dependent Dirichlet value per step through `problem.constraints_at(t)`, while
 `NewmarkMethod` refuses one (prescribed motion needs its velocity and acceleration too). Both
-return a `TransientSolution` whose `at(i)` packages a step as the typed steady solution. `ThetaMethod` (Crank-Nicolson by default, backward Euler at θ=1)
+return a `TransientSolution` whose `at(i)` packages a step as the typed steady solution. A
+steady solve or an estimator works on the snapshot `problem.at(t)`; `problem.solve(t=...)`
+takes that step itself. `ThetaMethod` (Crank-Nicolson by default, backward Euler at θ=1)
 and `NewmarkMethod` (average acceleration, solving for the acceleration against the SPD
 `M + β dt² K`) both take a `Backend`.
 

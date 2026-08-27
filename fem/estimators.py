@@ -64,6 +64,11 @@ class Solved:
 
 def _solved(problem: Problem, solution: FieldSolution) -> Solved:
     '''The view the flux hooks read, from a problem and its solution.'''
+    if problem.is_time_dependent:
+        raise ValueError(
+            'an error estimate is for one steady problem; pass the snapshot problem.at(t) '
+            'the solution was solved at'
+        )
     space = problem.space
     resolved = problem.resolved
     # Sized by nodes, not mesh vertices: a P2 space fixes edge-midpoint DOFs too, whose

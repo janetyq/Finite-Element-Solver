@@ -21,7 +21,8 @@ A transient problem also has a mass side, `mass` = density times the space's con
 mass matrix, which the integrators and modal analysis pair with the tangent. A source or
 boundary value may be a `TimeDependent` field; `load` and `constraints` are their values
 at `t = 0`, and `load_at(t)` / `constraints_at(t)` re-evaluate them, which the integrators
-call per step.
+call per step. `at(t)` is the steady snapshot with every value fixed at `t`, which a steady
+solve (`solve(t=...)`) or an estimator works on.
 
 `LinearProblem` is the case whose operator has a constant tangent (a `BilinearForm`):
 the matrix is assembled once and held, and the residual is affine. Everything that
@@ -123,6 +124,8 @@ class Problem:
         if callable(source) and not isinstance(source, (LinearForm, Source)):
             source = LinearForm(source, n_components=space.n_components)
         self.source = source
+        # Set by `at(t)`: a snapshot answers no time-dependent question.
+        self._frozen_at: float | None = None
         self._b = self._load(self._resolved, self._source_at(0.0))
         # A constant tangent is assembled on first use, not here. Stating a problem
         # is cheap; assembling its operator is the expensive half, and a problem can
@@ -157,8 +160,27 @@ class Problem:
 
     @property
     def is_time_dependent(self) -> bool:
-        '''Whether the source or any boundary value is a `TimeDependent` field.'''
+        '''Whether the source or any boundary value is a `TimeDependent` field. A
+        snapshot from `at(t)` is not.'''
+        if self._frozen_at is not None:
+            return False
         return isinstance(self.source, TimeDependent) or self.bc.is_time_dependent
+
+    def at(self, t: float) -> 'Problem':
+        '''This problem with every time-dependent value fixed at time `t`: a steady
+        problem sharing the space, operator, and boundary integrals.'''
+        if not self.is_time_dependent:
+            return self
+        snapshot = copy.copy(self)
+        snapshot._frozen_at = t
+        source = self._source_at(t)
+        if callable(source) and not isinstance(source, (LinearForm, Source)):
+            source = LinearForm(source, n_components=self.space.n_components)
+        snapshot.source = source
+        if self.bc.is_time_dependent:
+            snapshot._resolved = self.bc.resolve(self.space.nodes, self.space.n_components, t)
+        snapshot._b = self._load(snapshot._resolved, source)
+        return snapshot
 
     def load_at(self, t: float) -> DofVector:
         '''The load at time `t`; `load` itself when nothing depends on time.'''
@@ -290,16 +312,25 @@ class Problem:
         strategy: 'SolveStrategy | None' = None,
         backend: 'Backend | None' = None,
         u0: DofVector | None = None,
+        t: float | None = None,
     ) -> FieldSolution:
         '''Solve and package the result as the typed `Solution` for this operator.
 
         `strategy` None is `default_strategy`: `LinearSolve` for a constant tangent,
         line-searched `NewtonSolve` otherwise, over `backend`. A strategy carries its
         own backend, so the two are not given together. `u0` seeds an iterative
-        strategy.
+        strategy. A time-dependent problem is solved as its snapshot `at(t)`, so `t`
+        is required for one; an integrator steps it instead.
         '''
         if strategy is not None and backend is not None:
             raise ValueError('a strategy carries its own backend; pass one or the other')
+        if self.is_time_dependent:
+            if t is None:
+                raise ValueError(
+                    'the problem has a time-dependent source or boundary value; pass t= '
+                    'for a steady solve at that time, or step it with an integrator'
+                )
+            return self.at(t).solve(strategy, backend, u0)
         if strategy is None:
             from fem.solve import default_strategy
             strategy = default_strategy(self, backend)

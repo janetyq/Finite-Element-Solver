@@ -149,3 +149,41 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
     assert isinstance(loaded, TransientSolution) and loaded.problem is None
     assert type(loaded.at(1)) is FieldSolution
     np.testing.assert_array_equal(loaded.at(1).u, history.u[1])
+
+
+def test_snapshot_at_a_time_is_a_steady_problem(make_unit_square):
+    """`problem.at(t)` fixes every time-dependent value; a steady solve needs a `t`, and
+    an estimator takes the snapshot."""
+    from fem.estimators import RecoveryEstimator
+    mesh = make_unit_square(5)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), TimeDependent(lambda p, t: t))
+    problem = Poisson(source=TimeDependent(lambda p, t: 2.0 * t)).problem(mesh, bc)
+
+    reference_bc = BoundaryConditions()
+    reference_bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 3.0)
+    reference = Poisson(source=lambda p: 6.0).problem(mesh, reference_bc)
+
+    snapshot = problem.at(3.0)
+    assert not snapshot.is_time_dependent and problem.is_time_dependent
+    np.testing.assert_allclose(snapshot.load, reference.load, atol=1e-14)
+    np.testing.assert_allclose(snapshot.constraints[2], reference.constraints[2])
+    assert snapshot.load_at(0.0) is snapshot.load
+
+    with pytest.raises(ValueError, match='pass t='):
+        problem.solve()
+    np.testing.assert_allclose(problem.solve(t=3.0).u, reference.solve().u, atol=1e-12)
+
+    solution = snapshot.solve()
+    with pytest.raises(ValueError, match='problem.at'):
+        RecoveryEstimator().estimate(problem, solution)
+    assert RecoveryEstimator().estimate(snapshot, solution).shape == (len(mesh.elements),)
+
+
+def test_bc_plot_labels_a_time_dependent_value(make_unit_square):
+    from fem.plot.bc import _classify
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), TimeDependent(lambda p, t: 1.0 + t))
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), 2.0)
+    marks, _ = _classify(bc, make_unit_square(4))
+    assert 'varies in time' in marks[0].label and 'varies' not in marks[1].label

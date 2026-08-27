@@ -727,8 +727,9 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     u_initial = heat.space.interpolate(u_ambient)
     solution = ThetaMethod(dt=dt, steps=steps).solve(heat, u_initial)
     u_values, t_values = solution.u, solution.t
-    # The last step as a steady solution carries the recovered heat flux -grad u.
-    flux_magnitude = np.linalg.norm(solution.final.nodal_flux(), axis=1)
+    # Each step as a steady solution carries the recovered heat flux -grad u.
+    flux_values = [np.linalg.norm(solution.at(i).nodal_flux(), axis=1)
+                   for i in range(len(u_values))]
 
     # -- effectiveness: block vs finned, posed two ways --------------------------------
     # Fixed power: the same heat flux into each base (a chip of fixed wattage); compare the
@@ -806,29 +807,29 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     ax.grid(alpha=0.3)
     ax.legend()
 
-    # -- the transient figures ---------------------------------------------------------
-    # One scale across the row (ambient to the heated base), a warm colormap for a warming
-    # shape, and one shared bar on the last panel.
-    n_shown = 4
-    snapshots = Plotter(1, n_shown, panel_aspect=1.6,
-                        title='Heatsink warming: heat climbing the fins')
-    for panel, i in enumerate(np.linspace(0, len(u_values) - 1, n_shown).astype(int)):
-        snapshots.plot(mesh, u_values[i], mode='colored', idx=(0, panel),
-                       label='temperature', cmap='inferno', clim=(u_ambient, u_hot),
-                       colorbar=(panel == n_shown - 1), title=f't={t_values[i]:.2f}')
-
-    animation = Plotter(1, 1, title='Heatsink warming up')
+    # -- the transient figure ----------------------------------------------------------
+    # Temperature and heat flux side by side, stepping together: a warm colormap for a
+    # warming shape on a scale fixed from ambient to the heated base, and the flux on
+    # its own scale.
+    animation = Plotter(1, 2, panel_aspect=1.6, title='Heatsink warming up')
     animation.plot_animation(mesh, u_values, mode='colored', label='temperature',
                              cmap='inferno', cbar_lims=(u_ambient, u_hot),
-                             titles=[f't={t:.2f}' for t in t_values], idx=(0, 0))
+                             titles=[f'temperature  t={t:.2f}' for t in t_values], idx=(0, 0))
+    animation.plot_animation(mesh, flux_values, mode='colored', label='|grad u|',
+                             cmap='viridis',
+                             titles=[f'heat flux  t={t:.2f}' for t in t_values], idx=(0, 1))
 
-    setup = Plotter(1, 3, title='How the heatsink is posed, and where the heat flows')
+    setup = Plotter(1, 2, title='How the heatsink is posed')
     setup.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
-    setup.plot(mesh, u_initial, mode='colored', idx=(0, 1), label='temperature',
-               cmap='inferno', clim=(u_ambient, u_hot),
-               title=f'Initial condition u(x, 0) = {u_ambient:.0f}')
-    setup.plot(mesh, flux_magnitude, mode='colored', idx=(0, 2), label='|grad u|',
-               cmap='viridis', title=f'Heat flux at t={t_values[-1]:.2f}')
+    schedule = setup.chart_ax(idx=(0, 1), xlabel='t', ylabel='base temperature')
+    t_dense = np.linspace(0.0, float(t_values[-1]), 400)
+    schedule.plot(t_dense, [base_temperature(None, t) for t in t_dense], color='tab:red',
+                  label='base (Dirichlet)')
+    schedule.axhline(u_ambient, color='tab:orange', ls='--', label='ambient (Robin film)')
+    schedule.set_ylim(u_ambient - 10, u_hot + 10)
+    schedule.set_title(f'The base switches on over {ramp:.1f} s')
+    schedule.grid(alpha=0.3)
+    schedule.legend(loc='lower right')
 
     tip = float(u_values[-1].min())
     eta_here = float(eta_fem[np.argmin(np.abs(lengths - 1.4))])
@@ -842,12 +843,6 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
                f'finned sink sheds {effectiveness:.1f}x the heat with {metal_ratio:.2f}x the '
                'metal, since the fins trade material for surface area.',
                'comparison', thumbnail=True),
-        Figure(snapshots,
-               'The same finned sink warming from a cold start, the transient heat equation '
-               'stepped in time. The base is held hot underneath and the fins shed to '
-               'ambient through a Robin film, so the warming front climbs each fin and '
-               f'settles into the fin gradient, hot at the root and about {tip:.0f} at the tips.',
-               'snapshots'),
         Figure(efficiency,
                'Fin efficiency, the heat a fin sheds over what it would shed with all of it '
                'at the base temperature, against the beam-theory law tanh(mL)/(mL). The '
@@ -855,16 +850,20 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
                "long fin runs cold toward the tip and carries less of its share. This sink's "
                f'fins (L = 1.4) sit near {eta_here:.0%}, trading efficiency for surface area.',
                'efficiency'),
-        Figure(animation, 'Crank-Nicolson warming of the heatsink, base to fin tips.',
+        Figure(animation,
+               'The finned sink warming from a cold start, the transient heat equation '
+               'stepped by Crank-Nicolson. Left, temperature: the warming front climbs each '
+               'fin and settles into the fin gradient, hot at the root and about '
+               f'{tip:.0f} at the tips. Right, the heat flux magnitude recovered from each '
+               'step: largest in the base and at the fin roots, where the gradient is '
+               'steepest, and fading toward the tips as the fins run cold.',
                'animation'),
         Figure(setup,
-               'The bottom face is a chip switching on: its temperature ramps from ambient '
-               f'to {u_hot:.0f} over the first {ramp:.1f} s and then holds. Every other '
-               'surface carries a Robin film, du/dn + kappa*(u - u_ambient) = 0, shedding '
-               'heat to ambient. The sink starts cold at ambient, so the transient is a '
-               'warm-up to the steady dissipating state. The last panel is the heat flux '
-               'magnitude at the end of the run: largest in the base and the fin roots, '
-               'where the temperature gradient is steepest.',
+               'Left, the conditions. The bottom face is a chip switching on: its '
+               f'temperature ramps from ambient to {u_hot:.0f} over the first {ramp:.1f} s '
+               'and then holds (right). Every other surface carries a Robin film, '
+               'du/dn + kappa*(u - u_ambient) = 0, shedding heat to ambient. The sink starts '
+               'cold at ambient, so the transient is a warm-up to the steady dissipating state.',
                'conditions', setup=True),
     ], text=(f'thermal resistance R (base rise per unit power):\n'
              f'  solid block   {r_block:.3f}\n'
