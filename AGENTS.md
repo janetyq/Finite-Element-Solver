@@ -12,13 +12,11 @@ Working guidelines for agents on this repo. `CLAUDE.md` imports this file. Do no
 
 ## Prose
 
-Applies to docstrings, comments, docs, demo text, and PR titles and descriptions.
+Style preferences for text checked into the repo: docstrings, comments, README, ARCHITECTURE.md, BACKLOG.md, demo text. They do not apply to conversation with the user.
 
-- A docstring says what a thing is and returns; a comment says the mechanism.
-- Describe the code as it stands. No history ("previously", "no longer", "now", "instead of").
-- Use contrast phrasing ("X, not Y") only where it adds clarity, titles included.
-- No design arguments or asides in code; the case for a choice goes in the PR. State a constraint the code cannot show in one sentence.
-- Simple language, no em-dashes.
+- Keep it short. A docstring says what a thing is and returns; a comment explains a mechanism the code cannot show. Design rationale goes in the PR.
+- Write for someone reading the current code with no memory of earlier versions. Don't narrate what changed or contrast with how it used to be.
+- Plain, direct sentences. Avoid rhetorical devices that draw attention to the writing (em-dash asides, "X, not Y" framing, trailing qualifiers).
 - A test's name or docstring states the claim it checks.
 
 ## Git
