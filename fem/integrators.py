@@ -43,7 +43,7 @@ class ThetaMethod:
         self.backend = backend
 
     def solve(self, problem: Problem, u0: DofVector) -> Solution:
-        M = problem.space.mass_matrix
+        M = problem.mass
         K = problem.tangent(None)
         b = problem.load
         dt, theta = self.dt, self.theta
@@ -81,7 +81,7 @@ class NewmarkMethod:
         self.backend = backend
 
     def solve(self, problem: Problem, u0: DofVector, v0: DofVector) -> Solution:
-        M = problem.space.mass_matrix
+        M = problem.mass
         K = problem.tangent(None)  # already c²K for the wave factory
         b = problem.load
         free, fixed, fixed_values = problem.constraints
@@ -118,13 +118,14 @@ class NewmarkMethod:
 
 
 def wave_energy(problem: Problem, u: DofVector, v: DofVector) -> float:
-    '''Total wave energy ½(uᵀ K u + vᵀ M v), with K the c²-scaled stiffness.
+    '''Total wave energy ½(uᵀ K u + vᵀ M v), with K the c²-scaled stiffness and M
+    the problem's mass.
 
     The quantity average-acceleration Newmark conserves for a linear system, so it
     is a usable integrator diagnostic. The consistent mass matrix is load-bearing:
     pairing a lumped kinetic term with the exact potential one makes the total swing
     as energy sloshes between them, a pure measurement artifact.
     '''
-    M = problem.space.mass_matrix
+    M = problem.mass
     K = problem.tangent(None)
     return float(0.5 * (u @ K @ u + v @ M @ v))

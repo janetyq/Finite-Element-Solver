@@ -130,3 +130,18 @@ def test_linear_elastic_stretches_under_tension(make_unit_square):
     assert np.all(np.isfinite(u)), "displacement field has non-finite entries"
     assert np.allclose(u[left], 0.0, atol=1e-10), "fixed edge moved"
     assert u[right, 0].mean() > 0, "right edge did not elongate in +x"
+
+
+def test_density_scales_the_mass_side_of_a_transient_problem(make_unit_square):
+    """`Wave(c, density=4)` under Newmark is the same discrete system as `Wave(c/2)`; a
+    heat problem with density 2 reaches at time t the state density 1 reaches at t/2."""
+    mesh = make_unit_square(8)
+    u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=1.0, size=0.2)
+    v0 = np.zeros(len(u0))
+    heavy = NewmarkMethod(dt=0.01, steps=10).solve(_on(Wave(c=1.0, density=4.0), mesh), u0.copy(), v0)
+    slow = NewmarkMethod(dt=0.01, steps=10).solve(_on(Wave(c=0.5), mesh), u0.copy(), v0)
+    np.testing.assert_allclose(heavy.u[-1], slow.u[-1], atol=1e-12)
+
+    dense = ThetaMethod(dt=0.01, steps=10, theta=1.0).solve(_on(Poisson(density=2.0), mesh), u0.copy())
+    unit = ThetaMethod(dt=0.005, steps=10, theta=1.0).solve(_on(Poisson(), mesh), u0.copy())
+    np.testing.assert_allclose(dense.u[-1], unit.u[-1], atol=1e-12)

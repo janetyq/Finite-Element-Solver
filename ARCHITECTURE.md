@@ -198,7 +198,9 @@ A `Problem` is the assembly-ready composition for one mesh: space, operator, loa
 Its residual has three terms, each present in `energy`, `residual`, and `tangent` alike: the
 form's own (`Π_form`, `R_form`, `∂R_form/∂u`), the Robin boundary term (`½κuᵀRu`, `κRu`, `κR`),
 and the load (`−fᵀu`, `−f`, `0`). `internal_residual` is the first two, kept apart from `load` so
-a strategy can scale one against the other. `LinearProblem` is the case whose operator has a
+a strategy can scale one against the other. `mass` is the problem's mass side, the equation's
+`density` times the space's consistent mass matrix, assembled once for the integrators and the
+modal analysis. `LinearProblem` is the case whose operator has a
 constant tangent: `tangent()` with no state is the matrix, assembled once and held, and
 `residual(u) = A·u − b`; it is the type every consumer that needs one fixed operator asks for. The
 `Problem` owns its constraints, so nothing index-keyed is carried across a mesh change: a driver
@@ -235,15 +237,15 @@ each eigenvector back to a full DOF vector. `BucklingAnalysis` and `ModalAnalysi
 ### Time integration
 
 Heat is first order and wave second, so there is one integrator family per order. Each forms a
-constant effective operator from the problem's mass and stiffness, factors it once, and steps by
-updating the right-hand side. `ThetaMethod` (Crank-Nicolson by default, backward Euler at θ=1)
+constant effective operator from `problem.mass` and `problem.tangent()`, factors it once, and
+steps by updating the right-hand side. `ThetaMethod` (Crank-Nicolson by default, backward Euler at θ=1)
 and `NewmarkMethod` (average acceleration, solving for the acceleration against the SPD
 `M + β dt² K`) both take a `Backend`.
 
 ### `Equation`
 
 `Equation` is typed data: `Projection`, `Poisson`, `Diffusion`, `Wave`, and `LinearElastic`, each
-carrying its physical constants. `operator(space)` returns the form for its physics: the
+carrying its physical constants, and a `density` for the time-derivative term. `operator(space)` returns the form for its physics: the
 small-strain stiffness or the St-Venant-Kirchhoff `EnergyForm`, by `LinearElastic.kinematics`.
 It refuses rather than approximates when the physics does not apply.
 Two more resolve it against a discretization: `space(mesh, element_type)` builds the
