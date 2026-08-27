@@ -87,8 +87,7 @@ class BucklingAnalysis:
         free = problem.constraints[0]
         mu, modes = eigensolve.solve(-K_g, K, free, space.n_dofs)
         factors, modes = _buckling_factors(mu, modes)
-        return BucklingSolution(space.mesh, space.n_components, factors, modes,
-                                element_type=space.element_type, reference=reference)
+        return BucklingSolution(space, factors, modes, reference=reference)
 
 
 def _buckling_factors(mu: FloatArray, modes: FloatArray) -> tuple[FloatArray, FloatArray]:

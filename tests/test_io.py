@@ -7,6 +7,7 @@ import pytest
 from fem.integrators import ThetaMethod
 from fem.io import load_mesh, save_mesh, save_solution
 from fem.mesh.mesh import Mesh
+from fem.space import FunctionSpace
 from fem.numerics import bump_function
 from fem.equations import Poisson
 from fem.solution import (
@@ -48,7 +49,7 @@ def test_elastic_solution_round_trip_preserves_fields_mesh_and_dim(make_unit_squ
     stress = stress + np.swapaxes(stress, -2, -1)
     strain = 0.1 * stress
     solution = ElasticSolution(
-        mesh, 2,
+        FunctionSpace(mesh, n_components=2),
         np.arange(len(mesh.vertices) * 2, dtype=float),
         strain,
         stress,
@@ -80,7 +81,7 @@ def test_loading_a_pre_tensor_elastic_solution_fails_loudly(make_unit_square):
     n_el = len(mesh.elements)
     with pytest.raises(ValueError, match='tensor field'):
         ElasticSolution(
-            mesh, 2,
+            FunctionSpace(mesh, n_components=2),
             np.zeros(len(mesh.vertices) * 2),
             np.zeros(n_el),   # a scalar per element
             np.zeros(n_el),
@@ -95,7 +96,7 @@ def test_buckling_solution_round_trip(make_unit_square, tmp_path):
     n_dofs = len(mesh.vertices) * 2
     rng = np.random.default_rng(1)
     solution = BucklingSolution(
-        mesh, 2,
+        FunctionSpace(mesh, n_components=2),
         np.array([1.5, 4.0, 9.0]),          # load factors
         rng.random((3, n_dofs)),            # mode shapes
     )
@@ -133,7 +134,7 @@ def test_transient_solution_round_trip_after_solve(make_unit_square, tmp_path):
 def test_solution_load_does_not_unpickle(make_unit_square, tmp_path):
     """The archive must be readable with allow_pickle=False."""
     mesh = make_unit_square(6)
-    solution = FieldSolution(mesh, 1, np.zeros(len(mesh.vertices)))
+    solution = FieldSolution(FunctionSpace(mesh), np.zeros(len(mesh.vertices)))
     path = tmp_path / "solution.npz"
     solution.save(path)
 
@@ -145,7 +146,7 @@ def test_saving_a_ragged_field_fails_loudly(make_unit_square, tmp_path):
     """A ragged field can only be stored as an object array (i.e. pickle), so it
     must raise at save time."""
     mesh = make_unit_square(6)
-    ragged = TransientSolution(mesh, 1, np.array([0.0, 1.0]), [np.zeros(3), np.zeros(5)])
+    ragged = TransientSolution(FunctionSpace(mesh), np.array([0.0, 1.0]), [np.zeros(3), np.zeros(5)])
 
     with pytest.raises(ValueError):
         save_solution(ragged, tmp_path / "ragged.npz")

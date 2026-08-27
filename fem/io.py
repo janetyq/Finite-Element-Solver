@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Header fields are handled by name rather than reflected into value arrays: `mesh` and
 # `n_components` reconstruct the geometry, and `element_type` is a class stored by name
 # (an array field cannot hold one), resolved back through `fem.elements` on load.
-_SOLUTION_HEADER = ('mesh', 'n_components', 'element_type')
+_SOLUTION_HEADER = ('space',)
 
 # npz key namespacing: solution values are user-named, so they get a prefix to
 # keep them from colliding with the mesh/component-count metadata in the same archive.
@@ -85,8 +85,9 @@ def _mesh_from_arrays(data):
 
 
 def _persisted(f: dataclasses.Field) -> bool:
-    '''Whether a solution field is stored: the header is written separately, and a
-    field marked `metadata={'persist': False}` (a form, not an array) is dropped.'''
+    '''Whether a solution field is stored: the space is written as its mesh and
+    parameters, and a field marked `metadata={'persist': False}` (a form, not an
+    array) is dropped.'''
     return f.name not in _SOLUTION_HEADER and f.metadata.get('persist', True)
 
 
@@ -120,12 +121,9 @@ def load_solution(path='solution.npz'):
     '''Read a solution written by `save_solution`, reconstructing its dataclass.'''
     import fem.elements as elements_module
     import fem.solution as solution_module
+    from fem.space import FunctionSpace
 
     with np.load(path) as data:
-        # A Solution is defined over geometry alone (it reads vertices and
-        # elements and nothing else), so whichever mesh class was stored is
-        # enough. Element geometry and operators belong to a FunctionSpace,
-        # which a solve builds for itself.
         mesh = _mesh_from_arrays(data)
         n_components = int(data[_N_COMPONENTS])
         cls = getattr(solution_module, str(data[_SOLUTION_CLASS]))
@@ -133,9 +131,12 @@ def load_solution(path='solution.npz'):
         # missing key means the linear default).
         type_name = str(data[_ELEMENT_TYPE]) if _ELEMENT_TYPE in data else ''
         element_type = getattr(elements_module, type_name) if type_name else None
+        # The space's node numbering is deterministic, so the rebuilt one matches the
+        # space the solve used.
+        space = FunctionSpace(mesh, element_type, n_components=n_components)
         fields = {
             f.name: data[_VALUE_PREFIX + f.name]
             for f in dataclasses.fields(cls)
             if _persisted(f)
         }
-        return cls(mesh, n_components, element_type=element_type, **fields)
+        return cls(space, **fields)
