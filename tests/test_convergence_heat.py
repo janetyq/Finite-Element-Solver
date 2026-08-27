@@ -11,7 +11,7 @@ from scipy.linalg import expm
 from fem.boundary import BoundaryConditions, BCType
 from fem.integrators import ThetaMethod
 from fem.mesh.structured import create_rect_mesh
-from fem.problem import heat
+from fem.equations import Poisson
 from fem.regions import everywhere
 
 
@@ -29,7 +29,7 @@ def _semidiscrete_exact(problem, u0, T):
 
 def _temporal_error(mesh, bc, u0, T, n_steps, theta):
     """M-weighted L2 error of a theta-method against the semi-discrete exact at T."""
-    problem = heat(mesh, bc=bc)
+    problem = Poisson().problem(Poisson().space(mesh), bc)
     integrator = ThetaMethod(dt=T / n_steps, steps=n_steps, theta=theta)
     u_h = integrator.run(problem, u0.copy()).u[-1]
     error = u_h - _semidiscrete_exact(problem, u0, T)

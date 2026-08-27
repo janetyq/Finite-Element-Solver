@@ -254,13 +254,12 @@ def test_energy_solver_reaches_the_minres_backend(make_unit_square):
 
 def test_regularization_leaves_an_spd_tangent_unshifted(make_unit_square):
     """On a LinearProblem (SPD tangent), regularization changes nothing: tau stays 0."""
-    from fem.problem import linear_elastic
-
     mesh = make_unit_square(8)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.05, 0])
-    problem = linear_elastic(mesh, LinearElasticMaterial(E=200, nu=0.3), bc)
+    equation = LinearElastic(E=200, nu=0.3)
+    problem = equation.problem(equation.space(mesh), bc)
 
     plain = NewtonSolve().solve(problem)
     regularized = NewtonSolve(regularization=TangentRegularization()).solve(problem)

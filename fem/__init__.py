@@ -48,21 +48,14 @@ from fem.equations import (
     Equation,
     Projection,
     Poisson,
+    Diffusion,
+    Wave,
     LinearElastic,
     StrainMeasure,
 )
 from fem.solver import Solver
 from fem.forms import LinearForm
-from fem.problem import (
-    LinearProblem,
-    EnergyProblem,
-    projection,
-    poisson,
-    diffusion,
-    linear_elastic,
-    heat,
-    wave,
-)
+from fem.problem import LinearProblem, EnergyProblem
 from fem.solve import (
     BacktrackingLineSearch,
     LinearSolve,
@@ -136,17 +129,13 @@ __all__ = [
     "Equation",
     "Projection",
     "Poisson",
+    "Diffusion",
+    "Wave",
     "LinearElastic",
     "StrainMeasure",
     "LinearProblem",
     "EnergyProblem",
     "LinearForm",
-    "projection",
-    "poisson",
-    "diffusion",
-    "linear_elastic",
-    "heat",
-    "wave",
     "LinearSolve",
     "NewtonSolve",
     "BacktrackingLineSearch",

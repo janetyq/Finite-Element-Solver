@@ -14,9 +14,11 @@ from typing import TYPE_CHECKING
 
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.fields import FieldShape, Scalar, Vector
-from fem.forms import EnergyDensity, Form, LaplacianForm, LinearElasticForm, MassForm
+from fem.forms import (
+    DiffusionForm, EnergyDensity, Form, LaplacianForm, LinearElasticForm, LinearForm, MassForm,
+    ScaledForm,
+)
 from fem.materials import LinearElasticMaterial
-from fem.postprocess import GradientField, StressField
 from fem.problem import LinearProblem
 from fem.space import FunctionSpace
 from fem.typing import ElementField, FieldValue
@@ -32,16 +34,18 @@ class Equation:
     '''Base class for a PDE to solve.
 
     An Equation says what to solve and carries the physical parameters; a solver
-    owns how. Transient problems are not equation types: heat and wave are a steady
-    operator paired with a time integrator (see `fem.problem.heat` / `.wave`).
+    owns how. A transient problem is a steady operator paired with a time integrator,
+    so `Poisson` under a `ThetaMethod` is the heat equation and `Wave` under a
+    `NewmarkMethod` the wave equation.
 
     `field` says what kind of value the unknown takes; the DOFs per node follow from
     it and the mesh. `source` is the PDE's right-hand side f (a body force for
-    elasticity), a constant or a callable of position.
+    elasticity): a constant, a callable of position, or a `LinearForm` sampled at the
+    quadrature points.
     '''
     field: FieldShape = Scalar()
 
-    def __init__(self, source: FieldValue = None) -> None:
+    def __init__(self, source: FieldValue | LinearForm = None) -> None:
         self.source = source
 
     def space(self, mesh: Mesh, element_type: type[Element] | None = None) -> FunctionSpace:
@@ -56,14 +60,13 @@ class Equation:
 
     def problem(self, space: FunctionSpace, bc: BoundaryConditions | None = None) -> LinearProblem:
         '''The linear composition on `space`: this operator, this source, `bc`.'''
-        return LinearProblem(space, self.operator(space.n_components), self.source, bc)
+        return LinearProblem(space, self.operator(space), self.source, bc)
 
-    def operator(self, n_components: int) -> Form:
-        '''The bilinear form a linear solve assembles for this equation.
+    def operator(self, space: FunctionSpace) -> Form:
+        '''The bilinear form a linear solve assembles for this equation on `space`.
 
-        The scalar diffusion family (Poisson, and the Laplacian behind the heat
-        and wave problems) shares the material-free Laplacian, so it is the base
-        answer; subclasses that mean something else override.
+        The scalar diffusion family shares the material-free Laplacian, so it is the
+        base answer; subclasses that mean something else override.
         '''
         return LaplacianForm()
 
@@ -74,8 +77,8 @@ class Equation:
         family has none, so the base raises rather than returning a stand-in.
         '''
         raise NotImplementedError(
-            f'{type(self).__name__} has no strain-energy density, so it cannot be '
-            'solved by minimising an energy. Use Solver.'
+            f'{type(self).__name__} has no strain-energy density to minimise; '
+            'solve it through its operator.'
         )
 
     def derived_field(self) -> 'DerivedField | None':
@@ -88,26 +91,57 @@ class Equation:
 class Projection(Equation):
     '''L2 projection of the source field onto the FE space (M u = b).'''
 
-    def operator(self, n_components: int) -> Form:
-        return MassForm(n_components)
+    def operator(self, space: FunctionSpace) -> Form:
+        return MassForm(space.n_components)
 
 
 class Poisson(Equation):
-    '''Poisson equation (K u = b).'''
+    '''Poisson equation (K u = b); under a `ThetaMethod`, the heat equation.'''
 
     def derived_field(self) -> 'DerivedField':
-        '''The diffusion flux to recover and estimate from: the field gradient ∇u.'''
-        return GradientField()
+        return LaplacianForm().derived_field()
+
+
+class Diffusion(Equation):
+    '''Variable-coefficient diffusion -div(κ(x) grad u) = f.
+
+    `coefficient` is κ, a constant or a callable of position, sampled at the
+    quadrature points.
+    '''
+
+    def __init__(self, coefficient: FieldValue, source: FieldValue | LinearForm = None) -> None:
+        super().__init__(source)
+        self.coefficient = coefficient
+
+    def operator(self, space: FunctionSpace) -> Form:
+        return DiffusionForm(self.coefficient)
+
+    def derived_field(self) -> 'DerivedField':
+        return DiffusionForm(self.coefficient).derived_field()
+
+
+class Wave(Equation):
+    '''The wave operator c²K, to be stepped by a `NewmarkMethod` as M u'' + c²K u = b.
+
+    The wave speed lives in the operator, so the integrator sees only c²K.
+    '''
+
+    def __init__(self, c: float, source: FieldValue | LinearForm = None) -> None:
+        super().__init__(source)
+        self.c = c
+
+    def operator(self, space: FunctionSpace) -> Form:
+        return ScaledForm(self.c**2, LaplacianForm())
 
 
 class StrainMeasure(Enum):
     '''Which strain the elastic energy is built on: the kinematics axis.
 
     The material `W` is one function; the two paths differ only in the strain fed
-    to it (see `fem.energies`). SMALL is the infinitesimal `ε = ½(∇u + ∇uᵀ)`,
-    solved directly by `Solver`; GREEN_LAGRANGE is the geometrically exact
-    `S = ½(FᵀF − I)` (St-Venant–Kirchhoff), which only `EnergySolver` can solve
-    because its energy is not quadratic.
+    to it (see `fem.energies`). SMALL is the infinitesimal `ε = ½(∇u + ∇uᵀ)`, whose
+    energy is quadratic and so has a constant stiffness; GREEN_LAGRANGE is the
+    geometrically exact `S = ½(FᵀF − I)` (St-Venant–Kirchhoff), whose energy is not
+    and so is solved by minimising it.
     '''
     SMALL = 'small'
     GREEN_LAGRANGE = 'green_lagrange'
@@ -115,16 +149,16 @@ class StrainMeasure(Enum):
 
 class LinearElastic(Equation):
     '''Elasticity with a selectable strain measure. `kinematics` is SMALL by
-    default (infinitesimal strain, the linear `Solver` path); GREEN_LAGRANGE
-    selects the St-Venant–Kirchhoff model, which needs `EnergySolver`. E may be a
-    scalar or a per-element array (TopologyOptimizer sets a density-scaled modulus).'''
+    default (infinitesimal strain, a linear solve); GREEN_LAGRANGE selects the
+    St-Venant–Kirchhoff model (an energy minimisation). E may be a scalar or a
+    per-element array (a SIMP density-scaled modulus).'''
     field: FieldShape = Vector()
 
     def __init__(
         self,
         E: float | ElementField,
         nu: float,
-        source: FieldValue = None,
+        source: FieldValue | LinearForm = None,
         kinematics: StrainMeasure = StrainMeasure.SMALL,
     ) -> None:
         super().__init__(source)
@@ -132,19 +166,22 @@ class LinearElastic(Equation):
         self.nu = nu
         self.kinematics = kinematics
 
-    def operator(self, n_components: int) -> Form:
+    @property
+    def material(self) -> LinearElasticMaterial:
+        return LinearElasticMaterial(self.E, self.nu)
+
+    def operator(self, space: FunctionSpace) -> Form:
         '''The small-strain stiffness form, built from this equation's material.
 
         The bilinear form exists only for the small-strain measure: a
         Green-Lagrange energy is not quadratic, so it has no constant stiffness.
-        A finite-strain LinearElastic is rejected.
         '''
         if self.kinematics is not StrainMeasure.SMALL:
             raise NotImplementedError(
-                f'a linear solve is small-strain only; {self.kinematics.name} kinematics '
-                'has no constant stiffness. Use EnergySolver.'
+                f'{self.kinematics.name} kinematics has no constant stiffness; '
+                'solve it by minimising its energy (EnergyProblem).'
             )
-        return LinearElasticForm(LinearElasticMaterial(self.E, self.nu))
+        return LinearElasticForm(self.material)
 
     def energy_density(self) -> StVenantKirchhoff:
         '''The stored-energy density for this equation's kinematics.
@@ -153,13 +190,13 @@ class LinearElastic(Equation):
         StVenantKirchhoff and overrides only the strain, so both satisfy the
         return type.
         '''
-        # E may be per-element (TopologyOptimizer sets a density-scaled modulus),
+        # E may be per-element (a SIMP density-scaled modulus),
         # but a density carries one pair of Lame parameters for the whole mesh,
         # and an array lamb broadcasts wrongly against the constant d2W/dS2.
         if not isinstance(self.E, int | float):
             raise NotImplementedError(
                 'an energy density needs a scalar Youngs modulus, got a per-element '
-                'array. Use Solver for density-scaled moduli.'
+                'array; a density-scaled modulus solves through the linear operator.'
             )
         density = {
             StrainMeasure.SMALL: SmallStrain,
@@ -168,7 +205,7 @@ class LinearElastic(Equation):
         return density(self.E, self.nu)
 
     def derived_field(self) -> 'DerivedField':
-        '''The elastic flux to recover and estimate from: the in-plane Cauchy stress,
-        with its Neumann boundary residual and the small-strain form that samples it
-        at quadrature points.'''
-        return StressField(LinearElasticForm(LinearElasticMaterial(self.E, self.nu)))
+        '''The elastic flux to recover and estimate from: the small-strain form's
+        Cauchy stress, for either kinematics.'''
+        return LinearElasticForm(self.material).derived_field()
+
