@@ -9,7 +9,6 @@ from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.energies import StVenantKirchhoff
 from fem.estimators import RecoveryEstimator
-from fem.solve import default_strategy
 from fem.forms import EnergyForm
 from fem.problem import Problem
 from fem.regions import everywhere, at_indices, on_plane
@@ -24,7 +23,7 @@ def refine_near_centre(problem, solution):
 
 
 def _for(equation, bc=None):
-    return lambda mesh: equation.problem(equation.space(mesh), bc)
+    return lambda mesh: equation.problem(mesh, bc)
 
 
 def test_adaptive_refinement_grows_mesh_and_resolves(make_unit_square):
@@ -153,7 +152,7 @@ def test_recovery_estimator_reads_the_flux_off_an_energy_problem(make_unit_squar
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.02, 0.0])
     space = LinearElastic(E=200, nu=0.3).space(mesh)
     problem = Problem(space, EnergyForm(StVenantKirchhoff(200, 0.3)), bc=bc)
-    solution = problem.solution(default_strategy(problem).solve(problem))
+    solution = problem.solve()
 
     eta = RecoveryEstimator().estimate(problem, solution)
     assert eta.shape == (len(mesh.elements),)

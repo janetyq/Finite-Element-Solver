@@ -251,13 +251,17 @@ plotter.show()
 `Solver` is a convenience over the parts, which compose directly. The same solve, by hand:
 
 ```python
-from fem import FunctionSpace, LinearProblem, LinearSolve
+from fem import FunctionSpace, LinearProblem
 from fem.forms import LaplacianForm
 
 space = FunctionSpace(mesh, n_components=1)
 problem = LinearProblem(space, LaplacianForm(), source=1, bc=bc)
-solution = problem.solution(LinearSolve().solve(problem))
+solution = problem.solve()
 ```
+
+`problem.solve()` picks `LinearSolve` for a constant tangent and Newton otherwise; pass
+`strategy=` or `backend=` to choose. `equation.problem(mesh, bc)` builds the same problem
+from a named equation.
 
 Swap the form, the source, the boundary conditions, the element type, the solve strategy, or the
 linear-algebra backend independently; `ARCHITECTURE.md` lists the steps and their options.

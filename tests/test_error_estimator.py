@@ -10,17 +10,16 @@ from fem.estimators import ResidualEstimator
 from fem.mesh.mesh import Mesh
 from fem.regions import everywhere, on_plane
 from fem.solution import ElasticSolution
-from fem.solve import LinearSolve
 
 
 def _solved(mesh, equation, bc):
     """The problem on `mesh` and its solution."""
-    problem = equation.problem(equation.space(mesh), bc)
-    return problem, problem.solution(LinearSolve().solve(problem))
+    problem = equation.problem(mesh, bc)
+    return problem, problem.solve()
 
 
 def _for(equation, bc):
-    return lambda mesh: equation.problem(equation.space(mesh), bc)
+    return lambda mesh: equation.problem(mesh, bc)
 
 
 def test_error_estimator_linear_solution_small_jumps(make_unit_square):
@@ -152,7 +151,7 @@ def test_elastic_error_estimator_boundary_term_matches_hand_derivation():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])  # bottom edge only
     equation = LinearElastic(E=200, nu=0.3)
-    problem = equation.problem(equation.space(mesh), bc)
+    problem = equation.problem(mesh, bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
     eta = ResidualEstimator().estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
@@ -176,7 +175,7 @@ def test_elastic_error_estimator_neumann_matching_traction_is_quiet():
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])   # bottom: skip
     bc.add(BCType.NEUMANN, on_plane(1, 1.0), [0.5, 1.0])  # top: matches sigma.n exactly
     equation = LinearElastic(E=200, nu=0.3)
-    problem = equation.problem(equation.space(mesh), bc)
+    problem = equation.problem(mesh, bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
     eta = ResidualEstimator().estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
@@ -202,7 +201,7 @@ def test_elastic_error_estimator_roller_edge_only_tests_its_free_component():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, None])  # bottom: roller
     equation = LinearElastic(E=200, nu=0.3)
-    problem = equation.problem(equation.space(mesh), bc)
+    problem = equation.problem(mesh, bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
     eta = ResidualEstimator().estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))

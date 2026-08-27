@@ -21,10 +21,11 @@ from fem.problem import LinearProblem, Problem
 from fem.space import FunctionSpace
 from fem.typing import ElementField, FieldValue
 
+from fem.mesh.mesh import Mesh
+
 if TYPE_CHECKING:
     from fem.boundary import BoundaryConditions
     from fem.elements import Element
-    from fem.mesh.mesh import Mesh
 
 
 class Equation:
@@ -55,9 +56,24 @@ class Equation:
         n_components = self.field.components_for(mesh.spatial_dim)
         return FunctionSpace(mesh, element_type, n_components=n_components)
 
-    def problem(self, space: FunctionSpace, bc: BoundaryConditions | None = None) -> Problem:
-        '''The composition on `space`: this operator, this source, `bc`. A
-        `LinearProblem` when the operator has a constant tangent.'''
+    def problem(
+        self,
+        domain: Mesh | FunctionSpace,
+        bc: BoundaryConditions | None = None,
+        element_type: type[Element] | None = None,
+    ) -> Problem:
+        '''The composition on `domain`: this operator, this source, `bc`. A
+        `LinearProblem` when the operator has a constant tangent.
+
+        `domain` is a `Mesh`, discretized through `space(mesh, element_type)`, or a
+        `FunctionSpace` used as it is. `element_type` applies to a mesh only.
+        '''
+        if isinstance(domain, FunctionSpace):
+            if element_type is not None:
+                raise ValueError('element_type applies to a Mesh; the FunctionSpace already has one')
+            space = domain
+        else:
+            space = self.space(domain, element_type)
         operator = self.operator(space)
         if operator.constant_tangent:
             return LinearProblem(space, operator, self.source, bc)

@@ -11,7 +11,7 @@ from fem.integrators import NewmarkMethod, ThetaMethod, wave_energy
 
 
 def _on(equation, mesh, bc=None):
-    return equation.problem(equation.space(mesh), bc)
+    return equation.problem(mesh, bc)
 
 
 def test_heat_conserves_mean_temperature(make_unit_square):
@@ -22,7 +22,7 @@ def test_heat_conserves_mean_temperature(make_unit_square):
     u0 = bump_function(mesh.vertices, corner, mag=50, size=0.3) + 300
 
     problem = _on(Poisson(), mesh)  # no source, no BC -> natural (no-flux) boundaries
-    solution = ThetaMethod(dt=0.01, steps=5).run(problem, u0.copy())
+    solution = ThetaMethod(dt=0.01, steps=5).solve(problem, u0.copy())
 
     means = [problem.space.mean_value(u) for u in solution.u]
     assert np.allclose(means, means[0], rtol=1e-6), f"mean temperature drifted: {means}"
@@ -62,7 +62,7 @@ def test_wave_holds_static_equilibrium_under_load(make_unit_square):
 
     problem = _on(Wave(c=1, source=source), mesh, bc)
     v0 = np.zeros(len(u_static))
-    u_values = NewmarkMethod(dt=0.01, steps=20).run(problem, u_static.copy(), v0).u
+    u_values = NewmarkMethod(dt=0.01, steps=20).solve(problem, u_static.copy(), v0).u
 
     assert np.allclose(u_values[-1], u_static, atol=1e-8), "equilibrium drifted"
 
@@ -74,7 +74,7 @@ def test_wave_honors_dirichlet_bcs(make_unit_square):
     u0[mesh.boundary_idxs] = 0.0
 
     problem = _on(Wave(c=1), mesh, bc)
-    u_values = NewmarkMethod(dt=0.01, steps=20).run(problem, u0.copy(), np.zeros(len(u0))).u
+    u_values = NewmarkMethod(dt=0.01, steps=20).solve(problem, u0.copy(), np.zeros(len(u0))).u
 
     for step, u in enumerate(u_values):
         assert np.allclose(u[mesh.boundary_idxs], 0.0, atol=1e-10), \
@@ -90,7 +90,7 @@ def test_wave_conserves_energy(make_unit_square):
     u0[mesh.boundary_idxs] = 0.0
 
     problem = _on(Wave(c=2), mesh, bc)
-    solution = NewmarkMethod(dt=0.005, steps=40).run(problem, u0.copy(), np.zeros(len(u0)))
+    solution = NewmarkMethod(dt=0.005, steps=40).solve(problem, u0.copy(), np.zeros(len(u0)))
 
     energies = [
         wave_energy(problem, u, v)
@@ -108,7 +108,7 @@ def test_wave_rejects_inconsistent_initial_state(make_unit_square):
 
     problem = _on(Wave(c=1), mesh, bc)
     with pytest.raises(ValueError):
-        NewmarkMethod(dt=0.01, steps=2).run(problem, u0, np.zeros(n))
+        NewmarkMethod(dt=0.01, steps=2).solve(problem, u0, np.zeros(n))
 
 
 def test_linear_elastic_stretches_under_tension(make_unit_square):

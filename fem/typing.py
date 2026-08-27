@@ -3,8 +3,7 @@
 Nearly every signature here takes or returns an `np.ndarray`, which says almost
 nothing: the interesting distinctions are which quantity an array holds and what
 shape it has. `ElementField` and `VertexField` are the same runtime type, and
-confusing them is a real bug (`Solution.get_values` exists largely to convert
-between them), so the names carry the meaning the dtype cannot.
+confusing them is a real bug, so the names carry the meaning the dtype cannot.
 
 These are aliases, not `NewType`s. A checker will not stop you passing a
 `VertexField` where an `ElementField` is wanted; enforcing that would mean

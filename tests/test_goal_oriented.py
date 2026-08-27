@@ -10,7 +10,6 @@ from fem.estimators import GoalOrientedEstimator, RecoveryEstimator
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere
 from fem.sensitivity import PointValue
-from fem.solve import LinearSolve
 
 EQUATION = Poisson(source=lambda p: 1.0)
 
@@ -22,7 +21,7 @@ def _nearest_node(space, point):
 def _problem_for(mesh):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    return EQUATION.problem(EQUATION.space(mesh), bc)
+    return EQUATION.problem(mesh, bc)
 
 
 def _square(n):
@@ -40,7 +39,7 @@ def test_indicator_peaks_near_the_quantity_of_interest():
     point, so the product indicator is largest near it."""
     mesh = _square(16)
     problem = _problem_for(mesh)
-    solution = problem.solution(LinearSolve().solve(problem))
+    solution = problem.solve()
     target = (0.72, 0.72)
     qoi = PointValue(_nearest_node(problem.space, target))
     eta = GoalOrientedEstimator(qoi).estimate(problem, solution)

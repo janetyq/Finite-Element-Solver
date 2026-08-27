@@ -600,7 +600,7 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     u0 = exact_solution(mesh.vertices)   # an eigenmode, and zero on the boundary
 
-    problem = Poisson().problem(Poisson().space(mesh), bc)
+    problem = Poisson().problem(mesh, bc)
     free = problem.constraints[0]
     M = problem.space.mass_matrix.toarray()
     K = problem.tangent(None).toarray()
@@ -612,7 +612,7 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
     for steps in sorted(step_counts):
         # A time-stepped solve returns a TransientSolution; `run` declares the base
         # Solution, which carries no series.
-        run = ThetaMethod(dt=T / steps, steps=steps, theta=theta).run(problem, u0.copy())
+        run = ThetaMethod(dt=T / steps, steps=steps, theta=theta).solve(problem, u0.copy())
         assert isinstance(run, TransientSolution)
         u_h = run.u[-1]
         errors.append(l2_norm(problem.space, u_h - reference))
