@@ -124,7 +124,7 @@ def test_energy_solver_accepts_a_3d_mesh():
     bc.add(BCType.DIRICHLET, on_plane(2, 0.0), [0, 0, 0])
 
     solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc)
-    assert solver.n_components == 3
+    assert solver.space.n_components == 3
 
 
 def test_energy_solver_rejects_a_per_element_modulus(make_unit_square):

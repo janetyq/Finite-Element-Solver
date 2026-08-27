@@ -19,11 +19,10 @@ from fem.estimators import recovery_estimator
 from fem.materials import Enu_to_Lame
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere
-from fem.solver import Solver
+from fem.solve import LinearSolve
 
-
-def _poisson_source(point):
-    return [2 * np.pi**2 * np.sin(np.pi * point[0]) * np.sin(np.pi * point[1])]
+POISSON = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
+ELASTIC = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
 
 
 def _global(eta):
@@ -31,14 +30,13 @@ def _global(eta):
     return float(np.sqrt((np.asarray(eta) ** 2).sum()))
 
 
-def _elastic_true_stress_error(solver):
+def _elastic_true_stress_error(problem, solution):
     """||sigma_exact - sigma_h||_L2 (in-plane, Frobenius) for the elasticity MMS,
     the norm the recovered-stress estimate targets. Shares `quadrature_l2` with the
     gradient error; the Frobenius norm of the full symmetric 2x2 difference is what
     the primitive computes from the trailing tensor axes."""
     mu, lamb = Enu_to_Lame(ELASTIC_E, ELASTIC_NU)
-    space = solver.space
-    geometry = space.geometry_at(2)
+    geometry = problem.space.geometry_at(2)
     x, y = geometry.points[..., 0], geometry.points[..., 1]
     # sigma_exact from the manufactured u = (sin(pi x) sin(pi y), 0), plane strain.
     eps_xx = np.pi * np.cos(np.pi * x) * np.sin(np.pi * y)
@@ -49,26 +47,19 @@ def _elastic_true_stress_error(solver):
     row0 = np.stack([sxx, sxy], axis=-1)
     row1 = np.stack([sxy, syy], axis=-1)
     sigma_exact = np.stack([row0, row1], axis=-2)          # (n_el, n_qp, 2, 2)
-    sigma_h = solver.solution.stress[:, None, :2, :2]      # (n_el, 1, 2, 2), constant per element
+    sigma_h = solution.stress[:, None, :2, :2]             # (n_el, 1, 2, 2), constant per element
     return quadrature_l2(geometry, sigma_exact - sigma_h)
 
 
-def _solve_poisson(n):
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+def _solved(equation, mesh, bc_value):
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    solver = Solver(mesh, Poisson(source=_poisson_source), bc)
-    solver.solve()
-    return solver
+    bc.add(BCType.DIRICHLET, everywhere(), bc_value)
+    problem = equation.problem(equation.space(mesh), bc)
+    return problem, problem.solution(LinearSolve().solve(problem))
 
 
-def _solve_elastic(n):
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0])
-    solver = Solver(mesh, LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source), bc)
-    solver.solve()
-    return solver
+def _square(n):
+    return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
 
 # -- effectivity: the estimate tracks the true error -------------------------
@@ -79,9 +70,9 @@ def test_poisson_recovery_is_asymptotically_exact():
     the defining property of a good recovery estimator."""
     indices = []
     for n in (11, 21, 41):
-        solver = _solve_poisson(n)
-        eta = _global(recovery_estimator(solver.equation).estimate(solver))
-        true_error = h1_seminorm_error(solver.space, solver.solution.u, exact_gradient)
+        problem, solution = _solved(POISSON, _square(n), 0.0)
+        eta = _global(recovery_estimator(POISSON).estimate(problem, solution))
+        true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
         indices.append(eta / true_error)
 
     assert all(0.5 < i < 2.0 for i in indices)          # bounded everywhere
@@ -94,9 +85,9 @@ def test_elastic_recovery_is_asymptotically_exact():
     """The same effectivity check for the vector, coupled elastic path."""
     indices = []
     for n in (11, 21, 41):
-        solver = _solve_elastic(n)
-        eta = _global(recovery_estimator(solver.equation).estimate(solver))
-        true_error = _elastic_true_stress_error(solver)
+        problem, solution = _solved(ELASTIC, _square(n), [0.0, 0.0])
+        eta = _global(recovery_estimator(ELASTIC).estimate(problem, solution))
+        true_error = _elastic_true_stress_error(problem, solution)
         indices.append(eta / true_error)
 
     assert all(0.5 < i < 2.0 for i in indices)
@@ -109,13 +100,10 @@ def test_elastic_recovery_is_asymptotically_exact():
 def test_recovery_of_a_linear_field_is_near_zero(make_unit_square):
     """A globally linear solution has constant gradient, so the estimate vanishes: the patch
     test for a recovery estimator."""
-    mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), lambda p: p[0])
-    solver = Solver(mesh, Poisson(source=None), bc)
-    solver.solve()
+    equation = Poisson(source=None)
+    problem, solution = _solved(equation, make_unit_square(6), lambda p: p[0])
 
-    eta = recovery_estimator(solver.equation).estimate(solver)
+    eta = recovery_estimator(equation).estimate(problem, solution)
     assert np.all(eta < 1e-10)
 
 
@@ -129,15 +117,16 @@ def test_recovery_drives_adaptive_refinement(make_unit_square):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
-    solver = Solver(mesh, equation, bc)
 
     n_before = len(mesh.elements)
-    AdaptiveRefinement(
-        solver, recovery_estimator(equation), max_triangles=300, max_iters=5,
-    ).run()
+    driver = AdaptiveRefinement(
+        mesh, lambda m: equation.problem(equation.space(m), bc),
+        recovery_estimator(equation), max_triangles=300, max_iters=5,
+    )
+    driver.run()
 
-    assert len(solver.mesh.elements) > n_before
-    centroids = solver.mesh.vertices[solver.mesh.elements].mean(axis=1)
+    assert len(driver.mesh.elements) > n_before
+    centroids = driver.mesh.vertices[driver.mesh.elements].mean(axis=1)
     center_dist = np.linalg.norm(centroids - 0.5, axis=1)
     near_center = (center_dist < 0.2).sum()
     far_away = (center_dist > 0.35).sum()

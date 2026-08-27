@@ -19,7 +19,7 @@ from fem.mesh.structured import create_rect_mesh
 from fem.postprocess import GradientField
 from fem.regions import everywhere, on_plane
 from fem.solution import ElasticSolution, ScalarFieldSolution
-from fem.solver import Solver
+from fem.solve import LinearSolve
 from fem.space import FunctionSpace
 
 
@@ -31,13 +31,16 @@ def _global(eta):
     return float(np.sqrt((np.asarray(eta) ** 2).sum()))
 
 
+def _solved(equation, mesh, bc, element_type=QuadraticTriangleElement):
+    problem = equation.problem(equation.space(mesh, element_type), bc)
+    return problem, problem.solution(LinearSolve().solve(problem))
+
+
 def _solve(equation, n, bc_value=0.0):
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), bc_value)
-    solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
-    solver.solve()
-    return solver
+    return _solved(equation, mesh, bc)
 
 
 # -- the new primitives: shape Hessians, field Hessian, the divergences -------
@@ -119,16 +122,17 @@ def test_p2_residual_vanishes_on_a_quadratic_field():
     residual (f + laplacian u = 0), its edge jumps (a globally continuous linear
     gradient), and its boundary term (Dirichlet everywhere, so every edge is skipped) all
     vanish, and every indicator is zero."""
-    solver = _solve(Poisson(source=None), 5, bc_value=lambda p: p[0]**2 - p[1]**2)
-    eta = residual_estimator(solver.equation).estimate(solver)
+    equation = Poisson(source=None)
+    problem, solution = _solve(equation, 5, bc_value=lambda p: p[0]**2 - p[1]**2)
+    eta = residual_estimator(equation).estimate(problem, solution)
     assert np.all(eta < 1e-10)
 
 
 def test_p2_residual_interior_term_is_active():
     """A guard that the interior div term is really carried: the P2 Laplacian of a
     non-harmonic solve is not identically zero, so dropping it would change the estimate."""
-    solver = _solve(Poisson(source=_poisson_source), 8)
-    laplacian = GradientField().divergence(solver.solution)
+    _, solution = _solve(Poisson(source=_poisson_source), 8)
+    laplacian = GradientField().divergence(solution)
     assert np.abs(laplacian).max() > 1.0
 
 
@@ -140,11 +144,12 @@ def test_p2_residual_reliability_is_bounded_and_stable():
     sequence: the effectivity index is bounded and does not drift up. A residual estimator
     over-estimates (its constant is looser than a recovery estimator's), so this checks
     boundedness and stability, not that the index tends to 1."""
+    equation = Poisson(source=_poisson_source)
     indices = []
     for n in (6, 11, 21):
-        solver = _solve(Poisson(source=_poisson_source), n)
-        eta = _global(residual_estimator(solver.equation).estimate(solver))
-        true_error = h1_seminorm_error(solver.space, solver.solution.u, exact_gradient)
+        problem, solution = _solve(equation, n)
+        eta = _global(residual_estimator(equation).estimate(problem, solution))
+        true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
         indices.append(eta / true_error)
 
     assert all(1.0 < i < 15.0 for i in indices)
@@ -163,11 +168,10 @@ def test_p2_residual_concentrates_near_a_peaked_source():
         r2 = x**2 + y**2
         return 4 * a * a * (1 - a * r2) * np.exp(-a * r2)
 
-    solver = Solver(mesh, Poisson(source=peaked_source), bc,
-                    element_type=QuadraticTriangleElement)
-    solver.solve()
+    equation = Poisson(source=peaked_source)
+    problem, solution = _solved(equation, mesh, bc)
 
-    eta = residual_estimator(solver.equation).estimate(solver)
+    eta = residual_estimator(equation).estimate(problem, solution)
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     center_dist = np.linalg.norm(centroids - 0.5, axis=1)
     assert eta[center_dist < 0.15].mean() > eta[center_dist > 0.35].mean()
@@ -180,16 +184,17 @@ def test_p2_residual_drives_adaptive_refinement():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
-    solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
 
     n_before = len(mesh.elements)
-    AdaptiveRefinement(
-        solver, residual_estimator(equation), max_triangles=300, max_iters=5,
-    ).run()
+    driver = AdaptiveRefinement(
+        mesh, lambda m: equation.problem(equation.space(m, QuadraticTriangleElement), bc),
+        residual_estimator(equation), max_triangles=300, max_iters=5,
+    )
+    solution = driver.run()
 
-    assert len(solver.mesh.elements) > n_before
-    assert solver.solution.element_type is QuadraticTriangleElement
-    centroids = solver.mesh.vertices[solver.mesh.elements].mean(axis=1)
+    assert len(driver.mesh.elements) > n_before
+    assert solution.element_type is QuadraticTriangleElement
+    centroids = driver.mesh.vertices[driver.mesh.elements].mean(axis=1)
     center_dist = np.linalg.norm(centroids - 0.5, axis=1)
     near_center = (center_dist < 0.2).sum()
     far_away = (center_dist > 0.35).sum()
@@ -204,10 +209,9 @@ def test_p2_elastic_residual_runs_end_to_end():
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])
     equation = LinearElastic(E=200, nu=0.3)
-    solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
-    solver.solve()
+    problem, solution = _solved(equation, mesh, bc)
 
-    eta = residual_estimator(equation).estimate(solver)
+    eta = residual_estimator(equation).estimate(problem, solution)
     assert eta.shape == (len(mesh.elements),)
     assert np.all(np.isfinite(eta)) and np.all(eta >= 0)
 
@@ -218,7 +222,7 @@ def test_residual_estimator_refuses_curved_elements():
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(4, 4))
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
-    solver = Solver(mesh, Poisson(source=1.0), bc, element_type=IsoparametricTriangleElement)
-    solver.solve()
+    equation = Poisson(source=1.0)
+    problem, solution = _solved(equation, mesh, bc, IsoparametricTriangleElement)
     with pytest.raises(NotImplementedError, match='recovery_estimator'):
-        residual_estimator(solver.equation).estimate(solver)
+        residual_estimator(equation).estimate(problem, solution)

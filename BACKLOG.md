@@ -33,7 +33,7 @@ No open correctness bugs.
 ## 2. Performance & Scaling
 
 ### 🟠 Every `solve()` re-assembles from scratch
-`Solver._steady_problem` builds a fresh `LinearProblem` per call, whose constructor assembles the
+`Solver.problem` builds a fresh `LinearProblem` per call, whose constructor assembles the
 operator and load. The two looping drivers already avoid this: the integrators build one
 `DiscreteSystem` and reuse its factorization across steps, and `SIMPModel` rescales one set
 of element matrices via `LinearProblem.with_operator`. The remaining case is a repeated steady
