@@ -320,7 +320,7 @@ fem/                 # the solver package
 │
 │   # physics: what equation, what material
 ├── equations.py     # Equation: Projection, Poisson, LinearElastic
-├── forms.py         # Form/EnergyForm integrands; derived-field recovery
+├── forms.py         # Form: bilinear and energy integrands; derived-field recovery
 ├── materials.py     # Hooke's law, Lame conversions (2D is plane strain)
 ├── energies.py      # hyperelastic strain-energy densities and their derivatives
 ├── fields.py        # Scalar/Vector: components per node, resolved against the mesh
@@ -337,8 +337,7 @@ fem/                 # the solver package
 ├── integrators.py   # ThetaMethod (1st order), NewmarkMethod (2nd order)
 │
 │   # facades and drivers
-├── solver.py        # Solver: the steady linear facade
-├── energy_solver.py # EnergySolver: the nonlinear facade
+├── solver.py        # Solver: the steady facade, linear or Newton by the problem
 ├── buckling.py      # BucklingAnalysis: linearised (eigenvalue) buckling of a Problem
 ├── modal.py         # ModalAnalysis: free-vibration modes of a Problem
 ├── adaptivity.py    # AdaptiveRefinement driver

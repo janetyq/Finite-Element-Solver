@@ -22,9 +22,9 @@ defaults; a facade is this chain with the defaults filled in from an `Equation`.
 |---|---|---|
 | Geometry | `Mesh` | |
 | Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) |
-| Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; `EnergyForm` for the nonlinear path |
-| Statement | `LinearProblem(space, form)` / `EnergyProblem`, or `Equation.problem(space, bc)` | `source` (none), `bc` (none) |
-| Solve | `LinearSolve`, `NewtonSolve`, or an integrator | `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta` |
+| Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for finite strain |
+| Statement | `Problem(space, form)`, or `Equation.problem(space, bc)` | `source` (none), `bc` (none); a `LinearProblem` when the form has a constant tangent |
+| Solve | `default_strategy(problem)`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or an integrator | `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta` |
 | Result | `problem.solution(u)` | |
 | Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` |
 
@@ -69,15 +69,25 @@ refined mesh (1) without re-resolving constraints by hand (5).
 
 | Tier | Role | Objects |
 |---|---|---|
-| 1. Primitives | the parts a composition is built from | `Form` / `EnergyForm` (+ `ScaledForm`, `MaskedMassForm`, `PrecomputedForm`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
-| 2. `Problem` | a composition: space + operator + load + constraints | `LinearProblem`, `EnergyProblem`; `Equation.problem` builds one from a named PDE |
+| 1. Primitives | the parts a composition is built from | `Form` (the `BilinearForm`s, `EnergyForm`; combinators `ScaledForm`, `MaskedMassForm`, `PrecomputedForm`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
+| 2. `Problem` | a composition: space + operator + load + constraints | `Problem`, and `LinearProblem` for a constant tangent; `Equation.problem` builds one from a named PDE |
 | 3. Solve strategy | consumes a `Problem`, returns the solution | `LinearSolve`, `NewtonSolve`, `EigenSolve`; integrators `ThetaMethod`, `NewmarkMethod` |
 | 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
 
 Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
 direct vs. iterative. Named PDEs are `Equation`s, not dispatch keys: `Poisson(f).problem(space, bc)`
-returns `LinearProblem(space, LaplacianForm(), f, bc)`, and a PDE with no name is just a different
-composition.
+returns `LinearProblem(space, LaplacianForm(), f, bc)`, `LinearElastic(E, nu,
+kinematics=GREEN_LAGRANGE).problem(space, bc)` a `Problem` over an `EnergyForm`, and a PDE with
+no name is just a different composition.
+
+A form is one base class. Every `Form` writes `element_residuals` and `element_tangents` at a
+state; what else it can answer is a hook with a default of "no": `constant_tangent` (every
+`BilinearForm`, whose residual is `K u`), `has_energy` (a bilinear form's `½ uᵀ K u`, an
+`EnergyForm`'s density), `derived_field` (the recoverable flux), `near_null_space` (the AMG
+near-kernel). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses,
+and SIMP need a constant tangent; `NewtonSolve` needs nothing more and uses the energy as its
+line-search merit when there is one. `RecoversElasticFields` stays a protocol: the interface the
+two elastic forms share with `ElasticSolution` and `StressField`.
 
 ## Where the classes sit
 
@@ -90,16 +100,16 @@ composition.
 | `Element` / `ElementGeometry`, `QuadratureRule` | | ▒ | | ▒ | | | | | |
 | `FunctionSpace` | | ▒ | | █ | | | | | ▒ |
 | `FieldShape` (`Scalar` / `Vector`) | | | ▒ | | | | | | |
-| `Form` / `EnergyForm` | | | █ | ▒ | | | | | ▒ |
+| `Form` (`BilinearForm`s, `EnergyForm`) | | | █ | ▒ | | | | | ▒ |
 | `Material` / energy densities | | | █ | | | | | | |
 | `Equation` | | | █ | | | | | | |
 | `BoundaryConditions` / `ResolvedBC` | | | | | █ | | | | |
-| `Problem` (`LinearProblem` / `EnergyProblem`) | | | ▒ | ▒ | █ | | | | ▒ |
+| `Problem` / `LinearProblem` | | | ▒ | ▒ | █ | | | | ▒ |
 | `DiscreteSystem` | | | | | ▒ | █ | | | |
 | `Backend` (`Direct`, `Iterative`, `Minres`) | | | | | | █ | | | |
 | `LinearSolve` / `NewtonSolve` / `EigenSolve` | | | | | | ▒ | | | |
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
-| `Solver`, `EnergySolver` | | | | | ▒ | ▒ | | | |
+| `Solver` | | | | | ▒ | ▒ | | | |
 | `BucklingAnalysis`, `ModalAnalysis` | | | | | | ▒ | | | ▒ |
 | `AdaptiveRefinement`, `SIMPModel` / `DesignOptimizer` | | | | | | | | █ | ▒ |
 | Error estimators, `SensitivityAnalysis` | | | | | | | | ▒ | █ |
@@ -110,7 +120,7 @@ Constraints (5) have one owner, the `Problem`, whose constructor resolves the bo
 against the space and folds the Dirichlet partition, the Neumann load, and any Robin contribution
 into the operator and load. Algebra (6) is split: `DiscreteSystem` owns the Dirichlet elimination
 and the `Backend` owns how the free-free block is solved. Physics (3) is owned by the physics
-layer alone: an `Equation` answers `operator` and `energy_density` itself, so no facade holds a
+layer alone: an `Equation` answers `operator` itself, for either kinematics, so no facade holds a
 mapping from equation to material.
 
 Post-processing (9) is distributed under one rule: a derived quantity lives on the object that
@@ -159,16 +169,19 @@ Every assembly path goes through a form. Bilinear forms (`MassForm`, `LaplacianF
 `DiffusionForm`, `LinearElasticForm`, `GeometricStiffnessForm`) follow `Gᵀ C G` with the element
 supplying `G` and the form `C`; `ScaledForm` and `MaskedMassForm` are combinators (the wave
 operator's `c²K`, the Robin boundary integral); `PrecomputedForm` lets a driver reuse element
-matrices it can derive more cheaply (SIMP rescales one set by `rho^p`). `EnergyForm` is the
-nonlinear sibling, mapping an element and a state to energy, residual, and tangent through
-`assemble_residual` / `assemble_tangent`.
+matrices it can derive more cheaply (SIMP rescales one set by `rho^p`). Each is a `BilinearForm`,
+which supplies the residual `K u` and the energy `½ uᵀ K u` from its matrix. `EnergyForm` is the
+state-dependent form, mapping an element and a state to energy, residual, and tangent; both kinds
+assemble through `assemble_residual` / `assemble_tangent` / `total_energy`, at the larger of the
+element's default rule and the one the form asks for.
 
 `Material` owns the constitutive matrix `D`; the strain-displacement matrix `B` sits in
 `fem/forms.py` next to the form that contracts it. The physics decomposes as material (the energy
 `W`) times kinematics (the strain measure): `SmallStrain` and `StVenantKirchhoff` feed one `W`
 either the small-strain `ε` or the Green-Lagrange `S`, chosen on the equation
-(`LinearElastic(kinematics=...)`). The linear path accepts only `SMALL`. In 2D the law is plane
-strain throughout.
+(`LinearElastic(kinematics=...)`): `SMALL` gives the constant stiffness `LinearElasticForm`,
+`GREEN_LAGRANGE` the `EnergyForm` over `StVenantKirchhoff`. In 2D the law is plane strain
+throughout.
 
 Stress recovery is on the form (`RecoversElasticFields`): `fields_at` gives strain and stress at
 every point of a geometry's rule, `derived_fields` reduces that to one tensor per element. Full
@@ -178,10 +191,16 @@ reduces them to frame-independent scalars.
 ### `Problem`: the narrow waist
 
 A `Problem` is the assembly-ready composition for one mesh: space, operator, load, constraints.
-`LinearProblem` has `tangent(u) = A` and `residual(u) = A·u − b`; `EnergyProblem` has
-`tangent(u) = ∇²Π(u)` and `residual(u) = ∇Π(u)`. The `Problem` owns its constraints, so nothing
-index-keyed is carried across a mesh change: a driver that remeshes builds a new one. `bc` is the
-spec the constraints came from and `resolved` that resolution on this space. It also answers the two questions that depend on which physics it was composed from: `solution(u)`
+Its residual has three terms, each present in `energy`, `residual`, and `tangent` alike: the
+form's own (`Π_form`, `R_form`, `∂R_form/∂u`), the Robin boundary term (`½κuᵀRu`, `κRu`, `κR`),
+and the load (`−fᵀu`, `−f`, `0`). `internal_residual` is the first two, kept apart from `load` so
+a strategy can scale one against the other. `LinearProblem` is the case whose operator has a
+constant tangent: `tangent()` with no state is the matrix, assembled once and held, and
+`residual(u) = A·u − b`; it is the type every consumer that needs one fixed operator asks for. The
+`Problem` owns its constraints, so nothing index-keyed is carried across a mesh change: a driver
+that remeshes builds a new one. `bc` is the spec the constraints came from and `resolved` that
+resolution on this space. It also answers the two questions that depend on which physics it was
+composed from: `solution(u)`
 packages a solved vector as the typed `Solution` its operator recovers (`ElasticSolution` for a
 form that recovers stress, `ScalarFieldSolution` for one naming a flux, else `FieldSolution`), and
 `near_null_space()` is the operator's AMG near-kernel, if it has one. Both delegate to the form,
@@ -190,9 +209,12 @@ so a solve composed by hand and one through a facade give the same answer.
 ### Solve strategies and backends
 
 `LinearSolve` and `NewtonSolve` sit on `DiscreteSystem` (matrix + Dirichlet partition +
-factor-once solve) and know nothing about the PDE. `NewtonSolve` takes an optional
-`BacktrackingLineSearch` that scales each step to decrease a merit (the energy `Π(u)` where the
-problem has one, else `½‖r‖²`).
+factor-once solve) and know nothing about the PDE. `LinearSolve` requires a constant tangent.
+`NewtonSolve` takes any `Problem` and an optional `BacktrackingLineSearch` that scales each step
+to decrease a merit (the energy `Π(u)` where the problem has one, else `½‖r‖²`).
+`default_strategy(problem, backend)` is the one place the choice between them is made for a
+caller who names none: `LinearSolve` for a constant tangent, line-searched Newton otherwise,
+with `TangentRegularization` added under an iterative backend.
 
 `DiscreteSystem` eliminates the Dirichlet DOFs and hands the free-free block to a `Backend`, which
 prepares it into a `LinearSolver` solved against many right-hand sides. `DirectBackend` is sparse
@@ -217,25 +239,24 @@ and `NewmarkMethod` (average acceleration, solving for the acceleration against 
 ### `Equation`
 
 `Equation` is typed data: `Projection`, `Poisson`, `Diffusion`, `Wave`, and `LinearElastic`, each
-carrying its physical constants. One method per consumer: `operator(space)` returns the bilinear
-form and `energy_density` the density the nonlinear path differentiates. Each refuses rather than
-approximates when the physics does not apply.
+carrying its physical constants. `operator(space)` returns the form for its physics: the
+small-strain stiffness or the St-Venant-Kirchhoff `EnergyForm`, by `LinearElastic.kinematics`.
+It refuses rather than approximates when the physics does not apply.
 Two more resolve it against a discretization: `space(mesh, element_type)` builds the
 `FunctionSpace` with the component count the field implies, and `problem(space, bc)` the
 `LinearProblem`. Every facade goes through these two.
 
 ### Facades and drivers
 
-`Solver` and `EnergySolver` have the same shape: hold an equation, a BC spec, and the space on a
-mesh; build a `Problem` per solve (`Equation.problem`, or an `EnergyProblem` over the equation's energy
-density); hand it to a strategy (`LinearSolve` over a `Backend`, or a caller-supplied `NewtonSolve`
-defaulting to line-searched Newton); return `problem.solution(u)`. Each fills in defaults and holds
-no other solve policy and no state between solves.
+`Solver` holds an equation, a BC spec, and the space on a mesh; builds a `Problem` per solve
+(`Equation.problem`); hands it to a strategy (the caller's, else `default_strategy` over the
+`Backend`); returns `problem.solution(u)`. It fills in defaults and holds no other solve policy
+and no state between solves.
 
 Two drivers, each over one spec. `AdaptiveRefinement` owns a mesh and a `problem_for(mesh)`
-builder (`equation.problem(equation.space(mesh), bc)` on the linear path, an `EnergyProblem` on
-the nonlinear one), solves each round's problem with a strategy, hands `(problem, solution)` to the
-estimator, and refines. `DesignOptimizer` owns a `SIMPModel` (a space, a `LinearElastic`
+builder (`equation.problem(equation.space(mesh), bc)`), solves each round's problem with a
+strategy (the caller's, else `default_strategy`), hands `(problem, solution)` to the estimator,
+and refines. `DesignOptimizer` owns a `SIMPModel` (a space, a `LinearElastic`
 equation, and supports; `Equation.problem` resolved once as the template) and each iteration
 derives the diluted `LinearProblem` from the current density with `with_operator`, solves it
 through `SensitivityAnalysis`, and moves the density by the optimality-criteria update.
@@ -244,8 +265,9 @@ through `SensitivityAnalysis`, and moves the density by the optimality-criteria 
 
 `fem/estimators.py` provides the residual estimator (2D, straight-sided), the Zienkiewicz-Zhu
 recovery estimator (dimension-general, curved elements included), and the goal-oriented estimator
-(the product of primal and dual recovery indicators). Each takes `(problem, solution)` and reads
-the `DerivedField` off the problem's operator, so none needs a physics argument.
+(the product of primal and dual recovery indicators). An estimator has no physics of its own: each
+takes `(problem, solution)` and reads the `DerivedField` off the problem's operator and the source
+off the problem. A custom estimate is any callable of the same two arguments.
 `fem/sensitivity.py` computes `dJ/dp` for a `QuantityOfInterest` through one adjoint solve on the
 forward factorization; `fem/design.py` drives an optimality-criteria update from that gradient.
 

@@ -1,6 +1,6 @@
-"""The composition core: LinearProblem / EnergyProblem and the solve strategies. A
-LinearProblem has a constant tangent and an affine residual, so Newton reaches the
-LinearSolve answer in one step from any seed.
+"""The composition core: the Problem, its constant-tangent LinearProblem, and the solve
+strategies. A LinearProblem has a constant tangent and an affine residual, so Newton
+reaches the LinearSolve answer in one step from any seed.
 """
 import numpy as np
 import pytest
@@ -9,10 +9,11 @@ from fem.boundary import BoundaryConditions, BCType
 from fem.energies import StVenantKirchhoff
 from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, ScaledForm
 from fem.materials import LinearElasticMaterial
-from fem.problem import EnergyProblem, LinearProblem
+from fem.numerics import central_difference_order
+from fem.problem import LinearProblem, Problem
 from fem.regions import everywhere, on_plane
 from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
-from fem.equations import LinearElastic, Poisson, Projection
+from fem.equations import LinearElastic, Poisson, Projection, StrainMeasure
 from fem.solver import Solver
 from fem.space import FunctionSpace
 
@@ -51,9 +52,8 @@ def test_newton_on_a_linear_problem_is_seed_independent(make_unit_square):
 
 def test_line_search_is_a_noop_on_a_linear_problem(make_unit_square):
     """A LinearProblem's exact Newton step already lands on the solution, so backtracking
-    accepts alpha = 1 on the first test and changes nothing. This also exercises the
-    residual-norm merit fallback: a LinearProblem is not `SupportsEnergy`, so the search
-    scores states by 1/2||r||^2, which is zero at the solution the full step reaches."""
+    accepts alpha = 1 on the first test and changes nothing. The merit is the quadratic
+    energy 1/2 u.K.u - b.u, which the full step minimises."""
     problem = _poisson_problem(make_unit_square(15))
     reference = LinearSolve().solve(problem)
 
@@ -112,14 +112,14 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     assert elastic.near_null_space().shape == (elastic.space.n_dofs, 3)
 
 
-def test_energy_problem_packages_an_elastic_solution(make_unit_square):
+def test_finite_strain_problem_packages_an_elastic_solution(make_unit_square):
     from fem.solution import ElasticSolution
 
     space = FunctionSpace(make_unit_square(5), n_components=2)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.05, 0])
-    problem = EnergyProblem(space, EnergyForm(StVenantKirchhoff(200, 0.4)), bc)
+    problem = Problem(space, EnergyForm(StVenantKirchhoff(200, 0.4)), bc=bc)
     u = NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem)
     solution = problem.solution(u)
     assert isinstance(solution, ElasticSolution)
@@ -264,9 +264,85 @@ def test_callable_source_is_sampled_at_the_quadrature_points(make_unit_square):
     assert not np.allclose(sampled, nodal)
 
 
-def test_energy_problem_rejects_a_source(make_unit_square):
-    space = FunctionSpace(make_unit_square(6), n_components=2)
+def _loaded_bc(scale=1.0):
+    """Supports, a traction, and a Robin spring: every term the composition has."""
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    with pytest.raises(NotImplementedError):
-        EnergyProblem(space, EnergyForm(StVenantKirchhoff(200, 0.4)), bc, source=1.0)
+    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [0, -2.0 * scale])
+    bc.add_robin(on_plane(1, 0.0), kappa=15.0, g=[0.0, 0.5 * scale])
+    return bc
+
+
+@pytest.mark.parametrize('kinematics', [StrainMeasure.SMALL, StrainMeasure.GREEN_LAGRANGE])
+def test_composed_energy_residual_and_tangent_are_consistent(make_unit_square, kinematics):
+    """With a body force, a traction, and a Robin term all present, the problem's
+    residual is the gradient of its energy and its tangent the gradient of its residual,
+    to O(eps^2) under central differences. Holds for the constant and the
+    state-dependent tangent alike, so a line search on the energy and Newton on the
+    residual agree on which way is downhill."""
+    equation = LinearElastic(E=200, nu=0.4, source=[1.0, -3.0], kinematics=kinematics)
+    problem = equation.problem(equation.space(make_unit_square(5)), _loaded_bc())
+
+    rng = np.random.default_rng(1)
+    u = 0.05 * rng.standard_normal(problem.space.n_dofs)
+    residual = problem.residual(u)
+    tangent = problem.tangent(u)
+
+    if kinematics is StrainMeasure.SMALL:
+        # A quadratic energy's central difference is exact at any step, so there is no
+        # order to measure; check the values directly.
+        d = rng.standard_normal(problem.space.n_dofs)
+        eps = 1e-4
+        fd = (problem.energy(u + eps * d) - problem.energy(u - eps * d)) / (2 * eps)
+        assert fd == pytest.approx(residual @ d, rel=1e-8)
+        fd_r = (problem.residual(u + eps * d) - problem.residual(u - eps * d)) / (2 * eps)
+        np.testing.assert_allclose(fd_r, tangent @ d, rtol=1e-8, atol=1e-10)
+    else:
+        grad_order = central_difference_order(problem.energy, lambda d: residual @ d, u)
+        hess_order = central_difference_order(problem.residual, lambda d: tangent @ d, u)
+        assert 1.9 < grad_order < 2.1, f"residual disagrees with d(energy): order {grad_order:.3f}"
+        assert 1.9 < hess_order < 2.1, f"tangent disagrees with d(residual): order {hess_order:.3f}"
+
+
+def test_forced_finite_strain_problem_balances_its_load(make_unit_square):
+    """A Green-Lagrange problem takes a body force, a traction, and a Robin support: Newton
+    drives the free residual to zero, the internal force balances the load there, and
+    at small load the answer agrees with the small-strain solve to second order."""
+    mesh = make_unit_square(6)
+    scale = 1e-3
+    bc = _loaded_bc(scale)
+    finite = LinearElastic(E=200, nu=0.4, source=[scale, -3 * scale],
+                           kinematics=StrainMeasure.GREEN_LAGRANGE)
+    problem = finite.problem(finite.space(mesh), bc)
+    free = problem.constraints[0]
+    load_scale = float(np.abs(problem.load).max())
+    assert load_scale > 0
+
+    u = NewtonSolve(line_search=BacktrackingLineSearch(), tol=1e-10).solve(problem)
+    np.testing.assert_allclose(problem.residual(u)[free], 0.0, atol=1e-8 * load_scale)
+    np.testing.assert_allclose(problem.internal_residual(u)[free], problem.load[free],
+                               atol=1e-8 * load_scale)
+
+    linear = LinearElastic(E=200, nu=0.4, source=[scale, -3 * scale])
+    u_linear = LinearSolve().solve(linear.problem(linear.space(mesh), bc))
+    assert np.abs(u_linear).max() > 0
+    rel = np.linalg.norm(u - u_linear) / np.linalg.norm(u_linear)
+    assert rel < 1e-2, f"finite and small strain should agree at small load, got {rel:.2e}"
+
+
+def test_linear_problem_refuses_a_state_dependent_operator(make_unit_square):
+    """`LinearProblem` is the type consumers needing one fixed operator ask for, so a
+    state-dependent form is refused at construction and by `with_operator`; and a
+    `LinearSolve` refuses the `Problem` such a form makes."""
+    space = FunctionSpace(make_unit_square(4), n_components=2)
+    stvk = EnergyForm(StVenantKirchhoff(200, 0.4))
+    with pytest.raises(TypeError, match='state-dependent'):
+        LinearProblem(space, stvk)
+    with pytest.raises(TypeError, match='state-dependent'):
+        LinearProblem(space, LinearElasticForm(LinearElasticMaterial(200, 0.4))).with_operator(stvk)
+
+    problem = Problem(space, stvk)
+    with pytest.raises(TypeError, match='constant tangent'):
+        LinearSolve().solve(problem)
+    with pytest.raises(ValueError, match='state-dependent'):
+        problem.tangent()

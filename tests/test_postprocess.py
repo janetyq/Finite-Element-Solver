@@ -9,7 +9,7 @@ from fem.boundary import BCType, BoundaryConditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.energies import StVenantKirchhoff
 from fem.equations import LinearElastic, Poisson, Projection
-from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, MassForm, NamesDerivedField
+from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.structured import create_rect_mesh
 from fem.postprocess import GradientField, StressField
@@ -119,7 +119,7 @@ def test_forms_name_their_derived_field():
     assert isinstance(LaplacianForm().derived_field(), GradientField)
     assert isinstance(LinearElasticForm(LinearElasticMaterial(1.0, 0.3)).derived_field(), StressField)
     assert isinstance(EnergyForm(StVenantKirchhoff(1.0, 0.3)).derived_field(), StressField)
-    assert not isinstance(MassForm(), NamesDerivedField)
+    assert MassForm().derived_field() is None
 
 
 def test_derived_field_reads_the_stored_field_and_checks_its_solution():

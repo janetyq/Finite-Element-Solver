@@ -7,13 +7,13 @@ import pytest
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
-from fem.energies import SmallStrain, StVenantKirchhoff
+from fem.energies import StVenantKirchhoff
 from fem.estimators import RecoveryEstimator
+from fem.solve import default_strategy
 from fem.forms import EnergyForm
-from fem.problem import EnergyProblem
+from fem.problem import Problem
 from fem.regions import everywhere, at_indices, on_plane
-from fem.equations import LinearElastic, Projection, Poisson
-from fem.solve import BacktrackingLineSearch, NewtonSolve
+from fem.equations import LinearElastic, Projection, Poisson, StrainMeasure
 
 
 def refine_near_centre(problem, solution):
@@ -123,20 +123,17 @@ def test_bc_spec_is_reusable_across_meshes(make_unit_square):
     assert len(bc.resolve(fine, n_components=1).fixed_idxs) == len(fine.boundary_idxs)
 
 
-def test_adaptive_refinement_drives_an_energy_problem(make_unit_square):
-    """The driver takes any problem builder and strategy, so the nonlinear path is
-    refined the same way as the linear one."""
+def test_adaptive_refinement_drives_a_finite_strain_problem(make_unit_square):
+    """The driver takes any problem builder and picks the strategy its problem needs,
+    so a Green-Lagrange equation is refined the same way as a linear one."""
     mesh = make_unit_square(5)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.02, 0.0])
-    equation = LinearElastic(E=200, nu=0.3)
-    form = EnergyForm(SmallStrain(200, 0.3))
+    equation = LinearElastic(E=200, nu=0.3, kinematics=StrainMeasure.GREEN_LAGRANGE)
 
     driver = AdaptiveRefinement(
-        mesh, lambda m: EnergyProblem(equation.space(m), form, bc), refine_near_centre,
-        strategy=NewtonSolve(line_search=BacktrackingLineSearch()),
-        max_triangles=200, max_iters=2,
+        mesh, _for(equation, bc), refine_near_centre, max_triangles=200, max_iters=2,
     )
     n_before = len(mesh.elements)
     solution = driver.run()
@@ -155,8 +152,8 @@ def test_recovery_estimator_reads_the_flux_off_an_energy_problem(make_unit_squar
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.02, 0.0])
     space = LinearElastic(E=200, nu=0.3).space(mesh)
-    problem = EnergyProblem(space, EnergyForm(StVenantKirchhoff(200, 0.3)), bc)
-    solution = problem.solution(NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem))
+    problem = Problem(space, EnergyForm(StVenantKirchhoff(200, 0.3)), bc=bc)
+    solution = problem.solution(default_strategy(problem).solve(problem))
 
     eta = RecoveryEstimator().estimate(problem, solution)
     assert eta.shape == (len(mesh.elements),)

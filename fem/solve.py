@@ -19,13 +19,30 @@ from scipy.sparse import eye_array
 from scipy.sparse.linalg import ArpackNoConvergence, eigsh
 
 from fem.backends import Backend, IterativeBackend
-from fem.problem import Problem, SupportsEnergy
+from fem.problem import Problem
 from fem.system import DiscreteSystem
 from fem.typing import Constraints, DofIndices, DofVector, FloatArray, Operator
 
 
 class SolveStrategy(Protocol):
     def solve(self, problem: Problem, u0: DofVector | None = None) -> DofVector: ...
+
+
+def default_strategy(problem: Problem, backend: Backend | None = None) -> 'SolveStrategy':
+    '''The strategy a caller gets by naming none: `LinearSolve` for a constant tangent,
+    line-searched `NewtonSolve` otherwise.
+
+    A state-dependent tangent is indefinite away from a convex minimum, so an
+    iterative `backend` on the Newton path is paired with the regularization that keeps
+    each step a descent direction; the direct default needs neither.
+    '''
+    if problem.is_linear:
+        return LinearSolve(backend)
+    return NewtonSolve(
+        line_search=BacktrackingLineSearch(),
+        backend=backend,
+        regularization=TangentRegularization() if backend is not None else None,
+    )
 
 
 def backend_for(problem: Problem, backend: Backend | None) -> Backend | None:
@@ -57,8 +74,13 @@ class LinearSolve:
         self.backend = backend
 
     def solve(self, problem: Problem, u0: DofVector | None = None) -> DofVector:
+        if not problem.is_linear:
+            raise TypeError(
+                f'LinearSolve needs a constant tangent; {type(problem.operator).__name__} '
+                'depends on the state. Use NewtonSolve.'
+            )
         backend = backend_for(problem, self.backend)
-        system = DiscreteSystem(problem.tangent(None), problem.constraints, backend)
+        system = DiscreteSystem(problem.tangent(), problem.constraints, backend)
         return system.solve(problem.load)
 
 
@@ -109,8 +131,8 @@ class TangentRegularization:
     so the usual case, and every `LinearProblem`, keeps plain Newton and its quadratic rate.
 
     Descent is judged by `r_free . step < 0`, the condition for the energy merit a
-    globalized `NewtonSolve` minimises, so this targets energy-minimising (`SupportsEnergy`)
-    Newton, the nonlinear path here. The escalation also retries when the backend reports a
+    globalized `NewtonSolve` minimises, so this targets energy-minimising Newton (a
+    problem with `has_energy`), the nonlinear path here. The escalation also retries when the backend reports a
     breakdown, so it composes with an indefinite-capable iterative backend (`MinresBackend`);
     an SPD-only backend (CG) is not made reliable on an indefinite tangent by it, since CG's
     failure there is not always signalled.
@@ -139,7 +161,7 @@ class NewtonSolve:
 
     `line_search=None` takes the full step every iteration (the plain method). Passing
     a `BacktrackingLineSearch` globalizes it: each step is scaled to decrease a merit,
-    the problem's energy Π(u) when it has one (`SupportsEnergy`) else ½‖r‖², so a
+    the problem's energy Π(u) when it has one (`has_energy`) else ½‖r‖², so a
     non-convex energy (St-Venant–Kirchhoff under compression) converges from a seed a
     full step would send diverging. The line search is a no-op where the full step
     already works, including every `LinearProblem`, whose exact step passes at alpha = 1.
@@ -245,7 +267,7 @@ class NewtonSolve:
         -‖r_free‖² exactly (r^T J step = -r^T r).
         '''
         slope_free = float(residual[free] @ step[free])
-        if isinstance(problem, SupportsEnergy):
+        if problem.has_energy:
             return problem.energy, slope_free
 
         def residual_norm(w: DofVector) -> float:

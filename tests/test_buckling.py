@@ -153,11 +153,11 @@ def test_effective_length_factors_across_end_conditions():
 
 def test_green_lagrange_equation_is_rejected():
     """Linearised buckling needs the constant small-strain stiffness; a finite-strain
-    equation has none, so it is refused."""
+    equation has none, so its problem is refused."""
     mesh = column(12.0, n_length=12, n_across=3)
     equation = LinearElastic(E, NU, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    with pytest.raises(NotImplementedError, match='no constant stiffness'):
-        _problem(mesh, equation=equation)
+    with pytest.raises(TypeError, match='constant tangent'):
+        BucklingAnalysis(n_modes=2).solve(_problem(mesh, equation=equation))
 
 
 def test_scalar_problem_is_rejected():

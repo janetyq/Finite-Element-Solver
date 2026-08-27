@@ -19,19 +19,19 @@ from fem.convergence import (
 )
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.estimators import RecoveryEstimator
-from fem.forms import MaskedMassForm
+from fem.forms import EnergyForm, MaskedMassForm
+from fem.problem import Problem
 from fem.space import FunctionSpace
 from fem.regions import on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure, Wave
-from fem.solve import LinearSolve
+from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
 from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.design import DesignOptimizer, SIMPModel, calculate_smoothing_matrix
-from fem.energy_solver import EnergySolver
 from fem.buckling import BucklingAnalysis
 from fem.modal import ModalAnalysis
 
@@ -561,13 +561,15 @@ def demo_elasticity_models(mesh, stretch=0.5):
     bc.add(BCType.DIRICHLET, on_plane(0, w), [stretch*w, 0])
 
     linear = LinearElastic(E=200, nu=0.4)
-    energy_solver = EnergySolver(mesh, linear, bc)
+    finite = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    # Panel 2 states small strain as an energy and minimises it: the same density the
+    # linear stiffness is the Hessian of, under Newton.
+    energy_problem = Problem(linear.space(mesh), EnergyForm(linear.energy_density()), bc=bc)
+    energy_u = NewtonSolve(line_search=BacktrackingLineSearch()).solve(energy_problem)
     solutions = [
         ('Linear solve\n(small strain)', Solver(mesh, linear, bc).solve()),
-        ('Energy minimisation\n(small strain)', energy_solver.solve()),
-        ('Energy minimisation\n(Green-Lagrange)', EnergySolver(
-            mesh, LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE), bc
-        ).solve()),
+        ('Energy minimisation\n(small strain)', energy_problem.solution(energy_u)),
+        ('Energy minimisation\n(Green-Lagrange)', Solver(mesh, finite, bc).solve()),
     ]
 
     conditions = Plotter()
@@ -579,7 +581,7 @@ def demo_elasticity_models(mesh, stretch=0.5):
         plotter.plot(solution.deformed_mesh(), vm, mode='colored', idx=(0, i),
                      label='von Mises stress',
                      title=f'{name}\nmedian {np.median(vm):.0f}, peak {vm.max():.0f}')
-    linear_u, energy_u = solutions[0][1].u, solutions[1][1].u
+    linear_u = solutions[0][1].u
     drift = np.linalg.norm(energy_u - linear_u) / np.linalg.norm(linear_u)
     return DemoResult(
         [Figure(plotter,
@@ -598,7 +600,7 @@ def demo_elasticity_models(mesh, stretch=0.5):
                 'conditions', setup=True)],
         text=(f'displacement, linear solve vs energy minimisation: '
               f'relative difference {drift:.1e}\n'
-              f'minimised elastic energy: {energy_solver.energy(energy_u):.4g}'),
+              f'minimised elastic energy: {energy_problem.energy(energy_u):.4g}'),
     )
 
 def _heatsink_film(mesh):

@@ -15,7 +15,7 @@ import numpy as np
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.estimators import ErrorEstimator
-from fem.solve import LinearSolve, SolveStrategy
+from fem.solve import SolveStrategy, default_strategy
 from fem.solution import FieldSolution
 
 if TYPE_CHECKING:
@@ -31,10 +31,11 @@ class AdaptiveRefinement:
     '''Refine where the error estimate is largest, re-solving on each new mesh.
 
     `problem_for(mesh)` states the problem on any mesh (`equation.problem(
-    equation.space(mesh), bc)` for the linear path); its boundary conditions must be
-    geometric, since they are resolved afresh on every mesh. `estimator` is an
-    `ErrorEstimator` or a bare callable of `(problem, solution)`. After `run`, `mesh`,
-    `problem`, and `solution` are the final round's.
+    equation.space(mesh), bc)`); its boundary conditions must be geometric, since
+    they are resolved afresh on every mesh. `strategy` None is `default_strategy` for
+    each round's problem. `estimator` is an `ErrorEstimator` or a bare callable of
+    `(problem, solution)`. After `run`, `mesh`, `problem`, and `solution` are the
+    final round's.
     '''
 
     def __init__(
@@ -49,7 +50,7 @@ class AdaptiveRefinement:
     ) -> None:
         self.mesh = mesh
         self.problem_for = problem_for
-        self.strategy: SolveStrategy = strategy if strategy is not None else LinearSolve()
+        self.strategy = strategy
         self._estimate = estimator.estimate if isinstance(estimator, ErrorEstimator) else estimator
         self.max_triangles = max_triangles
         self.max_iters = max_iters
@@ -59,7 +60,8 @@ class AdaptiveRefinement:
 
     def _solve(self) -> FieldSolution:
         assert self.problem is not None
-        self.solution = self.problem.solution(self.strategy.solve(self.problem))
+        strategy = self.strategy if self.strategy is not None else default_strategy(self.problem)
+        self.solution = self.problem.solution(strategy.solve(self.problem))
         return self.solution
 
     def run(self) -> FieldSolution:

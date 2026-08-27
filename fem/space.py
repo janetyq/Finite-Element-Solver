@@ -27,7 +27,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import EnergyForm, Form, LinearForm, MassForm
+from fem.forms import BilinearForm, Form, LinearForm, MassForm
 from fem.mesh.mesh import Mesh
 from fem.typing import (
     DofIndices,
@@ -689,19 +689,14 @@ class FunctionSpace:
         '''Mass matrix over boundary facets, for integrating tractions.'''
         return self.assemble(MassForm(self.n_components), boundary=True)
 
-    def assemble(self, form: Form, boundary: bool = False) -> SparseMatrix:
-        '''Scatter `form`'s element matrices into a global matrix.
+    def assemble(self, form: BilinearForm, boundary: bool = False) -> SparseMatrix:
+        '''Scatter a bilinear form's element matrices into a global matrix.
 
         `boundary=True` integrates over the boundary facets instead of the volume
-        elements. A form may request a higher-degree rule through a `quadrature_degree`
-        attribute; otherwise the element's default geometry is used. Not cached, since
-        a form may carry material data that changes between calls.
+        elements. Not cached, since a form may carry material data that changes
+        between calls.
         '''
-        if boundary:
-            geometry = self.boundary_geometry
-        else:
-            degree = getattr(form, 'quadrature_degree', None)
-            geometry = self.geometry if degree is None else self.geometry_at(degree)
+        geometry = self.boundary_geometry if boundary else self._geometry_for(form)
         return self._assemble(form.element_matrices(geometry), boundary=boundary)
 
     def assemble_load(self, form: LinearForm) -> DofVector:
@@ -716,44 +711,40 @@ class FunctionSpace:
         vectors = form.element_vectors(geometry)
         return self._volume_vector_scatter.scatter(vectors)
 
-    # -- nonlinear assembly -------------------------------------------------
+    # -- state-dependent assembly -------------------------------------------
     #
-    # An EnergyForm's element quantities depend on the current displacement, so
-    # these take `u` and evaluate the form at each element's slice of it. Constraints
-    # stay with the caller (EnergySolver's Newton loop), as boundary conditions do
-    # for the bilinear path.
+    # A form's element quantities may depend on the current state, so these take
+    # `u` and evaluate the form at each element's slice of it. Constraints stay with
+    # the caller (the Problem and its solve strategy).
 
-    def _energy_geometry(self, form: EnergyForm) -> ElementGeometry:
-        '''Geometry at a rule that fully integrates `form`'s energy on this element.
+    def _geometry_for(self, form: Form) -> ElementGeometry:
+        '''Geometry at a rule that integrates `form` on this element.
 
-        St-Venant-Kirchhoff is quartic in the displacement gradient, so degree 4 on
-        P2. The same rule serves the energy, residual, and tangent, so the residual is
-        the exact gradient of the quadrature energy and Newton sees a matching tangent.
+        The larger of the element's default and what the form asks for: a quartic
+        St-Venant-Kirchhoff energy wants degree 4 on P2. One rule serves the energy,
+        residual, and tangent, so the residual is the exact gradient of the quadrature
+        energy and Newton sees a matching tangent.
         '''
         degree = max(self.element_type.default_quadrature_degree(),
                      form.quadrature_degree(self.element_type.SHAPE_DEGREE))
         return self.geometry_at(degree)
 
-    def total_energy(self, form: EnergyForm, u: DofVector) -> float:
-        '''Sum an EnergyForm's element energies at state `u`: the scalar Pi(u).'''
-        u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
-        return float(form.element_energies(self._energy_geometry(form), u_elements).sum())
+    def _element_state(self, u: DofVector) -> FloatArray:
+        '''(n_elements, N, n_components): each element's slice of the state.'''
+        return np.asarray(u, dtype=float).reshape(-1, self.n_components)[self.element_nodes]
 
-    def assemble_residual(self, form: EnergyForm, u: DofVector) -> DofVector:
-        '''Scatter element residuals at `u` into grad Pi(u), shape (n_dofs,).'''
-        u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
-        residuals = form.element_residuals(self._energy_geometry(form), u_elements)
-        return self._volume_vector_scatter.scatter(
-            residuals.reshape(len(self.element_nodes), -1)
-        )
+    def total_energy(self, form: Form, u: DofVector) -> float:
+        '''Sum a form's element energies at state `u`: the scalar Pi(u).'''
+        return float(form.element_energies(self._geometry_for(form), self._element_state(u)).sum())
 
-    def assemble_tangent(self, form: EnergyForm, u: DofVector) -> SparseMatrix:
-        '''Scatter element tangents at `u` into grad^2 Pi(u), shape (n_dofs, n_dofs).'''
-        u_elements = u.reshape(-1, self.n_components)[self.element_nodes]
-        k = self.element_type.N * self.n_components
-        tangents = form.element_tangents(
-            self._energy_geometry(form), u_elements).reshape(-1, k, k)
-        return self._assemble(tangents)
+    def assemble_residual(self, form: Form, u: DofVector) -> DofVector:
+        '''Scatter element residuals at `u` into the global residual, shape (n_dofs,).'''
+        residuals = form.element_residuals(self._geometry_for(form), self._element_state(u))
+        return self._volume_vector_scatter.scatter(residuals)
+
+    def assemble_tangent(self, form: Form, u: DofVector) -> SparseMatrix:
+        '''Scatter element tangents at `u` into the global tangent, shape (n_dofs, n_dofs).'''
+        return self._assemble(form.element_tangents(self._geometry_for(form), self._element_state(u)))
 
     # -- the scatter -------------------------------------------------------
 

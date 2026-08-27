@@ -55,13 +55,14 @@ from fem.equations import (
 )
 from fem.solver import Solver
 from fem.forms import LinearForm
-from fem.problem import LinearProblem, EnergyProblem
+from fem.problem import LinearProblem, Problem
 from fem.solve import (
     BacktrackingLineSearch,
     LinearSolve,
     NewtonSolve,
     EigenSolve,
     TangentRegularization,
+    default_strategy,
 )
 from fem.backends import DirectBackend, IterativeBackend, MinresBackend, rigid_body_modes
 from fem.integrators import ThetaMethod, NewmarkMethod
@@ -77,7 +78,6 @@ from fem.solution import (
 )
 from fem.buckling import BucklingAnalysis
 from fem.modal import ModalAnalysis
-from fem.energy_solver import EnergySolver
 from fem.sensitivity import (
     SensitivityAnalysis,
     Compliance,
@@ -140,10 +140,11 @@ __all__ = [
     "LinearElastic",
     "StrainMeasure",
     "LinearProblem",
-    "EnergyProblem",
+    "Problem",
     "LinearForm",
     "LinearSolve",
     "NewtonSolve",
+    "default_strategy",
     "BacktrackingLineSearch",
     "TangentRegularization",
     "EigenSolve",
@@ -163,7 +164,6 @@ __all__ = [
     "WaveSolution",
     "BucklingAnalysis",
     "ModalAnalysis",
-    "EnergySolver",
     "SensitivityAnalysis",
     "Compliance",
     "PointValue",

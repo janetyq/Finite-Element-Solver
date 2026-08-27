@@ -13,12 +13,18 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
+from fem.energies import StVenantKirchhoff
 from fem.forms import (
     DiffusionForm,
+    EnergyForm,
+    GeometricStiffnessForm,
     LaplacianForm,
     LinearElasticForm,
     LinearForm,
+    MaskedMassForm,
     MassForm,
+    PrecomputedForm,
+    ScaledForm,
     strain_displacement,
 )
 from fem.materials import LinearElasticMaterial
@@ -162,6 +168,42 @@ def test_diffusion_form_scales_with_the_coefficient():
         DiffusionForm(5.0).element_matrices(TRI),
         5.0 * LaplacianForm().element_matrices(TRI),
     )
+
+
+# Every form, with the components per node it is written for on the unit triangle.
+EVERY_FORM = [
+    (MassForm(2), 2),
+    (MaskedMassForm(2, np.array([True])), 2),
+    (LaplacianForm(), 1),
+    (DiffusionForm(2.0), 1),
+    (LinearElasticForm(LinearElasticMaterial(200.0, 0.3)), 2),
+    (GeometricStiffnessForm(np.zeros((1, 2, 2))), 2),
+    (ScaledForm(3.0, LaplacianForm()), 1),
+    (PrecomputedForm(np.eye(3)[None]), 1),
+    (EnergyForm(StVenantKirchhoff(200.0, 0.3)), 2),
+]
+
+
+@pytest.mark.parametrize('form, n_components', EVERY_FORM, ids=lambda x: type(x).__name__ if not isinstance(x, int) else '')
+def test_every_form_answers_what_it_declares(form, n_components):
+    """A form's flags agree with its methods: `constant_tangent` means the tangent is the
+    same at two states, `has_energy` means `element_energies` is defined, and the
+    residual and tangent blocks have the shapes the assembly scatters."""
+    rng = np.random.default_rng(0)
+    u0 = 0.1 * rng.standard_normal((1, 3, n_components))
+    u1 = 0.1 * rng.standard_normal((1, 3, n_components))
+    k = 3 * n_components
+
+    assert form.element_residuals(TRI, u0).shape == (1, k)
+    t0, t1 = form.element_tangents(TRI, u0), form.element_tangents(TRI, u1)
+    assert t0.shape == (1, k, k)
+    assert np.allclose(t0, t1) == form.constant_tangent
+
+    if form.has_energy:
+        assert form.element_energies(TRI, u0).shape == (1,)
+    else:
+        with pytest.raises(NotImplementedError):
+            form.element_energies(TRI, u0)
 
 
 def test_linear_form_constant_source_integrates_the_hat_exactly():

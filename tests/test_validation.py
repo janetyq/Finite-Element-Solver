@@ -5,10 +5,10 @@ import numpy as np
 import pytest
 
 from fem.energies import NeohookeanEnergyDensity
-from fem.energy_solver import EnergySolver
+from fem.solver import Solver
 from fem.boundary import BoundaryConditions, BCType
 from fem.mesh.mesh import Mesh
-from fem.equations import LinearElastic
+from fem.equations import LinearElastic, StrainMeasure
 from fem.regions import everywhere, on_plane, at_indices
 
 
@@ -99,22 +99,8 @@ def test_index_list_as_region_is_rejected():
         bc.add(BCType.DIRICHLET, [0, 1, 2], 0)
 
 
-def test_energy_solver_rejects_a_source_term(make_unit_square):
-    """EnergySolver builds no load vector, so a source term would be dropped."""
-    mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-
-    eq = LinearElastic(E=200, nu=0.4, source=[0, -0.5])
-    with pytest.raises(NotImplementedError):
-        EnergySolver(mesh, eq, bc)
-
-    # ...and without one it still constructs.
-    EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc)
-
-
-def test_energy_solver_accepts_a_3d_mesh():
-    """The energy densities are now dimension-general, so a tet mesh is accepted."""
+def test_finite_strain_accepts_a_3d_mesh():
+    """The energy densities are dimension-general, so a tet mesh is accepted."""
     mesh = Mesh(
         vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
         elements=[[0, 1, 2, 3]],
@@ -123,21 +109,22 @@ def test_energy_solver_accepts_a_3d_mesh():
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(2, 0.0), [0, 0, 0])
 
-    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc)
-    assert solver.space.n_components == 3
+    equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    assert Solver(mesh, equation, bc).space.n_components == 3
 
 
-def test_energy_solver_rejects_a_per_element_modulus(make_unit_square):
+def test_finite_strain_rejects_a_per_element_modulus(make_unit_square):
     """A density carries one pair of Lame parameters for the whole mesh, so an
     array E broadcasts wrongly against the constant d2W/dS2 rather than giving
-    per-element moduli. `Solver` is the path that supports them."""
+    per-element moduli. The small-strain path is the one that supports them."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
 
     E = np.full(len(mesh.elements), 200.0)
+    equation = LinearElastic(E=E, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
     with pytest.raises(NotImplementedError):
-        EnergySolver(mesh, LinearElastic(E=E, nu=0.4), bc)
+        Solver(mesh, equation, bc).problem()
 
 
 def test_add_rejects_robin_pointing_to_add_robin():
