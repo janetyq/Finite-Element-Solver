@@ -131,7 +131,7 @@ Two approaches measured and rejected, so they are not proposed again:
   - **Truncated / Steihaug CG** runs CG on the tangent and stops at the first direction of negative
     curvature (`pᵀAp ≤ 0`), using the iterate reached so far. CG deliberately repurposed for
     indefinite systems, normally inside a trust region.
-- 💡 **Nonlinear post-buckling, the sequel to `BucklingSolver`.** Linearised buckling finds the
+- 💡 **Nonlinear post-buckling, the sequel to `BucklingAnalysis`.** Linearised buckling finds the
   critical load and the mode shape (`fem/buckling.py`), but not what the structure *does* past the
   bifurcation: the load-deflection path once it has bowed. That is a geometrically nonlinear
   (St-Venant-Kirchhoff) solve seeded with a small imperfection in the buckling mode, and it needs

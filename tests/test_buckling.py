@@ -18,10 +18,15 @@ from fem.elements import QuadraticTriangleElement
 from fem.equations import LinearElastic, StrainMeasure
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import intersect, on_plane
-from fem.buckling import BucklingSolver
+from fem.buckling import BucklingAnalysis
 
 E, NU = 200.0, 0.3
 E_STAR = E / (1 - NU**2)   # plane-strain effective modulus for bending
+
+
+def _problem(mesh, bc=None, equation=None):
+    equation = equation if equation is not None else LinearElastic(E, NU)
+    return equation.problem(equation.space(mesh, QuadraticTriangleElement), bc)
 
 
 def column(length, height=1.0, n_length=40, n_across=5):
@@ -36,13 +41,12 @@ def critical_load(mesh, bc, length, height=1.0, n_modes=2):
 
     The load factor multiplies the axial force the reference solve carries, read at
     mid-span where it is uniform and free of the end disturbances."""
-    solver = BucklingSolver(mesh, LinearElastic(E, NU), bc, n_modes=n_modes,
-                            element_type=QuadraticTriangleElement)
-    solution = solver.solve()
+    solution = BucklingAnalysis(n_modes=n_modes).solve(_problem(mesh, bc))
+    assert solution.reference is not None
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     dx = length / (len(np.unique(mesh.vertices[:, 0])) - 1)
     midspan = np.abs(centroids[:, 0] - length / 2) < dx
-    axial_force = -np.mean(solver.reference.stress[midspan, 0, 0]) * height
+    axial_force = -np.mean(solution.reference.stress[midspan, 0, 0]) * height
     return solution.load_factors * axial_force, solution
 
 
@@ -152,17 +156,30 @@ def test_green_lagrange_equation_is_rejected():
     equation has none, so it is refused."""
     mesh = column(12.0, n_length=12, n_across=3)
     equation = LinearElastic(E, NU, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    with pytest.raises(NotImplementedError, match='small-strain stiffness'):
-        BucklingSolver(mesh, equation)
+    with pytest.raises(NotImplementedError, match='no constant stiffness'):
+        _problem(mesh, equation=equation)
+
+
+def test_scalar_problem_is_rejected():
+    """Buckling reads a prestress, so a problem without recovered stress is refused."""
+    from fem.equations import Poisson
+
+    mesh = column(12.0, n_length=12, n_across=3)
+    scalar = Poisson(source=1.0)
+    with pytest.raises(TypeError, match='recovered stress'):
+        BucklingAnalysis().solve(scalar.problem(scalar.space(mesh)))
+
+
+def test_degenerate_parameters_are_rejected():
+    with pytest.raises(ValueError, match='n_modes'):
+        BucklingAnalysis(n_modes=0)
 
 
 def test_no_compression_means_no_buckling():
-    """With no load there is no prestress, K_g vanishes, and the solver reports no buckling
-    mode rather than handing the eigensolver an all-zero K_g."""
+    """With no load there is no prestress, K_g vanishes, and the analysis reports no
+    buckling mode rather than handing the eigensolver an all-zero K_g."""
     mesh = column(12.0, n_length=12, n_across=4)
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])   # clamped, but nothing applied
-    solver = BucklingSolver(mesh, LinearElastic(E, NU), bc,
-                            element_type=QuadraticTriangleElement)
     with pytest.raises(ValueError, match='compressive prestress'):
-        solver.solve()
+        BucklingAnalysis().solve(_problem(mesh, bc))

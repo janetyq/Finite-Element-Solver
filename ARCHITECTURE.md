@@ -65,7 +65,8 @@ composition.
 | `Backend` (`Direct`, `Iterative`, `Minres`) | | | | | | █ | | | |
 | `LinearSolve` / `NewtonSolve` / `EigenSolve` | | | | | | ▒ | | | |
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
-| `Solver`, `EnergySolver`, `BucklingSolver`, `ModalSolver` | | | | | ▒ | ▒ | | | |
+| `Solver`, `EnergySolver` | | | | | ▒ | ▒ | | | |
+| `BucklingAnalysis`, `ModalAnalysis` | | | | | | ▒ | | | ▒ |
 | `AdaptiveRefinement`, `TopologyOptimizer`, `DesignOptimizer` | | | | | | | | █ | ▒ |
 | Error estimators, `SensitivityAnalysis` | | | | | | | | ▒ | █ |
 | `Solution` (typed) | | | | | | | ▒ | | █ |
@@ -168,7 +169,8 @@ the free DOFs) unless the caller set one; `LinearSolve` and `SensitivityAnalysis
 
 `EigenSolve` covers the solves that are not `Ax = b`: linearised buckling (`K φ = -λ K_g φ`) and
 modal analysis (`K φ = ω² M φ`) share the Dirichlet elimination, the `eigsh` call, and the lift of
-each eigenvector back to a full DOF vector. `BucklingSolver` and `ModalSolver` are facades over it.
+each eigenvector back to a full DOF vector. `BucklingAnalysis` and `ModalAnalysis` consume a
+`LinearProblem` and return a typed solution, buckling after solving it once for the prestress.
 
 ### Time integration
 
@@ -193,10 +195,8 @@ Two more resolve it against a discretization: `space(mesh, element_type)` builds
 `Solver` and `EnergySolver` have the same shape: hold a mesh, an equation, and a BC spec; build a
 `Problem` per solve (`Equation.problem`, or an `EnergyProblem` over the equation's energy
 density); hand it to a strategy; return `problem.solution(u)`; expose `remesh(mesh)`. Each fills
-in defaults and holds no other solve policy. `BucklingSolver` and
-`ModalSolver` state the same `Problem` and read its `tangent` and `constraints` for the
-eigenproblem, buckling after solving it once for the prestress; `TopologyOptimizer` takes its
-element stiffness and its constraints-and-load template from it. `AdaptiveRefinement` owns a
+in defaults and holds no other solve policy. `TopologyOptimizer` takes its element stiffness and
+its constraints-and-load template from the same `Problem`. `AdaptiveRefinement` owns a
 `RefinableSolver` (either facade) and advances it across meshes; `TopologyOptimizer` and
 `DesignOptimizer` own a strategy and derive a fresh `LinearProblem` from the current density each
 iteration.

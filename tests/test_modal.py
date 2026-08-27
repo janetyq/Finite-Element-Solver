@@ -14,12 +14,12 @@ import pytest
 
 from fem.boundary import BoundaryConditions, BCType
 from fem.elements import QuadraticTriangleElement
-from fem.equations import LinearElastic, Poisson, StrainMeasure
+from fem.equations import LinearElastic, StrainMeasure
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import on_plane
 from fem.solution import ModalSolution, Solution
 from fem.space import FunctionSpace
-from fem.modal import ModalSolver
+from fem.modal import ModalAnalysis
 
 E, NU, DENSITY = 200.0, 0.3, 1.0
 E_STAR = E / (1 - NU**2)                                   # plane-strain modulus for bending
@@ -41,9 +41,9 @@ def clamped_bc():
 
 
 def solve_modes(mesh, n_modes=6, density=DENSITY, E=E):
-    solver = ModalSolver(mesh, LinearElastic(E, NU), clamped_bc(), n_modes=n_modes,
-                         element_type=QuadraticTriangleElement, density=density)
-    return solver.solve()
+    equation = LinearElastic(E, NU)
+    problem = equation.problem(equation.space(mesh, QuadraticTriangleElement), clamped_bc())
+    return ModalAnalysis(n_modes=n_modes, density=density).solve(problem)
 
 
 def euler_bernoulli_hz(length, height=1.0, n=4):
@@ -117,20 +117,12 @@ def test_green_lagrange_equation_is_rejected():
     mesh = cantilever(12.0, n_length=12, n_across=3)
     equation = LinearElastic(E, NU, kinematics=StrainMeasure.GREEN_LAGRANGE)
     with pytest.raises(NotImplementedError, match='constant'):
-        ModalSolver(mesh, equation)
-
-
-def test_non_elastic_equation_is_rejected():
-    """The mass/stiffness pencil is an elastic one; a scalar PDE has no vibration modes here."""
-    mesh = cantilever(12.0, n_length=12, n_across=3)
-    with pytest.raises(ValueError, match='elastic vibration'):
-        ModalSolver(mesh, Poisson())
+        equation.problem(equation.space(mesh))
 
 
 def test_degenerate_parameters_are_rejected():
     """n_modes and density must be physical, caught at construction."""
-    mesh = cantilever(12.0, n_length=12, n_across=3)
     with pytest.raises(ValueError, match='n_modes'):
-        ModalSolver(mesh, LinearElastic(E, NU), n_modes=0)
+        ModalAnalysis(n_modes=0)
     with pytest.raises(ValueError, match='density'):
-        ModalSolver(mesh, LinearElastic(E, NU), density=0.0)
+        ModalAnalysis(density=0.0)

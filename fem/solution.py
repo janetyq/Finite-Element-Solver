@@ -210,10 +210,14 @@ class BucklingSolution(Solution):
     ascending order, so `load_factors[0]` is the critical (lowest) one and its mode
     is the shape the structure buckles into first. A mode is a shape, not a
     displacement: its amplitude is arbitrary (the eigenproblem is homogeneous), so
-    only its form and the factor scaling the reference load are physical.
+    only its form and the factor scaling the reference load are physical. `reference`
+    is the pre-buckling solve the modes were computed about (its stress is the
+    prestress); it is not saved.
     '''
     load_factors: FloatArray   # (n_modes,) ascending λ
     modes: FloatArray          # (n_modes, n_dofs) mode-shape displacement vectors
+    reference: 'ElasticSolution | None' = field(
+        default=None, kw_only=True, repr=False, metadata={'persist': False})
 
     @property
     def critical_load_factor(self) -> float:

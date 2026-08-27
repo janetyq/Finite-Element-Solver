@@ -8,7 +8,7 @@ assembles once and solves once; `NewtonSolve` iterates, and on a `LinearProblem`
 (constant tangent, affine residual) reaches the solution in one step.
 
 `EigenSolve` is the eigen-analogue: no right-hand side, the same free-block Dirichlet
-elimination. `BucklingSolver` and `ModalSolver` are thin facades over it.
+elimination. `BucklingAnalysis` and `ModalAnalysis` interpret its eigenvalues.
 """
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -263,7 +263,7 @@ class EigenSolve:
     eigenvectors φ are sought. The eigen-analogue of `LinearSolve`: it eliminates the
     Dirichlet DOFs, hands the free-free pencil to `scipy.sparse.linalg.eigsh`, and lifts
     each eigenvector back to a full DOF vector (the fixed DOFs are zero in every mode). It
-    does not interpret the eigenvalues: `BucklingSolver` reads `μ = 1/λ`, `ModalSolver`
+    does not interpret the eigenvalues: `BucklingAnalysis` reads `μ = 1/λ`, `ModalAnalysis`
     reads `μ = ω²`. Two modes, by one pair of knobs:
 
     - Regular (`sigma=None`): the largest/smallest `μ` by `which` (buckling uses
