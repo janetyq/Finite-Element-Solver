@@ -71,7 +71,7 @@ def test_solver_and_design_model_recover_the_same_fields(make_unit_square):
     _, solution = _solved(mesh)
 
     equation = LinearElastic(E=1.0, nu=0.3)
-    model = SIMPModel(equation.space(mesh), equation, _cantilever_bc(), penalty=1.0)
+    model = SIMPModel(equation.problem(mesh, _cantilever_bc()), penalty=1.0)
     rho = np.ones(len(mesh.elements))
     design_solution = model.solution(rho, LinearSolve().solve(model.problem(rho)))
 

@@ -113,5 +113,8 @@ def test_default_strategy_follows_the_tangent(make_unit_square):
     newton = default_strategy(finite.problem(mesh))
     assert isinstance(newton, NewtonSolve)
     assert newton.line_search is not None and newton.regularization is None
+    from fem.backends import DirectBackend
+    direct = default_strategy(finite.problem(mesh), DirectBackend())
+    assert isinstance(direct, NewtonSolve) and direct.regularization is None
     iterative = default_strategy(finite.problem(mesh), MinresBackend())
     assert isinstance(iterative, NewtonSolve) and iterative.regularization is not None

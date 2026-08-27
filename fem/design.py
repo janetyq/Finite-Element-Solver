@@ -1,7 +1,7 @@
 """Density (SIMP) design optimization over the adjoint core.
 
-`SIMPModel` is the specification: a linear-elastic equation on a space with supports,
-whose stiffness a density field dilutes as `E(rho) = rho^p E0`. `DesignOptimizer` is
+`SIMPModel` is the specification: a small-strain elastic `LinearProblem` whose
+stiffness a density field dilutes as `E(rho) = rho^p E0`. `DesignOptimizer` is
 the driver: each iteration solves the diluted problem, scores a `QuantityOfInterest`,
 takes its gradient through `fem.sensitivity`, filters it, and moves the density by the
 optimality-criteria (OC) update under a volume constraint.
@@ -19,9 +19,7 @@ import numpy as np
 from scipy.sparse import csr_array
 from scipy.spatial import KDTree
 
-from fem.boundary import BoundaryConditions
-from fem.equations import LinearElastic
-from fem.forms import BilinearForm, LinearElasticForm, PrecomputedForm
+from fem.forms import LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.problem import LinearProblem, Problem
@@ -133,38 +131,42 @@ class TargetCompliance:
 
 @dataclass
 class SIMPModel:
-    '''A SIMP density design: a linear-elastic equation on a space, with supports.
+    '''A SIMP density design over a small-strain elastic `LinearProblem`.
 
-    `problem(rho)` is the elastic problem at density `rho`, its stiffness rescaled by
-    `rho^p` from one cached set of solid element matrices; `parameterization(rho)` is the
-    `DensityField` that differentiates it. The constraints and load are resolved once
-    (`Equation.problem`) and shared by every density.
+    `template` supplies the solid material (a `LinearElasticForm` with a scalar
+    modulus), the supports, and the load, shared by every density. `problem(rho)` is the
+    elastic problem at density `rho`, its stiffness rescaled by `rho^p` from one cached
+    set of solid element matrices; `parameterization(rho)` is the `DensityField` that
+    differentiates it.
 
     `sensitivity_filter` is the SIMP cone filter (`calculate_smoothing_matrix`), applied
     to the raw sensitivity by the optimizer.
     '''
-    space: FunctionSpace
-    equation: LinearElastic
-    bc: BoundaryConditions
+    template: LinearProblem
     penalty: float = 3.0
     sensitivity_filter: SparseMatrix | None = None
-    _template: LinearProblem = field(init=False, repr=False)
+    _material: LinearElasticMaterial = field(init=False, repr=False)
     _density: DensityField = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.equation.E, int | float):
+        operator = self.template.operator
+        if not isinstance(operator, LinearElasticForm):
+            raise ValueError(
+                'SIMP rescales a small-strain elastic stiffness; the operator is '
+                f'{type(operator).__name__}'
+            )
+        if not isinstance(operator.material.E, int | float):
             raise ValueError('SIMP scales one solid modulus; E must be a scalar')
-        template = self.equation.problem(self.space, self.bc)
-        if not isinstance(template, LinearProblem):
-            raise ValueError('SIMP rescales a constant stiffness; the equation needs small-strain kinematics')
-        self._template = template
-        operator = template.operator
-        assert isinstance(operator, BilinearForm)
+        self._material = operator.material
         solid = operator.element_matrices(self.space.geometry)
         self._density = DensityField(
-            space=self.space, nu=self.equation.nu, _K0=solid,
+            space=self.space, nu=self._material.nu, _K0=solid,
             rho=np.ones(len(self.space.element_nodes)), penalty=self.penalty,
         )
+
+    @property
+    def space(self) -> FunctionSpace:
+        return self.template.space
 
     @property
     def volumes(self) -> FloatArray:
@@ -172,7 +174,7 @@ class SIMPModel:
 
     def scaled_modulus(self, rho: ElementField) -> ElementField:
         '''The SIMP-scaled modulus `E(rho) = rho^p E0`, one value per element.'''
-        return np.asarray(rho, dtype=float) ** self.penalty * self.equation.E
+        return np.asarray(rho, dtype=float) ** self.penalty * self._material.E
 
     def parameterization(self, rho: ElementField) -> DensityField:
         return self._density.with_density(rho)
@@ -181,12 +183,12 @@ class SIMPModel:
         '''The elastic problem at density `rho`, its stiffness rescaled by `rho^p`.'''
         dilution = np.asarray(rho, dtype=float) ** self.penalty
         stiffness = PrecomputedForm(dilution[:, None, None] * self._density._K0)
-        return self._template.with_operator(stiffness)
+        return self.template.with_operator(stiffness)
 
     def solution(self, rho: ElementField, u: DofVector) -> ElasticSolution:
         '''The displacement `u` at density `rho` with the stress of the diluted material.'''
         # Stress wants the diluted material itself: sigma = D(E(rho)) eps.
-        form = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus(rho), self.equation.nu))
+        form = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus(rho), self._material.nu))
         return ElasticSolution.from_solve(self.space, u, form)
 
 
@@ -246,7 +248,9 @@ class DesignOptimizer:
         )
         return u, objective_value
 
-    def solve(self, on_iteration: Callable[[int, ElementField, float], None] | None = None) -> DesignHistory:
+    def run(self, on_iteration: Callable[[int, ElementField, float], None] | None = None) -> DesignHistory:
+        '''Run every iteration and return the history; `on_iteration(i, rho, J)` is
+        called after each.'''
         rho_series: list[ElementField] = []
         u_series: list[DofVector] = []
         objective_series: list[float] = []

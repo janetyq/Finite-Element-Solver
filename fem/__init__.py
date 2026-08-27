@@ -54,17 +54,39 @@ from fem.equations import (
     StrainMeasure,
 )
 from fem.solver import Solver
-from fem.forms import LinearForm
-from fem.problem import LinearProblem, Problem
+from fem.forms import (
+    BilinearForm,
+    DiffusionForm,
+    EnergyDensity,
+    EnergyForm,
+    Form,
+    LaplacianForm,
+    LinearElasticForm,
+    LinearForm,
+    MassForm,
+    ScaledForm,
+)
+from fem.materials import LinearElasticMaterial
+from fem.energies import SmallStrain, StVenantKirchhoff
+from fem.postprocess import DerivedField
+from fem.problem import LinearProblem, Problem, Source
 from fem.solve import (
     BacktrackingLineSearch,
     LinearSolve,
     NewtonSolve,
     EigenSolve,
+    SolveStrategy,
     TangentRegularization,
     default_strategy,
 )
-from fem.backends import DirectBackend, IterativeBackend, MinresBackend, rigid_body_modes
+from fem.backends import (
+    Backend,
+    DirectBackend,
+    IterativeBackend,
+    LinearSolver,
+    MinresBackend,
+    rigid_body_modes,
+)
 from fem.integrators import ThetaMethod, NewmarkMethod
 from fem.solution import (
     Solution,
@@ -80,6 +102,8 @@ from fem.buckling import BucklingAnalysis
 from fem.modal import ModalAnalysis
 from fem.sensitivity import (
     SensitivityAnalysis,
+    QuantityOfInterest,
+    Parameterization,
     Compliance,
     PointValue,
     MeanStress,
@@ -141,13 +165,30 @@ __all__ = [
     "StrainMeasure",
     "LinearProblem",
     "Problem",
+    "Source",
+    "Form",
+    "BilinearForm",
+    "EnergyForm",
+    "EnergyDensity",
     "LinearForm",
+    "MassForm",
+    "LaplacianForm",
+    "DiffusionForm",
+    "LinearElasticForm",
+    "ScaledForm",
+    "LinearElasticMaterial",
+    "StVenantKirchhoff",
+    "SmallStrain",
+    "DerivedField",
+    "SolveStrategy",
     "LinearSolve",
     "NewtonSolve",
     "default_strategy",
     "BacktrackingLineSearch",
     "TangentRegularization",
     "EigenSolve",
+    "Backend",
+    "LinearSolver",
     "DirectBackend",
     "IterativeBackend",
     "MinresBackend",
@@ -165,6 +206,8 @@ __all__ = [
     "BucklingAnalysis",
     "ModalAnalysis",
     "SensitivityAnalysis",
+    "QuantityOfInterest",
+    "Parameterization",
     "Compliance",
     "PointValue",
     "MeanStress",

@@ -1035,10 +1035,10 @@ def demo_topology_optimization(mesh, iters=60):
 
     # Then optimize where to put half of it. Compliance is u.f, the work the load does, so
     # a lower value is a stiffer structure; SIMP minimizes it under the volume constraint.
-    model = SIMPModel(equation.space(mesh), equation, bc,
+    model = SIMPModel(equation.problem(mesh, bc),
                       sensitivity_filter=calculate_smoothing_matrix(mesh, 0.05))
     design = DesignOptimizer(model, volume_frac=0.5, iters=iters, move=0.1)
-    history = design.solve()
+    history = design.run()
     compliance_opt = history.objective[-1]
     ratio = compliance_opt / compliance_solid
 

@@ -118,7 +118,8 @@ two elastic forms share with `ElasticSolution` and `StressField`.
 | `AdaptiveRefinement`, `SIMPModel` / `DesignOptimizer` | | | | | | | | █ | ▒ |
 | Error estimators, `SensitivityAnalysis` | | | | | | | | ▒ | █ |
 | `Solution` (typed) | | | | | | | ▒ | | █ |
-| `invariants`, `Plotter`, `io` | | | | | | | | | █ |
+| `invariants`, `Plotter` / `fem/plot`, `io` | | | | | | | | | █ |
+| `convergence` (MMS studies), `numerics` | | | | | | | | | ▒ |
 
 Constraints (5) have one owner, the `Problem`, whose constructor resolves the boundary conditions
 against the space and folds the Dirichlet partition, the Neumann load, and any Robin contribution
@@ -262,10 +263,20 @@ between solves.
 Two drivers, each over one spec. `AdaptiveRefinement` owns a mesh and a `problem_for(mesh)`
 builder (`equation.problem(mesh, bc)`), solves each round's problem with `Problem.solve` (the
 caller's strategy, else the default), hands `(problem, solution)` to the estimator,
-and refines. `DesignOptimizer` owns a `SIMPModel` (a space, a `LinearElastic`
-equation, and supports; `Equation.problem` resolved once as the template) and each iteration
+and refines. `DesignOptimizer` owns a `SIMPModel` (a small-strain elastic `LinearProblem` as
+the template, whose material, supports, and load every density shares) and each iteration
 derives the diluted `LinearProblem` from the current density with `with_operator`, solves it
 through `SensitivityAnalysis`, and moves the density by the optimality-criteria update.
+
+### Extension seams
+
+Each seam is a protocol, exported from `fem`, and the classes beside it are the implementations
+to copy: `Form` (`BilinearForm` by `element_matrices`, `EnergyForm` by an `EnergyDensity`);
+`SolveStrategy` (`LinearSolve`, `NewtonSolve`); `Backend` and `LinearSolver` (`DirectBackend`,
+`IterativeBackend`, `MinresBackend`); `ErrorEstimator` (the three estimators, or any callable of
+`(problem, solution)`); `QuantityOfInterest` and `Parameterization` (`Compliance`, `PointValue`,
+`DensityField`, `ModulusField`); `DerivedField` (`GradientField`, `StressField`); `FieldShape`
+(`Scalar`, `Vector`).
 
 ### Error estimation and sensitivity
 
