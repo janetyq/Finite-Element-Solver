@@ -16,7 +16,7 @@ Three parts, none per-PDE:
   solves share the factorization. For a symmetric `K` (Poisson, small-strain elasticity)
   the adjoint reuses it directly; `Kᵀ = K`.
 
-`TopologyOptimizer`'s compliance sensitivity is the self-adjoint special case:
+Compliance in SIMP design is the self-adjoint special case:
 `J = fᵀu` gives the adjoint load `f`, so `λ = u` and no second solve is needed. Only
 linear, symmetric problems are handled here.
 """

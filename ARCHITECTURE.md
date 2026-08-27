@@ -9,9 +9,9 @@ A solve is a composition assembled from parts, not a method looked up by PDE. Th
 parts (`FunctionSpace`, `Form`, `Material`, `DiscreteSystem`, `ResolvedBC`), the object that holds
 a composition (`Problem`), the strategies that consume one (`LinearSolve`, `NewtonSolve`, the time
 integrators), and the drivers that wrap a strategy to re-solve (`AdaptiveRefinement`,
-`TopologyOptimizer`, `DesignOptimizer`). A transient problem is a steady operator paired with a time
-integrator, not a PDE type, so `Equation` carries only the identity of a PDE and its physical
-constants. "What to solve" is the `Problem`; "how" is the strategy.
+`DesignOptimizer`). A transient problem is a steady operator paired with a time integrator, not a
+PDE type, so `Equation` carries only the identity of a PDE and its physical constants. "What to
+solve" is the `Problem`; "how" is the strategy.
 
 ## Layers
 
@@ -38,7 +38,7 @@ refined mesh (1) without re-resolving constraints by hand (5).
 | 1. Primitives | the parts a composition is built from | `Form` / `EnergyForm` (+ `ScaledForm`, `MaskedMassForm`, `PrecomputedForm`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
 | 2. `Problem` | a composition: space + operator + load + constraints | `LinearProblem`, `EnergyProblem`; `Equation.problem` builds one from a named PDE |
 | 3. Solve strategy | consumes a `Problem`, returns the solution | `LinearSolve`, `NewtonSolve`, `EigenSolve`; integrators `ThetaMethod`, `NewmarkMethod` |
-| 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `TopologyOptimizer`, `DesignOptimizer` |
+| 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
 
 Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
 direct vs. iterative. Named PDEs are `Equation`s, not dispatch keys: `Poisson(f).problem(space, bc)`
@@ -67,7 +67,7 @@ composition.
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
 | `Solver`, `EnergySolver` | | | | | ▒ | ▒ | | | |
 | `BucklingAnalysis`, `ModalAnalysis` | | | | | | ▒ | | | ▒ |
-| `AdaptiveRefinement`, `TopologyOptimizer`, `DesignOptimizer` | | | | | | | | █ | ▒ |
+| `AdaptiveRefinement`, `SIMPModel` / `DesignOptimizer` | | | | | | | | █ | ▒ |
 | Error estimators, `SensitivityAnalysis` | | | | | | | | ▒ | █ |
 | `Solution` (typed) | | | | | | | ▒ | | █ |
 | `invariants`, `Plotter`, `io` | | | | | | | | | █ |
@@ -195,11 +195,13 @@ Two more resolve it against a discretization: `space(mesh, element_type)` builds
 `Solver` and `EnergySolver` have the same shape: hold a mesh, an equation, and a BC spec; build a
 `Problem` per solve (`Equation.problem`, or an `EnergyProblem` over the equation's energy
 density); hand it to a strategy; return `problem.solution(u)`; expose `remesh(mesh)`. Each fills
-in defaults and holds no other solve policy. `TopologyOptimizer` takes its element stiffness and
-its constraints-and-load template from the same `Problem`. `AdaptiveRefinement` owns a
-`RefinableSolver` (either facade) and advances it across meshes; `TopologyOptimizer` and
-`DesignOptimizer` own a strategy and derive a fresh `LinearProblem` from the current density each
-iteration.
+in defaults and holds no other solve policy.
+
+Two drivers, each over one spec. `AdaptiveRefinement` owns a `RefinableSolver` (either facade) and
+advances it across meshes. `DesignOptimizer` owns a `SIMPModel` (a space, a `LinearElastic`
+equation, and supports; `Equation.problem` resolved once as the template) and each iteration
+derives the diluted `LinearProblem` from the current density with `with_operator`, solves it
+through `SensitivityAnalysis`, and moves the density by the optimality-criteria update.
 
 ### Error estimation and sensitivity
 

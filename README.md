@@ -330,8 +330,7 @@ fem/                 # the solver package
 ├── adaptivity.py    # AdaptiveRefinement driver
 ├── estimators.py    # residual, recovery, and goal-oriented error estimators
 ├── sensitivity.py   # adjoint sensitivity: quantities of interest and their gradients
-├── topology.py      # SIMP topology optimization driver
-├── design.py        # DesignOptimizer: any quantity of interest over a density field
+├── design.py        # SIMPModel + DesignOptimizer: density (topology) design over any quantity of interest
 │
 │   # results
 ├── solution.py      # typed Solution hierarchy; ElasticSolution.from_solve

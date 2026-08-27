@@ -29,7 +29,7 @@ from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.integrators import NewmarkMethod, ThetaMethod
-from fem.topology import TopologyOptimizer
+from fem.design import DesignOptimizer, SIMPModel, calculate_smoothing_matrix
 from fem.energy_solver import EnergySolver
 from fem.buckling import BucklingAnalysis
 from fem.modal import ModalAnalysis
@@ -1025,10 +1025,11 @@ def demo_topology_optimization(mesh, iters=60):
 
     # Then optimize where to put half of it. Compliance is u.f, the work the load does, so
     # a lower value is a stiffer structure; SIMP minimizes it under the volume constraint.
-    topopt = TopologyOptimizer(mesh, equation, bc, iters=iters, volume_frac=0.5,
-                               smoothing_radius=0.05)
-    history = topopt.solve()
-    compliance_opt = float(history.compliance[-1].sum())
+    model = SIMPModel(equation.space(mesh), equation, bc,
+                      sensitivity_filter=calculate_smoothing_matrix(mesh, 0.05))
+    design = DesignOptimizer(model, volume_frac=0.5, iters=iters, move=0.1)
+    history = design.solve()
+    compliance_opt = history.objective[-1]
     ratio = compliance_opt / compliance_solid
 
     # Explicit figsize: two 4:1 panels stacked, each filling its row.
@@ -1036,7 +1037,8 @@ def demo_topology_optimization(mesh, iters=60):
                          title='Half the material, comparable stiffness')
     comparison.plot(solid.deformed_mesh(), solid_disp, mode='colored', idx=(0, 0), label='|u|',
                     title=f'Solid: 100% material, compliance {compliance_solid:.3f}')
-    comparison.plot(topopt.deformed_mesh(), history.rho[-1], mode='colored', idx=(1, 0),
+    assert design.solution is not None
+    comparison.plot(design.solution.deformed_mesh(), history.rho[-1], mode='colored', idx=(1, 0),
                     label='density',
                     title=f'Optimized: 50% material, compliance {compliance_opt:.3f} '
                           f'({ratio:.2f}x)')

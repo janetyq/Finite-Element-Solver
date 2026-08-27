@@ -78,7 +78,6 @@ from fem.solution import (
 from fem.buckling import BucklingAnalysis
 from fem.modal import ModalAnalysis
 from fem.energy_solver import EnergySolver
-from fem.topology import TopologyOptimizer
 from fem.sensitivity import (
     SensitivityAnalysis,
     Compliance,
@@ -88,7 +87,14 @@ from fem.sensitivity import (
     DensityField,
     ModulusField,
 )
-from fem.design import DesignOptimizer, SIMPModel, DesignHistory, optimality_criteria_update
+from fem.design import (
+    DesignOptimizer,
+    SIMPModel,
+    DesignHistory,
+    TargetCompliance,
+    calculate_smoothing_matrix,
+    optimality_criteria_update,
+)
 from fem.adaptivity import AdaptiveRefinement
 from fem.estimators import (
     ErrorEstimator,
@@ -158,7 +164,6 @@ __all__ = [
     "BucklingAnalysis",
     "ModalAnalysis",
     "EnergySolver",
-    "TopologyOptimizer",
     "SensitivityAnalysis",
     "Compliance",
     "PointValue",
@@ -169,6 +174,8 @@ __all__ = [
     "DesignOptimizer",
     "SIMPModel",
     "DesignHistory",
+    "TargetCompliance",
+    "calculate_smoothing_matrix",
     "optimality_criteria_update",
     "AdaptiveRefinement",
     "ErrorEstimator",
