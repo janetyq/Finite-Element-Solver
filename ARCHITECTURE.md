@@ -179,8 +179,9 @@ element's default rule and the one the form asks for.
 `fem/forms.py` next to the form that contracts it. The physics decomposes as material (the energy
 `W`) times kinematics (the strain measure): `SmallStrain` and `StVenantKirchhoff` feed one `W`
 either the small-strain `ε` or the Green-Lagrange `S`, chosen on the equation
-(`LinearElastic(kinematics=...)`). The linear path accepts only `SMALL`. In 2D the law is plane
-strain throughout.
+(`LinearElastic(kinematics=...)`): `SMALL` gives the constant stiffness `LinearElasticForm`,
+`GREEN_LAGRANGE` the `EnergyForm` over `StVenantKirchhoff`. In 2D the law is plane strain
+throughout.
 
 Stress recovery is on the form (`RecoversElasticFields`): `fields_at` gives strain and stress at
 every point of a geometry's rule, `derived_fields` reduces that to one tensor per element. Full
@@ -264,8 +265,9 @@ through `SensitivityAnalysis`, and moves the density by the optimality-criteria 
 
 `fem/estimators.py` provides the residual estimator (2D, straight-sided), the Zienkiewicz-Zhu
 recovery estimator (dimension-general, curved elements included), and the goal-oriented estimator
-(the product of primal and dual recovery indicators). Each takes `(problem, solution)` and reads
-the `DerivedField` off the problem's operator, so none needs a physics argument.
+(the product of primal and dual recovery indicators). An estimator has no physics of its own: each
+takes `(problem, solution)` and reads the `DerivedField` off the problem's operator and the source
+off the problem. A custom estimate is any callable of the same two arguments.
 `fem/sensitivity.py` computes `dJ/dp` for a `QuantityOfInterest` through one adjoint solve on the
 forward factorization; `fem/design.py` drives an optimality-criteria update from that gradient.
 
