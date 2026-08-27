@@ -21,7 +21,7 @@ from scipy.spatial import KDTree
 
 from fem.boundary import BoundaryConditions
 from fem.equations import LinearElastic
-from fem.forms import LinearElasticForm, PrecomputedForm
+from fem.forms import ConstantTangent, LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.problem import LinearProblem, Problem
@@ -154,8 +154,13 @@ class SIMPModel:
     def __post_init__(self) -> None:
         if not isinstance(self.equation.E, int | float):
             raise ValueError('SIMP scales one solid modulus; E must be a scalar')
-        self._template = self.equation.problem(self.space, self.bc)
-        solid = self._template.operator.element_matrices(self.space.geometry)
+        template = self.equation.problem(self.space, self.bc)
+        if not isinstance(template, LinearProblem):
+            raise ValueError('SIMP rescales a constant stiffness; the equation needs small-strain kinematics')
+        self._template = template
+        operator = template.operator
+        assert isinstance(operator, ConstantTangent)
+        solid = operator.element_matrices(self.space.geometry)
         self._density = DensityField(
             space=self.space, nu=self.equation.nu, _K0=solid,
             rho=np.ones(len(self.space.element_nodes)), penalty=self.penalty,

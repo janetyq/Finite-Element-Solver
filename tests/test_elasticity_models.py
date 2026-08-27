@@ -8,8 +8,8 @@ Elasticity is solved along two independent axes:
     method           direct assembly      K u = b, one linear solve
                      energy minimization  Newton on grad(Pi) = 0
 
-`Solver` is (small strain, direct); `EnergySolver` defaults to (Green-Lagrange,
-energy). `SmallStrain` fills the off-diagonal cell, so each axis can be varied alone.
+`LinearElastic` picks the strain measure; the solve strategy picks the method. A
+small-strain `EnergyForm` fills the off-diagonal cell, so each axis can be varied alone.
 """
 import numpy as np
 import pytest
@@ -17,10 +17,10 @@ import pytest
 from fem.backends import MinresBackend
 from fem.boundary import BoundaryConditions, BCType
 from fem.materials import LinearElasticMaterial
+from fem.problem import Problem
 from fem.regions import on_plane
 from fem.equations import LinearElastic, StrainMeasure
 from fem.solver import Solver
-from fem.energy_solver import EnergySolver
 from fem.solve import BacktrackingLineSearch, NewtonSolve, TangentRegularization
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.forms import EnergyForm
@@ -56,19 +56,20 @@ def _stretched_square(make_unit_square, stretch=0.1, n=8):
     return mesh, bc
 
 
-def _energy_solver(mesh, bc, kinematics):
-    """An EnergySolver on a LinearElastic with the given strain measure."""
+def _energy_problem(mesh, bc, kinematics):
+    """The energy-minimisation statement of `LinearElastic` with the given strain
+    measure: its density under an `EnergyForm`, whichever the measure."""
     equation = LinearElastic(E=200, nu=0.4, kinematics=kinematics)
-    return EnergySolver(mesh, equation, bc)
+    return Problem(equation.space(mesh), EnergyForm(equation.energy_density()), bc=bc)
 
 
-def _one_newton_step(solver):
+def _minimise(problem):
+    return NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem)
+
+
+def _one_newton_step(problem):
     """Displacement after a single Newton step from the zero initial guess."""
-    problem = solver.problem()
-    _, fixed, fixed_values = problem.constraints
-    u = np.zeros(solver.space.n_dofs)
-    u[fixed] = fixed_values
-    return NewtonSolve(max_iters=1).solve(problem, u0=u)
+    return NewtonSolve(max_iters=1).solve(problem)
 
 
 def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_square):
@@ -80,15 +81,11 @@ def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_s
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [-0.7, 0])   # 70% compression
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    solver = EnergySolver(mesh, equation, bc)
-
-    problem = solver.problem()
-    free, fixed, fixed_values = problem.constraints
-    seed = np.zeros(solver.space.n_dofs)
-    seed[fixed] = fixed_values
+    problem = equation.problem(equation.space(mesh), bc)
+    free = problem.constraints[0]
 
     def free_residual(line_search):
-        u = NewtonSolve(max_iters=50, line_search=line_search).solve(problem, u0=seed.copy())
+        u = NewtonSolve(max_iters=50, line_search=line_search).solve(problem)
         return float(np.linalg.norm(problem.residual(u)[free]))
 
     r_full = free_residual(None)
@@ -114,43 +111,43 @@ def test_kinematics_is_an_equation_level_choice():
     assert type(finite.energy_density()) is StVenantKirchhoff
 
 
-def test_energy_solver_matches_recorded_solution(make_unit_square):
+def test_finite_strain_solve_matches_recorded_solution(make_unit_square):
     """Regression pin on the St Venant-Kirchhoff answer: values recorded from the
     implementation, so this catches drift rather than proving correctness."""
     mesh, bc = _stretched_square(make_unit_square)
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    solver = EnergySolver(mesh, equation, bc)
+    solver = Solver(mesh, equation, bc)
     u = solver.solve().u
 
     np.testing.assert_allclose(np.linalg.norm(u), 0.503442620332, rtol=1e-9)
     np.testing.assert_allclose(u.max(), 0.1, rtol=1e-12)
     np.testing.assert_allclose(u.min(), -0.037995668257, rtol=1e-9)
-    np.testing.assert_allclose(solver.energy(u.copy()), 1.590561321584, rtol=1e-9)
+    np.testing.assert_allclose(solver.problem().energy(u.copy()), 1.590561321584, rtol=1e-9)
 
 
-def test_energy_gradient_and_hessian_are_consistent_by_finite_difference(make_unit_square):
-    """`energy_gradient` is the gradient of `energy`, and `energy_hessian` the gradient of
-    `energy_gradient`, each to O(eps^2) under central differences. This checks the
-    assembly (scatter, transposes), which a density-level check cannot see. St-VK is
-    used because its quartic energy gives a clean O(eps^2) slope."""
+def test_residual_and_tangent_are_consistent_by_finite_difference(make_unit_square):
+    """`residual` is the gradient of `energy`, and `tangent` the gradient of `residual`,
+    each to O(eps^2) under central differences. This checks the assembly (scatter,
+    transposes), which a density-level check cannot see. St-VK is used because its
+    quartic energy gives a clean O(eps^2) slope."""
     mesh = make_unit_square(5)
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    # BCs are unused here: energy/gradient/hessian are the raw, unconstrained
-    # quantities, evaluated at an imposed state rather than a solve.
-    solver = EnergySolver(mesh, equation)
+    # No BCs: energy, residual, and tangent are the raw, unconstrained quantities,
+    # evaluated at an imposed state rather than a solve.
+    problem = equation.problem(equation.space(mesh))
 
-    # A non-trivial state, so the nonlinearity is active -- at u = 0 the tangent is the
+    # A non-trivial state, so the nonlinearity is active: at u = 0 the tangent is the
     # small-strain one and the cubic term this check leans on would vanish.
     rng = np.random.default_rng(0)
-    u = 0.1 * rng.standard_normal(solver.space.n_dofs)
-    gradient = solver.energy_gradient(u)
-    hessian = solver.energy_hessian(u)
+    u = 0.1 * rng.standard_normal(problem.space.n_dofs)
+    gradient = problem.residual(u)
+    hessian = problem.tangent(u)
 
-    grad_order = central_difference_order(solver.energy, lambda d: gradient @ d, u)
-    hess_order = central_difference_order(solver.energy_gradient, lambda d: hessian @ d, u)
+    grad_order = central_difference_order(problem.energy, lambda d: gradient @ d, u)
+    hess_order = central_difference_order(problem.residual, lambda d: hessian @ d, u)
 
-    assert 1.9 < grad_order < 2.1, f"energy_gradient disagrees with d(energy): order {grad_order:.3f}"
-    assert 1.9 < hess_order < 2.1, f"energy_hessian disagrees with d(energy_gradient): order {hess_order:.3f}"
+    assert 1.9 < grad_order < 2.1, f"residual disagrees with d(energy): order {grad_order:.3f}"
+    assert 1.9 < hess_order < 2.1, f"tangent disagrees with d(residual): order {hess_order:.3f}"
 
 
 def test_small_strain_energy_equals_direct_solve(make_unit_square):
@@ -159,7 +156,7 @@ def test_small_strain_energy_equals_direct_solve(make_unit_square):
     mesh, bc = _stretched_square(make_unit_square)
 
     u_direct = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().u.flatten()
-    u_energy = _one_newton_step(_energy_solver(mesh, bc, StrainMeasure.SMALL))
+    u_energy = _one_newton_step(_energy_problem(mesh, bc, StrainMeasure.SMALL))
 
     np.testing.assert_allclose(u_energy, u_direct, atol=1e-12)
 
@@ -168,10 +165,9 @@ def test_stvk_needs_more_than_one_newton_step(make_unit_square):
     """St-VK is nonlinear in u, so one Newton step leaves a residual."""
     mesh, bc = _stretched_square(make_unit_square)
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    solver = EnergySolver(mesh, equation, bc)
 
-    u_one = _one_newton_step(solver)
-    u_converged = solver.solve().u
+    u_one = _one_newton_step(equation.problem(equation.space(mesh), bc))
+    u_converged = Solver(mesh, equation, bc).solve().u
 
     rel = np.linalg.norm(u_one - u_converged) / np.linalg.norm(u_converged)
     assert rel > 0.1, f"one step should be far from converged, got rel={rel:.2e}"
@@ -183,8 +179,8 @@ def test_models_agree_to_second_order_in_strain(make_unit_square):
     gaps = []
     for stretch in (0.08, 0.04, 0.02, 0.01):
         mesh, bc = _stretched_square(make_unit_square, stretch=stretch)
-        u_small = _energy_solver(mesh, bc, StrainMeasure.SMALL).solve().u
-        u_stvk = _energy_solver(mesh, bc, StrainMeasure.GREEN_LAGRANGE).solve().u
+        u_small = _minimise(_energy_problem(mesh, bc, StrainMeasure.SMALL))
+        u_stvk = _minimise(_energy_problem(mesh, bc, StrainMeasure.GREEN_LAGRANGE))
         gaps.append(np.linalg.norm(u_small - u_stvk))
 
     ratios = [a / b for a, b in zip(gaps[:-1], gaps[1:])]
@@ -200,14 +196,10 @@ def test_green_lagrange_is_frame_indifferent(make_unit_square):
     directly on the rotation field, with no solve."""
     mesh = make_unit_square(8)
     center = mesh.vertices.mean(axis=0)
-    # No pinned DOFs would make an EnergySolver degenerate; this BC is unused,
-    # since the energies are evaluated on an imposed field rather than solved.
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    solver = EnergySolver(mesh, LinearElastic(E=200, nu=0.4), bc)
+    space = LinearElastic(E=200, nu=0.4).space(mesh)
 
     def total_energy(density, u_nodal):
-        return solver.space.total_energy(EnergyForm(density), u_nodal.flatten())
+        return space.total_energy(EnergyForm(density), u_nodal.flatten())
 
     def rotation_field(theta):
         c, s = np.cos(theta), np.sin(theta)
@@ -240,28 +232,26 @@ def _stretched_stvk(make_unit_square, n=8, stretch=0.1):
     return mesh, equation, bc
 
 
-def test_energy_solver_reaches_the_minres_backend(make_unit_square):
+def test_finite_strain_solve_reaches_the_minres_backend(make_unit_square):
     """A nonlinear St-VK solve converges through MINRES to the same minimum as direct: the
     Hessian is indefinite at the zero seed, exercising MINRES and the regularization."""
     mesh, equation, bc = _stretched_stvk(make_unit_square)
 
-    direct = EnergySolver(mesh, equation, bc).solve().u
-    iterative = EnergySolver(mesh, equation, bc, backend=MinresBackend()).solve().u
+    direct = Solver(mesh, equation, bc).solve().u
+    iterative = Solver(mesh, equation, bc, backend=MinresBackend()).solve().u
 
     assert np.abs(direct).max() > 0, "trivial solution; test proves nothing"
     np.testing.assert_allclose(iterative, direct, atol=1e-7 * np.abs(direct).max())
 
 
-def test_energy_solver_uses_the_strategy_it_is_given(make_unit_square):
+def test_solver_uses_the_strategy_it_is_given(make_unit_square):
     """A caller's `NewtonSolve` replaces the default; the facade adds no policy of its own."""
-    from fem.solve import NewtonSolve
-
     mesh, equation, bc = _stretched_stvk(make_unit_square)
     plain = NewtonSolve(line_search=None)
-    solver = EnergySolver(mesh, equation, bc, strategy=plain)
+    solver = Solver(mesh, equation, bc, strategy=plain)
 
     assert solver.strategy is plain
-    reference = EnergySolver(mesh, equation, bc).solve().u
+    reference = Solver(mesh, equation, bc).solve().u
     np.testing.assert_allclose(solver.solve().u, reference, atol=1e-7 * np.abs(reference).max())
 
 

@@ -14,7 +14,7 @@ from fem.equations import LinearElastic, StrainMeasure
 from fem.forms import EnergyForm
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import on_plane
-from fem.energy_solver import EnergySolver
+from fem.solver import Solver
 from fem.solution import ElasticSolution
 from fem.space import FunctionSpace
 
@@ -82,8 +82,7 @@ def test_a_p2_hyperelastic_solve_converges_and_carries_its_element_type():
     bc.add(BCType.DIRICHLET, on_plane(0, 2.0), [0.3, 0.15])
     equation = LinearElastic(200.0, 0.3, kinematics=StrainMeasure.GREEN_LAGRANGE)
 
-    solution = EnergySolver(mesh, equation, bc,
-                            element_type=QuadraticTriangleElement).solve()
+    solution = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement).solve()
 
     assert isinstance(solution, ElasticSolution)
     assert solution.element_type is QuadraticTriangleElement

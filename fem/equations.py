@@ -1,10 +1,9 @@
 """What to solve: the PDE identity, its physical constants, and its physics.
 
 An `Equation` is typed data naming a PDE and carrying its physical parameters.
-Each subclass answers for both assembly paths: `operator` gives the bilinear form the
-linear path assembles and `energy_density` the strain-energy density the nonlinear path
-differentiates. `space` and `problem` resolve the equation against a mesh and a BC
-spec, the two steps every facade shares.
+`operator` gives the `Form` a solve assembles, constant-tangent or not. `space` and
+`problem` resolve the equation against a mesh and a BC spec, the two steps every
+facade shares.
 """
 from __future__ import annotations
 
@@ -14,11 +13,11 @@ from typing import TYPE_CHECKING
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.fields import FieldShape, Scalar, Vector
 from fem.forms import (
-    DiffusionForm, EnergyDensity, Form, LaplacianForm, LinearElasticForm, LinearForm, MassForm,
-    ScaledForm,
+    ConstantTangent, DiffusionForm, EnergyForm, Form, LaplacianForm, LinearElasticForm,
+    LinearForm, MassForm, ScaledForm,
 )
 from fem.materials import LinearElasticMaterial
-from fem.problem import LinearProblem
+from fem.problem import LinearProblem, Problem
 from fem.space import FunctionSpace
 from fem.typing import ElementField, FieldValue
 
@@ -56,28 +55,21 @@ class Equation:
         n_components = self.field.components_for(mesh.spatial_dim)
         return FunctionSpace(mesh, element_type, n_components=n_components)
 
-    def problem(self, space: FunctionSpace, bc: BoundaryConditions | None = None) -> LinearProblem:
-        '''The linear composition on `space`: this operator, this source, `bc`.'''
-        return LinearProblem(space, self.operator(space), self.source, bc)
+    def problem(self, space: FunctionSpace, bc: BoundaryConditions | None = None) -> Problem:
+        '''The composition on `space`: this operator, this source, `bc`. A
+        `LinearProblem` when the operator has a constant tangent.'''
+        operator = self.operator(space)
+        if isinstance(operator, ConstantTangent):
+            return LinearProblem(space, operator, self.source, bc)
+        return Problem(space, operator, self.source, bc)
 
     def operator(self, space: FunctionSpace) -> Form:
-        '''The bilinear form a linear solve assembles for this equation on `space`.
+        '''The form a solve assembles for this equation on `space`.
 
         The scalar diffusion family shares the material-free Laplacian, so it is the
         base answer; subclasses that mean something else override.
         '''
         return LaplacianForm()
-
-    def energy_density(self) -> EnergyDensity:
-        '''The strain-energy density a nonlinear solve differentiates.
-
-        Only defined for equations with a stored-energy formulation; the scalar
-        family has none, so the base raises rather than returning a stand-in.
-        '''
-        raise NotImplementedError(
-            f'{type(self).__name__} has no strain-energy density to minimise; '
-            'solve it through its operator.'
-        )
 
 
 class Projection(Equation):
@@ -135,9 +127,9 @@ class StrainMeasure(Enum):
 
 class LinearElastic(Equation):
     '''Elasticity with a selectable strain measure. `kinematics` is SMALL by
-    default (infinitesimal strain, a linear solve); GREEN_LAGRANGE selects the
-    St-Venant–Kirchhoff model (an energy minimisation). E may be a scalar or a
-    per-element array (a SIMP density-scaled modulus).'''
+    default (infinitesimal strain, a constant stiffness); GREEN_LAGRANGE selects the
+    St-Venant–Kirchhoff model (an energy minimised by Newton). E may be a scalar or a
+    per-element array (a SIMP density-scaled modulus) on the small-strain path.'''
     field: FieldShape = Vector()
 
     def __init__(
@@ -157,17 +149,12 @@ class LinearElastic(Equation):
         return LinearElasticMaterial(self.E, self.nu)
 
     def operator(self, space: FunctionSpace) -> Form:
-        '''The small-strain stiffness form, built from this equation's material.
-
-        The bilinear form exists only for the small-strain measure: a
-        Green-Lagrange energy is not quadratic, so it has no constant stiffness.
-        '''
-        if self.kinematics is not StrainMeasure.SMALL:
-            raise NotImplementedError(
-                f'{self.kinematics.name} kinematics has no constant stiffness; '
-                'solve it by minimising its energy (EnergyProblem).'
-            )
-        return LinearElasticForm(self.material)
+        '''The form for this equation's kinematics: the small-strain stiffness
+        (constant tangent) for SMALL, the St-Venant-Kirchhoff `EnergyForm` for
+        GREEN_LAGRANGE.'''
+        if self.kinematics is StrainMeasure.SMALL:
+            return LinearElasticForm(self.material)
+        return EnergyForm(self.energy_density())
 
     def energy_density(self) -> StVenantKirchhoff:
         '''The stored-energy density for this equation's kinematics.

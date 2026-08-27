@@ -1,11 +1,12 @@
-"""Bilinear and nonlinear forms: the per-element matrices assembly scatters.
+"""Forms: the per-element residuals and tangents assembly scatters.
 
-A `Form` builds the small dense matrices for each element. `FunctionSpace.assemble`
-then scatters those element matrices into the global system matrix, so a `Form` is
-the layer between element geometry and the global linear system. It answers one
-thing: given this mesh, what are the per-element matrices?
+A `Form` maps element geometry and a nodal state to the small dense blocks of each
+element: the residual (internal force) and its tangent. `FunctionSpace` scatters those
+into the global vector and matrix, so a `Form` is the layer between element geometry
+and the global system. It answers one thing: given this mesh and this state, what are
+the per-element blocks?
 
-Almost every element matrix follows the same pattern:
+Almost every tangent follows the same pattern:
 
     Gᵀ C G · volume
 
@@ -14,13 +15,15 @@ them separate is the main design idea: element types stay pure geometry (they su
 G), and the `Form` supplies the physics (C). The Laplacian is G = grad_phi with
 C = I; linear elasticity is G = B (strain-displacement) with C = D (the Hooke matrix).
 
-The two families
-----------------
+Two capabilities a form may declare:
 
-1. Linear forms produce a constant element matrix (mass, stiffness).
-2. `EnergyForm` is the nonlinear version. Its output depends on the current
-   displacement, so it returns energy, residual, and tangent for a Newton solve
-   (hyperelasticity).
+- `ConstantTangent` (every `BilinearForm`): the tangent does not depend on the state,
+  so it is one matrix `K` (mass, stiffness) and the residual is `K u`. The consumers
+  that need a fixed operator (a direct linear solve, the integrators, eigenproblems)
+  require it.
+- `HasEnergy`: the residual is the gradient of a scalar energy, which a globalized
+  Newton solve uses as its line-search merit. A bilinear form's energy is `½ uᵀ K u`;
+  `EnergyForm` integrates a hyperelastic density.
 """
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -204,15 +207,75 @@ def _element_mean(values: FloatArray, weight_detJ: FloatArray) -> FloatArray:
 
 
 class Form(Protocol):
-    '''The element-matrix integrand for a bilinear form.'''
+    '''Element residual and tangent at a nodal state: what a `Problem` assembles.
+
+    `u_elements` is `(n_elements, N, n_components)`, each element's slice of the state.
+    Batched over the mesh: a Python loop over elements spends nearly all its time in
+    per-call numpy overhead, and one vectorized pass is roughly 30x faster.
+    '''
+
+    def quadrature_degree(self, shape_degree: int) -> int:
+        '''The lowest rule degree that integrates this form on a degree-`shape_degree`
+        element; the space uses the larger of it and the element's default.'''
+        ...
+
+    def element_residuals(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        '''(n_elements, k) internal-force blocks at the state, k = N * n_components.'''
+        ...
+
+    def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        '''(n_elements, k, k) tangent blocks at the state.'''
+        ...
+
+
+@runtime_checkable
+class ConstantTangent(Protocol):
+    '''A form whose tangent does not depend on the state: the bilinear case.
+
+    `element_matrices` is the tangent, and the residual is that matrix times the
+    state. Every consumer that needs one fixed operator requires this.
+    '''
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
-        '''(n_elements, k, k) dense element matrices for every element at once.
-
-        Batched over the mesh: a Python loop over elements spends nearly all its time
-        in per-call numpy overhead, and one vectorized pass is roughly 30x faster.
-        '''
+        '''(n_elements, k, k) dense element matrices for every element at once.'''
         ...
+
+
+@runtime_checkable
+class HasEnergy(Protocol):
+    '''A form whose residual is the gradient of a scalar energy.'''
+
+    def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        '''(n_elements,) stored energy per element at the state.'''
+        ...
+
+
+class BilinearForm:
+    '''A form with a constant element matrix K: residual K u, tangent K, energy ½ uᵀKu.
+
+    Subclasses write `element_matrices`; the residual protocol follows from it. The
+    state is flattened node-major, component-minor, the DOF order `dof_indices` emits
+    and the matrix's rows use.
+    '''
+
+    def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        raise NotImplementedError
+
+    def quadrature_degree(self, shape_degree: int) -> int:
+        return 0
+
+    def element_residuals(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        K = self.element_matrices(geometry)
+        u = np.asarray(u_elements).reshape(len(K), -1)
+        return np.einsum('eij,ej->ei', K, u)
+
+    def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        return self.element_matrices(geometry)
+
+    def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        K = self.element_matrices(geometry)
+        u = np.asarray(u_elements).reshape(len(K), -1)
+        return 0.5 * np.einsum('ei,eij,ej->e', u, K, u)
 
 
 @runtime_checkable
@@ -236,7 +299,7 @@ class HasNearNullSpace(Protocol):
 
 
 @dataclass(frozen=True)
-class MassForm:
+class MassForm(BilinearForm):
     '''The mass form ∫ u·v: the consistent P1 mass matrix.
 
     The scalar `∫ phi_i phi_j` is element geometry; a k-component field repeats it
@@ -278,7 +341,7 @@ class MassForm:
 
 
 @dataclass(frozen=True)
-class MaskedMassForm:
+class MaskedMassForm(BilinearForm):
     '''A mass form zeroed on the facets outside `mask`: a boundary mass over a
     subset of the boundary.
 
@@ -296,7 +359,7 @@ class MaskedMassForm:
 
 
 @dataclass(frozen=True)
-class LaplacianForm:
+class LaplacianForm(BilinearForm):
     '''The scalar Laplacian ∫ ∇u·∇v: material-free, so G = grad_phi, C = I.'''
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
@@ -322,7 +385,7 @@ def _sample_field(field: FieldValue, geometry: ElementGeometry, n_components: in
 
 
 @dataclass(frozen=True)
-class DiffusionForm:
+class DiffusionForm(BilinearForm):
     '''Variable-coefficient diffusion ∫ κ(x) ∇u·∇v, κ sampled at the quadrature points.
 
     `LaplacianForm` is the κ ≡ 1 special case, kept as the cheaper constant path
@@ -330,11 +393,14 @@ class DiffusionForm:
     position) and scales each quadrature point's weight, so a spatially varying
     conductivity is one multiply in the sum.
 
-    `quadrature_degree` selects the rule the space integrates this against; 2 (three
-    points on a triangle) resolves a smoothly varying κ against a P1 field.
+    `rule_degree` is the rule the space integrates this against; 2 (three points on
+    a triangle) resolves a smoothly varying κ against a P1 field.
     '''
     coefficient: FieldValue
-    quadrature_degree: int = 2
+    rule_degree: int = 2
+
+    def quadrature_degree(self, shape_degree: int) -> int:
+        return self.rule_degree
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         kappa = _sample_field(self.coefficient, geometry, 1)[..., 0]   # (n_el, n_qp)
@@ -350,8 +416,8 @@ class DiffusionForm:
 class LinearForm:
     '''The linear form L(v) = ∫ f(x)·v, assembled by sampling f at the quadrature points.
 
-    The counterpart of the bilinear `Form`: it produces one element vector per
-    element, which `FunctionSpace.assemble_load` scatters into the global load.
+    A load, not a `Form`: it produces one element vector per element, which
+    `FunctionSpace.assemble_load` scatters into the global load.
     `problem.Source` is the cheaper special case that integrates f's P1 interpolant
     through the cached mass matrix; this samples f itself, capturing variation within
     an element the interpolant cannot.
@@ -369,7 +435,7 @@ class LinearForm:
 
 
 @dataclass(frozen=True)
-class LinearElasticForm:
+class LinearElasticForm(BilinearForm):
     '''Small-strain linear elasticity ∫ ε(u):D:ε(v), so G = B, C = D.'''
     material: LinearElasticMaterial
 
@@ -444,7 +510,7 @@ class LinearElasticForm:
                              compliance)
 
 @dataclass(frozen=True)
-class GeometricStiffnessForm:
+class GeometricStiffnessForm(BilinearForm):
     '''Geometric (initial-stress) stiffness ∫ Gᵀ Σ₀ G, from a per-element prestress.
 
     The material `C` here is not a constitutive law but the stress the structure
@@ -487,7 +553,7 @@ class GeometricStiffnessForm:
 
 
 @dataclass(frozen=True)
-class ScaledForm:
+class ScaledForm(BilinearForm):
     '''A form scaled by a constant coefficient, such as c² for the wave operator.
 
     The wave equation's stiffness is c²K, so `problem.tangent` returns the scaled
@@ -495,14 +561,14 @@ class ScaledForm:
     `OperatorSum` waits for a second operator term (Robin, advection).
     '''
     factor: float
-    form: Form
+    form: ConstantTangent
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         return self.factor * self.form.element_matrices(geometry)
 
 
 @dataclass(frozen=True, eq=False)
-class PrecomputedForm:
+class PrecomputedForm(BilinearForm):
     '''Element matrices computed elsewhere, handed to assembly as they are.
 
     An escape hatch for a driver that can derive its element matrices more cheaply
@@ -546,18 +612,17 @@ class EnergyDensity(Protocol):
 
 @dataclass(frozen=True)
 class EnergyForm:
-    '''The nonlinear (hyperelastic) sibling of `Form`.
+    '''A hyperelastic `Form`: the energy, residual, and tangent of a stored-energy density.
 
-    A bilinear `Form` maps geometry to a constant matrix. An `EnergyForm` maps
-    geometry and the current nodal displacement to three volume-weighted quantities,
-    all batched over the mesh:
+    Maps geometry and the current nodal displacement to three volume-weighted
+    quantities, all batched over the mesh:
 
     - the stored energy (a scalar per element),
     - its gradient (the residual, one vector per element),
     - its Hessian (the tangent, one matrix per element).
 
-    A quadratic energy gives a constant tangent independent of the state; the linear
-    stiffness `Form` is that special case.
+    A quadratic energy gives a constant tangent independent of the state; the
+    `LinearElasticForm` is that special case as a `BilinearForm`.
 
     The physics is delegated to an energy density (`fem.energies`), which evaluates
     the full derivative chain once for the whole mesh and returns a
@@ -598,7 +663,7 @@ class EnergyForm:
     def element_residuals(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> FloatArray:
-        '''(n_elements, N, d) element residuals: dPi/dx per element.'''
+        '''(n_elements, k) element residuals dPi/dx, node-major over the N nodes' d components.'''
         grad_u = geometry.gradients(u_elements)
         n_nodes, d = geometry.grad_phi.shape[2], geometry.spatial_dim
         residual = np.zeros((geometry.n_elements, n_nodes, d))
@@ -607,16 +672,12 @@ class EnergyForm:
             dF_dx = self._dF_dx(geometry, q)
             dW_dx = np.einsum('eij,eijmn->emn', t.dW_dF, dF_dx)
             residual += dW_dx * geometry.weight_detJ[:, q][:, None, None]
-        return residual
+        return residual.reshape(geometry.n_elements, n_nodes * d)
 
     def element_tangents(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> FloatArray:
-        '''(n_elements, N, d, N, d) element tangents: d²Pi/dx² per element.
-
-        Reshaped to (n_elements, k, k) by the caller for scatter into the global
-        matrix, where k = N * n_components.
-        '''
+        '''(n_elements, k, k) element tangents d²Pi/dx², k = N * d in the residual's order.'''
         # d2W_dx2 = dW_dS : (d2S_dF2 : dF_dx : dF_dx) + d2W_dS2 : (dS_dx : dS_dx)
         #
         # ":" is the tensor double contraction. For two second-order tensors,
@@ -649,7 +710,8 @@ class EnergyForm:
             term2 = np.einsum('eijkl,eijmn->eklmn', term2, dS_dx)
 
             tangent += (term1 + term2) * geometry.weight_detJ[:, q][:, None, None, None, None]
-        return tangent
+        k = n_nodes * d
+        return tangent.reshape(geometry.n_elements, k, k)
 
     def _point_state(
         self, geometry: ElementGeometry, u_elements: FloatArray,

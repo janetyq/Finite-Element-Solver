@@ -1,27 +1,38 @@
 """The `Problem`: the assembly-ready statement a solve strategy consumes.
 
-A `Problem` is the resolved, immutable view of a physics composition, built for one
-mesh. It answers the four questions a solver needs: `constraints` (which DOFs are
-fixed), `load` (the right-hand side), `tangent(u)`, and `residual(u)`. Below it,
-`DiscreteSystem` sees only a matrix and a partition, so a solve strategy never learns
-which PDE it is solving. After the solve, `solution(u)` packages the DOF vector as
-the typed `Solution` its physics recovers (stress for elasticity, flux for Poisson).
+A `Problem` is the resolved view of a physics composition, built for one mesh: a
+space, an operator (`Form`), a volume source, and boundary conditions. It answers
+the questions a solver needs: `constraints` (which DOFs are fixed), `load` (the
+right-hand side), `residual(u)`, `tangent(u)`, and, where the operator has an energy,
+`energy(u)`. Below it, `DiscreteSystem` sees only a matrix and a partition, so a
+solve strategy never learns which PDE it is solving. After the solve, `solution(u)`
+packages the DOF vector as the typed `Solution` its physics recovers (stress for
+elasticity, flux for Poisson).
 
-`LinearProblem` and `EnergyProblem` share that protocol, mirroring the `Form` /
-`EnergyForm` split: the linear one has a state-independent tangent. Both own their
-constraints, resolved from the BC spec once; a driver that remeshes builds a new
-`Problem`. Named PDEs are `Equation`s (`fem.equations`), whose `problem` builds one.
+The residual is composed from three terms, each present in the energy, the residual,
+and the tangent alike:
+
+    term    energy         residual      tangent
+    form    Π_form(u)      R_form(u)     ∂R_form/∂u
+    Robin   ½ κ uᵀ R u     κ R u         κ R
+    load    -fᵀ u          -f            0
+
+`LinearProblem` is the case whose operator has a constant tangent (`ConstantTangent`):
+the matrix is assembled once and held, and the residual is affine. Everything that
+needs one fixed operator (a direct solve, the integrators, an eigenproblem, SIMP)
+requires it. Both own their constraints, resolved from the BC spec once; a driver
+that remeshes builds a new `Problem`. Named PDEs are `Equation`s (`fem.equations`),
+whose `problem` builds one of these.
 """
 import copy
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
 
 import numpy as np
 
 from fem.boundary import BoundaryConditions, ResolvedBC
 from fem.forms import (
-    EnergyForm, Form, HasNearNullSpace, LinearForm, MaskedMassForm, NamesDerivedField,
-    RecoversElasticFields,
+    ConstantTangent, Form, HasEnergy, HasNearNullSpace, LinearForm, MaskedMassForm,
+    NamesDerivedField, RecoversElasticFields,
 )
 from fem.regions import evaluate_field
 from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
@@ -29,65 +40,11 @@ from fem.space import FunctionSpace
 from fem.typing import Constraints, DofVector, FieldValue, FloatArray, Operator
 
 
-class Problem(Protocol):
-    '''What a solve strategy consumes: constraints, a load, and residual/tangent.
-
-    `bc` is the mesh-independent spec the constraints were resolved from, and
-    `resolved` that resolution on this space (the estimators read its Neumann load).
-    `operator` and `source` are the physics and the volume load the problem was
-    composed from; the estimators read the recoverable flux off the operator.
-    '''
-    space: FunctionSpace
-    bc: BoundaryConditions
-
-    @property
-    def operator(self) -> 'Form | EnergyForm': ...
-
-    @property
-    def source(self) -> 'FieldValue | LinearForm | Source': ...
-
-    @property
-    def resolved(self) -> ResolvedBC: ...
-
-    @property
-    def constraints(self) -> Constraints: ...
-
-    @property
-    def load(self) -> DofVector: ...
-
-    def tangent(self, u: DofVector | None) -> Operator: ...
-
-    def residual(self, u: DofVector) -> DofVector: ...
-
-    def solution(self, u: DofVector) -> FieldSolution:
-        '''Package a solved DOF vector as the typed `Solution` this physics recovers.'''
-        ...
-
-    def near_null_space(self) -> FloatArray | None:
-        '''The operator's AMG near-kernel over all DOFs (see `HasNearNullSpace`), or None.
-
-        `LinearSolve` hands it to an `IterativeBackend`, so an elastic solve composed
-        by hand converges as well as one through the facade.
-        '''
-        ...
-
-
-@runtime_checkable
-class SupportsEnergy(Protocol):
-    '''A `Problem` that can score a state by a scalar energy Π(u).
-
-    The merit function a globalized `NewtonSolve` minimises: `EnergyProblem`
-    supplies its potential energy, so the line search decreases the quantity being
-    solved for. A problem without one (a `LinearProblem`) falls back to ½‖r‖².
-    '''
-    def energy(self, u: DofVector) -> float: ...
-
-
 # -- load terms: the linear form L(v), assembled as a vector --------------------
 #
 # The volume source is a mass form over the domain used as a load: the mass matrix times
 # the nodal source is the exact integral of its P1 interpolant. Boundary tractions are the
-# same idea over the facets, but built per Neumann region (see `LinearProblem` and
+# same idea over the facets, but built per Neumann region (see `Problem` and
 # `boundary.NeumannContribution`) rather than one global boundary mass, so a traction
 # stays on its own edge.
 
@@ -95,7 +52,7 @@ class SupportsEnergy(Protocol):
 @dataclass(frozen=True)
 class Source:
     '''Volume load L(v) = ∫ f·v integrated as f's nodal interpolant, f a constant or a
-    callable of position. Pass one to `LinearProblem` to ask for that path explicitly;
+    callable of position. Pass one to `Problem` to ask for that path explicitly;
     a bare callable is sampled at the quadrature points instead.'''
     field: FieldValue = None
 
@@ -106,11 +63,13 @@ class Source:
         return np.asarray(space.mass_matrix @ values.flatten()).flatten()
 
 
-class LinearProblem:
-    '''a(u, v) = L(v): a constant operator, a load, and Dirichlet constraints.
+class Problem:
+    '''R(u) = 0: an operator, a load, and boundary conditions on one space.
 
     `source` is kept as given (a field, a `LinearForm`, or a `Source`) beside the
     assembled load, so a residual estimator can read the pointwise source it needs.
+    `bc` is the mesh-independent spec the constraints were resolved from, and
+    `resolved` that resolution on this space.
     '''
 
     def __init__(
@@ -162,34 +121,22 @@ class LinearProblem:
         else:
             volume_load = Source(source).vector(space)
         self._b = volume_load + traction_load + robin_load
-        # Assembled on first use, not here. Stating a problem is cheap; assembling
-        # its operator is the expensive half, and a problem can be built without
-        # ever being solved: a topology optimization iteration derives its own
-        # operator from a template whose own operator is never assembled.
+        # A constant tangent is assembled on first use, not here. Stating a problem
+        # is cheap; assembling its operator is the expensive half, and a problem can
+        # be built without ever being solved: a topology optimization iteration
+        # derives its own operator from a template whose own operator is never assembled.
         self._A: Operator | None = None
 
-    def _assemble(self, operator: Form) -> Operator:
-        A = self.space.assemble(operator)
-        return A if self._robin_operator is None else A + self._robin_operator
+    @property
+    def is_linear(self) -> bool:
+        '''Whether the operator's tangent is constant (`ConstantTangent`).'''
+        return isinstance(self.operator, ConstantTangent)
 
-    def with_operator(self, operator: Form) -> 'LinearProblem':
-        '''The same problem stated with a different operator.
-
-        Only the operator is reassembled. Which DOFs are constrained and what the
-        load is follow from the boundary conditions and the source, neither of which
-        the operator enters, so a driver re-solving under a rebuilt operator
-        (a topology optimization iteration rescaling the stiffness) keeps them
-        rather than resolving the BCs and reassembling the load per solve.
-
-        A new problem rather than a mutation: the two share the constraints and load
-        they agree on, and nothing here writes to either.
-        '''
-        derived = copy.copy(self)
-        derived.operator = operator
-        # The copy carries this problem's assembled operator, which is precisely what
-        # the derived one must not answer with.
-        derived._A = None
-        return derived
+    @property
+    def has_energy(self) -> bool:
+        '''Whether the residual is the gradient of an energy (`HasEnergy`), the
+        merit a globalized Newton solve minimises.'''
+        return isinstance(self.operator, HasEnergy)
 
     @property
     def resolved(self) -> ResolvedBC:
@@ -204,15 +151,68 @@ class LinearProblem:
     def load(self) -> DofVector:
         return self._b
 
+    def with_operator(self, operator: Form) -> 'Problem':
+        '''The same problem stated with a different operator.
+
+        Which DOFs are constrained and what the load is follow from the boundary
+        conditions and the source, neither of which the operator enters, so a driver
+        re-solving under a rebuilt operator (a topology optimization iteration
+        rescaling the stiffness) keeps them rather than resolving the BCs and
+        reassembling the load per solve.
+
+        A new problem rather than a mutation: the two share the constraints and load
+        they agree on, and nothing here writes to either.
+        '''
+        derived = copy.copy(self)
+        derived.operator = operator
+        # The copy carries this problem's assembled operator, which is precisely what
+        # the derived one must not answer with.
+        derived._A = None
+        return derived
+
+    def _with_robin(self, operator: Operator) -> Operator:
+        return operator if self._robin_operator is None else operator + self._robin_operator
+
     def tangent(self, u: DofVector | None = None) -> Operator:
-        # Assembled once, on the first call, and held: the operator is constant, so
-        # a Newton loop or a time-stepper asking repeatedly pays for one assembly.
-        if self._A is None:
-            self._A = self._assemble(self.operator)
-        return self._A
+        '''∂R/∂u at `u`; with `u` omitted, the constant tangent of a linear problem.'''
+        if self.is_linear:
+            # Assembled once, on the first call, and held: the operator is constant,
+            # so a Newton loop or a time-stepper asking repeatedly pays for one assembly.
+            if self._A is None:
+                assert isinstance(self.operator, ConstantTangent)
+                self._A = self._with_robin(self.space.assemble(self.operator))
+            return self._A
+        if u is None:
+            raise ValueError(
+                f'{type(self.operator).__name__} has a state-dependent tangent; evaluate '
+                'it at a u. A solve that needs one fixed operator needs a LinearProblem.'
+            )
+        return self._with_robin(self.space.assemble_tangent(self.operator, u))
+
+    def internal_residual(self, u: DofVector) -> DofVector:
+        '''The internal force at `u`, the residual without the load: the operator's
+        residual plus the Robin term. Kept apart from `load` so a strategy can scale
+        the load against it.'''
+        if self.is_linear:
+            return self.tangent() @ u
+        residual = self.space.assemble_residual(self.operator, u)
+        if self._robin_operator is not None:
+            residual = residual + self._robin_operator @ u
+        return residual
 
     def residual(self, u: DofVector) -> DofVector:
-        return self.tangent() @ u - self._b
+        return self.internal_residual(u) - self._b
+
+    def energy(self, u: DofVector) -> float:
+        '''The potential Π(u) whose gradient is `residual(u)`, for an operator with an energy.'''
+        if not isinstance(self.operator, HasEnergy):
+            raise TypeError(f'{type(self.operator).__name__} has no energy to minimise')
+        if self.is_linear:
+            return float(0.5 * u @ (self.tangent() @ u) - self._b @ u)
+        energy = self.space.total_energy(self.operator, u)
+        if self._robin_operator is not None:
+            energy += 0.5 * float(u @ (self._robin_operator @ u))
+        return float(energy - self._b @ u)
 
     def solution(self, u: DofVector) -> FieldSolution:
         '''An `ElasticSolution` for an operator that recovers stress, a
@@ -226,74 +226,40 @@ class LinearProblem:
         return FieldSolution(space, u)
 
     def near_null_space(self) -> FloatArray | None:
+        '''The operator's AMG near-kernel over all DOFs (see `HasNearNullSpace`), or None.
+
+        `LinearSolve` hands it to an `IterativeBackend`, so an elastic solve composed
+        by hand converges as well as one through the facade.
+        '''
         if isinstance(self.operator, HasNearNullSpace):
             return self.operator.near_null_space(self.space)
         return None
 
 
-class EnergyProblem:
-    '''∇Π(u) = 0: a nonlinear operator whose tangent depends on the state.
+class LinearProblem(Problem):
+    '''a(u, v) = L(v): a `Problem` whose operator has a constant tangent.
 
-    The residual is the energy gradient and the tangent its Hessian, both from an
-    `EnergyForm`. No external work term yet: the load is zero, so a source is refused.
+    The type every consumer that needs one fixed operator asks for. `tangent()` with
+    no state is the assembled matrix, held after the first call.
     '''
 
     def __init__(
         self,
         space: FunctionSpace,
-        operator: EnergyForm,
-        bc: BoundaryConditions,
-        source: FieldValue = None,
+        operator: Form,
+        source: FieldValue | LinearForm | Source = None,
+        bc: BoundaryConditions | None = None,
     ) -> None:
-        if source is not None:
-            raise NotImplementedError(
-                'EnergyProblem has no external work term yet: a source would be '
-                'silently dropped from the minimised energy. Use a LinearProblem '
-                'for forced problems.'
+        if not isinstance(operator, ConstantTangent):
+            raise TypeError(
+                f'{type(operator).__name__} has a state-dependent tangent; state it as a '
+                'Problem and solve it with NewtonSolve.'
             )
-        self.space = space
-        self.operator = operator
-        self.source = None
-        self.bc = bc
-        self._resolved = bc.resolve(space.nodes, space.n_components)
-        if self._resolved.robin:
-            raise NotImplementedError(
-                'EnergyProblem does not support Robin conditions: the energy path has '
-                'no boundary term for them. Use a LinearProblem.'
-            )
+        super().__init__(space, operator, source, bc)
 
-    @property
-    def resolved(self) -> ResolvedBC:
-        return self._resolved
-
-    @property
-    def constraints(self) -> Constraints:
-        r = self._resolved
-        return (r.free_idxs, r.fixed_idxs, r.fixed_values)
-
-    @property
-    def load(self) -> DofVector:
-        return np.zeros(self.space.n_dofs)
-
-    def tangent(self, u: DofVector | None) -> Operator:
-        # Unlike a LinearProblem's, this tangent depends on the state, so
-        # the "state-independent" None a LinearSolve would pass is a category error.
-        if u is None:
-            raise ValueError('EnergyProblem has a state-dependent tangent; evaluate it at a u')
-        return self.space.assemble_tangent(self.operator, u)
-
-    def residual(self, u: DofVector) -> DofVector:
-        return self.space.assemble_residual(self.operator, u)
-
-    def energy(self, u: DofVector) -> float:
-        return self.space.total_energy(self.operator, u)
-
-    def solution(self, u: DofVector) -> ElasticSolution:
-        # The energy form recovers Cauchy stress from the same derivative chain Newton
-        # used, so the nonlinear path reports the stress state the linear one does.
-        return ElasticSolution.from_solve(self.space, u, self.operator)
-
-    def near_null_space(self) -> None:
-        # The tangent is indefinite away from a minimum, so its iterative solve is
-        # MINRES, which takes no near-kernel.
-        return None
+    def with_operator(self, operator: Form) -> 'LinearProblem':
+        if not isinstance(operator, ConstantTangent):
+            raise TypeError(f'{type(operator).__name__} has a state-dependent tangent')
+        derived = super().with_operator(operator)
+        assert isinstance(derived, LinearProblem)
+        return derived

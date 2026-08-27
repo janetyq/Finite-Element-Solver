@@ -113,11 +113,11 @@ def test_solution_round_trips_through_io(tmp_path):
 
 def test_green_lagrange_equation_is_rejected():
     """Modal analysis linearises about the unstressed state; a finite-strain law has no
-    constant stiffness, so it is refused."""
+    constant stiffness, so its problem is refused."""
     mesh = cantilever(12.0, n_length=12, n_across=3)
     equation = LinearElastic(E, NU, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    with pytest.raises(NotImplementedError, match='constant'):
-        equation.problem(equation.space(mesh))
+    with pytest.raises(TypeError, match='constant tangent'):
+        ModalAnalysis(n_modes=2).solve(equation.problem(equation.space(mesh)))
 
 
 def test_degenerate_parameters_are_rejected():

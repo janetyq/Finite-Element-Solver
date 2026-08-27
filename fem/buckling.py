@@ -47,6 +47,11 @@ class BucklingAnalysis:
 
     def solve(self, problem: LinearProblem) -> BucklingSolution:
         '''The buckling factors and modes about the problem's reference solve.'''
+        if not problem.is_linear:
+            raise TypeError(
+                'linearised buckling needs a constant tangent (the small-strain stiffness); '
+                f'{type(problem.operator).__name__} depends on the state'
+            )
         logger.info('Buckling: reference solve for the prestress state...')
         space = problem.space
         reference = problem.solution(LinearSolve().solve(problem))

@@ -113,19 +113,19 @@ Two approaches measured and rejected, so they are not proposed again:
   instructive build. Full AMG is thousands of lines and not worth reimplementing; a two-grid cycle
   is small and teaches the same ideas. The yardstick to hold is `examples/benchmark_assembly.py`:
   on the 3D elastic benchmark AMG-CG overtakes `splu` at n≈13 and is ~10× faster by n=21.
-- 💡 **Globalize the Newton direction, so the nonlinear path can reach the iterative backend.**
-  `NewtonSolve` takes no `Backend` and `EnergySolver` therefore cannot either: CG is SPD-only, and a
-  Newton tangent is the Hessian `∇²Π(u)` at the current iterate, which is SPD only where the energy
-  is locally strictly convex. The St-Venant-Kirchhoff energy is not convex in `F` (it loses
-  ellipticity under compression), so the tangent can be indefinite at the `u = 0` seed, at an
-  intermediate iterate, or near a buckling configuration. Large 3D nonlinear solves pay the direct
-  factorization's fill-in as a result, on the same curve where AMG-CG wins by ~10×.
+- 💡 **Globalize the Newton direction, so the nonlinear path can reach the CG backend.**
+  CG is SPD-only, and a Newton tangent is the Hessian `∇²Π(u)` at the current iterate, which is
+  SPD only where the energy is locally strictly convex. The St-Venant-Kirchhoff energy is not
+  convex in `F` (it loses ellipticity under compression), so the tangent can be indefinite at the
+  `u = 0` seed, at an intermediate iterate, or near a buckling configuration. Large 3D nonlinear
+  solves pay MINRES or the direct factorization's fill-in as a result, on the same curve where
+  AMG-CG wins by ~10×.
 
-  Step *length* is already globalized: `NewtonSolve` takes an optional `BacktrackingLineSearch`
-  (Armijo on Π, else ½‖r‖²), which `EnergySolver` uses by default, so a full step no longer diverges
-  from a poor seed. What remains is the step *direction*: at an indefinite tangent the line search
-  has no descent direction to scale and falls back to the full step. The fix is to make the tangent
-  SPD by construction, both routes fitting behind the existing `SolveStrategy` / `Backend` seams:
+  Step *length* is globalized: `NewtonSolve` takes an optional `BacktrackingLineSearch` (Armijo on
+  Π, else ½‖r‖²), which `default_strategy` uses, so a full step does not diverge from a poor seed.
+  What remains is the step *direction*: at an indefinite tangent the line search has no descent
+  direction to scale and falls back to the full step. The fix is to make the tangent SPD by
+  construction, both routes fitting behind the existing `SolveStrategy` / `Backend` seams:
   - **Regularized (modified) Newton** solves `(H + τI) Δu = −r`, raising `τ` until the operator is
     positive definite. Gives a descent direction even at a saddle, and makes CG safe every iteration.
   - **Truncated / Steihaug CG** runs CG on the tangent and stops at the first direction of negative
@@ -137,8 +137,9 @@ Two approaches measured and rejected, so they are not proposed again:
   (St-Venant-Kirchhoff) solve seeded with a small imperfection in the buckling mode, and it needs
   exactly the globalized Newton above *plus* arc-length (Riks) control, since the tangent goes
   indefinite and the load-displacement curve turns back on itself at the limit point, where
-  load-controlled and displacement-controlled Newton both stall. The pieces line up (`EnergySolver`
-  for the energy, the buckling mode for the imperfection shape, a globalized tangent for the
+  load-controlled and displacement-controlled Newton both stall. The pieces line up (a `Problem`
+  over the St-VK `EnergyForm`, whose `internal_residual` and `load` an arc-length strategy scales
+  against each other; the buckling mode for the imperfection shape; a globalized tangent for the
   indefinite region), so this is additive once arc-length joins the `SolveStrategy` family.
 
 **Post-processing coverage**
@@ -185,9 +186,10 @@ gap is the transient path.
   **shape parameterization** (`∂(element geometry)/∂(node)` mesh sensitivities, the one piece needing
   new geometry-derivative code); a **general gradient engine** (`scipy.optimize` SLSQP behind the
   optimizer, for objectives the optimality-criteria update cannot take); and the **nonlinear tangent
-  path** (`EnergyProblem`, where the adjoint uses the Newton tangent at the converged state).
+  path** (a `Problem` with a state-dependent tangent, where the adjoint uses `tangent(u)` at the
+  converged state).
 - 💡 The README's roadmap (thermal expansion, transport, fluid mechanics, nonlinear hyperelasticity
-  via the existing `EnergySolver` / `Energies` machinery) all fit the current architecture well.
+  via the existing `EnergyForm` / `Energies` machinery) all fit the current architecture well.
   `NeohookeanEnergyDensity` is a stub: filling in its `W` and derivatives gives a nonlinear material
   through the already-working Newton solver. Note it is naturally written in invariants of `C = FᵀF`
   rather than in a strain tensor `S`, so it does not slot into the St-VK class's `S`-based derivative
@@ -199,10 +201,6 @@ gap is the transient path.
   The extension is a `t` argument on those callables and a load the integrator re-evaluates per step.
 - 💡 **Generalized-α, or another integrator family.** `ThetaMethod` and `NewmarkMethod` cover first-
   and second-order systems; the seam for a third is in place, so this is additive.
-- 💡 **External work term for `EnergySolver`.** It minimizes the internal elastic energy only and
-  builds no load vector, so it currently rejects `Equation.source` outright. Adding the external work
-  term `-f · u` (and its gradient/Hessian contributions) would make it accept forced problems, which
-  is also a prerequisite for using it on the nonlinear roadmap.
 
 **Engineering**
 - 💡 **Coverage.** Add `pytest-cov`, then fill gaps: `svg`'s path parsing is covered only through the

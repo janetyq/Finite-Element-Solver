@@ -58,6 +58,11 @@ class ModalAnalysis:
 
     def solve(self, problem: LinearProblem) -> ModalSolution:
         '''The modal frequencies and mode shapes of `problem`'s stiffness and supports.'''
+        if not problem.is_linear:
+            raise TypeError(
+                'modal analysis needs a constant tangent (the small-strain stiffness); '
+                f'{type(problem.operator).__name__} depends on the state'
+            )
         space = problem.space
         K = problem.tangent()
         M = self.density * space.mass_matrix
