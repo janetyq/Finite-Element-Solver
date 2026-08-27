@@ -113,11 +113,11 @@ why real parts round their inner corners.
 
 ### Three ways to solve the same stretch
 
-The same clamped block is stretched three ways. The first is a linear solve of
-$Ku = f$. The second minimises the elastic energy with Newton's method, and arrives at
-the same system from the other direction. The third is a finite-strain
-(Green-Lagrange) solve. The first two agree in displacement to machine precision. The
-third stiffens as the stretch grows, which small strain cannot.
+The same clamped block is stretched three ways. The first is `LinearElastic`, a linear
+solve of $Ku = f$. The second minimises that model's elastic energy with Newton's
+method, and arrives at the same system from the other direction. The third is
+`FiniteStrainElastic`, a Green-Lagrange solve. The first two agree in displacement to
+machine precision. The third stiffens as the stretch grows, which small strain cannot.
 
 <p align="center"><img src="images/elasticity_models.png" width="780" alt="Linear, energy-minimisation, and finite-strain solves of one stretch"></p>
 
@@ -377,10 +377,10 @@ uv run python examples/make_readme_figures.py   # rewrites the figures in images
 - Galerkin finite element method: P1 (linear) basis on triangles and tetrahedra, P2
   (quadratic) and curved isoparametric triangles, over a Gaussian quadrature layer
 - Boundary conditions: Dirichlet, Neumann, Robin, and per-component (roller) constraints
-- PDEs: L2 projection, Poisson, variable-coefficient diffusion, heat, wave,
-  Navier-Cauchy (linear elasticity), St Venant-Kirchhoff hyperelasticity
-- Kinematics: infinitesimal strain, or geometrically exact Green-Lagrange
-  (2D elasticity is plane strain)
+- PDEs: L2 projection, Poisson, variable-coefficient diffusion, heat, wave, and two
+  elastic models: `LinearElastic` (infinitesimal strain, Navier-Cauchy) and
+  `FiniteStrainElastic` (geometrically exact Green-Lagrange strain under a
+  hyperelastic law, St Venant-Kirchhoff by default); 2D elasticity is plane strain
 - Time integration: theta-method (backward Euler, Crank-Nicolson) for first-order
   systems; Newmark average-acceleration for second-order
 - Linear algebra: sparse throughout; direct (`splu`) by default, or AMG-preconditioned
