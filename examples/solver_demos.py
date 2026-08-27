@@ -693,8 +693,8 @@ def _mark_base(ax, width, kind):
     ax.set_ylim(bottom=y0 - 0.12)
 
 
-def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0,
-                       ramp=0.5, flux=40.0, fin_lengths=(0.4, 0.8, 1.4, 2.0, 2.8),
+def demo_heat_equation(dt=0.06, steps=22, kappa=0.3, u_ambient=300.0, u_hot=400.0,
+                       ramp=0.6, flux=40.0, fin_lengths=(0.4, 0.8, 1.4, 2.0, 2.8),
                        min_angle=28, max_area_fraction=0.0004):
     """Warm a finned heatsink from a cold start, then compare it with a solid block and
     with beam theory."""
@@ -727,9 +727,14 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     u_initial = heat.space.interpolate(u_ambient)
     solution = ThetaMethod(dt=dt, steps=steps).solve(heat, u_initial)
     u_values, t_values = solution.u, solution.t
-    # Each step as a steady solution carries the recovered heat flux -grad u.
+    # Each step as a steady solution carries the recovered heat flux -grad u. The heat
+    # shed through the film at each step is the same convective integral the steady
+    # comparison below reads, kappa * integral_film (u - u_ambient).
     flux_values = [np.linalg.norm(solution.at(i).nodal_flux(), axis=1)
                    for i in range(len(u_values))]
+    film_mass = heat.space.assemble(
+        MaskedMassForm(1, heat.resolved.robin[0].facet_mask), boundary=True)
+    shed_values = [kappa * float(np.asarray(film_mass @ (u - u_ambient)).sum()) for u in u_values]
 
     # -- effectiveness: block vs finned, posed two ways --------------------------------
     # Fixed power: the same heat flux into each base (a chip of fixed wattage); compare the
@@ -812,12 +817,13 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     # warming shape on a scale fixed from ambient to the heated base, and the flux on
     # its own scale.
     animation = Plotter(1, 2, panel_aspect=1.6, title='Heatsink warming up')
-    animation.plot_animation(mesh, u_values, mode='colored', label='temperature',
-                             cmap='inferno', cbar_lims=(u_ambient, u_hot),
-                             titles=[f'temperature  t={t:.2f}' for t in t_values], idx=(0, 0))
-    animation.plot_animation(mesh, flux_values, mode='colored', label='|grad u|',
-                             cmap='viridis',
-                             titles=[f'heat flux  t={t:.2f}' for t in t_values], idx=(0, 1))
+    animation.plot_animation(
+        mesh, u_values, mode='colored', label='temperature', cmap='inferno',
+        cbar_lims=(u_ambient, u_hot), idx=(0, 0),
+        titles=[f't = {t:.2f}   base at {base_temperature(None, t):.0f}' for t in t_values])
+    animation.plot_animation(
+        mesh, flux_values, mode='colored', label='|grad u|', cmap='viridis', idx=(0, 1),
+        titles=[f't = {t:.2f}   heat shed {shed:.1f}' for t, shed in zip(t_values, shed_values)])
 
     setup = Plotter(1, 2, title='How the heatsink is posed')
     setup.plot(mesh, mode='bc', bc=bc, title='Boundary conditions', idx=(0, 0))
@@ -854,9 +860,11 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
                'The finned sink warming from a cold start, the transient heat equation '
                'stepped by Crank-Nicolson. Left, temperature: the warming front climbs each '
                'fin and settles into the fin gradient, hot at the root and about '
-               f'{tip:.0f} at the tips. Right, the heat flux magnitude recovered from each '
-               'step: largest in the base and at the fin roots, where the gradient is '
-               'steepest, and fading toward the tips as the fins run cold.',
+               f'{tip:.0f} at the tips; the title tracks the base temperature as it switches '
+               'on. Right, the heat flux magnitude recovered from each step: largest in the '
+               'base and at the fin roots, where the gradient is steepest, and fading toward '
+               'the tips as the fins run cold; the title tracks the heat shed to ambient '
+               f'through the film, which climbs toward the steady {q_fin:.1f}.',
                'animation'),
         Figure(setup,
                'Left, the conditions. The bottom face is a chip switching on: its '
