@@ -15,9 +15,10 @@ decision. Three are provided:
 - **Goal-oriented** (`GoalOrientedEstimator`): the product of primal and dual
   recovery indicators, refining toward a quantity of interest.
 
-The one physics-specific input is the `DerivedField`: which field to jump or recover,
-and what its boundary residual is. Each estimator reads it off the problem's operator
-(`Form.derived_field`) unless given one.
+An estimator has no physics of its own. The one physics-specific input, the
+`DerivedField` (which field to jump or recover, and what its boundary residual is),
+is read off the problem's operator (`Form.derived_field`), and the source off the
+problem, at `estimate` time. A custom estimate is any callable of `(problem, solution)`.
 """
 from __future__ import annotations
 
@@ -73,12 +74,10 @@ def _solved(problem: Problem, solution: FieldSolution) -> Solved:
     return Solved(space, solution, resolved, is_fixed)
 
 
-def _flux(problem: Problem, given: DerivedField | None) -> DerivedField:
-    '''`given`, or the recoverable flux the problem's operator names.'''
+def _flux(problem: Problem) -> DerivedField:
+    '''The recoverable flux the problem's operator names.'''
     from fem.forms import NamesDerivedField
 
-    if given is not None:
-        return given
     operator = problem.operator
     if not isinstance(operator, NamesDerivedField):
         raise NotImplementedError(
@@ -88,13 +87,11 @@ def _flux(problem: Problem, given: DerivedField | None) -> DerivedField:
     return operator.derived_field()
 
 
-def _source(problem: Problem, given: FieldValue) -> FieldValue:
-    '''`given`, or the problem's volume source as a pointwise field.'''
+def _source(problem: Problem) -> FieldValue:
+    '''The problem's volume source as a pointwise field.'''
     from fem.forms import LinearForm
     from fem.problem import Source
 
-    if given is not None:
-        return given
     source = problem.source
     # The interior residual reads the source pointwise at centroids; a LinearForm or
     # Source is that field wrapped for one of the two load paths.
@@ -136,17 +133,15 @@ class ResidualEstimator:
     centroid and the boundary term uses the element's per-element traction, both
     exact on P1 and a light approximation on P2.
 
-    2D only: the jump and boundary terms need edge normals. `flux` and `source` default
-    to the problem's own (its operator's derived field and its volume source).
+    2D only: the jump and boundary terms need edge normals. The flux and the source are
+    the problem's own: its operator's derived field and its volume source.
     '''
-    flux: DerivedField | None = None
-    source: FieldValue = None
 
     def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
         space = problem.space
         mesh = space.mesh
-        flux_field = _flux(problem, self.flux)
-        source = _source(problem, self.source)
+        flux_field = _flux(problem)
+        source = _source(problem)
         if mesh.spatial_dim != 2:
             raise NotImplementedError('the residual error estimator needs face normals (2D only)')
         if space.element_type.GEOMETRY_DEGREE > 1:
@@ -272,14 +267,13 @@ class RecoveryEstimator:
     degree-`p` element (the flux is degree `p - 1`, so the squared gap is `2(p - 1)`).
     Needs no edge normals, so it is dimension-general (validated in 2D). L2-projection
     recovery is biased at boundaries and re-entrant corners; it still orders elements
-    well enough to drive refinement, though the effectivity there is looser. `flux`
-    defaults to the problem's operator's derived field.
+    well enough to drive refinement, though the effectivity there is looser. The flux
+    is the problem's operator's derived field.
     '''
-    flux: DerivedField | None = None
 
     def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
         space = problem.space
-        flux = _flux(problem, self.flux)
+        flux = _flux(problem)
         ctx = _solved(problem, solution)
         degree = 2 * space.element_type.SHAPE_DEGREE
         geometry = space.geometry_at(degree)
@@ -314,16 +308,14 @@ class GoalOrientedEstimator:
     the primal solution is inaccurate, `eta^dual` where the goal is sensitive to that
     inaccuracy. The dual (adjoint) solution `z` solves `Kᵀ z = ∂J/∂u` through
     `SensitivityAnalysis`. Built on the recovery estimator, so it is dimension-general;
-    the dual solve refactors the operator once per round. `flux` defaults to the
-    problem's operator's derived field.
+    the dual solve refactors the operator once per round.
     '''
     quantity_of_interest: 'QuantityOfInterest'
-    flux: DerivedField | None = None
 
     def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
         from fem.sensitivity import SensitivityAnalysis
 
-        base = RecoveryEstimator(_flux(problem, self.flux))
+        base = RecoveryEstimator()
         eta_primal = base.estimate(problem, solution)
 
         z = SensitivityAnalysis(problem).adjoint(self.quantity_of_interest, solution.u)
