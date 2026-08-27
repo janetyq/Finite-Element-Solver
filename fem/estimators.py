@@ -76,15 +76,13 @@ def _solved(problem: Problem, solution: FieldSolution) -> Solved:
 
 def _flux(problem: Problem) -> DerivedField:
     '''The recoverable flux the problem's operator names.'''
-    from fem.forms import NamesDerivedField
-
-    operator = problem.operator
-    if not isinstance(operator, NamesDerivedField):
+    flux = problem.operator.derived_field()
+    if flux is None:
         raise NotImplementedError(
-            f'{type(operator).__name__} names no derived field, so an error estimate '
-            'is not defined for it.'
+            f'{type(problem.operator).__name__} names no derived field, so an error '
+            'estimate is not defined for it.'
         )
-    return operator.derived_field()
+    return flux
 
 
 def _source(problem: Problem) -> FieldValue:

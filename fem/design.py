@@ -21,7 +21,7 @@ from scipy.spatial import KDTree
 
 from fem.boundary import BoundaryConditions
 from fem.equations import LinearElastic
-from fem.forms import ConstantTangent, LinearElasticForm, PrecomputedForm
+from fem.forms import BilinearForm, LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.problem import LinearProblem, Problem
@@ -159,7 +159,7 @@ class SIMPModel:
             raise ValueError('SIMP rescales a constant stiffness; the equation needs small-strain kinematics')
         self._template = template
         operator = template.operator
-        assert isinstance(operator, ConstantTangent)
+        assert isinstance(operator, BilinearForm)
         solid = operator.element_matrices(self.space.geometry)
         self._density = DensityField(
             space=self.space, nu=self.equation.nu, _K0=solid,

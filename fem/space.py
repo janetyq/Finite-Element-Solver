@@ -27,7 +27,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import ConstantTangent, Form, HasEnergy, LinearForm, MassForm
+from fem.forms import BilinearForm, Form, LinearForm, MassForm
 from fem.mesh.mesh import Mesh
 from fem.typing import (
     DofIndices,
@@ -689,8 +689,8 @@ class FunctionSpace:
         '''Mass matrix over boundary facets, for integrating tractions.'''
         return self.assemble(MassForm(self.n_components), boundary=True)
 
-    def assemble(self, form: ConstantTangent, boundary: bool = False) -> SparseMatrix:
-        '''Scatter a constant-tangent form's element matrices into a global matrix.
+    def assemble(self, form: BilinearForm, boundary: bool = False) -> SparseMatrix:
+        '''Scatter a bilinear form's element matrices into a global matrix.
 
         `boundary=True` integrates over the boundary facets instead of the volume
         elements. Not cached, since a form may carry material data that changes
@@ -717,7 +717,7 @@ class FunctionSpace:
     # `u` and evaluate the form at each element's slice of it. Constraints stay with
     # the caller (the Problem and its solve strategy).
 
-    def _geometry_for(self, form: 'Form | ConstantTangent | HasEnergy') -> ElementGeometry:
+    def _geometry_for(self, form: Form) -> ElementGeometry:
         '''Geometry at a rule that integrates `form` on this element.
 
         The larger of the element's default and what the form asks for: a quartic
@@ -725,17 +725,15 @@ class FunctionSpace:
         residual, and tangent, so the residual is the exact gradient of the quadrature
         energy and Newton sees a matching tangent.
         '''
-        asked = getattr(form, 'quadrature_degree', None)
-        degree = self.element_type.default_quadrature_degree()
-        if asked is not None:
-            degree = max(degree, asked(self.element_type.SHAPE_DEGREE))
+        degree = max(self.element_type.default_quadrature_degree(),
+                     form.quadrature_degree(self.element_type.SHAPE_DEGREE))
         return self.geometry_at(degree)
 
     def _element_state(self, u: DofVector) -> FloatArray:
         '''(n_elements, N, n_components): each element's slice of the state.'''
         return np.asarray(u, dtype=float).reshape(-1, self.n_components)[self.element_nodes]
 
-    def total_energy(self, form: HasEnergy, u: DofVector) -> float:
+    def total_energy(self, form: Form, u: DofVector) -> float:
         '''Sum a form's element energies at state `u`: the scalar Pi(u).'''
         return float(form.element_energies(self._geometry_for(form), self._element_state(u)).sum())
 

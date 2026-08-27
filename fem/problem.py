@@ -17,7 +17,7 @@ and the tangent alike:
     Robin   ½ κ uᵀ R u     κ R u         κ R
     load    -fᵀ u          -f            0
 
-`LinearProblem` is the case whose operator has a constant tangent (`ConstantTangent`):
+`LinearProblem` is the case whose operator has a constant tangent (a `BilinearForm`):
 the matrix is assembled once and held, and the residual is affine. Everything that
 needs one fixed operator (a direct solve, the integrators, an eigenproblem, SIMP)
 requires it. Both own their constraints, resolved from the BC spec once; a driver
@@ -30,10 +30,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import BoundaryConditions, ResolvedBC
-from fem.forms import (
-    ConstantTangent, Form, HasEnergy, HasNearNullSpace, LinearForm, MaskedMassForm,
-    NamesDerivedField, RecoversElasticFields,
-)
+from fem.forms import BilinearForm, Form, LinearForm, MaskedMassForm, RecoversElasticFields
 from fem.regions import evaluate_field
 from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 from fem.space import FunctionSpace
@@ -129,17 +126,17 @@ class Problem:
 
     @property
     def is_linear(self) -> bool:
-        '''Whether the operator's tangent is constant (`ConstantTangent`).'''
-        return isinstance(self.operator, ConstantTangent)
+        '''Whether the operator's tangent is constant.'''
+        return self.operator.constant_tangent
 
     @property
     def has_energy(self) -> bool:
-        '''Whether the residual is the gradient of an energy (`HasEnergy`).
+        '''Whether the residual is the gradient of an energy.
 
         Only the line search reads this: with an energy it scores a step by Π(u),
         without one by ½‖r‖². The Newton iteration itself is the same either way.
         '''
-        return isinstance(self.operator, HasEnergy)
+        return self.operator.has_energy
 
     @property
     def resolved(self) -> ResolvedBC:
@@ -182,7 +179,7 @@ class Problem:
             # Assembled once, on the first call, and held: the operator is constant,
             # so a Newton loop or a time-stepper asking repeatedly pays for one assembly.
             if self._A is None:
-                assert isinstance(self.operator, ConstantTangent)
+                assert isinstance(self.operator, BilinearForm)
                 self._A = self._with_robin(self.space.assemble(self.operator))
             return self._A
         if u is None:
@@ -208,7 +205,7 @@ class Problem:
 
     def energy(self, u: DofVector) -> float:
         '''The potential Π(u) whose gradient is `residual(u)`, for an operator with an energy.'''
-        if not isinstance(self.operator, HasEnergy):
+        if not self.has_energy:
             raise TypeError(f'{type(self.operator).__name__} has no energy to minimise')
         if self.is_linear:
             return float(0.5 * u @ (self.tangent() @ u) - self._b @ u)
@@ -224,19 +221,17 @@ class Problem:
         space = self.space
         if isinstance(self.operator, RecoversElasticFields):
             return ElasticSolution.from_solve(space, u, self.operator)
-        if isinstance(self.operator, NamesDerivedField):
+        if self.operator.derived_field() is not None:
             return ScalarFieldSolution.from_solve(space, u)
         return FieldSolution(space, u)
 
     def near_null_space(self) -> FloatArray | None:
-        '''The operator's AMG near-kernel over all DOFs (see `HasNearNullSpace`), or None.
+        '''The operator's AMG near-kernel over all DOFs, or None.
 
         `LinearSolve` hands it to an `IterativeBackend`, so an elastic solve composed
         by hand converges as well as one through the facade.
         '''
-        if isinstance(self.operator, HasNearNullSpace):
-            return self.operator.near_null_space(self.space)
-        return None
+        return self.operator.near_null_space(self.space)
 
 
 class LinearProblem(Problem):
@@ -253,7 +248,7 @@ class LinearProblem(Problem):
         source: FieldValue | LinearForm | Source = None,
         bc: BoundaryConditions | None = None,
     ) -> None:
-        if not isinstance(operator, ConstantTangent):
+        if not operator.constant_tangent:
             raise TypeError(
                 f'{type(operator).__name__} has a state-dependent tangent; state it as a '
                 'Problem and solve it with NewtonSolve.'
@@ -261,7 +256,7 @@ class LinearProblem(Problem):
         super().__init__(space, operator, source, bc)
 
     def with_operator(self, operator: Form) -> 'LinearProblem':
-        if not isinstance(operator, ConstantTangent):
+        if not operator.constant_tangent:
             raise TypeError(f'{type(operator).__name__} has a state-dependent tangent')
         derived = super().with_operator(operator)
         assert isinstance(derived, LinearProblem)

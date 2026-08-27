@@ -15,15 +15,11 @@ them separate is the main design idea: element types stay pure geometry (they su
 G), and the `Form` supplies the physics (C). The Laplacian is G = grad_phi with
 C = I; linear elasticity is G = B (strain-displacement) with C = D (the Hooke matrix).
 
-Two capabilities a form may declare:
-
-- `ConstantTangent` (every `BilinearForm`): the tangent does not depend on the state,
-  so it is one matrix `K` (mass, stiffness) and the residual is `K u`. The consumers
-  that need a fixed operator (a direct linear solve, the integrators, eigenproblems)
-  require it.
-- `HasEnergy`: the residual is the gradient of a scalar energy, which a globalized
-  Newton solve uses as its line-search merit. A bilinear form's energy is `½ uᵀ K u`;
-  `EnergyForm` integrates a hyperelastic density.
+Two ways to write one: a `BilinearForm` writes the constant matrix `K` (mass,
+stiffness) and gets residual `K u`, tangent `K`, energy `½ uᵀ K u`; an `EnergyForm`
+writes a stored-energy density and gets all three by differentiating it at the state.
+What else a form can answer (a constant tangent, an energy, a recoverable flux, an AMG
+near-kernel) is a hook on `Form` with a default answer of "no".
 """
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -206,68 +202,67 @@ def _element_mean(values: FloatArray, weight_detJ: FloatArray) -> FloatArray:
     return np.einsum('eq,eq...->e...', weights, values)
 
 
-class Form(Protocol):
+class Form:
     '''Element residual and tangent at a nodal state: what a `Problem` assembles.
+
+    A subclass writes `element_residuals` and `element_tangents`. Everything else is
+    a question a `Problem` may ask, answered "no" by default:
+
+    - `constant_tangent`: the tangent is one matrix, so a consumer may assemble it
+      once (`LinearSolve`, the integrators, an eigenproblem, SIMP). `BilinearForm`.
+    - `has_energy`: `element_energies` is defined and the residual is its gradient.
+      Read only by the line search, which then scores a step by the energy instead
+      of ½‖r‖²; the Newton iteration is the same either way.
+    - `derived_field`: the flux post-processing recovers and estimators jump
+      (Poisson's gradient, elasticity's stress).
+    - `near_null_space`: the AMG near-kernel an iterative solve of the tangent is
+      built with (the rigid-body modes of elasticity).
 
     `u_elements` is `(n_elements, N, n_components)`, each element's slice of the state.
     Batched over the mesh: a Python loop over elements spends nearly all its time in
     per-call numpy overhead, and one vectorized pass is roughly 30x faster.
     '''
+    constant_tangent: bool = False
+    has_energy: bool = False
 
     def quadrature_degree(self, shape_degree: int) -> int:
         '''The lowest rule degree that integrates this form on a degree-`shape_degree`
         element; the space uses the larger of it and the element's default.'''
-        ...
+        return 0
 
     def element_residuals(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, k) internal-force blocks at the state, k = N * n_components.'''
-        ...
+        raise NotImplementedError
 
     def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, k, k) tangent blocks at the state.'''
-        ...
+        raise NotImplementedError
+
+    def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        '''(n_elements,) stored energy per element at the state; defined when `has_energy`.'''
+        raise NotImplementedError(f'{type(self).__name__} has no energy')
+
+    def derived_field(self) -> DerivedField | None:
+        return None
+
+    def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
+        '''`(n_dofs, n_modes)` over every DOF of `space`; the solve restricts it to the free block.'''
+        return None
 
 
-@runtime_checkable
-class ConstantTangent(Protocol):
-    '''A form whose tangent does not depend on the state: the bilinear case.
+class BilinearForm(Form):
+    '''A form with a constant element matrix K: residual K u, tangent K, energy ½ uᵀKu.
 
-    `element_matrices` is the tangent, and the residual is that matrix times the
-    state. Every consumer that needs one fixed operator requires this.
+    Subclasses write `element_matrices`; the rest follows from it. The state is
+    flattened node-major, component-minor, the DOF order `dof_indices` emits and the
+    matrix's rows use.
     '''
+    constant_tangent = True
+    has_energy = True
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         '''(n_elements, k, k) dense element matrices for every element at once.'''
-        ...
-
-
-@runtime_checkable
-class HasEnergy(Protocol):
-    '''A form whose residual is the gradient of a scalar energy.
-
-    Changes nothing about how a problem is solved; a line search uses the energy
-    as its merit where one exists. Every `BilinearForm` (½ uᵀ K u) and `EnergyForm`
-    has one.
-    '''
-
-    def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
-        '''(n_elements,) stored energy per element at the state.'''
-        ...
-
-
-class BilinearForm:
-    '''A form with a constant element matrix K: residual K u, tangent K, energy ½ uᵀKu.
-
-    Subclasses write `element_matrices`; the residual protocol follows from it. The
-    state is flattened node-major, component-minor, the DOF order `dof_indices` emits
-    and the matrix's rows use.
-    '''
-
-    def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         raise NotImplementedError
-
-    def quadrature_degree(self, shape_degree: int) -> int:
-        return 0
 
     def element_residuals(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         K = self.element_matrices(geometry)
@@ -281,26 +276,6 @@ class BilinearForm:
         K = self.element_matrices(geometry)
         u = np.asarray(u_elements).reshape(len(K), -1)
         return 0.5 * np.einsum('ei,eij,ej->e', u, K, u)
-
-
-@runtime_checkable
-class NamesDerivedField(Protocol):
-    '''A form whose solution carries a recoverable flux (Poisson's gradient, elasticity's
-    stress). `Problem.solution` packages the solve as the typed `Solution` that holds it.'''
-
-    def derived_field(self) -> DerivedField: ...
-
-
-@runtime_checkable
-class HasNearNullSpace(Protocol):
-    '''A form whose operator has a known low-energy near-kernel.
-
-    The AMG near-null space an iterative solve of this operator should be built with:
-    the rigid-body modes for elasticity. `(n_dofs, n_modes)` over every DOF of `space`;
-    the solve restricts it to the free block.
-    '''
-
-    def near_null_space(self, space: 'FunctionSpace') -> FloatArray: ...
 
 
 @dataclass(frozen=True)
@@ -566,7 +541,7 @@ class ScaledForm(BilinearForm):
     `OperatorSum` waits for a second operator term (Robin, advection).
     '''
     factor: float
-    form: ConstantTangent
+    form: BilinearForm
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         return self.factor * self.form.element_matrices(geometry)
@@ -616,7 +591,7 @@ class EnergyDensity(Protocol):
 
 
 @dataclass(frozen=True)
-class EnergyForm:
+class EnergyForm(Form):
     '''A hyperelastic `Form`: the energy, residual, and tangent of a stored-energy density.
 
     Maps geometry and the current nodal displacement to three volume-weighted
@@ -637,6 +612,7 @@ class EnergyForm:
     assembly-ready element quantities.
     '''
     energy_density: EnergyDensity
+    has_energy = True
 
     def quadrature_degree(self, shape_degree: int) -> int:
         '''The rule degree that integrates this energy on an element of `shape_degree`.

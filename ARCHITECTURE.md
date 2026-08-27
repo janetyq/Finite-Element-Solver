@@ -80,13 +80,14 @@ returns `LinearProblem(space, LaplacianForm(), f, bc)`, `LinearElastic(E, nu,
 kinematics=GREEN_LAGRANGE).problem(space, bc)` a `Problem` over an `EnergyForm`, and a PDE with
 no name is just a different composition.
 
-A form is one contract with optional capabilities. Every `Form` answers `element_residuals` and
-`element_tangents` at a state; `ConstantTangent` marks the forms whose tangent is one matrix
-(every `BilinearForm`, whose residual is `K u`), `HasEnergy` those whose residual is the gradient
-of an energy (a bilinear form's `½ uᵀ K u`, an `EnergyForm`'s density), and `NamesDerivedField`,
-`RecoversElasticFields`, `HasNearNullSpace` the post-processing and algebra hooks. A consumer
-states what it needs: `LinearSolve`, the integrators, the analyses, and SIMP need
-`ConstantTangent`; `NewtonSolve` needs nothing more and uses `HasEnergy` as its merit when present.
+A form is one base class. Every `Form` writes `element_residuals` and `element_tangents` at a
+state; what else it can answer is a hook with a default of "no": `constant_tangent` (every
+`BilinearForm`, whose residual is `K u`), `has_energy` (a bilinear form's `½ uᵀ K u`, an
+`EnergyForm`'s density), `derived_field` (the recoverable flux), `near_null_space` (the AMG
+near-kernel). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses,
+and SIMP need a constant tangent; `NewtonSolve` needs nothing more and uses the energy as its
+line-search merit when there is one. `RecoversElasticFields` stays a protocol: the interface the
+two elastic forms share with `ElasticSolution` and `StressField`.
 
 ## Where the classes sit
 
@@ -192,8 +193,8 @@ A `Problem` is the assembly-ready composition for one mesh: space, operator, loa
 Its residual has three terms, each present in `energy`, `residual`, and `tangent` alike: the
 form's own (`Π_form`, `R_form`, `∂R_form/∂u`), the Robin boundary term (`½κuᵀRu`, `κRu`, `κR`),
 and the load (`−fᵀu`, `−f`, `0`). `internal_residual` is the first two, kept apart from `load` so
-a strategy can scale one against the other. `LinearProblem` is the case whose operator is
-`ConstantTangent`: `tangent()` with no state is the matrix, assembled once and held, and
+a strategy can scale one against the other. `LinearProblem` is the case whose operator has a
+constant tangent: `tangent()` with no state is the matrix, assembled once and held, and
 `residual(u) = A·u − b`; it is the type every consumer that needs one fixed operator asks for. The
 `Problem` owns its constraints, so nothing index-keyed is carried across a mesh change: a driver
 that remeshes builds a new one. `bc` is the spec the constraints came from and `resolved` that

@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.fields import FieldShape, Scalar, Vector
 from fem.forms import (
-    ConstantTangent, DiffusionForm, EnergyForm, Form, LaplacianForm, LinearElasticForm,
-    LinearForm, MassForm, ScaledForm,
+    DiffusionForm, EnergyForm, Form, LaplacianForm, LinearElasticForm, LinearForm, MassForm,
+    ScaledForm,
 )
 from fem.materials import LinearElasticMaterial
 from fem.problem import LinearProblem, Problem
@@ -59,7 +59,7 @@ class Equation:
         '''The composition on `space`: this operator, this source, `bc`. A
         `LinearProblem` when the operator has a constant tangent.'''
         operator = self.operator(space)
-        if isinstance(operator, ConstantTangent):
+        if operator.constant_tangent:
             return LinearProblem(space, operator, self.source, bc)
         return Problem(space, operator, self.source, bc)
 
