@@ -134,8 +134,11 @@ class Problem:
 
     @property
     def has_energy(self) -> bool:
-        '''Whether the residual is the gradient of an energy (`HasEnergy`), the
-        merit a globalized Newton solve minimises.'''
+        '''Whether the residual is the gradient of an energy (`HasEnergy`).
+
+        Only the line search reads this: with an energy it scores a step by Π(u),
+        without one by ½‖r‖². The Newton iteration itself is the same either way.
+        '''
         return isinstance(self.operator, HasEnergy)
 
     @property

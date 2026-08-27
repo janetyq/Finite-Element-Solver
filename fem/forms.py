@@ -243,7 +243,12 @@ class ConstantTangent(Protocol):
 
 @runtime_checkable
 class HasEnergy(Protocol):
-    '''A form whose residual is the gradient of a scalar energy.'''
+    '''A form whose residual is the gradient of a scalar energy.
+
+    Changes nothing about how a problem is solved; a line search uses the energy
+    as its merit where one exists. Every `BilinearForm` (½ uᵀ K u) and `EnergyForm`
+    has one.
+    '''
 
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements,) stored energy per element at the state.'''
