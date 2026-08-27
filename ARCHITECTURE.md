@@ -115,8 +115,8 @@ mapping from equation to material.
 
 Post-processing (9) is distributed under one rule: a derived quantity lives on the object that
 owns the data it needs. `FunctionSpace` owns `integrate`, `recover_nodal`, and `nodal_gradient`;
-a `Form` owns `fields_at` / `derived_fields` and `derived_field` (which flux is recoverable, which
-`Equation` mirrors for the estimators); `Problem.solution(u)` picks the typed `Solution` for its
+a `Form` owns `fields_at` / `derived_fields` and `derived_field` (which flux is recoverable, read
+by the estimators off `problem.operator`); `Problem.solution(u)` picks the typed `Solution` for its
 operator; `Solution` owns the packaging (`ElasticSolution.stress`, `nodal_stress`,
 `deformed_mesh`); `invariants` owns the frame-independent reductions.
 
@@ -218,8 +218,8 @@ and `NewmarkMethod` (average acceleration, solving for the acceleration against 
 
 `Equation` is typed data: `Projection`, `Poisson`, `Diffusion`, `Wave`, and `LinearElastic`, each
 carrying its physical constants. One method per consumer: `operator(space)` returns the bilinear
-form, `energy_density` the density the nonlinear path differentiates, and `derived_field` the flux
-post-processing recovers and estimators jump. Each refuses rather than approximates when the physics does not apply.
+form and `energy_density` the density the nonlinear path differentiates. Each refuses rather than
+approximates when the physics does not apply.
 Two more resolve it against a discretization: `space(mesh, element_type)` builds the
 `FunctionSpace` with the component count the field implies, and `problem(space, bc)` the
 `LinearProblem`. Every facade goes through these two.
@@ -245,7 +245,7 @@ through `SensitivityAnalysis`, and moves the density by the optimality-criteria 
 `fem/estimators.py` provides the residual estimator (2D, straight-sided), the Zienkiewicz-Zhu
 recovery estimator (dimension-general, curved elements included), and the goal-oriented estimator
 (the product of primal and dual recovery indicators). Each takes `(problem, solution)` and reads
-the equation's `DerivedField`.
+the `DerivedField` off the problem's operator, so none needs a physics argument.
 `fem/sensitivity.py` computes `dJ/dp` for a `QuantityOfInterest` through one adjoint solve on the
 forward factorization; `fem/design.py` drives an optimality-criteria update from that gradient.
 

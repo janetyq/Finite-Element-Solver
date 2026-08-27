@@ -34,9 +34,17 @@ class Problem(Protocol):
 
     `bc` is the mesh-independent spec the constraints were resolved from, and
     `resolved` that resolution on this space (the estimators read its Neumann load).
+    `operator` and `source` are the physics and the volume load the problem was
+    composed from; the estimators read the recoverable flux off the operator.
     '''
     space: FunctionSpace
     bc: BoundaryConditions
+
+    @property
+    def operator(self) -> 'Form | EnergyForm': ...
+
+    @property
+    def source(self) -> 'FieldValue | LinearForm | Source': ...
 
     @property
     def resolved(self) -> ResolvedBC: ...
@@ -99,7 +107,11 @@ class Source:
 
 
 class LinearProblem:
-    '''a(u, v) = L(v): a constant operator, a load, and Dirichlet constraints.'''
+    '''a(u, v) = L(v): a constant operator, a load, and Dirichlet constraints.
+
+    `source` is kept as given (a field, a `LinearForm`, or a `Source`) beside the
+    assembled load, so a residual estimator can read the pointwise source it needs.
+    '''
 
     def __init__(
         self,
@@ -110,6 +122,7 @@ class LinearProblem:
     ) -> None:
         self.space = space
         self.operator = operator
+        self.source = source
         self.bc = bc if bc is not None else BoundaryConditions()
         self._resolved = self.bc.resolve(space.nodes, space.n_components)
 
@@ -141,6 +154,7 @@ class LinearProblem:
         # nodal array is integrated as its interpolant through the cached mass matrix.
         if callable(source) and not isinstance(source, (LinearForm, Source)):
             source = LinearForm(source, n_components=space.n_components)
+            self.source = source
         if isinstance(source, LinearForm):
             volume_load = space.assemble_load(source)
         elif isinstance(source, Source):
@@ -239,6 +253,7 @@ class EnergyProblem:
             )
         self.space = space
         self.operator = operator
+        self.source = None
         self.bc = bc
         self._resolved = bc.resolve(space.nodes, space.n_components)
         if self._resolved.robin:

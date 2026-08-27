@@ -10,7 +10,7 @@ import pytest
 from fem.boundary import BCType, BoundaryConditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.equations import LinearElastic, Poisson
-from fem.estimators import goal_oriented_estimator, recovery_estimator, residual_estimator
+from fem.estimators import GoalOrientedEstimator, RecoveryEstimator, ResidualEstimator
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere, on_plane
 from fem.sensitivity import PointValue
@@ -34,11 +34,11 @@ def _elastic(element_type):
     return equation, equation.problem(equation.space(mesh, element_type), bc)
 
 
-def _goal_oriented(equation):
-    return goal_oriented_estimator(equation, PointValue(0))
+def _goal_oriented():
+    return GoalOrientedEstimator(PointValue(0))
 
 
-ESTIMATORS = [residual_estimator, recovery_estimator, _goal_oriented]
+ESTIMATORS = [ResidualEstimator, RecoveryEstimator, _goal_oriented]
 PROBLEMS = [_poisson, _elastic]
 ELEMENTS = [LinearTriangleElement, QuadraticTriangleElement]
 
@@ -47,9 +47,9 @@ ELEMENTS = [LinearTriangleElement, QuadraticTriangleElement]
 @pytest.mark.parametrize('problem', PROBLEMS, ids=lambda p: p.__name__.strip('_'))
 @pytest.mark.parametrize('estimator', ESTIMATORS, ids=lambda f: f.__name__.strip('_'))
 def test_returns_one_finite_nonnegative_value_per_element(estimator, problem, element_type):
-    equation, problem = problem(element_type)
+    _, problem = problem(element_type)
     solution = problem.solution(LinearSolve().solve(problem))
-    eta = estimator(equation).estimate(problem, solution)
+    eta = estimator().estimate(problem, solution)
     assert eta.shape == (len(problem.space.mesh.elements),)
     assert np.all(np.isfinite(eta))
     assert np.all(eta >= 0)

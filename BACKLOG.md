@@ -144,7 +144,7 @@ Two approaches measured and rejected, so they are not proposed again:
 **Post-processing coverage**
 
 The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3). Steady solves now recover
-their derived fields through one seam: `Equation.derived_field` names the field (Poisson's gradient,
+their derived fields through one seam: `Form.derived_field` names the field (Poisson's gradient,
 elasticity's stress, `fem.postprocess.DerivedField`), the typed `Solution` carries it per element
 (`ScalarFieldSolution.flux`, `ElasticSolution.stress`), and `FunctionSpace.recover_nodal` turns it into
 a continuous per-node field for smooth output, P2 plotting, and the recovery estimator. The remaining
@@ -162,12 +162,6 @@ gap is the transient path.
   that is generality with no second case.
 
 **Design / maintainability**
-
-- 💡 **One `derived_field`.** `Form.derived_field` names the recoverable flux for the linear path
-  and `Equation.derived_field` mirrors it for the estimators, because `EnergyProblem`'s operator is
-  an `EnergyForm` with no small-strain form to ask. Give `EnergyForm` a `derived_field` (a
-  `StressField` sampling through its own `fields_at`) and the estimators can read the flux off
-  `problem.operator`, dropping the equation-level copy.
 
 - 💡 **Lazy plot and `pyamg` imports for headless use.** `fem/__init__.py` re-exports `Plotter` /
   `PlotMode`, and `fem.backends` imports `pyamg` at module scope, so `import fem` always pulls in a

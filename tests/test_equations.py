@@ -47,8 +47,7 @@ def test_finite_strain_has_no_bilinear_form(make_unit_square):
 
 
 def test_wave_and_diffusion_name_their_operators(make_unit_square):
-    """`Wave` is the c²-scaled Laplacian; `Diffusion` the coefficient form, with the
-    gradient as its recoverable flux."""
+    """`Wave` is the c²-scaled Laplacian; `Diffusion` the coefficient form."""
     from fem.equations import Diffusion, Wave
     from fem.forms import DiffusionForm, ScaledForm
 
@@ -57,7 +56,6 @@ def test_wave_and_diffusion_name_their_operators(make_unit_square):
     assert isinstance(w, ScaledForm) and w.factor == 9.0
 
     assert isinstance(Diffusion(2.0).operator(space), DiffusionForm)
-    assert Diffusion(2.0).derived_field() is not None
 
 
 def test_scalar_equations_have_no_energy_density():

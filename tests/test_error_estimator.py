@@ -6,7 +6,7 @@ import numpy as np
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.equations import LinearElastic, Poisson
-from fem.estimators import residual_estimator
+from fem.estimators import ResidualEstimator
 from fem.mesh.mesh import Mesh
 from fem.regions import everywhere, on_plane
 from fem.solution import ElasticSolution
@@ -31,7 +31,7 @@ def test_error_estimator_linear_solution_small_jumps(make_unit_square):
     equation = Poisson(source=None)
     problem, solution = _solved(mesh, equation, bc)
 
-    eta = residual_estimator(equation).estimate(problem, solution)
+    eta = ResidualEstimator().estimate(problem, solution)
 
     # Linear u = x has constant gradient, so jumps are numerical only
     assert np.all(eta < 1e-10)
@@ -52,7 +52,7 @@ def test_error_estimator_concentrates_near_peak(make_unit_square):
     equation = Poisson(source=peaked_source)
     problem, solution = _solved(mesh, equation, bc)
 
-    eta = residual_estimator(equation).estimate(problem, solution)
+    eta = ResidualEstimator().estimate(problem, solution)
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     center_dist = np.linalg.norm(centroids - 0.5, axis=1)
 
@@ -69,7 +69,7 @@ def test_adaptive_refinement_with_error_estimator(make_unit_square):
     equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
 
     n_before = len(mesh.elements)
-    driver = AdaptiveRefinement(mesh, _for(equation, bc), residual_estimator(equation),
+    driver = AdaptiveRefinement(mesh, _for(equation, bc), ResidualEstimator(),
                                 max_triangles=300, max_iters=5)
     driver.run()
 
@@ -139,7 +139,7 @@ def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):
     equation = LinearElastic(E=200, nu=0.3)
     problem, solution = _solved(mesh, equation, bc)
 
-    eta = residual_estimator(equation).estimate(problem, solution)
+    eta = ResidualEstimator().estimate(problem, solution)
 
     assert np.all(eta < 1e-8)
 
@@ -155,7 +155,7 @@ def test_elastic_error_estimator_boundary_term_matches_hand_derivation():
     problem = equation.problem(equation.space(mesh), bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
-    eta = residual_estimator(equation).estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
+    eta = ResidualEstimator().estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
 
     h_K = np.sqrt(2.0)
     right_residual = Sxx**2 + Sxy**2          # element 0: bottom (skip) + right
@@ -179,7 +179,7 @@ def test_elastic_error_estimator_neumann_matching_traction_is_quiet():
     problem = equation.problem(equation.space(mesh), bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
-    eta = residual_estimator(equation).estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
+    eta = ResidualEstimator().estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
 
     h_K = np.sqrt(2.0)
     # top's g=[0.5, 1.0] is shared by nodes 2 and 3; right (1,2) and left (0,3)
@@ -205,7 +205,7 @@ def test_elastic_error_estimator_roller_edge_only_tests_its_free_component():
     problem = equation.problem(equation.space(mesh), bc)
 
     Sxx, Syy, Sxy = 3.0, 1.0, 0.5
-    eta = residual_estimator(equation).estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
+    eta = ResidualEstimator().estimate(problem, _constant_stress(problem, Sxx, Syy, Sxy))
 
     h_K = np.sqrt(2.0)
     # bottom's outward normal is (0, -1), so sigma.n = (-Sxy, -Syy); only the
@@ -231,7 +231,7 @@ def test_adaptive_refinement_elasticity_runs_end_to_end(make_unit_square):
     equation = LinearElastic(E=200, nu=0.3)
 
     n_before = len(mesh.elements)
-    driver = AdaptiveRefinement(mesh, _for(equation, bc), residual_estimator(equation),
+    driver = AdaptiveRefinement(mesh, _for(equation, bc), ResidualEstimator(),
                                 max_triangles=n_before + 200, max_iters=5)
     solution = driver.run()
 

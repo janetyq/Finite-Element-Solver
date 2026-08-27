@@ -18,7 +18,7 @@ from fem.convergence import (
     poisson_p2_convergence, theta_convergence,
 )
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.estimators import recovery_estimator
+from fem.estimators import RecoveryEstimator
 from fem.forms import MaskedMassForm
 from fem.space import FunctionSpace
 from fem.regions import on_plane, in_box, intersect, union
@@ -313,7 +313,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     equation = LinearElastic(E=200, nu=0.3)
     refinement = AdaptiveRefinement(
         mesh, lambda m: equation.problem(equation.space(m, IsoparametricTriangleElement), bc),
-        recovery_estimator(equation),
+        RecoveryEstimator(),
         max_triangles=n_initial + refinement_budget, max_iters=refinement_iters,
     )
     solution = refinement.run()
@@ -461,7 +461,7 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
             return problem, problem.solution(LinearSolve().solve(problem))
 
         refiner = RedGreenRefiner(mesh)
-        estimator = recovery_estimator(equation)
+        estimator = RecoveryEstimator()
         problem, solution = solve(mesh)
         sizes, peaks = [], []
         for _ in range(n_rounds):

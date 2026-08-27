@@ -6,7 +6,7 @@ import numpy as np
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.equations import Poisson
-from fem.estimators import goal_oriented_estimator, recovery_estimator
+from fem.estimators import GoalOrientedEstimator, RecoveryEstimator
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere
 from fem.sensitivity import PointValue
@@ -43,7 +43,7 @@ def test_indicator_peaks_near_the_quantity_of_interest():
     solution = problem.solution(LinearSolve().solve(problem))
     target = (0.72, 0.72)
     qoi = PointValue(_nearest_node(problem.space, target))
-    eta = goal_oriented_estimator(EQUATION, qoi).estimate(problem, solution)
+    eta = GoalOrientedEstimator(qoi).estimate(problem, solution)
 
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     dist = np.linalg.norm(centroids - np.asarray(target), axis=1)
@@ -60,11 +60,11 @@ def test_refines_toward_the_quantity_of_interest_more_than_global():
 
     mesh = _square(12)
     qoi = PointValue(_nearest_node(EQUATION.space(mesh), target))
-    goal = AdaptiveRefinement(mesh, _problem_for, goal_oriented_estimator(EQUATION, qoi),
+    goal = AdaptiveRefinement(mesh, _problem_for, GoalOrientedEstimator(qoi),
                               max_triangles=400, max_iters=6)
     goal.run()
 
-    global_ = AdaptiveRefinement(_square(12), _problem_for, recovery_estimator(EQUATION),
+    global_ = AdaptiveRefinement(_square(12), _problem_for, RecoveryEstimator(),
                                  max_triangles=400, max_iters=6)
     global_.run()
 

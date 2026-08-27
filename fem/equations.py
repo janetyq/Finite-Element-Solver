@@ -2,10 +2,9 @@
 
 An `Equation` is typed data naming a PDE and carrying its physical parameters.
 Each subclass answers for both assembly paths: `operator` gives the bilinear form the
-linear path assembles, `energy_density` the strain-energy density the nonlinear path
-differentiates, and `derived_field` the flux post-processing recovers. `space` and
-`problem` resolve the equation against a mesh and a BC spec, the two steps every
-facade shares.
+linear path assembles and `energy_density` the strain-energy density the nonlinear path
+differentiates. `space` and `problem` resolve the equation against a mesh and a BC
+spec, the two steps every facade shares.
 """
 from __future__ import annotations
 
@@ -27,7 +26,6 @@ if TYPE_CHECKING:
     from fem.boundary import BoundaryConditions
     from fem.elements import Element
     from fem.mesh.mesh import Mesh
-    from fem.postprocess import DerivedField
 
 
 class Equation:
@@ -81,12 +79,6 @@ class Equation:
             'solve it through its operator.'
         )
 
-    def derived_field(self) -> 'DerivedField | None':
-        '''The derived field this equation recovers (Poisson's gradient, elasticity's
-        stress), which post-processing recovers to nodes and `fem.estimators` builds an
-        indicator from. None where there is none (a pure projection).'''
-        return None
-
 
 class Projection(Equation):
     '''L2 projection of the source field onto the FE space (M u = b).'''
@@ -97,9 +89,6 @@ class Projection(Equation):
 
 class Poisson(Equation):
     '''Poisson equation (K u = b); under a `ThetaMethod`, the heat equation.'''
-
-    def derived_field(self) -> 'DerivedField':
-        return LaplacianForm().derived_field()
 
 
 class Diffusion(Equation):
@@ -115,9 +104,6 @@ class Diffusion(Equation):
 
     def operator(self, space: FunctionSpace) -> Form:
         return DiffusionForm(self.coefficient)
-
-    def derived_field(self) -> 'DerivedField':
-        return DiffusionForm(self.coefficient).derived_field()
 
 
 class Wave(Equation):
@@ -203,9 +189,4 @@ class LinearElastic(Equation):
             StrainMeasure.GREEN_LAGRANGE: StVenantKirchhoff,
         }[self.kinematics]
         return density(self.E, self.nu)
-
-    def derived_field(self) -> 'DerivedField':
-        '''The elastic flux to recover and estimate from: the small-strain form's
-        Cauchy stress, for either kinematics.'''
-        return LinearElasticForm(self.material).derived_field()
 

@@ -443,19 +443,6 @@ class LinearElasticForm:
                              _element_mean(fields.stress, geometry.weight_detJ),
                              compliance)
 
-    def stress_field(
-        self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> FloatArray:
-        '''(n_elements, n_qp, d, d) in-plane stress at every quadrature point.
-
-        The in-plane block of `fields_at`, for the recovery error estimator, which
-        jumps and recovers the in-plane stress and has no use for the out-of-plane
-        lift.
-        '''
-        d = geometry.reference_dim
-        return self.fields_at(geometry, u_elements).stress[:, :, :d, :d]
-
-
 @dataclass(frozen=True)
 class GeometricStiffnessForm:
     '''Geometric (initial-stress) stiffness ∫ Gᵀ Σ₀ G, from a per-element prestress.
@@ -706,6 +693,9 @@ class EnergyForm:
 
         return (strain.reshape(n_el, n_qp, 3, 3), cauchy.reshape(n_el, n_qp, 3, 3),
                 np.asarray(t.W).reshape(n_el, n_qp))
+
+    def derived_field(self) -> DerivedField:
+        return StressField(self)
 
     def fields_at(
         self, geometry: ElementGeometry, u_elements: FloatArray,
