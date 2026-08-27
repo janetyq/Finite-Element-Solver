@@ -19,7 +19,6 @@ from fem.estimators import RecoveryEstimator
 from fem.materials import Enu_to_Lame
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere
-from fem.solve import LinearSolve
 
 POISSON = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
 ELASTIC = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
@@ -54,8 +53,8 @@ def _elastic_true_stress_error(problem, solution):
 def _solved(equation, mesh, bc_value):
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), bc_value)
-    problem = equation.problem(equation.space(mesh), bc)
-    return problem, problem.solution(LinearSolve().solve(problem))
+    problem = equation.problem(mesh, bc)
+    return problem, problem.solve()
 
 
 def _square(n):
@@ -120,7 +119,7 @@ def test_recovery_drives_adaptive_refinement(make_unit_square):
 
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
-        mesh, lambda m: equation.problem(equation.space(m), bc),
+        mesh, lambda m: equation.problem(m, bc),
         RecoveryEstimator(), max_triangles=300, max_iters=5,
     )
     driver.run()

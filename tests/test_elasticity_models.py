@@ -81,7 +81,7 @@ def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_s
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [-0.7, 0])   # 70% compression
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
-    problem = equation.problem(equation.space(mesh), bc)
+    problem = equation.problem(mesh, bc)
     free = problem.constraints[0]
 
     def free_residual(line_search):
@@ -134,7 +134,7 @@ def test_residual_and_tangent_are_consistent_by_finite_difference(make_unit_squa
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
     # No BCs: energy, residual, and tangent are the raw, unconstrained quantities,
     # evaluated at an imposed state rather than a solve.
-    problem = equation.problem(equation.space(mesh))
+    problem = equation.problem(mesh)
 
     # A non-trivial state, so the nonlinearity is active: at u = 0 the tangent is the
     # small-strain one and the cubic term this check leans on would vanish.
@@ -166,7 +166,7 @@ def test_stvk_needs_more_than_one_newton_step(make_unit_square):
     mesh, bc = _stretched_square(make_unit_square)
     equation = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
 
-    u_one = _one_newton_step(equation.problem(equation.space(mesh), bc))
+    u_one = _one_newton_step(equation.problem(mesh, bc))
     u_converged = Solver(mesh, equation, bc).solve().u
 
     rel = np.linalg.norm(u_one - u_converged) / np.linalg.norm(u_converged)
@@ -262,7 +262,7 @@ def test_regularization_leaves_an_spd_tangent_unshifted(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.05, 0])
     equation = LinearElastic(E=200, nu=0.3)
-    problem = equation.problem(equation.space(mesh), bc)
+    problem = equation.problem(mesh, bc)
 
     plain = NewtonSolve().solve(problem)
     regularized = NewtonSolve(regularization=TangentRegularization()).solve(problem)

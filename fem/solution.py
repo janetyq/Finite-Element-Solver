@@ -57,6 +57,13 @@ class FieldSolution(Solution):
     '''A single steady field u: Projection, and the base of Poisson and elasticity.'''
     u: DofVector
 
+    @property
+    def nodal_values(self) -> FloatArray:
+        '''`u` by node: `(n_nodes,)` for a scalar field, `(n_nodes, n_components)` for
+        a vector one. Row `i` is the space's node `i` (vertices first, then any edge nodes).'''
+        values = np.asarray(self.u).reshape(-1, self.n_components)
+        return values[:, 0] if self.n_components == 1 else values
+
     def deformed_mesh(self) -> 'Mesh':
         '''The mesh displaced by u (meaningful for a vector displacement field).
 
@@ -65,7 +72,7 @@ class FieldSolution(Solution):
         '''
         mesh = self.mesh.copy()
         n_vertices = len(mesh.vertices)
-        mesh.vertices = mesh.vertices + self.u.reshape(-1, self.n_components)[:n_vertices]
+        mesh.vertices = mesh.vertices + np.asarray(self.u).reshape(-1, self.n_components)[:n_vertices]
         return mesh
 
 

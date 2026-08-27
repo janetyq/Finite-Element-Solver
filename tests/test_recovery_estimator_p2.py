@@ -17,7 +17,6 @@ from fem.estimators import RecoveryEstimator
 from fem.mesh.structured import create_rect_mesh
 from fem.postprocess import GradientField
 from fem.regions import everywhere
-from fem.solve import LinearSolve
 
 
 def _poisson_source(point):
@@ -32,8 +31,8 @@ def _solve(equation, n, element_type, bc_value=0.0):
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, everywhere(), bc_value)
-    problem = equation.problem(equation.space(mesh, element_type), bc)
-    return problem, problem.solution(LinearSolve().solve(problem))
+    problem = equation.problem(mesh, bc, element_type=element_type)
+    return problem, problem.solve()
 
 
 # -- the mechanism: the flux is sampled per point, not per element -----------
@@ -97,7 +96,7 @@ def test_p2_recovery_drives_adaptive_refinement():
 
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
-        mesh, lambda m: equation.problem(equation.space(m, QuadraticTriangleElement), bc),
+        mesh, lambda m: equation.problem(m, bc, element_type=QuadraticTriangleElement),
         RecoveryEstimator(), max_triangles=300, max_iters=5,
     )
     solution = driver.run()

@@ -26,7 +26,7 @@ E_STAR = E / (1 - NU**2)   # plane-strain effective modulus for bending
 
 def _problem(mesh, bc=None, equation=None):
     equation = equation if equation is not None else LinearElastic(E, NU)
-    return equation.problem(equation.space(mesh, QuadraticTriangleElement), bc)
+    return equation.problem(mesh, bc, element_type=QuadraticTriangleElement)
 
 
 def column(length, height=1.0, n_length=40, n_across=5):
@@ -167,7 +167,7 @@ def test_scalar_problem_is_rejected():
     mesh = column(12.0, n_length=12, n_across=3)
     scalar = Poisson(source=1.0)
     with pytest.raises(TypeError, match='recovered stress'):
-        BucklingAnalysis().solve(scalar.problem(scalar.space(mesh)))
+        BucklingAnalysis().solve(scalar.problem(mesh))
 
 
 def test_degenerate_parameters_are_rejected():

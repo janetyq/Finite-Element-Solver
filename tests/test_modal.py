@@ -42,7 +42,7 @@ def clamped_bc():
 
 def solve_modes(mesh, n_modes=6, density=DENSITY, E=E):
     equation = LinearElastic(E, NU)
-    problem = equation.problem(equation.space(mesh, QuadraticTriangleElement), clamped_bc())
+    problem = equation.problem(mesh, clamped_bc(), element_type=QuadraticTriangleElement)
     return ModalAnalysis(n_modes=n_modes, density=density).solve(problem)
 
 
@@ -117,7 +117,7 @@ def test_green_lagrange_equation_is_rejected():
     mesh = cantilever(12.0, n_length=12, n_across=3)
     equation = LinearElastic(E, NU, kinematics=StrainMeasure.GREEN_LAGRANGE)
     with pytest.raises(TypeError, match='constant tangent'):
-        ModalAnalysis(n_modes=2).solve(equation.problem(equation.space(mesh)))
+        ModalAnalysis(n_modes=2).solve(equation.problem(mesh))
 
 
 def test_degenerate_parameters_are_rejected():

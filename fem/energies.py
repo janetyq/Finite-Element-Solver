@@ -81,7 +81,7 @@ class StVenantKirchhoff:
     # Polynomial degree of W in the displacement gradient: the Green strain is quadratic
     # in grad_u and W is quadratic in the strain, so W is quartic. This sets the rule the
     # energy is integrated at, above the linear stiffness's default on P2 and higher (see
-    # FunctionSpace._energy_geometry).
+    # FunctionSpace._geometry_for).
     energy_degree = 4
 
     def __init__(self, E: float, nu: float) -> None:

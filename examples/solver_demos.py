@@ -25,7 +25,7 @@ from fem.space import FunctionSpace
 from fem.regions import on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, StrainMeasure, Wave
-from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
+from fem.solve import BacktrackingLineSearch, NewtonSolve
 from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
@@ -312,7 +312,7 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     # circle, so more refinement keeps rounding the hole.
     equation = LinearElastic(E=200, nu=0.3)
     refinement = AdaptiveRefinement(
-        mesh, lambda m: equation.problem(equation.space(m, IsoparametricTriangleElement), bc),
+        mesh, lambda m: equation.problem(m, bc, element_type=IsoparametricTriangleElement),
         RecoveryEstimator(),
         max_triangles=n_initial + refinement_budget, max_iters=refinement_iters,
     )
@@ -457,8 +457,8 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
         bc = make_bc()
 
         def solve(m):
-            problem = equation.problem(equation.space(m, element_type), bc)
-            return problem, problem.solution(LinearSolve().solve(problem))
+            problem = equation.problem(m, bc, element_type=element_type)
+            return problem, problem.solve()
 
         refiner = RedGreenRefiner(mesh)
         estimator = RecoveryEstimator()
@@ -719,9 +719,9 @@ def demo_heat_equation(dt=0.06, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     bc = BoundaryConditions()
     bc.add(BCType.DIRICHLET, on_plane(1, 0.0), u_hot)
     bc.add_robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
-    u_initial = np.full(len(mesh.vertices), u_ambient)
-    heat = Poisson().problem(Poisson().space(mesh), bc)
-    solution = ThetaMethod(dt=dt, steps=steps).run(heat, u_initial)
+    heat = Poisson().problem(mesh, bc)
+    u_initial = heat.space.interpolate(u_ambient)
+    solution = ThetaMethod(dt=dt, steps=steps).solve(heat, u_initial)
     u_values, t_values = solution.u, solution.t
 
     # -- effectiveness: block vs finned, posed two ways --------------------------------
@@ -874,20 +874,21 @@ def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400,
     mesh = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=max_area).refine()
     for _ in range(uniform_rounds):
         mesh = RedGreenRefiner(mesh).refine(range(len(mesh.elements)))
-    x = mesh.vertices[:, 0]
-
-    # A straight front on the open side, travelling toward the wall. Given d'Alembert's
-    # pairing u = g(x - ct), du/dt = -c g'(x), so it moves one way instead of splitting.
-    profile = np.exp(-((x - front_x) / front_width) ** 2)
-    u_initial = profile
-    dudt_initial = 2 * c * (x - front_x) / front_width**2 * profile
 
     # No conditions, so every edge is a wall: the natural du/dn = 0 reflects a wave
     # the same way up.
     bc = BoundaryConditions()
-    wave = Wave(c).problem(Wave(c).space(mesh), bc)
-    solution = NewmarkMethod(dt=dt, steps=steps).run(wave,
-                                                     u_initial, dudt_initial)
+    wave = Wave(c).problem(mesh, bc)
+
+    # A straight front on the open side, travelling toward the wall. Given d'Alembert's
+    # pairing u = g(x - ct), du/dt = -c g'(x), so it moves one way instead of splitting.
+    def profile(p):
+        return np.exp(-((p[0] - front_x) / front_width) ** 2)
+
+    u_initial = wave.space.interpolate(profile)
+    dudt_initial = wave.space.interpolate(
+        lambda p: 2 * c * (p[0] - front_x) / front_width**2 * profile(p))
+    solution = NewmarkMethod(dt=dt, steps=steps).solve(wave, u_initial, dudt_initial)
     u_values, t_values = solution.u, solution.t
 
     setup = Plotter(1, 3, figsize=(15.0, 3.8))
@@ -901,7 +902,7 @@ def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400,
     # though it is far lower than the front that made it (which doubles again when it
     # reflects off the far wall).
     shown = [int(i) for i in np.linspace(len(u_values) // 8, len(u_values) - 1, 8)]
-    harbor = x > wall_x + wall_thickness
+    harbor = mesh.vertices[:, 0] > wall_x + wall_thickness
     span = float(max(abs(u_values[i][harbor]).max() for i in shown))
     clim = (-span, span)
 
@@ -1106,7 +1107,7 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     equation = LinearElastic(E, nu)
 
     def solve_buckling(mesh, bc, span, modes=n_modes):
-        problem = equation.problem(equation.space(mesh, QuadraticTriangleElement), bc)
+        problem = equation.problem(mesh, bc, element_type=QuadraticTriangleElement)
         solution = BucklingAnalysis(n_modes=modes).solve(problem)
         # The load factor multiplies the reference load; the physical buckling load is
         # that factor times the actual axial force the column carries, read at mid-span
@@ -1309,7 +1310,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=0.5*(tine_thickness/across)**2).refine()
         equation = LinearElastic(E, NU)
-        problem = equation.problem(equation.space(mesh, QuadraticTriangleElement), clamp())
+        problem = equation.problem(mesh, clamp(), element_type=QuadraticTriangleElement)
         solution = ModalAnalysis(n_modes=modes, density=RHO).solve(problem)
         return mesh, solution
 

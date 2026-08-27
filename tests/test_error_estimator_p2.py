@@ -21,7 +21,6 @@ from fem.mesh.structured import create_rect_mesh
 from fem.postprocess import GradientField
 from fem.regions import everywhere, on_plane
 from fem.solution import ElasticSolution, ScalarFieldSolution
-from fem.solve import LinearSolve
 from fem.space import FunctionSpace
 
 
@@ -34,8 +33,8 @@ def _global(eta):
 
 
 def _solved(equation, mesh, bc, element_type=QuadraticTriangleElement):
-    problem = equation.problem(equation.space(mesh, element_type), bc)
-    return problem, problem.solution(LinearSolve().solve(problem))
+    problem = equation.problem(mesh, bc, element_type=element_type)
+    return problem, problem.solve()
 
 
 def _solve(equation, n, bc_value=0.0):
@@ -202,7 +201,7 @@ def test_p2_residual_drives_adaptive_refinement():
 
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
-        mesh, lambda m: equation.problem(equation.space(m, QuadraticTriangleElement), bc),
+        mesh, lambda m: equation.problem(m, bc, element_type=QuadraticTriangleElement),
         ResidualEstimator(), max_triangles=300, max_iters=5,
     )
     solution = driver.run()
