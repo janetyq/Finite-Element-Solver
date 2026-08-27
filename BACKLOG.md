@@ -17,7 +17,6 @@ Effort: 🟢 low · 🟡 medium · 🔴 high.
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize the Newton direction (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Post-proc | Transient derived fields (steady flux/stress recovery shipped) | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Design | Lazy plot / `pyamg` imports | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Demos | Stress-driven design beside compliance-driven; a motivated goal-oriented refinement demo | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -148,12 +147,9 @@ The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3). Steady s
 their derived fields through one seam: `Form.derived_field` names the field (Poisson's gradient,
 elasticity's stress, `fem.postprocess.DerivedField`), the typed `Solution` carries it per element
 (`ScalarFieldSolution.flux`, `ElasticSolution.stress`), and `FunctionSpace.recover_nodal` turns it into
-a continuous per-node field for smooth output, P2 plotting, and the recovery estimator. The remaining
-gap is the transient path.
+a continuous per-node field for smooth output, P2 plotting, and the recovery estimator; a
+`TransientSolution` packages any step the same way through `at(i)`.
 
-- 💡 **Derived fields for transient solves.** `TransientSolution` carries a per-step series of `u`
-  and nothing derived from it, so a time-stepped heat problem has no flux history. The steady seam
-  (`DerivedField` + `recover_nodal`) is the piece to lift onto each step.
 - 💡 **Plane stress as an alternative 2D reduction.** 2D elasticity is plane strain throughout, now
   named rather than implicit (`LinearElasticMaterial.out_of_plane_stress`, and the matching
   `out_of_plane_stress` on the energy densities). Plane stress (a thin plate free to contract in z,
@@ -194,11 +190,12 @@ gap is the transient path.
   through the already-working Newton solver. Note it is naturally written in invariants of `C = FᵀF`
   rather than in a strain tensor `S`, so it does not slot into the St-VK class's `S`-based derivative
   chain as cleanly as the shared-`W` framing above might suggest; it wants its own `evaluate`.
-- 💡 **Time-varying loads and Dirichlet data.** Source terms and BC values are functions of position
-  only, so a `Problem`'s load is built once and assumed constant in time. Both integrators lean on
-  it: `ThetaMethod` reuses one `problem.load` where a general θ-method averages `b_n` and `b_{n+1}`,
-  and `NewmarkMethod` reads a fixed Dirichlet displacement as zero velocity and acceleration there.
-  The extension is a `t` argument on those callables and a load the integrator re-evaluates per step.
+- 💡 **Prescribed motion under Newmark.** A `TimeDependent` source, traction, or Robin value is
+  re-evaluated per step by both integrators, and `ThetaMethod` takes a time-dependent Dirichlet
+  value too. `NewmarkMethod` refuses one: a prescribed displacement `g(t)` at the fixed DOFs also
+  needs their velocity and acceleration, so the acceleration solve would carry `g''(t)` at the fixed
+  block (by differencing `g`, or from a `TimeDependent` that supplies its derivatives) and the
+  predictor `g'(t)`. Additive once that data has a home.
 - 💡 **Generalized-α, or another integrator family.** `ThetaMethod` and `NewmarkMethod` cover first-
   and second-order systems; the seam for a third is in place, so this is additive.
 

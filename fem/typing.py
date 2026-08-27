@@ -12,7 +12,7 @@ They document intent for the reader and for autocomplete, and the shape comments
 are the contract.
 """
 from collections.abc import Callable, Sequence
-from typing import Any, TypeAlias, Union
+from typing import TYPE_CHECKING, Any, TypeAlias, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -80,15 +80,21 @@ Constraints: TypeAlias = tuple[DofIndices, DofIndices, FloatArray]
 # Any callable of that shape qualifies; `fem.regions` names the recurring cases.
 Region: TypeAlias = Callable[[Vertices], BoolArray]
 
-# A field value: a constant, a per-component constant, or a function of position.
-# `fem.regions.evaluate_field` normalizes all three to (n_points, n_components).
-# A component may itself be `None`, meaningful only for a Dirichlet value
-# (BoundaryConditions' own resolver leaves it free rather than pinned);
-# `evaluate_field` rejects it for every other use (a load has no free component).
+if TYPE_CHECKING:
+    from fem.regions import TimeDependent
+
+# A field value: a constant, a per-component constant, a function of position, or a
+# `TimeDependent` function of position and time (fixed at a time by
+# `fem.regions.field_at` before use). `fem.regions.evaluate_field` normalizes the
+# first three to (n_points, n_components). A component may itself be `None`,
+# meaningful only for a Dirichlet value (BoundaryConditions' own resolver leaves it
+# free rather than pinned); `evaluate_field` rejects it for every other use (a load
+# has no free component).
 FieldValue: TypeAlias = Union[
     float,
     Sequence[Union[float, None]],
     FloatArray,
     Callable[[Point], Union[float, Sequence[Union[float, None]], FloatArray]],
+    'TimeDependent',
     None,
 ]

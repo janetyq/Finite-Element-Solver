@@ -147,15 +147,20 @@ def _classify(bc, mesh):
     count. The natural condition is left to the caller, which alone knows which facets
     no condition claimed."""
     from fem.boundary import BCType
+    from fem.regions import TimeDependent
 
     entries = bc.entries(mesh)
+    # entries() shows a time-dependent value at t = 0; say so in the label. Same order as
+    # entries(): the conditions, then the Robin ones.
+    varies = [isinstance(v, TimeDependent) for _, _, v in bc.conditions] + \
+             [isinstance(g, TimeDependent) for _, _, g in bc.robin_conditions]
     components = max((values.shape[1] for _, _, values in entries if len(values)), default=1)
     # entries() emits the Robin conditions last and in `robin_conditions` order; only the
     # coefficient is read from there, the half of a Robin condition entries() omits.
     kappas = iter([kappa for _, kappa, _ in bc.robin_conditions])
 
     marks = []
-    for bc_type, idxs, values in entries:
+    for (bc_type, idxs, values), time_dependent in zip(entries, varies):
         if len(idxs) == 0:
             continue
         covered = _covered_facets(mesh, idxs)
@@ -170,6 +175,8 @@ def _classify(bc, mesh):
             shape = 'arrow' if values.shape[1] >= 2 else 'run'
             label = (f'Neumann: t = {_format_values(values)}' if components >= 2
                      else f'Neumann: du/dn = {_format_values(values)}')
+        if time_dependent:
+            label = f'{label} at t = 0 (varies in time)'
         marks.append(_Mark(color, shape, np.asarray(idxs), values, covered, label))
     return marks, components
 

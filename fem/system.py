@@ -12,7 +12,7 @@ format.
 import numpy as np
 
 from fem.backends import Backend, DirectBackend
-from fem.typing import Constraints, DofVector, Operator
+from fem.typing import Constraints, DofVector, FloatArray, Operator
 
 
 class DiscreteSystem:
@@ -38,11 +38,16 @@ class DiscreteSystem:
         self._free_fixed = A[np.ix_(self.free, self.fixed)]
         self._solver = backend.prepare(A[np.ix_(self.free, self.free)])
 
-    def solve(self, b: DofVector) -> DofVector:
-        '''Solve for x given a right-hand side b, reusing the factorization.'''
+    def solve(self, b: DofVector, fixed_values: FloatArray | None = None) -> DofVector:
+        '''Solve for x given a right-hand side b, reusing the factorization.
+
+        `fixed_values` replaces the Dirichlet data for this solve (a time-stepper
+        whose prescribed values change per step); the default is the system's own.
+        '''
+        values = self.fixed_values if fixed_values is None else np.asarray(fixed_values, dtype=float)
         x = np.zeros(self.n_dofs)
-        x[self.fixed] = self.fixed_values
-        b_free = b[self.free] - self._free_fixed @ self.fixed_values
+        x[self.fixed] = values
+        b_free = b[self.free] - self._free_fixed @ values
         x[self.free] = self._solver.solve(b_free)
         return x
 
