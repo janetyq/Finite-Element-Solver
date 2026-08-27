@@ -94,8 +94,9 @@ def _render_figures(result: DemoResult, name: str, out_dir: Path) -> list[Panel]
         if figure.animated:
             frame_dir = images / stem
             frame_dir.mkdir(exist_ok=True)
+            budget = figure.frames if figure.frames is not None else FRAMES_PER_PLAYER
             written = figure.plotter.save_frames(str(frame_dir / '{:03d}.png'),
-                                                 max_frames=FRAMES_PER_PLAYER)
+                                                 max_frames=budget)
             frames = [f'{IMAGES}/{stem}/{Path(p).name}' for p in written]
             panels.append(Panel(figure.caption, frames[0], frames, figure.thumbnail,
                                 figure.setup))

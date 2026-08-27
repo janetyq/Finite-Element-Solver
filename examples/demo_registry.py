@@ -31,12 +31,16 @@ class Figure:
     `setup` marks a figure as how the problem was posed (the conditions imposed, the
     state it started from) rather than what came out. The gallery collects those at the
     foot of the page, beside the source.
+
+    `frames` is how many frames the gallery plays of an animation; None is the gallery's
+    default budget. A short run whose every step matters asks for all of them.
     """
     plotter: 'Plotter'
     caption: str
     slug: str = ''
     thumbnail: bool = False
     setup: bool = False
+    frames: int | None = None
 
     @property
     def animated(self) -> bool:

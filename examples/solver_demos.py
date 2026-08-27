@@ -693,7 +693,7 @@ def _mark_base(ax, width, kind):
     ax.set_ylim(bottom=y0 - 0.12)
 
 
-def demo_heat_equation(dt=0.06, steps=22, kappa=0.3, u_ambient=300.0, u_hot=400.0,
+def demo_heat_equation(dt=0.05, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0,
                        ramp=0.6, flux=40.0, fin_lengths=(0.4, 0.8, 1.4, 2.0, 2.8),
                        min_angle=28, max_area_fraction=0.0004):
     """Warm a finned heatsink from a cold start, then compare it with a solid block and
@@ -865,7 +865,7 @@ def demo_heat_equation(dt=0.06, steps=22, kappa=0.3, u_ambient=300.0, u_hot=400.
                'base and at the fin roots, where the gradient is steepest, and fading toward '
                'the tips as the fins run cold; the title tracks the heat shed to ambient '
                f'through the film, which climbs toward the steady {q_fin:.1f}.',
-               'animation'),
+               'animation', frames=len(t_values)),
         Figure(setup,
                'Left, the conditions. The bottom face is a chip switching on: its '
                f'temperature ramps from ambient to {u_hot:.0f} over the first {ramp:.1f} s '
