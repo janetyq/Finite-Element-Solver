@@ -13,7 +13,7 @@ from fem.convergence import (
 )
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.equations import Poisson
-from fem.estimators import recovery_estimator
+from fem.estimators import RecoveryEstimator
 from fem.mesh.structured import create_rect_mesh
 from fem.postprocess import GradientField
 from fem.regions import everywhere
@@ -64,7 +64,7 @@ def test_p2_recovery_vanishes_on_a_quadratic_field():
     equation = Poisson(source=None)
     problem, solution = _solve(equation, 5, QuadraticTriangleElement,
                                bc_value=lambda p: p[0]**2 - p[1]**2)
-    eta = recovery_estimator(equation).estimate(problem, solution)
+    eta = RecoveryEstimator().estimate(problem, solution)
     assert np.all(eta < 1e-10)
 
 
@@ -77,7 +77,7 @@ def test_p2_recovery_effectivity_stays_bounded():
     indices = []
     for n in (6, 11, 21):
         problem, solution = _solve(equation, n, QuadraticTriangleElement)
-        eta = _global(recovery_estimator(equation).estimate(problem, solution))
+        eta = _global(RecoveryEstimator().estimate(problem, solution))
         true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
         indices.append(eta / true_error)
 
@@ -98,7 +98,7 @@ def test_p2_recovery_drives_adaptive_refinement():
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
         mesh, lambda m: equation.problem(equation.space(m, QuadraticTriangleElement), bc),
-        recovery_estimator(equation), max_triangles=300, max_iters=5,
+        RecoveryEstimator(), max_triangles=300, max_iters=5,
     )
     solution = driver.run()
 

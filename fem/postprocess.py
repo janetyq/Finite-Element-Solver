@@ -14,8 +14,8 @@ value per element: exact for P1, the element mean for P2. Two consumers want mor
 
 `DerivedField` is the one equation-specific seam both share: it names which stored field
 is the recoverable flux for a given physics, and how that flux behaves on a boundary edge.
-Poisson's is the gradient; elasticity's is the stress. `Equation.derived_field` returns it,
-the post-processing analogue of `Equation.operator`.
+Poisson's is the gradient; elasticity's is the stress. The operator names it
+(`Form.derived_field`), so an estimator reads it off `problem.operator`.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from fem.elements import ElementGeometry
-    from fem.forms import LinearElasticForm
+    from fem.forms import RecoversElasticFields
     from fem.solution import FieldSolution
     from fem.typing import BoolArray, FloatArray
 
@@ -132,12 +132,13 @@ class StressField:
     the masked term that lets a traction-free stress concentration register while a pinned
     direction's reaction traction is not counted as error.
 
-    `form` is the small-strain elastic form, needed by `sample` and `divergence` to
-    recompute the stress from `u`; `evaluate` and `boundary_residual` read the stored
-    state and work without it.
+    `form` is the elastic form that recovers the stress, needed by `sample` to recompute
+    it from `u` at quadrature points; `evaluate` and `boundary_residual` read the stored
+    state and work without it. `divergence` is the small-strain Navier operator, so it
+    needs a `LinearElasticForm` and refuses a finite-strain form.
     '''
 
-    def __init__(self, form: 'LinearElasticForm | None' = None) -> None:
+    def __init__(self, form: 'RecoversElasticFields | None' = None) -> None:
         self.form = form
 
     def evaluate(self, solution: FieldSolution) -> FloatArray:
@@ -157,23 +158,28 @@ class StressField:
         if self.form is None:
             raise ValueError(
                 'StressField needs its elastic form to sample stress at quadrature points; '
-                'build it through Equation.derived_field'
+                'build it through the form\'s derived_field'
             )
         space = solution.space
         u_elements = solution.u.reshape(-1, space.n_components)[space.element_nodes]
-        return self.form.stress_field(geometry, u_elements)   # (n_el, n_qp, d, d)
+        # The in-plane block: the estimators jump and recover the in-plane stress and
+        # have no use for the out-of-plane lift.
+        d = geometry.reference_dim
+        return self.form.fields_at(geometry, u_elements).stress[:, :, :d, :d]
 
     def divergence(self, solution: FieldSolution) -> FloatArray:
+        from fem.forms import LinearElasticForm
         from fem.materials import Enu_to_Lame
         from fem.solution import ElasticSolution
         if not isinstance(solution, ElasticSolution):
             raise TypeError(
                 'the elastic flux needs a displacement solution; got a bare FieldSolution'
             )
-        if self.form is None:
-            raise ValueError(
-                'StressField needs its elastic form to take the stress divergence; '
-                'build it through Equation.derived_field'
+        if not isinstance(self.form, LinearElasticForm):
+            raise NotImplementedError(
+                'the stress divergence is the small-strain Navier operator, which needs a '
+                f'LinearElasticForm; got {type(self.form).__name__}. The recovery '
+                'estimator needs no divergence and works on any elastic form.'
             )
         space = solution.space
         u_elements = solution.u.reshape(-1, space.n_components)[space.element_nodes]

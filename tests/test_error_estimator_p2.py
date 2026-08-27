@@ -12,9 +12,11 @@ from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import exact_gradient, h1_seminorm_error
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
+from fem.energies import StVenantKirchhoff
 from fem.equations import LinearElastic, Poisson
-from fem.estimators import residual_estimator
-from fem.materials import Enu_to_Lame
+from fem.estimators import ResidualEstimator
+from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm
+from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.structured import create_rect_mesh
 from fem.postprocess import GradientField
 from fem.regions import everywhere, on_plane
@@ -90,7 +92,7 @@ def test_p2_poisson_divergence_is_the_laplacian():
     u = x**2 + 2 * y**2
     solution = ScalarFieldSolution(space, u, flux=np.zeros((len(mesh.elements), 2)))
 
-    div = Poisson().derived_field().divergence(solution)
+    div = LaplacianForm().derived_field().divergence(solution)
     assert np.allclose(div, 6.0)
 
 
@@ -108,8 +110,23 @@ def test_p2_elastic_divergence_is_the_navier_operator():
     solution = ElasticSolution(space, u.ravel(), strain=np.zeros((n_el, 3, 3)),
                                stress=np.zeros((n_el, 3, 3)), compliance=np.zeros(n_el))
 
-    div = LinearElastic(E, nu).derived_field().divergence(solution)
+    div = LinearElasticForm(LinearElasticMaterial(E, nu)).derived_field().divergence(solution)
     assert np.allclose(div, [2 * lamb + 4 * mu, 0.0])
+
+
+def test_stress_divergence_refuses_a_finite_strain_form():
+    """The divergence is the small-strain Navier operator, so a residual estimate of a
+    finite-strain solve is refused rather than computed with the wrong operator."""
+    E, nu = 200.0, 0.3
+    mesh = create_rect_mesh(corners=[[0, 0], [2, 1]], resolution=(5, 4))
+    space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
+    n_el = len(mesh.elements)
+    solution = ElasticSolution(space, np.zeros(space.n_dofs), strain=np.zeros((n_el, 3, 3)),
+                               stress=np.zeros((n_el, 3, 3)), compliance=np.zeros(n_el))
+
+    field = EnergyForm(StVenantKirchhoff(E, nu)).derived_field()
+    with pytest.raises(NotImplementedError, match='small-strain'):
+        field.divergence(solution)
 
 
 # -- correctness: vanishes on a representable field ---------------------------
@@ -122,7 +139,7 @@ def test_p2_residual_vanishes_on_a_quadratic_field():
     vanish, and every indicator is zero."""
     equation = Poisson(source=None)
     problem, solution = _solve(equation, 5, bc_value=lambda p: p[0]**2 - p[1]**2)
-    eta = residual_estimator(equation).estimate(problem, solution)
+    eta = ResidualEstimator().estimate(problem, solution)
     assert np.all(eta < 1e-10)
 
 
@@ -146,7 +163,7 @@ def test_p2_residual_reliability_is_bounded_and_stable():
     indices = []
     for n in (6, 11, 21):
         problem, solution = _solve(equation, n)
-        eta = _global(residual_estimator(equation).estimate(problem, solution))
+        eta = _global(ResidualEstimator().estimate(problem, solution))
         true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
         indices.append(eta / true_error)
 
@@ -169,7 +186,7 @@ def test_p2_residual_concentrates_near_a_peaked_source():
     equation = Poisson(source=peaked_source)
     problem, solution = _solved(equation, mesh, bc)
 
-    eta = residual_estimator(equation).estimate(problem, solution)
+    eta = ResidualEstimator().estimate(problem, solution)
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     center_dist = np.linalg.norm(centroids - 0.5, axis=1)
     assert eta[center_dist < 0.15].mean() > eta[center_dist > 0.35].mean()
@@ -186,7 +203,7 @@ def test_p2_residual_drives_adaptive_refinement():
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
         mesh, lambda m: equation.problem(equation.space(m, QuadraticTriangleElement), bc),
-        residual_estimator(equation), max_triangles=300, max_iters=5,
+        ResidualEstimator(), max_triangles=300, max_iters=5,
     )
     solution = driver.run()
 
@@ -209,7 +226,7 @@ def test_p2_elastic_residual_runs_end_to_end():
     equation = LinearElastic(E=200, nu=0.3)
     problem, solution = _solved(equation, mesh, bc)
 
-    eta = residual_estimator(equation).estimate(problem, solution)
+    eta = ResidualEstimator().estimate(problem, solution)
     assert eta.shape == (len(mesh.elements),)
     assert np.all(np.isfinite(eta)) and np.all(eta >= 0)
 
@@ -222,5 +239,5 @@ def test_residual_estimator_refuses_curved_elements():
     bc.add(BCType.DIRICHLET, everywhere(), 0.0)
     equation = Poisson(source=1.0)
     problem, solution = _solved(equation, mesh, bc, IsoparametricTriangleElement)
-    with pytest.raises(NotImplementedError, match='recovery_estimator'):
-        residual_estimator(equation).estimate(problem, solution)
+    with pytest.raises(NotImplementedError, match='RecoveryEstimator'):
+        ResidualEstimator().estimate(problem, solution)

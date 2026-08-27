@@ -7,7 +7,8 @@ import pytest
 
 from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
-from fem.energies import SmallStrain
+from fem.energies import SmallStrain, StVenantKirchhoff
+from fem.estimators import RecoveryEstimator
 from fem.forms import EnergyForm
 from fem.problem import EnergyProblem
 from fem.regions import everywhere, at_indices, on_plane
@@ -144,3 +145,19 @@ def test_adaptive_refinement_drives_an_energy_problem(make_unit_square):
     assert solution.mesh is driver.mesh
     assert len(solution.u) == len(driver.mesh.vertices) * 2
     assert np.all(np.isfinite(solution.u))
+
+
+def test_recovery_estimator_reads_the_flux_off_an_energy_problem(make_unit_square):
+    """An EnergyForm names its stress as the recoverable flux, so the recovery estimator
+    needs no physics argument to estimate a nonlinear solve."""
+    mesh = make_unit_square(5)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
+    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.02, 0.0])
+    space = LinearElastic(E=200, nu=0.3).space(mesh)
+    problem = EnergyProblem(space, EnergyForm(StVenantKirchhoff(200, 0.3)), bc)
+    solution = problem.solution(NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem))
+
+    eta = RecoveryEstimator().estimate(problem, solution)
+    assert eta.shape == (len(mesh.elements),)
+    assert np.all(np.isfinite(eta)) and np.all(eta >= 0)

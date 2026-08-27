@@ -98,9 +98,9 @@ from fem.design import (
 from fem.adaptivity import AdaptiveRefinement
 from fem.estimators import (
     ErrorEstimator,
-    goal_oriented_estimator,
-    recovery_estimator,
-    residual_estimator,
+    GoalOrientedEstimator,
+    RecoveryEstimator,
+    ResidualEstimator,
 )
 from fem.plot.plotter import Plotter, PlotMode
 
@@ -179,9 +179,9 @@ __all__ = [
     "optimality_criteria_update",
     "AdaptiveRefinement",
     "ErrorEstimator",
-    "residual_estimator",
-    "recovery_estimator",
-    "goal_oriented_estimator",
+    "ResidualEstimator",
+    "RecoveryEstimator",
+    "GoalOrientedEstimator",
     "Plotter",
     "PlotMode",
 ]

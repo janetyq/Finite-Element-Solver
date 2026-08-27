@@ -1,4 +1,4 @@
-"""Nodal recovery of derived fields, the typed solutions that carry them, the equation
+"""Nodal recovery of derived fields, the typed solutions that carry them, the form
 hook that names them, and their round trip through `fem.io`.
 """
 import numpy as np
@@ -7,7 +7,10 @@ import pytest
 from fem import invariants
 from fem.boundary import BCType, BoundaryConditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
+from fem.energies import StVenantKirchhoff
 from fem.equations import LinearElastic, Poisson, Projection
+from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, MassForm, NamesDerivedField
+from fem.materials import LinearElasticMaterial
 from fem.mesh.structured import create_rect_mesh
 from fem.postprocess import GradientField, StressField
 from fem.regions import everywhere, on_plane
@@ -110,11 +113,13 @@ def test_solution_carries_its_space_and_deformed_mesh_uses_only_vertex_dofs():
     assert deformed.vertices.shape == mesh.vertices.shape       # one displacement per vertex
 
 
-def test_equations_name_their_derived_field():
-    """The seam: Poisson names a gradient, elasticity a stress, a projection none."""
-    assert isinstance(Poisson().derived_field(), GradientField)
-    assert isinstance(LinearElastic(1.0, 0.3).derived_field(), StressField)
-    assert Projection().derived_field() is None
+def test_forms_name_their_derived_field():
+    """The seam: the Laplacian names a gradient, both elastic forms a stress, and the
+    mass form (a projection) none."""
+    assert isinstance(LaplacianForm().derived_field(), GradientField)
+    assert isinstance(LinearElasticForm(LinearElasticMaterial(1.0, 0.3)).derived_field(), StressField)
+    assert isinstance(EnergyForm(StVenantKirchhoff(1.0, 0.3)).derived_field(), StressField)
+    assert not isinstance(MassForm(), NamesDerivedField)
 
 
 def test_derived_field_reads_the_stored_field_and_checks_its_solution():

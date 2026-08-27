@@ -12,7 +12,7 @@ from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, BCType
 from fem.convergence import l2_norm
 from fem.equations import Poisson
-from fem.estimators import residual_estimator
+from fem.estimators import ResidualEstimator
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.structured import create_rect_mesh
@@ -55,7 +55,7 @@ def demo_refinement(_mesh, uniform_resolutions=(10, 20, 40, 80, 160), adaptive_r
 
     coarse_mesh = mesh.copy()
     coarse_problem, coarse_solution = solve(coarse_mesh)
-    estimator = residual_estimator(equation)
+    estimator = ResidualEstimator()
     coarse_error = estimator.estimate(coarse_problem, coarse_solution)
     n_coarse = len(coarse_mesh.elements)
 

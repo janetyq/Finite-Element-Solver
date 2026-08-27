@@ -15,7 +15,7 @@ from fem.convergence import (
     quadrature_l2,
 )
 from fem.equations import LinearElastic, Poisson
-from fem.estimators import recovery_estimator
+from fem.estimators import RecoveryEstimator
 from fem.materials import Enu_to_Lame
 from fem.mesh.structured import create_rect_mesh
 from fem.regions import everywhere
@@ -71,7 +71,7 @@ def test_poisson_recovery_is_asymptotically_exact():
     indices = []
     for n in (11, 21, 41):
         problem, solution = _solved(POISSON, _square(n), 0.0)
-        eta = _global(recovery_estimator(POISSON).estimate(problem, solution))
+        eta = _global(RecoveryEstimator().estimate(problem, solution))
         true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
         indices.append(eta / true_error)
 
@@ -86,7 +86,7 @@ def test_elastic_recovery_is_asymptotically_exact():
     indices = []
     for n in (11, 21, 41):
         problem, solution = _solved(ELASTIC, _square(n), [0.0, 0.0])
-        eta = _global(recovery_estimator(ELASTIC).estimate(problem, solution))
+        eta = _global(RecoveryEstimator().estimate(problem, solution))
         true_error = _elastic_true_stress_error(problem, solution)
         indices.append(eta / true_error)
 
@@ -103,7 +103,7 @@ def test_recovery_of_a_linear_field_is_near_zero(make_unit_square):
     equation = Poisson(source=None)
     problem, solution = _solved(equation, make_unit_square(6), lambda p: p[0])
 
-    eta = recovery_estimator(equation).estimate(problem, solution)
+    eta = RecoveryEstimator().estimate(problem, solution)
     assert np.all(eta < 1e-10)
 
 
@@ -121,7 +121,7 @@ def test_recovery_drives_adaptive_refinement(make_unit_square):
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
         mesh, lambda m: equation.problem(equation.space(m), bc),
-        recovery_estimator(equation), max_triangles=300, max_iters=5,
+        RecoveryEstimator(), max_triangles=300, max_iters=5,
     )
     driver.run()
 
