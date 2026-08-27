@@ -17,6 +17,9 @@ and the tangent alike:
     Robin   ½ κ uᵀ R u     κ R u         κ R
     load    -fᵀ u          -f            0
 
+A transient problem also has a mass side, `mass` = density times the space's consistent
+mass matrix, which the integrators and modal analysis pair with the tangent.
+
 `LinearProblem` is the case whose operator has a constant tangent (a `BilinearForm`):
 the matrix is assembled once and held, and the residual is affine. Everything that
 needs one fixed operator (a direct solve, the integrators, an eigenproblem, SIMP)
@@ -67,7 +70,8 @@ class Problem:
     `source` is kept as given (a field, a `LinearForm`, or a `Source`) beside the
     assembled load, so a residual estimator can read the pointwise source it needs.
     `bc` is the mesh-independent spec the constraints were resolved from, and
-    `resolved` that resolution on this space.
+    `resolved` that resolution on this space. `density` scales the mass matrix
+    (`mass`); it is the coefficient on the time-derivative term.
     '''
 
     def __init__(
@@ -76,10 +80,14 @@ class Problem:
         operator: Form,
         source: FieldValue | LinearForm | Source = None,
         bc: BoundaryConditions | None = None,
+        density: float = 1.0,
     ) -> None:
+        if density <= 0:
+            raise ValueError(f'density must be positive, got {density}')
         self.space = space
         self.operator = operator
         self.source = source
+        self.density = density
         self.bc = bc if bc is not None else BoundaryConditions()
         self._resolved = self.bc.resolve(space.nodes, space.n_components)
 
@@ -124,6 +132,14 @@ class Problem:
         # be built without ever being solved: a topology optimization iteration
         # derives its own operator from a template whose own operator is never assembled.
         self._A: Operator | None = None
+        self._M: Operator | None = None
+
+    @property
+    def mass(self) -> Operator:
+        '''`density` times the consistent mass matrix, assembled on first use and held.'''
+        if self._M is None:
+            self._M = self.density * self.space.mass_matrix
+        return self._M
 
     @property
     def is_linear(self) -> bool:
@@ -268,13 +284,14 @@ class LinearProblem(Problem):
         operator: Form,
         source: FieldValue | LinearForm | Source = None,
         bc: BoundaryConditions | None = None,
+        density: float = 1.0,
     ) -> None:
         if not operator.constant_tangent:
             raise TypeError(
                 f'{type(operator).__name__} has a state-dependent tangent; state it as a '
                 'Problem and solve it with NewtonSolve.'
             )
-        super().__init__(space, operator, source, bc)
+        super().__init__(space, operator, source, bc, density)
 
     def with_operator(self, operator: Form) -> 'LinearProblem':
         if not operator.constant_tangent:

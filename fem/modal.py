@@ -16,9 +16,9 @@ load enters, so the result is a property of the structure alone.
 
 The lowest frequencies are the ones that matter (a forcing near them resonates), so the
 eigensolve uses shift-invert about `sigma = 0` through `EigenSolve`, factoring `K` on
-the free block once. `MassForm` integrates the unit-density mass, so a scalar `density`
-scales it to physical units; the frequencies go as `sqrt(E / density)`, while the mode
-shapes are set by geometry and supports alone.
+the free block once. `M` is the problem's mass (the equation's `density` times the
+consistent mass matrix); the frequencies go as `sqrt(E / density)`, while the mode shapes
+are set by geometry and supports alone.
 """
 import logging
 from dataclasses import dataclass
@@ -38,8 +38,8 @@ class ModalAnalysis:
     '''Free-vibration modes of a `LinearProblem`: the natural frequencies and shapes.
 
     The problem's Dirichlet supports ground the structure (a cantilever's clamp); its
-    load is unused, the modes being load-free. `density` is the mass density scaling
-    the unit-density consistent mass matrix, and so sets the physical frequency units.
+    load is unused, the modes being load-free. Its `mass` (the equation's density
+    times the consistent mass matrix) sets the physical frequency units.
 
     The supports must remove every rigid-body mode: shift-invert about zero factors `K`
     on the free block, which is singular if the structure can translate or rotate
@@ -48,13 +48,10 @@ class ModalAnalysis:
     a P2 space reaches the analytic frequencies on a far coarser mesh.
     '''
     n_modes: int = 6
-    density: float = 1.0
 
     def __post_init__(self) -> None:
         if self.n_modes < 1:
             raise ValueError(f'n_modes must be at least 1, got {self.n_modes}')
-        if self.density <= 0:
-            raise ValueError(f'density must be positive, got {self.density}')
 
     def solve(self, problem: LinearProblem) -> ModalSolution:
         '''The modal frequencies and mode shapes of `problem`'s stiffness and supports.'''
@@ -65,7 +62,7 @@ class ModalAnalysis:
             )
         space = problem.space
         K = problem.tangent()
-        M = self.density * space.mass_matrix
+        M = problem.mass
 
         logger.info('Modal: solving the eigenproblem K phi = omega^2 M phi...')
         # Shift-invert about zero returns the smallest omega^2 (the lowest frequencies,

@@ -39,12 +39,17 @@ class Equation:
     `field` says what kind of value the unknown takes; the DOFs per node follow from
     it and the mesh. `source` is the PDE's right-hand side f (a body force for
     elasticity): a constant, a callable of position, or a `LinearForm` sampled at the
-    quadrature points.
+    quadrature points. `density` is the coefficient on the time-derivative term (mass
+    density for elasticity and the wave operator, volumetric heat capacity for
+    diffusion), read by the integrators and modal analysis through `Problem.mass`.
     '''
     field: FieldShape = Scalar()
 
-    def __init__(self, source: FieldValue | LinearForm = None) -> None:
+    def __init__(self, source: FieldValue | LinearForm = None, density: float = 1.0) -> None:
+        if density <= 0:
+            raise ValueError(f'density must be positive, got {density}')
         self.source = source
+        self.density = density
 
     def space(self, mesh: Mesh, element_type: type[Element] | None = None) -> FunctionSpace:
         '''The discretization of this equation's unknown on `mesh`.
@@ -76,8 +81,8 @@ class Equation:
             space = self.space(domain, element_type)
         operator = self.operator(space)
         if operator.constant_tangent:
-            return LinearProblem(space, operator, self.source, bc)
-        return Problem(space, operator, self.source, bc)
+            return LinearProblem(space, operator, self.source, bc, density=self.density)
+        return Problem(space, operator, self.source, bc, density=self.density)
 
     def operator(self, space: FunctionSpace) -> Form:
         '''The form a solve assembles for this equation on `space`.
@@ -106,8 +111,9 @@ class Diffusion(Equation):
     quadrature points.
     '''
 
-    def __init__(self, coefficient: FieldValue, source: FieldValue | LinearForm = None) -> None:
-        super().__init__(source)
+    def __init__(self, coefficient: FieldValue, source: FieldValue | LinearForm = None,
+                 density: float = 1.0) -> None:
+        super().__init__(source, density)
         self.coefficient = coefficient
 
     def operator(self, space: FunctionSpace) -> Form:
@@ -120,8 +126,9 @@ class Wave(Equation):
     The wave speed lives in the operator, so the integrator sees only c²K.
     '''
 
-    def __init__(self, c: float, source: FieldValue | LinearForm = None) -> None:
-        super().__init__(source)
+    def __init__(self, c: float, source: FieldValue | LinearForm = None,
+                 density: float = 1.0) -> None:
+        super().__init__(source, density)
         self.c = c
 
     def operator(self, space: FunctionSpace) -> Form:
@@ -154,8 +161,9 @@ class LinearElastic(Equation):
         nu: float,
         source: FieldValue | LinearForm = None,
         kinematics: StrainMeasure = StrainMeasure.SMALL,
+        density: float = 1.0,
     ) -> None:
-        super().__init__(source)
+        super().__init__(source, density)
         self.E = E
         self.nu = nu
         self.kinematics = kinematics

@@ -1309,9 +1309,9 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         # Element size is set by resolving the thin tine: bending curves across it.
         mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
                                  max_area=0.5*(tine_thickness/across)**2).refine()
-        equation = LinearElastic(E, NU)
+        equation = LinearElastic(E, NU, density=RHO)
         problem = equation.problem(mesh, clamp(), element_type=QuadraticTriangleElement)
-        solution = ModalAnalysis(n_modes=modes, density=RHO).solve(problem)
+        solution = ModalAnalysis(n_modes=modes).solve(problem)
         return mesh, solution
 
     def voice_index(mesh, solution):

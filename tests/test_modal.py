@@ -41,9 +41,9 @@ def clamped_bc():
 
 
 def solve_modes(mesh, n_modes=6, density=DENSITY, E=E):
-    equation = LinearElastic(E, NU)
+    equation = LinearElastic(E, NU, density=density)
     problem = equation.problem(mesh, clamped_bc(), element_type=QuadraticTriangleElement)
-    return ModalAnalysis(n_modes=n_modes, density=density).solve(problem)
+    return ModalAnalysis(n_modes=n_modes).solve(problem)
 
 
 def euler_bernoulli_hz(length, height=1.0, n=4):
@@ -121,8 +121,8 @@ def test_green_lagrange_equation_is_rejected():
 
 
 def test_degenerate_parameters_are_rejected():
-    """n_modes and density must be physical, caught at construction."""
+    """n_modes and the equation's density must be physical, caught at construction."""
     with pytest.raises(ValueError, match='n_modes'):
         ModalAnalysis(n_modes=0)
     with pytest.raises(ValueError, match='density'):
-        ModalAnalysis(density=0.0)
+        LinearElastic(E, NU, density=0.0)

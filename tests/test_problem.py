@@ -390,3 +390,17 @@ def test_equation_problem_takes_a_mesh_or_a_space(make_unit_square):
     assert from_space.space is space
     with pytest.raises(ValueError, match='element_type'):
         equation.problem(space, element_type=QuadraticTriangleElement)
+
+
+def test_mass_is_the_density_scaled_mass_matrix_held_across_operators(make_unit_square):
+    """`Problem.mass` is density times the space's mass matrix, assembled once, and a
+    problem derived with `with_operator` keeps it."""
+    from fem.forms import MassForm
+    mesh = make_unit_square(5)
+    problem = Poisson(density=3.0).problem(mesh)
+    assert problem.density == 3.0
+    np.testing.assert_allclose(problem.mass.toarray(), 3.0 * problem.space.mass_matrix.toarray())
+    assert problem.mass is problem.mass
+    assert problem.with_operator(MassForm()).mass is problem.mass
+    with pytest.raises(ValueError, match='density'):
+        Problem(problem.space, LaplacianForm(), density=0.0)
