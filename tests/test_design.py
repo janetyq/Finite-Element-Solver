@@ -8,7 +8,7 @@ from fem.design import (
     DesignOptimizer, SIMPModel, TargetCompliance, calculate_smoothing_matrix,
     optimality_criteria_update,
 )
-from fem.equations import LinearElastic
+from fem.equations import LinearElastic, Poisson
 from fem.forms import LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
@@ -28,7 +28,7 @@ def _cantilever_bc():
 def _model(mesh, penalty=3.0, radius=None):
     equation = LinearElastic(E=1.0, nu=0.3)
     sensitivity_filter = calculate_smoothing_matrix(mesh, radius) if radius else None
-    return SIMPModel(equation.space(mesh), equation, _cantilever_bc(), penalty=penalty,
+    return SIMPModel(equation.problem(mesh, _cantilever_bc()), penalty=penalty,
                      sensitivity_filter=sensitivity_filter)
 
 
@@ -75,8 +75,8 @@ def test_diluted_problem_matches_one_built_from_the_scaled_material(make_unit_sq
 
     reference = LinearProblem(
         model.space,
-        LinearElasticForm(LinearElasticMaterial(model.scaled_modulus(rho), model.equation.nu)),
-        None, model.bc,
+        LinearElasticForm(LinearElasticMaterial(model.scaled_modulus(rho), 0.3)),
+        None, model.template.bc,
     )
     np.testing.assert_allclose(
         LinearSolve().solve(model.problem(rho)), LinearSolve().solve(reference), atol=1e-10)
@@ -104,7 +104,13 @@ def test_model_rejects_a_per_element_modulus(make_unit_square):
     mesh = make_unit_square(4)
     equation = LinearElastic(E=np.ones(len(mesh.elements)), nu=0.3)
     with pytest.raises(ValueError, match='scalar'):
-        SIMPModel(equation.space(mesh), equation, _cantilever_bc())
+        SIMPModel(equation.problem(mesh, _cantilever_bc()))
+
+
+def test_model_rejects_an_operator_that_is_not_small_strain_elastic(make_unit_square):
+    mesh = make_unit_square(4)
+    with pytest.raises(ValueError, match='small-strain'):
+        SIMPModel(Poisson().problem(mesh))
 
 
 # -- the sensitivity filter ------------------------------------------------------
@@ -174,14 +180,14 @@ def test_optimality_criteria_update_hits_the_volume_fraction():
 
 def test_design_optimizer_reduces_compliance(make_unit_square):
     model = _model(make_unit_square(10), radius=0.12)
-    history = DesignOptimizer(model, Compliance(), volume_frac=0.5, iters=12).solve()
+    history = DesignOptimizer(model, Compliance(), volume_frac=0.5, iters=12).run()
     assert history.objective[-1] < history.objective[0]
 
 
 def test_design_optimizer_meets_the_volume_target(make_unit_square):
     model = _model(make_unit_square(10))
     design = DesignOptimizer(model, Compliance(), volume_frac=0.4, iters=15)
-    design.solve()
+    design.run()
     volumes = model.volumes
     achieved = float((volumes * design.rho).sum() / volumes.sum())
     assert abs(achieved - 0.4) < 1e-2
@@ -192,7 +198,7 @@ def test_design_optimizer_keeps_the_last_iterates_solution(make_unit_square):
     diluted material, so a caller can post-process the design."""
     model = _model(make_unit_square(6))
     design = DesignOptimizer(model, volume_frac=0.5, iters=2)
-    history = design.solve()
+    history = design.run()
     assert design.solution is not None
     np.testing.assert_allclose(design.solution.u, history.u[-1])
     assert design.solution.stress.shape == (len(model.space.element_nodes), 3, 3)

@@ -18,7 +18,7 @@ import numpy as np
 from scipy.sparse import eye_array
 from scipy.sparse.linalg import ArpackNoConvergence, eigsh
 
-from fem.backends import Backend, IterativeBackend
+from fem.backends import Backend, IterativeBackend, MinresBackend
 from fem.problem import Problem
 from fem.system import DiscreteSystem
 from fem.typing import Constraints, DofIndices, DofVector, FloatArray, Operator
@@ -41,7 +41,8 @@ def default_strategy(problem: Problem, backend: Backend | None = None) -> 'Solve
     return NewtonSolve(
         line_search=BacktrackingLineSearch(),
         backend=backend,
-        regularization=TangentRegularization() if backend is not None else None,
+        regularization=(TangentRegularization()
+                        if isinstance(backend, (IterativeBackend, MinresBackend)) else None),
     )
 
 
