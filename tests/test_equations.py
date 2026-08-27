@@ -109,9 +109,9 @@ def test_default_strategy_follows_the_tangent(make_unit_square):
     linear = LinearElastic(E=200, nu=0.4)
     finite = LinearElastic(E=200, nu=0.4, kinematics=StrainMeasure.GREEN_LAGRANGE)
 
-    assert isinstance(default_strategy(linear.problem(linear.space(mesh))), LinearSolve)
-    newton = default_strategy(finite.problem(finite.space(mesh)))
+    assert isinstance(default_strategy(linear.problem(mesh)), LinearSolve)
+    newton = default_strategy(finite.problem(mesh))
     assert isinstance(newton, NewtonSolve)
     assert newton.line_search is not None and newton.regularization is None
-    iterative = default_strategy(finite.problem(finite.space(mesh)), MinresBackend())
+    iterative = default_strategy(finite.problem(mesh), MinresBackend())
     assert isinstance(iterative, NewtonSolve) and iterative.regularization is not None

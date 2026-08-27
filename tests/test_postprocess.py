@@ -111,6 +111,16 @@ def test_solution_carries_its_space_and_deformed_mesh_uses_only_vertex_dofs():
     assert solution.space.n_nodes > len(mesh.vertices)         # edge nodes exist
     deformed = solution.deformed_mesh()
     assert deformed.vertices.shape == mesh.vertices.shape       # one displacement per vertex
+    assert solution.nodal_values.shape == (solution.space.n_nodes, 2)
+    np.testing.assert_allclose(
+        deformed.vertices - mesh.vertices, solution.nodal_values[:len(mesh.vertices)], atol=1e-15)
+
+
+def test_scalar_solution_nodal_values_are_one_per_node():
+    mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
+    solution = Solver(mesh, Poisson(source=1.0)).solve()
+    assert solution.nodal_values.shape == (len(mesh.vertices),)
+    np.testing.assert_array_equal(solution.nodal_values, solution.u)
 
 
 def test_forms_name_their_derived_field():

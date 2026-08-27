@@ -60,7 +60,7 @@ def benchmark(n: int) -> Timing:
     equation = LinearElastic(E=200.0, nu=0.3, source=lambda p: [1.0, 0.0, 0.0])
 
     # Building the LinearProblem assembles the stiffness and the load.
-    problem, t_assemble = _time(lambda: equation.problem(equation.space(mesh), bc))
+    problem, t_assemble = _time(lambda: equation.problem(mesh, bc))
     A, b = problem.tangent(None), problem.load
 
     # Each backend factors/preconditions in DiscreteSystem's constructor and solves

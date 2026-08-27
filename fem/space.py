@@ -29,11 +29,13 @@ from fem.elements import (
 )
 from fem.forms import BilinearForm, Form, LinearForm, MassForm
 from fem.mesh.mesh import Mesh
+from fem.regions import evaluate_field
 from fem.typing import (
     DofIndices,
     DofVector,
     ElementField,
     Elements,
+    FieldValue,
     FloatArray,
     IntArray,
     SparseMatrix,
@@ -491,6 +493,16 @@ class FunctionSpace:
     @property
     def total_volume(self) -> float:
         return float(self.element_volumes.sum())
+
+    def interpolate(self, value: FieldValue) -> DofVector:
+        '''The nodal interpolant of a field as a DOF vector: `value` (a constant, a
+        per-component constant, or a callable of position) evaluated at every node of
+        the space, components interleaved per node.
+
+        The way to build an initial condition or a comparison field. A load that must
+        resolve variation within an element is a `LinearForm`.
+        '''
+        return evaluate_field(value, self.node_coords, self.n_components).flatten()
 
     def integrate(self, u: VertexField) -> float:
         '''Integral of a nodal field over the domain: the entries of `M @ u` summed,

@@ -26,15 +26,19 @@ whose `problem` builds one of these.
 """
 import copy
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from fem.boundary import BoundaryConditions, ResolvedBC
 from fem.forms import BilinearForm, Form, LinearForm, MaskedMassForm, RecoversElasticFields
-from fem.regions import evaluate_field
 from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 from fem.space import FunctionSpace
 from fem.typing import Constraints, DofVector, FieldValue, FloatArray, Operator
+
+if TYPE_CHECKING:
+    from fem.backends import Backend
+    from fem.solve import SolveStrategy
 
 
 # -- load terms: the linear form L(v), assembled as a vector --------------------
@@ -54,10 +58,7 @@ class Source:
     field: FieldValue = None
 
     def vector(self, space: FunctionSpace) -> DofVector:
-        # Sampled at the space's nodes, not the mesh vertices: a P2 space carries
-        # edge-midpoint nodes the mesh does not, and the mass matrix is sized to them.
-        values = evaluate_field(self.field, space.node_coords, space.n_components)
-        return np.asarray(space.mass_matrix @ values.flatten()).flatten()
+        return np.asarray(space.mass_matrix @ space.interpolate(self.field)).flatten()
 
 
 class Problem:
@@ -224,6 +225,26 @@ class Problem:
         if self.operator.derived_field() is not None:
             return ScalarFieldSolution.from_solve(space, u)
         return FieldSolution(space, u)
+
+    def solve(
+        self,
+        strategy: 'SolveStrategy | None' = None,
+        backend: 'Backend | None' = None,
+        u0: DofVector | None = None,
+    ) -> FieldSolution:
+        '''Solve and package the result as the typed `Solution` for this operator.
+
+        `strategy` None is `default_strategy`: `LinearSolve` for a constant tangent,
+        line-searched `NewtonSolve` otherwise, over `backend`. A strategy carries its
+        own backend, so the two are not given together. `u0` seeds an iterative
+        strategy.
+        '''
+        if strategy is not None and backend is not None:
+            raise ValueError('a strategy carries its own backend; pass one or the other')
+        if strategy is None:
+            from fem.solve import default_strategy
+            strategy = default_strategy(self, backend)
+        return self.solution(strategy.solve(self, u0))
 
     def near_null_space(self) -> FloatArray | None:
         '''The operator's AMG near-kernel over all DOFs, or None.

@@ -18,7 +18,6 @@ from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.structured import create_rect_mesh
 from fem.plot.plotter import Plotter
 from fem.regions import everywhere
-from fem.solve import LinearSolve
 
 from demo_registry import Demo, DemoResult, Figure
 from domains import square
@@ -47,11 +46,11 @@ def demo_refinement(_mesh, uniform_resolutions=(10, 20, 40, 80, 160), adaptive_r
     equation = Poisson(source=peaked_source)
 
     def problem_for(m):
-        return equation.problem(equation.space(m), bc)
+        return equation.problem(m, bc)
 
     def solve(m):
         problem = problem_for(m)
-        return problem, problem.solution(LinearSolve().solve(problem))
+        return problem, problem.solve()
 
     coarse_mesh = mesh.copy()
     coarse_problem, coarse_solution = solve(coarse_mesh)

@@ -4,7 +4,7 @@ Heat is first order (M u' + K u = b), wave is second (M u'' + K u = b), so there
 integrator family per order. Each forms a constant effective operator from the
 problem's mass and stiffness, factors it once through `DiscreteSystem`, and steps by
 updating only the right-hand side. `dt` and the step count live here; initial
-conditions come in through `run`.
+conditions come in through `solve`, as DOF vectors (`FunctionSpace.interpolate`).
 
 The wave path uses Newmark rather than a 2N first-order block: its effective operator
 `M + β dt² c²K` is SPD and N-sized, so it stays inside the CG/preconditioning path.
@@ -42,7 +42,7 @@ class ThetaMethod:
         self.theta = theta
         self.backend = backend
 
-    def run(self, problem: Problem, u0: DofVector) -> Solution:
+    def solve(self, problem: Problem, u0: DofVector) -> Solution:
         M = problem.space.mass_matrix
         K = problem.tangent(None)
         b = problem.load
@@ -80,7 +80,7 @@ class NewmarkMethod:
         self.gamma = gamma
         self.backend = backend
 
-    def run(self, problem: Problem, u0: DofVector, v0: DofVector) -> Solution:
+    def solve(self, problem: Problem, u0: DofVector, v0: DofVector) -> Solution:
         M = problem.space.mass_matrix
         K = problem.tangent(None)  # already c²K for the wave factory
         b = problem.load

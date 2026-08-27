@@ -23,9 +23,9 @@ defaults; a facade is this chain with the defaults filled in from an `Equation`.
 | Geometry | `Mesh` | |
 | Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) |
 | Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for finite strain |
-| Statement | `Problem(space, form)`, or `Equation.problem(space, bc)` | `source` (none), `bc` (none); a `LinearProblem` when the form has a constant tangent |
-| Solve | `default_strategy(problem)`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or an integrator | `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta` |
-| Result | `problem.solution(u)` | |
+| Statement | `Problem(space, form)`, or `Equation.problem(mesh, bc)` (which takes the Discretization step too) | `source` (none), `bc` (none), `element_type`; a `LinearProblem` when the form has a constant tangent |
+| Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator or analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`, initial data from `space.interpolate` |
+| Result | a typed `Solution`, returned by every `solve` | |
 | Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` |
 
 Composed by hand:
@@ -33,19 +33,23 @@ Composed by hand:
 ```python
 space = FunctionSpace(mesh, n_components=1)
 problem = LinearProblem(space, LaplacianForm(), source=1.0, bc=bc)
-u = LinearSolve(backend=IterativeBackend()).solve(problem)
-solution = problem.solution(u)
+solution = problem.solve(backend=IterativeBackend())
 ```
 
-The same solve through the facade, which builds the space and problem from the equation and
-packages the result:
+The same solve from the named equation, which builds the space and the problem:
 
 ```python
-solution = Solver(mesh, Poisson(source=1.0), bc, backend=IterativeBackend()).solve()
+solution = Poisson(source=1.0).problem(mesh, bc).solve(backend=IterativeBackend())
 ```
 
-The two agree exactly: the facade holds no policy of its own, so anything it can do can be composed,
-and anything composed (a different form, a hand-built load, a custom strategy) needs no facade.
+The two agree exactly: `Equation.problem` and `Problem.solve` hold no policy of their own, so
+anything they can do can be composed, and anything composed (a different form, a hand-built load,
+a custom strategy) needs neither. `Solver(mesh, equation, bc)` is that second line held as an object.
+
+Loads come in two forms. A constant or a nodal array is integrated as its nodal interpolant through
+the mass matrix (`Source`); a callable is sampled at the quadrature points (`LinearForm`), which
+captures variation within an element. A DOF vector built by hand (an initial condition, a comparison
+field) is `space.interpolate(value)`, nodal on P2 as well.
 
 ## Layers
 
@@ -109,7 +113,7 @@ two elastic forms share with `ElasticSolution` and `StressField`.
 | `Backend` (`Direct`, `Iterative`, `Minres`) | | | | | | █ | | | |
 | `LinearSolve` / `NewtonSolve` / `EigenSolve` | | | | | | ▒ | | | |
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
-| `Solver` | | | | | ▒ | ▒ | | | |
+| `Solver` | composition only: `Equation.problem` then `Problem.solve` | | | | | | | | |
 | `BucklingAnalysis`, `ModalAnalysis` | | | | | | ▒ | | | ▒ |
 | `AdaptiveRefinement`, `SIMPModel` / `DesignOptimizer` | | | | | | | | █ | ▒ |
 | Error estimators, `SensitivityAnalysis` | | | | | | | | ▒ | █ |
@@ -126,8 +130,8 @@ mapping from equation to material.
 Post-processing (9) is distributed under one rule: a derived quantity lives on the object that
 owns the data it needs. `FunctionSpace` owns `integrate`, `recover_nodal`, and `nodal_gradient`;
 a `Form` owns `fields_at` / `derived_fields` and `derived_field` (which flux is recoverable, read
-by the estimators off `problem.operator`); `Problem.solution(u)` picks the typed `Solution` for its
-operator; `Solution` owns the packaging (`ElasticSolution.stress`, `nodal_stress`,
+by the estimators off `problem.operator`); `Problem.solve` picks the typed `Solution` for its
+operator (`solution(u)` packages a vector solved elsewhere); `Solution` owns the packaging (`ElasticSolution.stress`, `nodal_stress`,
 `deformed_mesh`); `invariants` owns the frame-independent reductions.
 
 ## Role by role
@@ -243,19 +247,19 @@ carrying its physical constants. `operator(space)` returns the form for its phys
 small-strain stiffness or the St-Venant-Kirchhoff `EnergyForm`, by `LinearElastic.kinematics`.
 It refuses rather than approximates when the physics does not apply.
 Two more resolve it against a discretization: `space(mesh, element_type)` builds the
-`FunctionSpace` with the component count the field implies, and `problem(space, bc)` the
-`LinearProblem`. Every facade goes through these two.
+`FunctionSpace` with the component count the field implies, and `problem(mesh_or_space, bc,
+element_type)` the `LinearProblem` for a constant tangent, else a `Problem`. Every facade and
+driver goes through these two.
 
 ### Facades and drivers
 
-`Solver` holds an equation, a BC spec, and the space on a mesh; builds a `Problem` per solve
-(`Equation.problem`); hands it to a strategy (the caller's, else `default_strategy` over the
-`Backend`); returns `problem.solution(u)`. It fills in defaults and holds no other solve policy
-and no state between solves.
+`Solver` holds an equation, a BC spec, and the space on a mesh; each `solve` is
+`equation.problem(space, bc).solve(strategy, backend)`. It holds no solve policy and no state
+between solves.
 
 Two drivers, each over one spec. `AdaptiveRefinement` owns a mesh and a `problem_for(mesh)`
-builder (`equation.problem(equation.space(mesh), bc)`), solves each round's problem with a
-strategy (the caller's, else `default_strategy`), hands `(problem, solution)` to the estimator,
+builder (`equation.problem(mesh, bc)`), solves each round's problem with `Problem.solve` (the
+caller's strategy, else the default), hands `(problem, solution)` to the estimator,
 and refines. `DesignOptimizer` owns a `SIMPModel` (a space, a `LinearElastic`
 equation, and supports; `Equation.problem` resolved once as the template) and each iteration
 derives the diluted `LinearProblem` from the current density with `with_operator`, solves it

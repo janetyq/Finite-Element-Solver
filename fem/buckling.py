@@ -54,7 +54,7 @@ class BucklingAnalysis:
             )
         logger.info('Buckling: reference solve for the prestress state...')
         space = problem.space
-        reference = problem.solution(LinearSolve().solve(problem))
+        reference = problem.solve(LinearSolve())
         if not isinstance(reference, ElasticSolution):
             raise TypeError('buckling needs the recovered stress; got a bare FieldSolution')
 

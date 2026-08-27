@@ -23,7 +23,7 @@ def _mms_source(p):
 
 
 def _problem(equation, mesh, bc=None):
-    return equation.problem(equation.space(mesh), bc)
+    return equation.problem(mesh, bc)
 
 
 def _poisson_problem(mesh):
@@ -87,7 +87,7 @@ def test_composed_linear_elastic_matches_the_solver_facade(make_unit_square):
 
 
 def test_problem_packages_its_solution_by_physics(make_unit_square):
-    """`Problem.solution` packages by physics: stress for an elastic operator, flux for
+    """`Problem.solve` packages by physics: stress for an elastic operator, flux for
     a diffusion one, a bare field for a projection. The facade returns the same typed
     result."""
     from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
@@ -97,17 +97,17 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
     bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
     elastic = _problem(LinearElastic(E=200, nu=0.4), mesh, bc)
-    solution = elastic.solution(LinearSolve().solve(elastic))
+    solution = elastic.solve()
     assert isinstance(solution, ElasticSolution)
     facade = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
     assert isinstance(facade, ElasticSolution)
     np.testing.assert_allclose(solution.stress, facade.stress, atol=1e-12)
 
     scalar = _poisson_problem(mesh)
-    assert isinstance(scalar.solution(LinearSolve().solve(scalar)), ScalarFieldSolution)
+    assert isinstance(scalar.solve(), ScalarFieldSolution)
 
     projected = _problem(Projection(source=2.0), mesh)
-    assert type(projected.solution(LinearSolve().solve(projected))) is FieldSolution
+    assert type(projected.solve()) is FieldSolution
     assert projected.near_null_space() is None
     assert elastic.near_null_space().shape == (elastic.space.n_dofs, 3)
 
@@ -281,7 +281,7 @@ def test_composed_energy_residual_and_tangent_are_consistent(make_unit_square, k
     state-dependent tangent alike, so a line search on the energy and Newton on the
     residual agree on which way is downhill."""
     equation = LinearElastic(E=200, nu=0.4, source=[1.0, -3.0], kinematics=kinematics)
-    problem = equation.problem(equation.space(make_unit_square(5)), _loaded_bc())
+    problem = equation.problem(make_unit_square(5), _loaded_bc())
 
     rng = np.random.default_rng(1)
     u = 0.05 * rng.standard_normal(problem.space.n_dofs)
@@ -313,7 +313,7 @@ def test_forced_finite_strain_problem_balances_its_load(make_unit_square):
     bc = _loaded_bc(scale)
     finite = LinearElastic(E=200, nu=0.4, source=[scale, -3 * scale],
                            kinematics=StrainMeasure.GREEN_LAGRANGE)
-    problem = finite.problem(finite.space(mesh), bc)
+    problem = finite.problem(mesh, bc)
     free = problem.constraints[0]
     load_scale = float(np.abs(problem.load).max())
     assert load_scale > 0
@@ -324,7 +324,7 @@ def test_forced_finite_strain_problem_balances_its_load(make_unit_square):
                                atol=1e-8 * load_scale)
 
     linear = LinearElastic(E=200, nu=0.4, source=[scale, -3 * scale])
-    u_linear = LinearSolve().solve(linear.problem(linear.space(mesh), bc))
+    u_linear = LinearSolve().solve(linear.problem(mesh, bc))
     assert np.abs(u_linear).max() > 0
     rel = np.linalg.norm(u - u_linear) / np.linalg.norm(u_linear)
     assert rel < 1e-2, f"finite and small strain should agree at small load, got {rel:.2e}"
@@ -346,3 +346,47 @@ def test_linear_problem_refuses_a_state_dependent_operator(make_unit_square):
         LinearSolve().solve(problem)
     with pytest.raises(ValueError, match='state-dependent'):
         problem.tangent()
+
+
+def test_problem_solve_is_the_strategy_solve_packaged(make_unit_square):
+    """`Problem.solve()` returns the same typed solution as solving with the default
+    strategy by hand; a strategy and a backend together are refused."""
+    from fem.backends import DirectBackend
+    problem = _poisson_problem(make_unit_square(8))
+    by_hand = problem.solution(LinearSolve().solve(problem))
+    solution = problem.solve()
+    assert type(solution) is type(by_hand)
+    np.testing.assert_array_equal(solution.u, by_hand.u)
+    with pytest.raises(ValueError, match='one or the other'):
+        problem.solve(strategy=LinearSolve(), backend=DirectBackend())
+
+
+def test_problem_solve_picks_newton_for_a_state_dependent_operator(make_unit_square):
+    """A Green-Lagrange problem solved through `Problem.solve()` matches a hand-run
+    line-searched Newton solve."""
+    mesh = make_unit_square(4)
+    bc = BoundaryConditions()
+    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
+    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.05, 0.0])
+    finite = LinearElastic(E=200, nu=0.3, kinematics=StrainMeasure.GREEN_LAGRANGE)
+    problem = finite.problem(mesh, bc)
+    assert type(problem) is Problem
+    u_newton = NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem)
+    np.testing.assert_allclose(problem.solve().u, u_newton, atol=1e-12)
+
+
+def test_equation_problem_takes_a_mesh_or_a_space(make_unit_square):
+    """`Equation.problem` on a mesh builds the space the equation implies, honouring
+    `element_type`; on a space it uses that space and refuses an `element_type`."""
+    from fem.elements import QuadraticTriangleElement
+    mesh = make_unit_square(4)
+    equation = LinearElastic(E=1.0, nu=0.3)
+    from_mesh = equation.problem(mesh, element_type=QuadraticTriangleElement)
+    assert from_mesh.space.element_type is QuadraticTriangleElement
+    assert from_mesh.space.n_components == 2
+
+    space = equation.space(mesh)
+    from_space = equation.problem(space)
+    assert from_space.space is space
+    with pytest.raises(ValueError, match='element_type'):
+        equation.problem(space, element_type=QuadraticTriangleElement)

@@ -15,7 +15,7 @@ import numpy as np
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.estimators import ErrorEstimator
-from fem.solve import SolveStrategy, default_strategy
+from fem.solve import SolveStrategy
 from fem.solution import FieldSolution
 
 if TYPE_CHECKING:
@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 class AdaptiveRefinement:
     '''Refine where the error estimate is largest, re-solving on each new mesh.
 
-    `problem_for(mesh)` states the problem on any mesh (`equation.problem(
-    equation.space(mesh), bc)`); its boundary conditions must be geometric, since
+    `problem_for(mesh)` states the problem on any mesh (`equation.problem(mesh,
+    bc)`); its boundary conditions must be geometric, since
     they are resolved afresh on every mesh. `strategy` None is `default_strategy` for
     each round's problem. `estimator` is an `ErrorEstimator` or a bare callable of
     `(problem, solution)`. After `run`, `mesh`, `problem`, and `solution` are the
@@ -60,8 +60,7 @@ class AdaptiveRefinement:
 
     def _solve(self) -> FieldSolution:
         assert self.problem is not None
-        strategy = self.strategy if self.strategy is not None else default_strategy(self.problem)
-        self.solution = self.problem.solution(strategy.solve(self.problem))
+        self.solution = self.problem.solve(strategy=self.strategy)
         return self.solution
 
     def run(self) -> FieldSolution:

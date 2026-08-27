@@ -243,7 +243,7 @@ class Plotter:
         if warp is True:
             if not isinstance(target, FieldSolution):
                 raise ValueError('warp=True needs a Solution carrying a displacement field u')
-            warp = target.u.reshape(-1, target.n_components)
+            warp = np.asarray(target.u).reshape(-1, target.n_components)
         return target.mesh, resolved_space, (None if warp is False else warp)
 
     def overlay_supports(
