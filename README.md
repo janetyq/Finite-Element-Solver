@@ -30,6 +30,11 @@ solution needs it (shown in later demos). Below, the same Poisson problem
 something different of the mesher: disconnected islands, Bezier curves, a hole, and
 sharp notches.
 
+<!-- Figures: HTML img inside <p align="center">, not markdown images, so they can be sized and paired.
+     Compact figures get height (about 400); wide ones get width (about 780) since a tall height on a wide
+     image makes GitHub squish it. Side-by-side pairs share one <p> at a height that fits both in the column.
+     PNGs come from examples/make_readme_figures.py. -->
+
 <p align="center"><img src="images/outline_to_mesh.png" height="400" alt="Four outlines meshed and Poisson-solved: California with a mesh zoom inset, a cloud, a gear, and a star"></p>
 
 ## Solving PDEs
