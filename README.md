@@ -113,18 +113,25 @@ why real parts round their inner corners.
 
 ### Two nonlinear materials, one stretch
 
-The same clamped block is stretched four ways. The first two are small-strain linear
-elasticity solved two ways, a linear solve of $Ku = f$ (`LinearElastic`) and Newton on
-that model's elastic energy, which agree in displacement to machine precision. The last
-two swap in nonlinear, finite-strain material laws through the same `EnergyForm`:
-`StVenantKirchhoff` on the Green-Lagrange strain, which over-stiffens steeply in
-tension, and a compressible `NeohookeanEnergyDensity` written in the invariants of
-$C = F^{\top}F$, which stays physical at large strain. Any stored-energy density that
-returns its stress and tangent plugs into the same Newton solver, so a new hyperelastic
-material is a small class rather than a new solver. One shared log colour scale spans
-the panels, with the singular clamped corners saturated at the top.
+The same clamped block is stretched to the right in four ways, each panel coloured by
+how hard the material is working inside. The first two are ordinary small-strain
+elasticity, the familiar model where stress grows in proportion to strain, solved two
+different ways: directly, and by minimising the block's stored elastic energy. They
+produce the same shape to machine precision, a check that the two routes agree. The last
+two switch to nonlinear elasticity, which large deformations actually need.
+St-Venant-Kirchhoff is the simplest such model but stiffens far too aggressively in
+tension, while Neo-Hookean, a rubber-like law, stays realistic out to large stretch.
+Trying a different nonlinear material, or adding a new one, changes only the
+stored-energy formula, not the solver underneath.
 
-<p align="center"><img src="images/elasticity_models.png" width="780" alt="One stretch, four models: linear and energy-minimisation small strain, St-Venant-Kirchhoff, and Neo-Hookean, on a shared log stress scale"></p>
+All four panels share one colour scale. The stresses span a wide range, so the scale is
+logarithmic: brighter means more stress, and a whole panel shifting brighter (as
+St-Venant-Kirchhoff's does) means that material is carrying more everywhere. The vivid
+corners are a mathematical singularity, where the clamp meets the pulled edge and the
+stress is formally infinite, so they saturate at the top of the scale and should be read
+as an artefact rather than a real value.
+
+<p align="center"><img src="images/elasticity_models.png" width="780" alt="One stretch, four elasticity models coloured by stress on a shared log scale: two small-strain solves, St-Venant-Kirchhoff, and Neo-Hookean"></p>
 
 ### From an outline to a stress concentration
 
