@@ -299,6 +299,9 @@ class BoundaryConditions:
 
         for region, kappa, g_field in self.robin_conditions:
             idxs = self.select(nodes, region)
+            # Evaluate g now to reject a None (free) component at resolve, as a Neumann
+            # load is; the Traction re-derives the nodal values at assembly time.
+            evaluate_field(field_at(g_field, t), nodes.vertices[idxs], n_components)
             # A boundary facet is in the region iff all its nodes are: the
             # all-nodes rule that keeps the boundary integral crisp.
             facet_mask = np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
