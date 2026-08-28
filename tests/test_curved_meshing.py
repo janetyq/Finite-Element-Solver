@@ -9,16 +9,16 @@ import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.forms import LinearElasticForm
-from fem.materials import LinearElasticMaterial
+from fem.physics.forms import LinearElasticForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.curves import Arc, Circle
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.pslg import PSLG
 from fem.problem import LinearProblem
 from fem.regions import intersect, on_plane
-from fem.solution import ElasticSolution
-from fem.solve import LinearSolve
+from fem.post.solution import ElasticSolution
+from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
 
 

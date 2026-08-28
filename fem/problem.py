@@ -35,22 +35,25 @@ step. `at(t)` is the steady snapshot with every value fixed at `t`, which a stea
 Everything that needs one fixed operator (a direct solve, the integrators, an
 eigenproblem, SIMP) requires it. Both own their constraints, resolved from the BC spec
 once; a driver that remeshes builds a new `Problem`. Named PDEs are `Equation`s
-(`fem.equations`), whose `problem` builds one of these.
+(`fem.physics.equations`), whose `problem` builds one of these.
+
+`Problem.solve` imports `fem.algebra.solve` lazily for `default_strategy`: the strategies
+consume a `Problem`, so the edge points up and stays function-local.
 """
 import copy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from fem.boundary import BoundaryConditions, ResolvedBC
-from fem.forms import BoundaryMassForm, Form
+from fem.physics.forms import BoundaryMassForm, Form
 from fem.loads import BoundaryLoad, EvaluatedLoad, Load, NodalSource, Source, VolumeSource, as_source, total_load
-from fem.solution import FieldSolution
+from fem.post.solution import FieldSolution
 from fem.space import FunctionSpace
 from fem.typing import Constraints, DofVector, FieldValue, FloatArray, Operator
 
 if TYPE_CHECKING:
-    from fem.backends import Backend
-    from fem.solve import SolveStrategy
+    from fem.algebra.backends import Backend
+    from fem.algebra.solve import SolveStrategy
 
 __all__ = ['Problem', 'LinearProblem', 'RayleighDamping', 'Source', 'NodalSource']
 
@@ -323,7 +326,7 @@ class Problem:
                 )
             return self.at(t).solve(strategy, backend, u0)
         if strategy is None:
-            from fem.solve import default_strategy
+            from fem.algebra.solve import default_strategy
             strategy = default_strategy(self, backend)
         return self.solution(strategy.solve(self, u0))
 

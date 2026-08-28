@@ -14,12 +14,12 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.equations import LinearElastic
-from fem.estimators import RecoveryEstimator
+from fem.physics.equations import LinearElastic
+from fem.analysis.estimators import RecoveryEstimator
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.regions import on_plane
-from fem.solution import ElasticSolution
+from fem.post.solution import ElasticSolution
 
 from domains import l_bracket_pslg
 

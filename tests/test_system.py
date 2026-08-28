@@ -1,7 +1,7 @@
 """DiscreteSystem eliminates the Dirichlet DOFs and reuses its factorization."""
 import numpy as np
 
-from fem.system import DiscreteSystem
+from fem.algebra.system import DiscreteSystem
 
 
 def _spd(n, seed=0):

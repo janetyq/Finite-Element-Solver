@@ -1,3 +1,9 @@
+"""The mesh: vertices, elements, boundary facets, and the topology and geometry
+queries built on them.
+
+`refined`, `save`, and `load` import `fem.mesh.refinement` and `fem.post.io` lazily: they are
+methods on the mesh for convenience, and both modules sit above it.
+"""
 import itertools
 import math
 from collections.abc import Sequence
@@ -339,12 +345,12 @@ class Mesh:
     # -- files -------------------------------------------------------------------------
 
     def save(self, path: str) -> None:
-        from fem.io import save_mesh
+        from fem.post.io import save_mesh
         save_mesh(self, path)
 
     @classmethod
     def load(cls, path: str) -> 'Mesh':
-        from fem.io import load_mesh
+        from fem.post.io import load_mesh
         return load_mesh(path)
 
     def __repr__(self) -> str:

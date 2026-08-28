@@ -6,10 +6,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from fem.convergence import ANNULUS_INNER, ANNULUS_OUTER, annulus_mesh
+from mms import ANNULUS_INNER, ANNULUS_OUTER
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.mesh.structured import box_mesh
+from fem.mesh.structured import annulus_mesh, box_mesh
 from fem.plot.plotter import Plotter
+from fem.plot.tessellation import boundary_polylines, tessellate
 from fem.space import FunctionSpace
 
 
@@ -68,7 +69,7 @@ def test_surface_animation_adds_no_colorbar(mesh):
 
 
 def test_colored_animation_scales_to_the_data(mesh):
-    """cbar_lims defaulted to (0, 1); a 300 K field against that renders as one
+    """clim defaulted to (0, 1); a 300 K field against that renders as one
     saturated block. Absent an explicit range it now spans the series."""
     values = [np.full(len(mesh.vertices), 300.0), np.full(len(mesh.vertices), 350.0)]
 
@@ -278,7 +279,7 @@ def test_explicit_colorbar_limits_are_respected(mesh):
     values = [np.full(len(mesh.vertices), 300.0), np.full(len(mesh.vertices), 350.0)]
 
     plotter = Plotter(1, 1)
-    plotter.plot_animation(mesh, values, mode='colored', cbar_lims=(0.0, 400.0))
+    plotter.plot_animation(mesh, values, mode='colored', clim=(0.0, 400.0))
 
     norm = plotter.cbar_infos[(0, 0)].norm
     assert (norm.vmin, norm.vmax) == (0.0, 400.0)
@@ -312,7 +313,7 @@ def test_tessellation_indices_and_size_are_consistent():
     element: `subdivisions**2` sub-triangles over `(subdivisions+1)(subdivisions+2)/2`
     reference points."""
     _, _, curved = _annulus_spaces()
-    tess = curved.tessellation(subdivisions=3)
+    tess = tessellate(curved, subdivisions=3)
 
     n_el = len(curved.element_nodes)
     assert tess.triangles.shape == (n_el * 9, 3)
@@ -325,8 +326,8 @@ def test_curved_boundary_polylines_follow_the_true_circle():
     polyline tracks the true rim, where a straight P2 facet is a chord well off it."""
     _, straight, curved = _annulus_spaces()
 
-    curved_off = _distance_off_rim(curved.boundary_polylines(subdivisions=4).reshape(-1, 2))
-    straight_off = _distance_off_rim(straight.boundary_polylines(subdivisions=4).reshape(-1, 2))
+    curved_off = _distance_off_rim(boundary_polylines(curved, subdivisions=4).reshape(-1, 2))
+    straight_off = _distance_off_rim(boundary_polylines(straight, subdivisions=4).reshape(-1, 2))
 
     assert curved_off < 1e-4, f'curved boundary sampled off the rim by {curved_off}'
     assert straight_off > 1e-3, 'straight P2 facets should sit visibly inside the rim'
@@ -338,7 +339,7 @@ def test_tessellation_reproduces_an_affine_field_on_a_curved_space():
     uses, so a field linear in x, which lies in the P2 span even through the quadratic
     map, is reproduced exactly at every sub-point."""
     _, _, curved = _annulus_spaces()
-    tess = curved.tessellation(subdivisions=3)
+    tess = tessellate(curved, subdivisions=3)
 
     def affine(xy):
         return 2.0 * xy[:, 0] - 3.0 * xy[:, 1] + 1.5
@@ -352,7 +353,7 @@ def test_tessellation_reproduces_a_quadratic_field_on_straight_p2():
     quadratic, so the tessellation shows the within-element curvature exactly rather than
     the flat average one triangle per element would draw."""
     _, straight, _ = _annulus_spaces()
-    tess = straight.tessellation(subdivisions=3)
+    tess = tessellate(straight, subdivisions=3)
 
     def quadratic(xy):
         x, y = xy[:, 0], xy[:, 1]
@@ -426,8 +427,8 @@ def test_warp_tessellates_the_deformed_configuration():
     displacement = np.column_stack([0.1 * space.node_coords[:, 1],
                                     -0.05 * space.node_coords[:, 0]])
 
-    reference = space.tessellation(subdivisions=3)
-    deformed = space.tessellation(subdivisions=3, node_coords=space.node_coords + displacement)
+    reference = tessellate(space, subdivisions=3)
+    deformed = tessellate(space, subdivisions=3, node_coords=space.node_coords + displacement)
     # Mapping through node + disp is mapping through node, plus the interpolated disp.
     assert np.allclose(deformed.points, reference.points + reference.interpolate(displacement))
 
@@ -443,7 +444,7 @@ def test_warp_tessellates_the_deformed_configuration():
 
 def _p2_scalar_solution(n=5):
     """A ScalarFieldSolution on a P2 space, so its per-node field needs the space to draw."""
-    from fem.solution import ScalarFieldSolution
+    from fem.post.solution import ScalarFieldSolution
     mesh, space = _p2_square(n)
     u = space.node_coords[:, 0] ** 2
     return ScalarFieldSolution(space, u, flux=np.zeros((len(mesh.elements), 2))), space
@@ -479,7 +480,7 @@ def test_warp_true_deforms_by_the_solutions_own_displacement():
     """`warp=True` with a solution draws the field on the shape deformed by that
     solution's displacement, so an elastic field lands on the warped body with no explicit
     displacement array."""
-    from fem.solution import ElasticSolution
+    from fem.post.solution import ElasticSolution
     mesh, space = _p2_square()
     vspace = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
     u = np.column_stack([0.1 * vspace.node_coords[:, 1],

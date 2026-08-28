@@ -5,7 +5,7 @@ and Lame parameters (shear modulus mu, lambda), plus `LinearElasticMaterial`, th
 map from strain to stress.
 
 `hooke_matrix` fixes the Voigt ordering of the constitutive matrix D; the
-strain-displacement matrix B in `fem.forms` orders its strain rows the same way.
+strain-displacement matrix B in `fem.physics.forms` orders its strain rows the same way.
 
 In 2D the law is plane strain throughout. `LinearElasticMaterial.out_of_plane_stress`
 names that assumption and supplies the `sigma_zz` a 2D Voigt vector omits, which
@@ -67,7 +67,7 @@ def hooke_matrix(reference_dim: int, mu: float, lamb: float) -> Matrix:
     '''Isotropic elastic constitutive matrix D (strain -> stress) in Voigt form.
 
     Strain and stress are ordered [xx, yy, (zz,) engineering shears], matching
-    the rows of `fem.forms.strain_displacement`. `reference_dim` is the element's
+    the rows of `fem.physics.forms.strain_displacement`. `reference_dim` is the element's
     own dimension (2 for a triangle, 3 for a tet), which for the planar meshes
     supported today equals the number of displacement components.
     '''

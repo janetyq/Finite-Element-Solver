@@ -10,13 +10,13 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
-from fem.equations import Heat, Poisson
-from fem.forms import BoundaryMassForm
-from fem.integrators import ThetaMethod
+from fem.physics.equations import Heat, Poisson
+from fem.physics.forms import BoundaryMassForm
+from fem.algebra.integrators import ThetaMethod
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
 from fem.regions import TimeDependent, in_box, on_plane, union
-from fem.solution import TransientSolution
+from fem.post.solution import TransientSolution
 from fem.solver import Solver
 
 from domains import heatsink_pslg

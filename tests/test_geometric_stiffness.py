@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from fem.elements import LinearTetrahedralElement, LinearTriangleElement
-from fem.forms import GeometricStiffnessForm, DiffusionForm
+from fem.physics.forms import GeometricStiffnessForm, DiffusionForm
 
 
 def one(element_type, vertices):

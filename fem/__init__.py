@@ -19,6 +19,7 @@ Common entry points are re-exported here, so typical use is:
 __version__ = "0.1.0"
 
 import logging
+from typing import TYPE_CHECKING
 
 from fem.mesh.mesh import Mesh
 from fem.mesh.curves import Arc, Circle, Curve
@@ -48,7 +49,7 @@ from fem.regions import (
     at_indices,
     TimeDependent,
 )
-from fem.equations import (
+from fem.physics.equations import (
     Equation,
     Projection,
     Poisson,
@@ -59,7 +60,7 @@ from fem.equations import (
     FiniteStrainElastic,
 )
 from fem.solver import Solver
-from fem.forms import (
+from fem.physics.forms import (
     BilinearForm,
     DiffusionForm,
     EnergyDensity,
@@ -70,13 +71,14 @@ from fem.forms import (
     MassForm,
     ScaledForm,
     SumForm,
+    rigid_body_modes,
 )
 from fem.loads import BoundaryLoad, Load, NodalSource, PointLoad, Source
-from fem.materials import LinearElasticMaterial
-from fem.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
-from fem.postprocess import DerivedField
+from fem.physics.materials import LinearElasticMaterial
+from fem.physics.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
+from fem.physics.derived import DerivedField
 from fem.problem import LinearProblem, Problem, RayleighDamping
-from fem.solve import (
+from fem.algebra.solve import (
     BacktrackingLineSearch,
     LinearSolve,
     NewtonSolve,
@@ -85,16 +87,15 @@ from fem.solve import (
     TangentRegularization,
     default_strategy,
 )
-from fem.backends import (
+from fem.algebra.backends import (
     Backend,
     DirectBackend,
     IterativeBackend,
     LinearSolver,
     MinresBackend,
-    rigid_body_modes,
 )
-from fem.integrators import ThetaMethod, NewmarkMethod
-from fem.solution import (
+from fem.algebra.integrators import ThetaMethod, NewmarkMethod
+from fem.post.solution import (
     Solution,
     FieldSolution,
     ScalarFieldSolution,
@@ -104,9 +105,9 @@ from fem.solution import (
     TransientSolution,
     WaveSolution,
 )
-from fem.buckling import BucklingAnalysis
-from fem.modal import ModalAnalysis
-from fem.sensitivity import (
+from fem.analysis.buckling import BucklingAnalysis
+from fem.analysis.modal import ModalAnalysis
+from fem.analysis.sensitivity import (
     SensitivityAnalysis,
     QuantityOfInterest,
     Parameterization,
@@ -117,7 +118,7 @@ from fem.sensitivity import (
     DensityField,
     ModulusField,
 )
-from fem.design import (
+from fem.analysis.design import (
     DesignOptimizer,
     SIMPModel,
     DesignHistory,
@@ -125,14 +126,28 @@ from fem.design import (
     calculate_smoothing_matrix,
     optimality_criteria_update,
 )
-from fem.adaptivity import AdaptiveRefinement
-from fem.estimators import (
+from fem.analysis.adaptivity import AdaptiveRefinement
+from fem.analysis.estimators import (
     ErrorEstimator,
     GoalOrientedEstimator,
     RecoveryEstimator,
     ResidualEstimator,
 )
-from fem.plot.plotter import Plotter, PlotMode
+
+# `Plotter` and `PlotMode` are served lazily so `import fem` does not import matplotlib:
+# the solve path never needs it, and a headless run should not pay for it.
+_PLOT_EXPORTS = {'Plotter', 'PlotMode'}
+
+if TYPE_CHECKING:
+    from fem.plot.plotter import PlotMode, Plotter
+
+
+def __getattr__(name: str):
+    if name in _PLOT_EXPORTS:
+        from fem.plot import plotter
+        return getattr(plotter, name)
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
 
 # Library-quiet by default: emit nothing unless the application configures a
 # handler (e.g. logging.basicConfig(level=logging.INFO)). Standard practice.

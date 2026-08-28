@@ -2,9 +2,9 @@
 import numpy as np
 import pytest
 
-from fem.materials import Enu_to_Lame, Lame_to_Enu
+from fem.physics.materials import Enu_to_Lame, Lame_to_Enu
 from fem.elements import LinearTetrahedralElement, LinearTriangleElement
-from fem.forms import MassForm
+from fem.physics.forms import MassForm
 from fem.mesh.pslg import point_in_polygon, polygon_area
 from fem.mesh.ruppert import circumcenter
 from fem.mesh.mesh import Mesh

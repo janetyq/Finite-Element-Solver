@@ -8,19 +8,19 @@ vanishes on a field P2 represents exactly, and that it drives refinement on P2.
 import numpy as np
 import pytest
 
-from fem.adaptivity import AdaptiveRefinement
+from fem.analysis.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
-from fem.convergence import exact_gradient, h1_seminorm_error
+from mms import exact_gradient, h1_seminorm_error
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.energies import StVenantKirchhoff
-from fem.equations import LinearElastic, Poisson
-from fem.estimators import ResidualEstimator
-from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm
-from fem.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.physics.energies import StVenantKirchhoff
+from fem.physics.equations import LinearElastic, Poisson
+from fem.analysis.estimators import ResidualEstimator
+from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm
+from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.structured import box_mesh
-from fem.postprocess import GradientField
+from fem.physics.derived import GradientField
 from fem.regions import everywhere, on_plane
-from fem.solution import ElasticSolution, ScalarFieldSolution
+from fem.post.solution import ElasticSolution, ScalarFieldSolution
 from fem.space import FunctionSpace
 
 

@@ -16,11 +16,11 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.backends import IterativeBackend
-from fem.materials import Enu_to_Lame
+from fem.algebra.backends import IterativeBackend
+from fem.physics.materials import Enu_to_Lame
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
-from fem.equations import LinearElastic
+from fem.physics.equations import LinearElastic
 from fem.solver import Solver
 
 E, NU = 200.0, 0.3

@@ -9,7 +9,7 @@ the P2 L2 rate, and the curved mass matrix integrates the true area.
 import numpy as np
 import pytest
 
-from fem.convergence import (
+from mms import (
     ANNULUS_INNER,
     ANNULUS_OUTER,
     ConvergenceStudy,

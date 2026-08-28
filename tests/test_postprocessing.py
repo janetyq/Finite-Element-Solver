@@ -9,10 +9,10 @@ import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import LinearTriangleElement
-from fem.energies import SmallStrain, StVenantKirchhoff
-from fem.equations import LinearElastic
-from fem.forms import EnergyForm, LinearElasticForm
-from fem.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.physics.energies import SmallStrain, StVenantKirchhoff
+from fem.physics.equations import LinearElastic
+from fem.physics.forms import EnergyForm, LinearElasticForm
+from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.regions import on_plane
 from fem.solver import Solver
 
@@ -65,8 +65,8 @@ def test_compliance_is_positive_and_finite(make_unit_square):
 def test_solver_and_design_model_recover_the_same_fields(make_unit_square):
     """`Solver` and `SIMPModel` recover the same fields: at a uniform unit density the
     diluted problem is the plain elastic solve."""
-    from fem.design import SIMPModel
-    from fem.solve import LinearSolve
+    from fem.analysis.design import SIMPModel
+    from fem.algebra.solve import LinearSolve
 
     mesh = make_unit_square(6)
     _, solution = _solved(mesh)

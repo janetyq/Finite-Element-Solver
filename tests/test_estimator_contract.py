@@ -9,11 +9,11 @@ import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
-from fem.equations import LinearElastic, Poisson
-from fem.estimators import GoalOrientedEstimator, RecoveryEstimator, ResidualEstimator
+from fem.physics.equations import LinearElastic, Poisson
+from fem.analysis.estimators import GoalOrientedEstimator, RecoveryEstimator, ResidualEstimator
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere, on_plane
-from fem.sensitivity import PointValue
+from fem.analysis.sensitivity import PointValue
 
 
 def _poisson(element_type):

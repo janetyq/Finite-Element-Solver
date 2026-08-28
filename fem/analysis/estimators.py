@@ -19,6 +19,9 @@ An estimator has no physics of its own. The one physics-specific input, the
 `DerivedField` (which field to jump or recover, and what its boundary residual is),
 is read off the problem's operator (`Form.derived_field`), and the source off the
 problem, at `estimate` time. A custom estimate is any callable of `(problem, solution)`.
+
+`GoalOrientedEstimator` imports `fem.analysis.sensitivity` lazily to solve the dual;
+`sensitivity` sits above the estimators, so the edge stays function-local.
 """
 from __future__ import annotations
 
@@ -27,6 +30,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
+from fem.post.recovery import project_to_nodal
 from fem.quadrature import QuadratureRule
 from fem.regions import evaluate_field
 
@@ -36,10 +40,10 @@ _REFERENCE_EDGE_MIDPOINTS = np.array([[0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
 if TYPE_CHECKING:
     from fem.boundary import ResolvedBC
-    from fem.postprocess import DerivedField
+    from fem.physics.derived import DerivedField
     from fem.problem import Problem
-    from fem.sensitivity import QuantityOfInterest
-    from fem.solution import FieldSolution
+    from fem.analysis.sensitivity import QuantityOfInterest
+    from fem.post.solution import FieldSolution
     from fem.space import FunctionSpace
     from fem.typing import BoolArray, ElementField, FieldValue, FloatArray, IntArray
 
@@ -281,7 +285,7 @@ class RecoveryEstimator:
         degree = 2 * space.element_type.SHAPE_DEGREE
         geometry = space.geometry_at(degree)
         sigma_h = flux.sample(ctx.solution, geometry)           # (n_el, n_qp, k, d)
-        sigma_star = space.project_to_nodal(sigma_h, geometry)  # (n_nodes, k, d), continuous
+        sigma_star = project_to_nodal(space, sigma_h, geometry)  # (n_nodes, k, d), continuous
 
         # Integrate ||sigma* - sigma_h||^2 over each element, both fields at the same points.
         per_element = sigma_star[space.element_nodes]     # (n_el, N, k, d)
@@ -316,7 +320,7 @@ class GoalOrientedEstimator:
     quantity_of_interest: 'QuantityOfInterest'
 
     def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
-        from fem.sensitivity import SensitivityAnalysis
+        from fem.analysis.sensitivity import SensitivityAnalysis
 
         base = RecoveryEstimator()
         eta_primal = base.estimate(problem, solution)

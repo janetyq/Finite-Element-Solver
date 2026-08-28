@@ -10,10 +10,10 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.elements import QuadraticTriangleElement
-from fem.equations import Poisson
+from fem.physics.equations import Poisson
 from fem.mesh.mesh import Mesh
 from fem.regions import on_plane
-from fem.solution import ScalarFieldSolution
+from fem.post.solution import ScalarFieldSolution
 from fem.solver import Solver
 
 from domains import airfoil_channel_pslg

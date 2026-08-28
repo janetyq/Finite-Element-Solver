@@ -1,20 +1,21 @@
 """Nodal recovery of derived fields, the typed solutions that carry them, the form
-hook that names them, and their round trip through `fem.io`.
+hook that names them, and their round trip through `fem.post.io`.
 """
 import numpy as np
 import pytest
 
-from fem import invariants
+from fem.post import invariants
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
-from fem.energies import StVenantKirchhoff
-from fem.equations import LinearElastic, Poisson, Projection
-from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
-from fem.materials import LinearElasticMaterial
+from fem.physics.energies import StVenantKirchhoff
+from fem.physics.equations import LinearElastic, Poisson, Projection
+from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.structured import box_mesh
-from fem.postprocess import GradientField, StressField
+from fem.physics.derived import GradientField, StressField
+from fem.post.recovery import nodal_gradient, recover_nodal
 from fem.regions import everywhere, on_plane
-from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
+from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 from fem.solver import Solver
 from fem.space import FunctionSpace
 
@@ -51,9 +52,9 @@ def test_a_poisson_solve_carries_its_flux_and_recovers_it_to_the_nodes():
     assert solution.flux.shape == (len(mesh.elements), 2)
     nodal = solution.nodal_flux()
     assert nodal.shape == (solution.space.n_nodes, 2)
-    assert np.allclose(nodal, solution.space.nodal_gradient(solution.u))
+    assert np.allclose(nodal, nodal_gradient(solution.space, solution.u))
     # Read at the nodes, not averaged from the per-element values: on P2 the two differ.
-    assert not np.allclose(nodal, solution.space.recover_nodal(solution.flux))
+    assert not np.allclose(nodal, recover_nodal(solution.space, solution.flux))
 
 
 def test_nodal_flux_takes_a_recovery_method():
@@ -68,7 +69,7 @@ def test_nodal_flux_takes_a_recovery_method():
     average = solution.nodal_flux(method='average')
     l2 = solution.nodal_flux(method='l2')
     assert l2.shape == average.shape == (solution.space.n_nodes, 2)
-    assert np.allclose(l2, solution.space.recover_nodal(solution.flux, method='l2'))
+    assert np.allclose(l2, recover_nodal(solution.space, solution.flux, method='l2'))
     assert not np.allclose(l2, average)
 
 
@@ -95,7 +96,7 @@ def test_nodal_von_mises_recovers_the_tensor_then_reduces():
 
     recover_then_reduce = solution.nodal_von_mises()
     assert np.allclose(recover_then_reduce, invariants.von_mises(solution.nodal_stress()))
-    reduce_then_recover = solution.space.recover_nodal(solution.von_mises)
+    reduce_then_recover = recover_nodal(solution.space, solution.von_mises)
     assert not np.allclose(recover_then_reduce, reduce_then_recover)
 
 

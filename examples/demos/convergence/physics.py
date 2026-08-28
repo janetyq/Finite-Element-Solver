@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.convergence import (
+from mms import (
     ConvergenceStudy, elastic_convergence, load_comparison_convergence, poisson_convergence,
     poisson_p2_convergence, theta_convergence,
 )

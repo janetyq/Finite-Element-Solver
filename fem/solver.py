@@ -9,11 +9,11 @@ import logging
 from fem.mesh.mesh import Mesh
 from fem.boundary import BoundaryConditions
 from fem.elements import Element
-from fem.equations import Equation
-from fem.solution import Solution
-from fem.backends import Backend
+from fem.physics.equations import Equation
+from fem.post.solution import Solution
+from fem.algebra.backends import Backend
 from fem.problem import Problem
-from fem.solve import SolveStrategy
+from fem.algebra.solve import SolveStrategy
 
 logger = logging.getLogger(__name__)
 

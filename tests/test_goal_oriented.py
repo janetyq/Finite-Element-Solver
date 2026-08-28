@@ -3,13 +3,13 @@ concentrates near the quantity of interest, more strongly than the global estima
 """
 import numpy as np
 
-from fem.adaptivity import AdaptiveRefinement
+from fem.analysis.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.equations import Poisson
-from fem.estimators import GoalOrientedEstimator, RecoveryEstimator
+from fem.physics.equations import Poisson
+from fem.analysis.estimators import GoalOrientedEstimator, RecoveryEstimator
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
-from fem.sensitivity import PointValue
+from fem.analysis.sensitivity import PointValue
 
 EQUATION = Poisson(source=lambda p: 1.0)
 

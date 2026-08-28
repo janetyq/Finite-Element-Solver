@@ -11,14 +11,14 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.elements import QuadraticTriangleElement
-from fem.equations import LinearElastic
-from fem.integrators import NewmarkMethod
+from fem.physics.equations import LinearElastic
+from fem.algebra.integrators import NewmarkMethod
 from fem.loads import PointLoad
 from fem.mesh.mesh import Mesh
-from fem.modal import ModalAnalysis
+from fem.analysis.modal import ModalAnalysis
 from fem.problem import RayleighDamping
 from fem.regions import TimeDependent, at_indices, on_plane
-from fem.solution import ModalSolution, TransientSolution
+from fem.post.solution import ModalSolution, TransientSolution
 
 from domains import tuning_fork_pslg
 

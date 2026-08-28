@@ -11,7 +11,7 @@ format.
 """
 import numpy as np
 
-from fem.backends import Backend, DirectBackend
+from fem.algebra.backends import Backend, DirectBackend
 from fem.typing import Constraints, DofVector, FloatArray, Operator
 
 

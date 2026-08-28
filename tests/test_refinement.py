@@ -5,14 +5,14 @@ cannot carry across a remesh fail loudly.
 import numpy as np
 import pytest
 
-from fem.adaptivity import AdaptiveRefinement
+from fem.analysis.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.energies import StVenantKirchhoff
-from fem.estimators import RecoveryEstimator
-from fem.forms import EnergyForm
+from fem.physics.energies import StVenantKirchhoff
+from fem.analysis.estimators import RecoveryEstimator
+from fem.physics.forms import EnergyForm
 from fem.problem import Problem
 from fem.regions import everywhere, at_indices, on_plane
-from fem.equations import LinearElastic, Projection, Poisson, FiniteStrainElastic
+from fem.physics.equations import LinearElastic, Projection, Poisson, FiniteStrainElastic
 
 
 def refine_near_centre(problem, solution):

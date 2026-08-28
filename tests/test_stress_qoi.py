@@ -5,15 +5,15 @@ central-difference gradient of the measure, and the value is cross-checked again
 import numpy as np
 import pytest
 
-from fem import invariants
+from fem.post import invariants
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
-from fem.forms import LinearElasticForm, PrecomputedForm
-from fem.materials import LinearElasticMaterial
+from fem.physics.forms import LinearElasticForm, PrecomputedForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
 from fem.regions import on_plane
-from fem.sensitivity import MeanStress, SensitivityAnalysis, SoftMaxStress, _VonMisesStress
-from fem.solution import ElasticSolution
+from fem.analysis.sensitivity import MeanStress, SensitivityAnalysis, SoftMaxStress, _VonMisesStress
+from fem.post.solution import ElasticSolution
 from fem.space import FunctionSpace
 
 

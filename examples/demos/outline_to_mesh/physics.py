@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.equations import Poisson
+from fem.physics.equations import Poisson
 from fem.mesh.mesh import Mesh
 from fem.mesh.svg import (
     PSLG, read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker)

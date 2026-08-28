@@ -165,14 +165,12 @@ class RuppertsAlgorithm:
         '''
         self.vertices = np.array(pslg.vertices)
         self.segments = np.array([sorted(seg) for seg in pslg.segments])
-        self.segment_loops = np.array(getattr(pslg, 'loop_ids',
-                                              np.zeros(len(self.segments), dtype=int)))
+        self.segment_loops = np.array(pslg.loop_ids)
         # Per-segment analytic curve, aligned with `self.segments`. A split point on a
         # curved segment is projected onto the curve rather than left at the chord
         # midpoint, so refinement rounds the outline; halves inherit their parent's
         # curve, and it is carried onto the matching boundary facet of the output mesh.
-        self.segment_curves = list(getattr(pslg, 'segment_curves', None)
-                                   or [None] * len(self.segments))
+        self.segment_curves = list(pslg.segment_curves)
         self.triangulation = Delaunay(self.vertices)
         self._incremental = False
         self.min_angle = min_angle

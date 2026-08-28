@@ -9,10 +9,10 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import BoundaryConditions
-from fem.equations import Wave
-from fem.integrators import NewmarkMethod
+from fem.physics.equations import Wave
+from fem.algebra.integrators import NewmarkMethod
 from fem.mesh.mesh import Mesh
-from fem.solution import TransientSolution
+from fem.post.solution import TransientSolution
 
 from domains import harbor_pslg
 

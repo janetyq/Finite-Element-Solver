@@ -6,7 +6,7 @@ that changes when the frame turns describes the bookkeeping, not the state.
 
 Everything here takes full `(n_elements, d, d)` tensors, never the Voigt vectors
 assembly packs; a norm or eigenvalue of the packed form is not the tensor's
-(see `fem.forms.voigt_to_tensor`). `tests/test_invariants.py` checks invariance
+(see `fem.physics.forms.voigt_to_tensor`). `tests/test_invariants.py` checks invariance
 by rotating the input.
 """
 import numpy as np

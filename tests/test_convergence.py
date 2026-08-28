@@ -1,13 +1,13 @@
 """MMS validation of the Poisson solver.
 
-The manufactured solution, its forcing, and the study live in `fem/convergence.py`, so
+The manufactured solution, its forcing, and the study live in `examples/mms.py`, so
 the `convergence` demo draws what these tests assert: the error falls, at the O(h^2)
 rate P1 promises, and the finest mesh is accurate in absolute terms.
 """
 import numpy as np
 import pytest
 
-from fem.convergence import ConvergenceStudy, solve_poisson_mms
+from mms import ConvergenceStudy, solve_poisson_mms
 
 
 @pytest.fixture(scope="module")

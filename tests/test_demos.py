@@ -7,16 +7,11 @@ dependency names it in `Demo.smoke_requires`; `Demo.smoke_kwargs` supplies the
 cheapest arguments that still exercise the code.
 """
 import sys
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pytest
 
 from fem.plot.plotter import Plotter
-
-# `examples/` is a directory of scripts rather than a package -- cli.py imports its
-# siblings by bare name -- so it has to be on the path to be importable the same way.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
 
 import cli  # noqa: E402
 from demo_registry import DemoResult  # noqa: E402

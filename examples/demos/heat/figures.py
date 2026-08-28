@@ -102,7 +102,7 @@ def _animation_figure(s: HeatsinkStudy) -> Figure:
     animation = Plotter(1, 2, panel_aspect=1.6, title='Heatsink warming up')
     animation.plot_animation(
         s.mesh, s.u_values, mode='colored', label='temperature', cmap='inferno',
-        cbar_lims=(s.u_ambient, s.u_hot), idx=(0, 0),
+        clim=(s.u_ambient, s.u_hot), idx=(0, 0),
         titles=[f't = {t:.2f}   base at {s.base_temperature(t):.0f}' for t in s.t_values])
     animation.plot_animation(
         s.mesh, s.flux_values, mode='colored', label='|grad u|', cmap='viridis', idx=(0, 1),

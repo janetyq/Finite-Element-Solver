@@ -9,9 +9,9 @@ import pytest
 from scipy.linalg import expm
 
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.integrators import ThetaMethod
+from fem.algebra.integrators import ThetaMethod
 from fem.mesh.structured import box_mesh
-from fem.equations import Heat
+from fem.physics.equations import Heat
 from fem.regions import everywhere
 
 

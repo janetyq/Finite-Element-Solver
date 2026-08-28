@@ -5,9 +5,9 @@ import pytest
 from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.regions import everywhere, on_plane
-from fem.equations import Heat, Projection, Poisson, LinearElastic, Wave
+from fem.physics.equations import Heat, Projection, Poisson, LinearElastic, Wave
 from fem.solver import Solver
-from fem.integrators import NewmarkMethod, ThetaMethod, wave_energy
+from fem.algebra.integrators import NewmarkMethod, ThetaMethod, wave_energy
 
 
 def _on(equation, mesh, bc=None):

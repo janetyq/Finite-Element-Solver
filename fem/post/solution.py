@@ -2,20 +2,24 @@
 
 A `FieldSolution` carries the unknown `u`; `ElasticSolution` adds the recovered
 stress fields; `TransientSolution` is a time series and `WaveSolution` adds the
-velocity series. `save`/`load` round-trip any of them through `fem.io`, which
+velocity series. `save`/`load` round-trip any of them through `fem.post.io`, which
 reflects over the dataclass fields.
+
+`save` and `load` import `fem.post.io` lazily: I/O reads the solution types, so the edge
+points up and stays function-local.
 """
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from fem import invariants
+from fem.post import invariants
+from fem.post import recovery
 from fem.typing import DofVector, ElementField, FloatArray
 
 if TYPE_CHECKING:
     from fem.elements import Element
-    from fem.forms import RecoversElasticFields
+    from fem.physics.forms import RecoversElasticFields
     from fem.mesh.mesh import Mesh
     from fem.problem import Problem
     from fem.space import FunctionSpace
@@ -44,12 +48,12 @@ class Solution:
         return self.space.element_type
 
     def save(self, path: str) -> None:
-        from fem.io import save_solution
+        from fem.post.io import save_solution
         save_solution(self, path)
 
     @staticmethod
     def load(path: str) -> 'Solution':
-        from fem.io import load_solution
+        from fem.post.io import load_solution
         return load_solution(path)
 
 
@@ -92,9 +96,9 @@ class ScalarFieldSolution(FieldSolution):
     def nodal_flux(self, method: str = 'average') -> FloatArray:
         '''(n_nodes, spatial_dim) continuous flux at the nodes.
 
-        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.nodal_gradient`.
+        `method` is the recovery (`'average'` or `'l2'`); see `fem.post.recovery`.
         '''
-        return self.space.nodal_gradient(self.u, method=method)
+        return recovery.nodal_gradient(self.space, self.u, method=method)
 
 
 @dataclass(frozen=True, eq=False)
@@ -115,7 +119,7 @@ class ElasticSolution(FieldSolution):
         default=None, kw_only=True, repr=False, metadata={'persist': False})
 
     def __post_init__(self) -> None:
-        # `fem.io` rebuilds this from stored arrays without checking their rank.
+        # `fem.post.io` rebuilds this from stored arrays without checking their rank.
         for name in ('strain', 'stress'):
             value = getattr(self, name)
             if np.ndim(value) != 3:
@@ -161,18 +165,18 @@ class ElasticSolution(FieldSolution):
 
     def _nodal_field(self, name: str, method: str) -> FloatArray:
         if self.form is None:
-            return self.space.recover_nodal(getattr(self, name), method=method)
+            return recovery.recover_nodal(self.space, getattr(self, name), method=method)
         space = self.space
         u_elements = np.asarray(self.u).reshape(-1, self.n_components)[space.element_nodes]
         if method == 'average':
-            fields = self.form.fields_at(space.geometry_at_nodes, u_elements)
-            return space.average_to_nodal(getattr(fields, name))
+            fields = self.form.sample(space.geometry_at_nodes, u_elements)
+            return recovery.average_to_nodal(space, getattr(fields, name))
         if method == 'l2':
             # A degree-p field's gradient is degree p - 1; the rule that integrates its
             # product with a shape function exactly is 2p - 1, and 2p is the cached one.
             geometry = space.geometry_at(2 * space.element_type.SHAPE_DEGREE)
-            fields = self.form.fields_at(geometry, u_elements)
-            return space.project_to_nodal(getattr(fields, name), geometry)
+            fields = self.form.sample(geometry, u_elements)
+            return recovery.project_to_nodal(space, getattr(fields, name), geometry)
         raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
 
     def nodal_von_mises(self, method: str = 'average') -> FloatArray:

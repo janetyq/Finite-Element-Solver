@@ -28,20 +28,20 @@ space assembles each term over its own domain.
 """
 from dataclasses import dataclass
 from numbers import Real
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
 import numpy as np
 
-from fem.backends import rigid_body_modes
 from fem.elements import ElementGeometry
-from fem.energies import StrainEnergyDerivatives
-from fem.materials import LinearElasticMaterial
-from fem.postprocess import DerivedField, GradientField, StressField
+from fem.physics.energies import StrainEnergyDerivatives
+from fem.physics.materials import LinearElasticMaterial
+from fem.physics.derived import DerivedField, GradientField, StressField
+from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 from fem.regions import evaluate_field
-from fem.typing import BoolArray, ElementField, FieldValue, FloatArray
+from fem.typing import BoolArray, ElementField, FieldValue, FloatArray, Vertices
 
 if TYPE_CHECKING:
-    from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
     from fem.space import FunctionSpace
 
 
@@ -52,7 +52,7 @@ def strain_displacement(grad_phi: FloatArray) -> FloatArray:
     axes, so it takes either `(n_elements, n_nodes, dim)` or the quadrature-aware
     `(n_elements, n_qp, n_nodes, dim)` and returns those same leading axes followed
     by `(n_strains, n_nodes*dim)`. Strain is ordered [xx, yy, (zz,) engineering
-    shears] to match the rows and columns of `fem.materials.hooke_matrix`. DOFs are
+    shears] to match the rows and columns of `fem.physics.materials.hooke_matrix`. DOFs are
     interleaved per node, so column `dim*n + d` is node n's displacement component d.
     '''
     *batch, n_nodes, dim = grad_phi.shape
@@ -174,7 +174,7 @@ class RecoversElasticFields(Protocol):
     the attribute exists, not that its signature matches.
     '''
 
-    def fields_at(
+    def sample(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> ElasticPointFields:
         '''Strain and stress at every point of `geometry`'s rule.
@@ -195,7 +195,7 @@ class RecoversElasticFields(Protocol):
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> ElasticFields:
         '''One strain, stress, and compliance per element, from `(n_elements, N,
-        n_components)` nodal values: the element mean of `fields_at` over the rule.'''
+        n_components)` nodal values: the element mean of `sample` over the rule.'''
         ...
 
 
@@ -209,7 +209,7 @@ def _element_mean(values: FloatArray, weight_detJ: FloatArray) -> FloatArray:
     return np.einsum('eq,eq...->e...', weights, values)
 
 
-class Form:
+class Form(ABC):
     '''Element residual and tangent at a nodal state: what a `Problem` assembles.
 
     A subclass writes `element_residuals` and `element_tangents`. Everything else is
@@ -264,13 +264,13 @@ class Form:
         '''(n_elements, k, k) constant element matrices; defined when `constant_tangent`.'''
         raise TypeError(f'{type(self).__name__} has a state-dependent tangent and no constant matrices')
 
+    @abstractmethod
     def element_residuals(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, k) internal-force blocks at the state, k = N * n_components.'''
-        raise NotImplementedError
 
+    @abstractmethod
     def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, k, k) tangent blocks at the state.'''
-        raise NotImplementedError
 
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements,) stored energy per element at the state; defined when `has_energy`.'''
@@ -286,7 +286,6 @@ class Form:
     def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'FieldSolution':
         '''Package a solved DOF vector as the typed `Solution` this physics recovers:
         a bare `FieldSolution` unless a subclass recovers more.'''
-        from fem.solution import FieldSolution
         return FieldSolution(space, u)
 
 
@@ -427,8 +426,40 @@ class DiffusionForm(BilinearForm):
         return GradientField()
 
     def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ScalarFieldSolution':
-        from fem.solution import ScalarFieldSolution
         return ScalarFieldSolution.from_solve(space, u)
+
+
+def rigid_body_modes(vertices: Vertices, n_components: int) -> FloatArray:
+    '''The rigid-body modes of an elastic body: the AMG near-kernel for elasticity.
+
+    Rigid translations and (infinitesimal) rotations produce no strain, so they lie
+    in the kernel of the unconstrained stiffness: the low-energy modes a plain
+    smoother cannot damp and the coarse levels must represent. Feeding them to AMG
+    keeps CG's iteration count flat under mesh refinement for a lightly constrained
+    body; the constant vector pyamg assumes by default does not.
+
+    Returns `(n_dofs, n_modes)` in the interleaved DOF order (component `d` of node
+    `v` at `n_components*v + d`): 3 modes in 2D (two translations, one rotation), 6
+    in 3D (three of each). Restrict the rows to the free DOFs before use, so the
+    block matches the one `IterativeBackend` is handed.
+    '''
+    n = len(vertices)
+    if n_components == 2:
+        x, y = vertices[:, 0], vertices[:, 1]
+        B = np.zeros((2 * n, 3))
+        B[0::2, 0] = 1.0                      # translate x
+        B[1::2, 1] = 1.0                      # translate y
+        B[0::2, 2], B[1::2, 2] = -y, x        # rotate in-plane: (-y, x)
+        return B
+    if n_components == 3:
+        x, y, z = vertices[:, 0], vertices[:, 1], vertices[:, 2]
+        B = np.zeros((3 * n, 6))
+        B[0::3, 0] = B[1::3, 1] = B[2::3, 2] = 1.0   # three translations
+        B[1::3, 3], B[2::3, 3] = -z, y               # rotate about x: (0, -z, y)
+        B[0::3, 4], B[2::3, 4] = z, -x               # rotate about y: (z, 0, -x)
+        B[0::3, 5], B[1::3, 5] = -y, x               # rotate about z: (-y, x, 0)
+        return B
+    raise ValueError(f'rigid-body modes are defined for 2D or 3D elasticity, not n_components={n_components}')
 
 
 @dataclass(frozen=True)
@@ -451,7 +482,6 @@ class LinearElasticForm(BilinearForm):
         return StressField(self)
 
     def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ElasticSolution':
-        from fem.solution import ElasticSolution
         return ElasticSolution.from_solve(space, u, self)
 
     def near_null_space(self, space: 'FunctionSpace') -> FloatArray:
@@ -459,7 +489,7 @@ class LinearElasticForm(BilinearForm):
         # and AMG wants the modes at every DOF.
         return rigid_body_modes(space.node_coords, space.n_components)
 
-    def fields_at(
+    def sample(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> ElasticPointFields:
         '''Strain and stress at every point of `geometry`'s rule.
@@ -497,11 +527,11 @@ class LinearElasticForm(BilinearForm):
     ) -> ElasticFields:
         '''Element strain, stress, and compliance from nodal displacements.
 
-        Strain and stress are the element mean of `fields_at` over the rule: the
+        Strain and stress are the element mean of `sample` over the rule: the
         exact value for P1 and the centroid value for a straight P2 triangle.
         Compliance is `∫ sigma : eps` over the element.
         '''
-        fields = self.fields_at(geometry, u_elements)
+        fields = self.sample(geometry, u_elements)
         # The full double contraction. eps_zz is zero under plane strain, so the
         # lift above leaves this equal to the in-plane Voigt dot product it replaces.
         compliance = np.einsum('eqij,eqij,eq->e', fields.stress, fields.strain,
@@ -698,7 +728,7 @@ class PrecomputedForm(BilinearForm):
 
 
 class EnergyDensity(Protocol):
-    '''The material law an `EnergyForm` integrates: `fem.energies` implements it.'''
+    '''The material law an `EnergyForm` integrates: `fem.physics.energies` implements it.'''
 
     energy_degree: int
     '''Polynomial degree of W in the displacement gradient, setting the quadrature rule.'''
@@ -730,7 +760,7 @@ class EnergyForm(Form):
     A quadratic energy gives a constant tangent independent of the state; the
     `LinearElasticForm` is that special case as a `BilinearForm`.
 
-    The physics is delegated to an energy density (`fem.energies`), which evaluates
+    The physics is delegated to an energy density (`fem.physics.energies`), which evaluates
     the full derivative chain once for the whole mesh and returns a
     `StrainEnergyDerivatives` bundle (derivatives of W, distinct from those of the
     total potential Pi this form builds). It contracts those against `dF_dx` (the
@@ -845,10 +875,9 @@ class EnergyForm(Form):
         return StressField(self)
 
     def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ElasticSolution':
-        from fem.solution import ElasticSolution
         return ElasticSolution.from_solve(space, u, self)
 
-    def fields_at(
+    def sample(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> ElasticPointFields:
         '''Strain and Cauchy stress at every point of `geometry`'s rule; see `_point_state`.'''
@@ -860,7 +889,7 @@ class EnergyForm(Form):
     ) -> ElasticFields:
         '''Element strain, Cauchy stress, and compliance at a solved displacement.
 
-        Strain and stress are the element mean of `fields_at` over the rule,
+        Strain and stress are the element mean of `sample` over the rule,
         matching the linear path. Compliance is twice the stored energy integrated
         over the element, which for a quadratic W is `∫ S : E`, the work-conjugate
         pair. Contracting the reported Cauchy stress with E instead mixes measures

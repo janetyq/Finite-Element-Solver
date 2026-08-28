@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_array
 
-from fem.solve import EigenSolve
+from fem.algebra.solve import EigenSolve
 
 
 def diagonal(values):

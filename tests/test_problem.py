@@ -6,14 +6,14 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
-from fem.energies import StVenantKirchhoff
-from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm, ScaledForm
-from fem.materials import LinearElasticMaterial
+from fem.physics.energies import StVenantKirchhoff
+from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, ScaledForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.numerics import central_difference_order
 from fem.problem import LinearProblem, Problem
 from fem.regions import everywhere, on_plane
-from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
-from fem.equations import Heat, LinearElastic, Poisson, Projection, FiniteStrainElastic
+from fem.algebra.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
+from fem.physics.equations import Heat, LinearElastic, Poisson, Projection, FiniteStrainElastic
 from fem.solver import Solver
 from fem.space import FunctionSpace
 
@@ -89,7 +89,7 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     """`Problem.solve` packages by physics: stress for an elastic operator, flux for
     a diffusion one, a bare field for a projection. The facade returns the same typed
     result."""
-    from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
+    from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 
     mesh = make_unit_square(8)
     bc = BoundaryConditions(
@@ -113,7 +113,7 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
 
 
 def test_finite_strain_problem_packages_an_elastic_solution(make_unit_square):
-    from fem.solution import ElasticSolution
+    from fem.post.solution import ElasticSolution
 
     space = FunctionSpace(make_unit_square(5), n_components=2)
     bc = BoundaryConditions(
@@ -348,7 +348,7 @@ def test_linear_problem_refuses_a_state_dependent_operator(make_unit_square):
 def test_problem_solve_is_the_strategy_solve_packaged(make_unit_square):
     """`Problem.solve()` returns the same typed solution as solving with the default
     strategy by hand; a strategy and a backend together are refused."""
-    from fem.backends import DirectBackend
+    from fem.algebra.backends import DirectBackend
     problem = _poisson_problem(make_unit_square(8))
     by_hand = problem.solution(LinearSolve().solve(problem))
     solution = problem.solve()
@@ -393,7 +393,7 @@ def test_equation_problem_takes_a_mesh_or_a_space(make_unit_square):
 def test_mass_is_the_density_scaled_mass_matrix_held_across_operators(make_unit_square):
     """`Problem.mass` is density times the space's mass matrix, assembled once, and a
     problem derived with `with_operator` keeps it."""
-    from fem.forms import MassForm
+    from fem.physics.forms import MassForm
     mesh = make_unit_square(5)
     problem = Heat(capacity=3.0).problem(mesh)
     assert problem.density == 3.0

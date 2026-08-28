@@ -4,11 +4,19 @@ The project's modules import matplotlib (via Plotter). Force the non-interactive
 Agg backend so importing/exercising them never tries to open a window — required
 for headless/CI runs.
 """
+import sys
+from pathlib import Path
+
 import matplotlib
 
 matplotlib.use("Agg")
 
 import pytest
+
+# `examples/` is a directory of scripts rather than a package (cli.py imports its
+# siblings by bare name), so it goes on the path once here for every test that
+# imports a demo or the MMS studies in `examples/mms.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
 
 from fem.mesh.structured import box_mesh
 

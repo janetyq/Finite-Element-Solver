@@ -8,7 +8,7 @@ gradients and a measure. It holds no per-element data, so a program has exactly 
 The per-element data lives in `ElementGeometry`, which holds it for the whole mesh
 at once: an `(n_elements, n_qp, N, spatial_dim)` array of `grad_phi` (one shape
 gradient per element and quadrature point) with the matching `(n_elements, n_qp)`
-quadrature weights, so `fem.forms` computes every element matrix in one vectorized
+quadrature weights, so `fem.physics.forms` computes every element matrix in one vectorized
 pass. A linear element's gradient is constant across the points, so P1 is the
 single-point (`n_qp == 1`) special case.
 
@@ -20,13 +20,15 @@ from dataclasses import dataclass
 from math import factorial
 from typing import ClassVar
 
+from abc import ABC, abstractmethod
+
 import numpy as np
 
 from fem.quadrature import QuadratureRule, quadrature_rule
 from fem.typing import ElementVertices, FloatArray, Matrix
 
 
-class Element:
+class Element(ABC):
     '''Base class for a simplex element: a shape, its nodes, and its shape functions.
 
     An element is defined by its node count `N`, the polynomial degree of its shape
@@ -108,14 +110,14 @@ class Element:
         return max(1, 2 * (cls.SHAPE_DEGREE - 1))
 
     @classmethod
+    @abstractmethod
     def shape_values(cls, points: FloatArray) -> FloatArray:
         '''(n_points, N) shape functions at reference `points` (n_points, reference_dim).'''
-        raise NotImplementedError
 
     @classmethod
+    @abstractmethod
     def shape_gradients(cls, points: FloatArray) -> FloatArray:
         '''(n_points, N, reference_dim) reference-coordinate shape gradients.'''
-        raise NotImplementedError
 
     @classmethod
     def shape_hessians(cls, points: FloatArray) -> FloatArray:

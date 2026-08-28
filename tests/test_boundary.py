@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
-from fem.equations import LinearElastic
+from fem.physics.equations import LinearElastic
 from fem.regions import at_indices, intersect, on_plane
 from fem.solver import Solver
 

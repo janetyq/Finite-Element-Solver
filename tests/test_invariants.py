@@ -6,8 +6,8 @@ counts an off-diagonal term once where the tensor holds it twice), which
 import numpy as np
 import pytest
 
-from fem.forms import voigt_to_tensor
-from fem.invariants import (
+from fem.physics.forms import voigt_to_tensor
+from fem.post.invariants import (
     deviatoric,
     frobenius,
     max_shear,

@@ -12,14 +12,14 @@ import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.elements import QuadraticTriangleElement
-from fem.energies import NeohookeanEnergyDensity
-from fem.equations import FiniteStrainElastic, LinearElastic
-from fem.forms import EnergyForm
+from fem.physics.energies import NeohookeanEnergyDensity
+from fem.physics.equations import FiniteStrainElastic, LinearElastic
+from fem.physics.forms import EnergyForm
 from fem.mesh.structured import box_mesh
 from fem.numerics import central_difference_order
 from fem.regions import on_plane
-from fem.solution import ElasticSolution
-from fem.solve import BacktrackingLineSearch, NewtonSolve
+from fem.post.solution import ElasticSolution
+from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
 from fem.solver import Solver
 
 

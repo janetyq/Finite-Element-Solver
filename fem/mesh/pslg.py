@@ -4,6 +4,9 @@ A `PSLG` is drawn by hand from loops (`PSLG.from_loops`, `PSLG.circle`), or read
 SVG (`fem.mesh.svg.read_svg_to_pslg`), and meshed with `pslg.mesh(...)`, which runs
 Ruppert's Delaunay refinement. The polygon helpers it needs (area, point-in-polygon,
 segment crossing) live here beside it.
+
+`PSLG.mesh` imports `fem.mesh.ruppert` lazily: the mesher consumes a `PSLG`, so the edge
+points up and stays function-local.
 """
 from collections import defaultdict
 from collections.abc import Sequence

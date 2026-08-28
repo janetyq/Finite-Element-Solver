@@ -29,17 +29,17 @@ from fem.elements import (
     IsoparametricTriangleElement,
     QuadraticTriangleElement,
 )
-from fem.equations import Heat, LinearElastic, Poisson
-from fem.forms import DiffusionForm, LinearElasticForm
-from fem.integrators import ThetaMethod
-from fem.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.physics.equations import Heat, LinearElastic, Poisson
+from fem.physics.forms import DiffusionForm, LinearElasticForm
+from fem.algebra.integrators import ThetaMethod
+from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import annulus_mesh, box_mesh
 from fem.loads import NodalSource, Source
 from fem.problem import LinearProblem
 from fem.regions import everywhere
-from fem.solution import FieldSolution, TransientSolution
-from fem.solve import LinearSolve
+from fem.post.solution import FieldSolution, TransientSolution
+from fem.algebra.solve import LinearSolve
 from fem.solver import Solver
 from fem.space import FunctionSpace
 from fem.typing import FloatArray, Vertices, VertexField

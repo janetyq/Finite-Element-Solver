@@ -12,6 +12,9 @@ derives it from the equation one layer up.
 
 The cached operators are valid only while the mesh is not mutated underneath them.
 Build a new space instead of editing one.
+
+`assemble_load` imports `fem.loads` lazily: a `Source` is written against the space, so the
+edge points up and stays function-local (`loads` imports the space the same way).
 """
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -28,13 +31,12 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import Form, MassForm
+from fem.physics.forms import Form, MassForm
 from fem.mesh.mesh import Mesh
 from fem.regions import evaluate_field
 from fem.typing import (
     DofIndices,
     DofVector,
-    ElementField,
     Elements,
     FieldValue,
     FloatArray,
@@ -48,7 +50,6 @@ if TYPE_CHECKING:
     from fem.loads import Source
 
 from scipy.sparse import csr_array
-from scipy.sparse.linalg import spsolve
 
 
 def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndices:
@@ -244,61 +245,6 @@ def p2_connectivity(
     return element_nodes, node_coords, boundary_nodes
 
 
-def _reference_subtriangulation(subdivisions: int) -> tuple[FloatArray, IntArray]:
-    '''Uniform split of the reference triangle into `subdivisions**2` sub-triangles.
-
-    Returns `(points, triangles)`: the barycentric lattice `{(i/k, j/k): i + j <= k}`
-    in reference `(xi, eta)` coordinates, and a structured triangulation of it. Sampling
-    a P2 element's shape functions at this lattice traces the element's true (curved)
-    image; the triangles tessellate it into the flat pieces matplotlib can draw.
-    '''
-    if subdivisions < 1:
-        raise ValueError(f'subdivisions must be at least 1, got {subdivisions}')
-    k = subdivisions
-    index: dict[tuple[int, int], int] = {}
-    points: list[tuple[float, float]] = []
-    for j in range(k + 1):
-        for i in range(k - j + 1):
-            index[(i, j)] = len(points)
-            points.append((i / k, j / k))
-    triangles: list[list[int]] = []
-    for j in range(k):
-        for i in range(k - j):
-            triangles.append([index[(i, j)], index[(i + 1, j)], index[(i, j + 1)]])
-            if i < k - j - 1:   # the downward triangle filling the gap above
-                triangles.append(
-                    [index[(i + 1, j)], index[(i + 1, j + 1)], index[(i, j + 1)]])
-    return np.array(points, dtype=float), np.array(triangles, dtype=int)
-
-
-@dataclass(frozen=True)
-class PlotTessellation:
-    '''A curved element space sampled into flat sub-triangles for display.
-
-    `points`/`triangles` are a fine straight-sided triangulation whose vertices sit on
-    the true element geometry, so matplotlib draws a curved boundary as a chord chain
-    fine enough to read as smooth. `interpolate` samples a per-node field at the same
-    points, so a P2 field shows its within-element curvature instead of being flattened
-    to one triangle per element. A display tessellation only: it adds no error to the
-    solve, it just controls how faithfully the computed geometry and field are drawn.
-    '''
-    points: FloatArray            # (n_el * n_sub, spatial)
-    triangles: IntArray           # (n_el * n_ref_tris, 3) into `points`
-    _sample: FloatArray           # (n_sub, N) shape functions at the reference sub-points
-    _element_nodes: IntArray      # (n_el, N) global node index per element
-
-    def interpolate(self, nodal: FloatArray) -> FloatArray:
-        '''Sample a per-node field at the tessellation points, aligned with `points`.
-
-        `nodal` is one value (or component vector) per space node; the result is the
-        field evaluated at every sub-point through the same shape functions the geometry
-        used, so a quadratic field is drawn quadratically within each element.
-        '''
-        vals = np.asarray(nodal)[self._element_nodes]              # (n_el, N[, comp])
-        sampled = np.einsum('sn,en...->es...', self._sample, vals)  # (n_el, n_sub[, comp])
-        return sampled.reshape(-1, *sampled.shape[2:])
-
-
 class FunctionSpace:
     '''A finite element space over `mesh`: an element, its node numbering, and
     `n_components` DOFs per node. P1 numbers DOFs on the mesh vertices; P2 adds a
@@ -439,47 +385,6 @@ class FunctionSpace:
         '''The same, for the boundary facets: embedded elements, so a wider grad_phi.'''
         return self.boundary_type.geometry(self.node_coords[self.boundary_nodes])
 
-    # -- display tessellation -----------------------------------------------
-
-    def tessellation(self, subdivisions: int = 3,
-                     node_coords: FloatArray | None = None) -> PlotTessellation:
-        '''Sample every element into `subdivisions**2` flat sub-triangles on its true
-        geometry, for a plot that follows a curved boundary and a P2 field.
-
-        Each element's shape functions are evaluated at a reference sub-lattice and
-        mapped through the element's own nodes, the same geometry map `Element.geometry`
-        integrates over, so boundary sub-points land on the true curve and interior ones
-        stay flat. See `PlotTessellation`.
-
-        `node_coords` overrides the node positions the sub-points are mapped through,
-        `(n_nodes, spatial)` like `self.node_coords`. Passing the deformed positions
-        (node coords plus a nodal displacement) tessellates the deformed configuration, so
-        a P2 field can be drawn on the warped shape rather than only the reference one.
-        '''
-        coords_of = self.node_coords if node_coords is None else np.asarray(node_coords)
-        ref_points, ref_triangles = _reference_subtriangulation(subdivisions)
-        sample = self.element_type.shape_values(ref_points)       # (n_sub, N)
-        element_nodes = np.asarray(self.element_nodes)
-        coords = coords_of[element_nodes]                         # (n_el, N, spatial)
-        points = np.einsum('sn,end->esd', sample, coords)         # (n_el, n_sub, spatial)
-        n_el, n_sub = points.shape[0], points.shape[1]
-        points = points.reshape(n_el * n_sub, -1)
-        offsets = (np.arange(n_el) * n_sub)[:, None, None]
-        triangles = (ref_triangles[None] + offsets).reshape(-1, 3)
-        return PlotTessellation(points, triangles, sample, element_nodes)
-
-    def boundary_polylines(self, subdivisions: int = 3) -> FloatArray:
-        '''`(n_facets, subdivisions + 1, spatial)` boundary facets on their true curve.
-
-        Each boundary facet sampled through the boundary element's geometry map, so a
-        curved facet draws as a smooth polyline; a straight facet comes back as a
-        straight sampled line.
-        '''
-        xi = np.linspace(0.0, 1.0, subdivisions + 1)[:, None]     # (k+1, 1)
-        sample = self.boundary_type.shape_values(xi)              # (k+1, boundary_N)
-        facet_coords = self.node_coords[self.boundary_nodes]      # (n_facets, boundary_N, spatial)
-        return np.einsum('sn,end->esd', sample, facet_coords)
-
     @property
     def element_volumes(self) -> FloatArray:
         '''(n_elements,) element measure: length, area, or volume.'''
@@ -529,23 +434,6 @@ class FunctionSpace:
         weights = geometry.weight_detJ / geometry.weight_detJ.sum(axis=1, keepdims=True)
         return np.einsum('eq,eqi->ei', weights, geometry.gradients(u[self.element_nodes]))
 
-    def nodal_gradient(self, u: VertexField, method: str = 'average') -> VertexField:
-        '''(n_nodes, spatial_dim) continuous gradient of a nodal field.
-
-        `'average'` evaluates each element's gradient at its own nodes and volume-averages
-        the elements sharing a node; `'l2'` projects the gradient sampled at quadrature
-        points onto the nodal space. Both read a P2 gradient's variation within the
-        element, so a boundary node gets the boundary value rather than an interior one.
-        For P1 both agree with `recover_nodal(gradient(u), method)`.
-        '''
-        u_elements = np.asarray(u)[self.element_nodes]
-        if method == 'average':
-            return self.average_to_nodal(self.geometry_at_nodes.gradients(u_elements))
-        if method == 'l2':
-            geometry = self.geometry_at(2 * self.element_type.SHAPE_DEGREE)
-            return self.project_to_nodal(geometry.gradients(u_elements), geometry)
-        raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
-
     def element_field_hessian(self, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, spatial, spatial[, n_components]) physical Hessian of a field.
 
@@ -569,123 +457,12 @@ class FunctionSpace:
         h_phys = np.einsum('eri,ars,esj->eaij', jac_inv, h_ref, jac_inv)
         return np.einsum('eaij,ea...->eij...', h_phys, np.asarray(u_elements, dtype=float))
 
-    # -- projections between element and nodal fields -----------------------
-
-    def recover_nodal(self, values: ElementField, method: str = 'average') -> VertexField:
-        '''Recover a continuous nodal field from a per-element one.
-
-        Takes `(n_elements,)` or `(n_elements, *component_shape)` and returns
-        `(n_nodes,)` or `(n_nodes, *component_shape)`, each component recovered
-        independently. This is the smooth field nodal output and P2 plotting draw.
-
-        `method` picks the recovery:
-
-        - `'average'` (default): the volume-weighted nodal average. Local and cheap.
-          Volume-weighted so that on a graded mesh a sliver does not count as much as
-          the large element beside it.
-        - `'l2'`: the global L2 projection onto the nodal space, `M q = ∫ f φ`. A mass
-          solve, more accurate on a graded mesh, and it conserves the field's integral.
-        '''
-        values = np.asarray(values, dtype=float)
-        if len(values) != len(self.element_nodes):
-            raise ValueError(
-                f'expected one value per element ({len(self.element_nodes)}), '
-                f'got {len(values)}'
-            )
-        if method == 'average':
-            return self._recover_nodal_average(values)
-        if method == 'l2':
-            return self._recover_nodal_l2(values)
-        raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
-
-    def _recover_nodal_average(self, values: FloatArray) -> VertexField:
-        '''The volume-weighted nodal average of a per-element field.'''
-        n_local = self.element_nodes.shape[1]
-        per_node = np.repeat(values[:, None, ...], n_local, axis=1)
-        return self.average_to_nodal(per_node)
-
-    def average_to_nodal(self, values_at_nodes: FloatArray) -> VertexField:
-        '''Volume-weighted nodal average of a field sampled at each element's nodes.
-
-        `values_at_nodes` is `(n_elements, N, *component_shape)`: element e's reading
-        of the field at its N nodes, as `fields_at(space.geometry_at_nodes, ...)`
-        produces. A node shared by several elements gets their readings averaged,
-        weighted by element volume. This is `recover_nodal('average')` for a field
-        that varies within the element; for an element-constant field the two agree.
-        '''
-        values_at_nodes = np.asarray(values_at_nodes, dtype=float)
-        nodes = self.element_nodes
-        if values_at_nodes.shape[:2] != nodes.shape:
-            raise ValueError(
-                f'expected one value per element node {nodes.shape}, '
-                f'got {values_at_nodes.shape[:2]}'
-            )
-        weights = self.element_volumes
-        n_local = nodes.shape[1]
-        flat = nodes.ravel()
-        trailing = values_at_nodes.shape[2:]
-
-        # Scatter each element's volume-weighted readings onto its own nodes; `add.at`
-        # accumulates, so a shared node sums its elements' contributions.
-        w = weights.reshape((-1, 1) + (1,) * len(trailing))
-        weighted = (values_at_nodes * w).reshape(len(flat), *trailing)
-        sums = np.zeros((self.n_nodes, *trailing))
-        np.add.at(sums, flat, weighted)
-        norms = np.bincount(flat, weights=np.repeat(weights, n_local), minlength=self.n_nodes)
-        # Every referenced node belongs to at least one element; an unreferenced one
-        # would divide by zero, so it keeps 0 instead.
-        norms = np.where(norms > 0, norms, 1.0).reshape((-1,) + (1,) * len(trailing))
-        return sums / norms
-
-    def _recover_nodal_l2(self, values: FloatArray) -> VertexField:
-        '''The L2 projection of a per-element field onto the nodal space: solve M q = b.
-
-        `b_i = ∫ f φ_i`, and with `f` element-constant that is `Σ_e f_e ∫_e φ_i`, built
-        from the same rule the mass matrix integrates with so `M⁻¹ b` is the exact
-        projection. Each trailing component is one right-hand side against the shared
-        scalar mass matrix.
-        '''
-        geometry = self.geometry
-        # The integral of each shape function over each element: (n_elements, N).
-        shape_integral = np.einsum('eq,qn->en', geometry.weight_detJ, geometry.shape)
-        nodes = self.element_nodes
-        n_local = nodes.shape[1]
-        trailing = values.shape[1:]
-
-        contrib = (shape_integral.reshape(len(values), n_local, *((1,) * len(trailing)))
-                   * values[:, None, ...])
-        load = np.zeros((self.n_nodes, *trailing))
-        np.add.at(load, nodes.ravel(), contrib.reshape(len(values) * n_local, *trailing))
-
-        projected = spsolve(self._nodal_mass_matrix, load.reshape(self.n_nodes, -1))
-        return np.asarray(projected).reshape(self.n_nodes, *trailing)
-
-    def project_to_nodal(self, values_qp: FloatArray, geometry: ElementGeometry) -> VertexField:
-        '''L2-project a per-quadrature-point field onto the continuous nodal space.
-
-        `values_qp` is `(n_elements, n_qp, *component_shape)`, a field sampled at
-        `geometry`'s quadrature points. Solves `M q = b` with `b_i = Σ_e Σ_q w_eq φ_i(x_eq)
-        f_eq`, the L2 projection of that field, recovering each trailing component against
-        the shared scalar mass matrix.
-
-        This generalizes `recover_nodal('l2')` from an element-constant field to one that
-        varies within the element, as a P2 derived field does. `geometry` must be the space's own geometry so its shape functions
-        and node numbering line up with the nodal space `M` is built on.
-        '''
-        values_qp = np.asarray(values_qp, dtype=float)
-        trailing = values_qp.shape[2:]
-        nodes = self.element_nodes
-        n_local = nodes.shape[1]
-        # b[e, n, ...] = Σ_q weight_detJ[e,q] shape[q,n] f[e,q,...]
-        contrib = np.einsum('eq,qn,eq...->en...', geometry.weight_detJ, geometry.shape, values_qp)
-        load = np.zeros((self.n_nodes, *trailing))
-        np.add.at(load, nodes.ravel(), contrib.reshape(len(nodes) * n_local, *trailing))
-        projected = spsolve(self._nodal_mass_matrix, load.reshape(self.n_nodes, -1))
-        return np.asarray(projected).reshape(self.n_nodes, *trailing)
+    # -- the scalar mass matrix nodal recovery projects against ------------
 
     @cached_property
-    def _nodal_mass_matrix(self) -> SparseMatrix:
-        '''The scalar (n_nodes x n_nodes) consistent mass matrix, for L2 nodal recovery.
+    def nodal_mass_matrix(self) -> SparseMatrix:
+        '''The scalar (n_nodes x n_nodes) consistent mass matrix, for L2 nodal recovery
+        (`fem.post.recovery`).
 
         A vector space's `mass_matrix` is block-interleaved over its components, but
         recovery projects each scalar component on its own, so it needs the one-component

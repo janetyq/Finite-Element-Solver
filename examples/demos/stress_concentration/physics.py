@@ -11,15 +11,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.adaptivity import AdaptiveRefinement
+from fem.analysis.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import IsoparametricTriangleElement
-from fem.equations import LinearElastic
-from fem.estimators import RecoveryEstimator
+from fem.physics.equations import LinearElastic
+from fem.analysis.estimators import RecoveryEstimator
 from fem.mesh.mesh import Mesh
 from fem.mesh.pslg import PSLG
 from fem.regions import intersect, on_plane
-from fem.solution import ElasticSolution
+from fem.post.solution import ElasticSolution
 
 from domains import plate_with_hole_pslg
 

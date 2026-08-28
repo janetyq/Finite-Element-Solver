@@ -14,16 +14,16 @@ small-strain `EnergyForm` fills the off-diagonal cell, so each axis can be varie
 import numpy as np
 import pytest
 
-from fem.backends import MinresBackend
+from fem.algebra.backends import MinresBackend
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.materials import LinearElasticMaterial
+from fem.physics.materials import LinearElasticMaterial
 from fem.problem import Problem
 from fem.regions import on_plane
-from fem.equations import LinearElastic, FiniteStrainElastic
+from fem.physics.equations import LinearElastic, FiniteStrainElastic
 from fem.solver import Solver
-from fem.solve import BacktrackingLineSearch, NewtonSolve, TangentRegularization
-from fem.energies import SmallStrain, StVenantKirchhoff
-from fem.forms import EnergyForm
+from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve, TangentRegularization
+from fem.physics.energies import SmallStrain, StVenantKirchhoff
+from fem.physics.forms import EnergyForm
 from fem.numerics import central_difference_order
 
 

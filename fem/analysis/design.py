@@ -3,7 +3,7 @@
 `SIMPModel` is the specification: a small-strain elastic `LinearProblem` whose
 stiffness a density field dilutes as `E(rho) = rho^p E0`. `DesignOptimizer` is
 the driver: each iteration solves the diluted problem, scores a `QuantityOfInterest`,
-takes its gradient through `fem.sensitivity`, filters it, and moves the density by the
+takes its gradient through `fem.analysis.sensitivity`, filters it, and moves the density by the
 optimality-criteria (OC) update under a volume constraint.
 
 Scope: a single volume constraint, the setting where OC applies. A general constrained
@@ -19,17 +19,17 @@ import numpy as np
 from scipy.sparse import csr_array
 from scipy.spatial import KDTree
 
-from fem.forms import LinearElasticForm, PrecomputedForm
-from fem.materials import LinearElasticMaterial
+from fem.physics.forms import LinearElasticForm, PrecomputedForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.problem import LinearProblem, Problem
-from fem.sensitivity import (
+from fem.analysis.sensitivity import (
     Compliance,
     DensityField,
     QuantityOfInterest,
     SensitivityAnalysis,
 )
-from fem.solution import ElasticSolution
+from fem.post.solution import ElasticSolution
 from fem.space import FunctionSpace
 from fem.typing import DofVector, ElementField, FloatArray, SparseMatrix
 
@@ -151,7 +151,7 @@ class SIMPModel:
     def __post_init__(self) -> None:
         operator = self.template.physics
         if not isinstance(operator, LinearElasticForm):
-            raise ValueError(
+            raise TypeError(
                 'SIMP rescales a small-strain elastic stiffness; the operator is '
                 f'{type(operator).__name__}'
             )

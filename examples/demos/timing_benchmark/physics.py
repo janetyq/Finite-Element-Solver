@@ -20,11 +20,11 @@ import time
 from dataclasses import dataclass
 
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.backends import DirectBackend, IterativeBackend
+from fem.algebra.backends import DirectBackend, IterativeBackend
 from fem.mesh.structured import box_mesh
-from fem.equations import LinearElastic
+from fem.physics.equations import LinearElastic
 from fem.regions import everywhere
-from fem.system import DiscreteSystem
+from fem.algebra.system import DiscreteSystem
 
 logging.disable(logging.CRITICAL)  # silence per-solve logging for clean timing
 

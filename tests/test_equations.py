@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.equations import Equation, LinearElastic, Poisson, Projection, FiniteStrainElastic
-from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
+from fem.physics.equations import Equation, LinearElastic, Poisson, Projection, FiniteStrainElastic
+from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
 from fem.regions import everywhere
 from fem.problem import LinearProblem, Problem
 from fem.space import FunctionSpace
@@ -26,8 +26,8 @@ def test_poisson_names_the_laplacian_and_the_base_equation_names_nothing(make_un
     """`Equation` is abstract: an operator comes from a named PDE."""
     space = FunctionSpace(make_unit_square(3))
     assert isinstance(Poisson().operator(space), DiffusionForm)
-    with pytest.raises(NotImplementedError, match='operator'):
-        Equation().operator(space)
+    with pytest.raises(TypeError, match='abstract'):
+        Equation()  # pyright: ignore[reportAbstractUsage]
 
 
 def test_linear_elastic_builds_its_form_from_its_own_constants(make_unit_square):
@@ -59,7 +59,7 @@ def test_finite_strain_operator_is_an_energy_form(make_unit_square):
 def test_wave_and_diffusion_name_their_operators(make_unit_square):
     """`Poisson`, `Heat`, and `Wave` share the diffusion operator and differ in the time
     orders they have a meaning for."""
-    from fem.equations import Heat, Wave
+    from fem.physics.equations import Heat, Wave
 
     space = FunctionSpace(make_unit_square(4))
     w = Wave(stiffness=9.0, density=2.0).operator(space)
@@ -73,9 +73,9 @@ def test_wave_and_diffusion_name_their_operators(make_unit_square):
 def test_solves_refuse_a_time_order_the_equation_has_no_meaning_for(make_unit_square):
     """A steady solve needs order 0, `ThetaMethod` order 1, `NewmarkMethod` and
     `ModalAnalysis` order 2; each refusal names the equation to use."""
-    from fem.equations import Heat, Wave
-    from fem.integrators import NewmarkMethod, ThetaMethod
-    from fem.modal import ModalAnalysis
+    from fem.physics.equations import Heat, Wave
+    from fem.algebra.integrators import NewmarkMethod, ThetaMethod
+    from fem.analysis.modal import ModalAnalysis
 
     mesh = make_unit_square(4)
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
@@ -139,8 +139,8 @@ def test_equation_resolves_its_space_and_problem(make_unit_square):
 def test_default_strategy_follows_the_tangent(make_unit_square):
     """A constant tangent gets `LinearSolve`; a state-dependent one gets line-searched
     `NewtonSolve`, paired with regularization only under an iterative backend."""
-    from fem.backends import MinresBackend
-    from fem.solve import LinearSolve, NewtonSolve, default_strategy
+    from fem.algebra.backends import MinresBackend
+    from fem.algebra.solve import LinearSolve, NewtonSolve, default_strategy
 
     mesh = make_unit_square(4)
     linear = LinearElastic(E=200, nu=0.4)
@@ -150,7 +150,7 @@ def test_default_strategy_follows_the_tangent(make_unit_square):
     newton = default_strategy(finite.problem(mesh))
     assert isinstance(newton, NewtonSolve)
     assert newton.line_search is not None and newton.regularization is None
-    from fem.backends import DirectBackend
+    from fem.algebra.backends import DirectBackend
     direct = default_strategy(finite.problem(mesh), DirectBackend())
     assert isinstance(direct, NewtonSolve) and direct.regularization is None
     iterative = default_strategy(finite.problem(mesh), MinresBackend())

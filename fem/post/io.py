@@ -120,7 +120,7 @@ def save_solution(solution, path='solution.npz'):
 def load_solution(path='solution.npz'):
     '''Read a solution written by `save_solution`, reconstructing its dataclass.'''
     import fem.elements as elements_module
-    import fem.solution as solution_module
+    import fem.post.solution as solution_module
     from fem.space import FunctionSpace
 
     with np.load(path) as data:

@@ -1,7 +1,7 @@
 """The quadrature-sampled load beats the nodal shortcut, and both stay second order."""
 import numpy as np
 
-from fem.convergence import ConvergenceStudy, load_comparison_convergence
+from mms import ConvergenceStudy, load_comparison_convergence
 
 
 def test_sampled_load_beats_nodal_at_every_resolution():
