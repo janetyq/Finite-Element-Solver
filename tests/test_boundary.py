@@ -10,6 +10,7 @@ from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
 from fem.equations import LinearElastic
 from fem.regions import at_indices, intersect, on_plane
 from fem.solver import Solver
+from fem.space import FunctionSpace
 
 
 def test_partial_pin_leaves_the_other_component_free(make_unit_square):
@@ -81,3 +82,26 @@ def test_a_callable_load_with_a_free_component_is_caught_at_resolve(make_unit_sq
     bc = BoundaryConditions(Neumann(on_plane(0, 1.0), lambda p: [1.0, None]))
     with pytest.raises(ValueError, match='None'):
         bc.resolve(mesh, n_components=2)
+
+
+def test_space_resolve_memoizes_one_spec(make_unit_square):
+    """Two problems on one space from the same spec resolve its geometry once."""
+    space = FunctionSpace(make_unit_square(6), n_components=2)
+    bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))
+    first = space.resolve_bc(bc)
+    assert space.resolve_bc(bc) is first          # a repeat is the same object
+    other = BoundaryConditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))
+    assert space.resolve_bc(other) is not first   # a distinct spec resolves on its own
+
+
+def test_a_shared_spec_resolves_independently_on_two_spaces(make_unit_square):
+    """The spec is frozen: resolving it against one space leaves it unchanged for the
+    next (Q's 'shared spec is inert')."""
+    bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))
+    coarse = FunctionSpace(make_unit_square(4), n_components=2)
+    fine = FunctionSpace(make_unit_square(8), n_components=2)
+
+    on_coarse = coarse.resolve_bc(bc)
+    on_fine = fine.resolve_bc(bc)
+    assert on_coarse.n_vertices != on_fine.n_vertices          # each its own mesh
+    assert coarse.resolve_bc(bc).n_vertices == on_coarse.n_vertices  # unchanged by the other

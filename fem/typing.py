@@ -77,24 +77,26 @@ Operator: TypeAlias = Any
 Constraints: TypeAlias = tuple[DofIndices, DofIndices, FloatArray]
 
 # A region: (n_vertices, spatial_dim) coordinates -> (n_vertices,) membership mask.
-# Any callable of that shape qualifies; `fem.regions` names the recurring cases.
+# Any callable of that shape qualifies (a `fem.regions.Region` object is one through
+# its `__call__`); `fem.regions` names the recurring cases and adds `&`, `|`, `~`.
 Region: TypeAlias = Callable[[Vertices], BoolArray]
 
 if TYPE_CHECKING:
-    from fem.regions import TimeDependent
+    from fem.regions import Field, TimeDependent
 
-# A field value: a constant, a per-component constant, a function of position, or a
+# A field value: a constant, a per-component constant, a function of position, a
 # `TimeDependent` function of position and time (fixed at a time by
-# `fem.regions.field_at` before use). `fem.regions.evaluate_field` normalizes the
-# first three to (n_points, n_components). A component may itself be `None`,
-# meaningful only for a Dirichlet value (BoundaryConditions' own resolver leaves it
-# free rather than pinned); `evaluate_field` rejects it for every other use (a load
-# has no free component).
+# `fem.regions.field_at` before use), or an already-normalized `Field`.
+# `fem.regions.as_field` normalizes any of these to a `Field`, which `sample`s to
+# (n_points, n_components). A component may itself be `None`, meaningful only for a
+# Dirichlet value (BoundaryConditions' own resolver leaves it free rather than
+# pinned); every other use rejects it (a load has no free component).
 FieldValue: TypeAlias = Union[
     float,
     Sequence[Union[float, None]],
     FloatArray,
     Callable[[Point], Union[float, Sequence[Union[float, None]], FloatArray]],
     'TimeDependent',
+    'Field',
     None,
 ]

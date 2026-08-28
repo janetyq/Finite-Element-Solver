@@ -49,8 +49,9 @@ a custom strategy) needs neither. `Solver(mesh, equation, bc)` is that second li
 
 The load is a sum of `Load` terms (`fem/loads.py`), each answering `vector(space, t)`. The volume
 source is a `Source`: a constant or a nodal array is integrated exactly through the mass matrix, a
-callable is sampled at the quadrature points, which captures variation within an element
-(`NodalSource` is the explicit interpolant path); a Neumann value or a Robin value is a
+pointwise field (`is_pointwise`: a callable, or a `Vectorized` for one array call) is sampled at
+the quadrature points, which captures variation within an element (`NodalSource` is the explicit
+interpolant path); a Neumann value or a Robin value is a
 `BoundaryLoad` over its region's facets; a nodal force is a `PointLoad`, passed through `Equation(loads=...)` or `Problem(loads=...)`. A DOF vector built by
 hand (an initial condition, a comparison field) is `space.interpolate(value)`, nodal on P2 as well.
 
@@ -58,6 +59,14 @@ Boundary conditions are objects: `Dirichlet(region, value)`, `Neumann(region, va
 `Robin(region, kappa, g)`, collected by `BoundaryConditions(*conditions)` or `bc + condition`,
 both frozen. Each condition resolves itself against a node set (`condition.resolve`), and a
 `Dirichlet` value may leave a component `None` (free) for a roller.
+
+A `region` is a `Region` (`fem/regions.py`): `on_plane`, `in_box`, `everywhere`, and
+`at_indices` name the cases, a bare callable is wrapped by `as_region`, and they compose with
+`&`, `|`, `~` (`left & bottom`). Only `at_indices` reports `mesh_bound`, so a remesher refuses it.
+A `value` (a source, a coefficient, a traction, a boundary value) normalizes through `as_field`
+to a `Field` that `sample`s to `(N, n_components)`: a constant, a callable read point by point,
+or a `Vectorized` callable the user opts into to sample every quadrature point in one array call.
+A `TimeDependent` value is fixed at a time by `field_at` before sampling.
 
 Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
 names the `domain` it integrates over (the elements or the boundary facets), so a Robin condition
@@ -337,7 +346,9 @@ through `fem/io`.
 `fem/regions.py` + `fem/boundary.py` is the model: a mesh-independent specification
 (`BoundaryConditions`, a frozen tuple of `Condition`s) separated from its resolution against one
 discretization (`ResolvedBC`, frozen, keyed by node set and component count), with the
-time-dependent values a second, cheaper step on the resolution (`ResolvedBC.at(t)`). The same
+time-dependent values a second, cheaper step on the resolution (`ResolvedBC.at(t)`).
+`space.resolve_bc(bc)` memoizes that geometry step per spec, so two problems on one space (a static
+solve then a modal analysis, a design loop's rounds) resolve it once. The same
 shape recurs: `FunctionSpace` is the resolved
 discretization, `Form` the resolved view of an `Equation`'s physics, `Problem` the resolved
 composition, and `LinearSolver` a `Backend` resolved against one matrix.
