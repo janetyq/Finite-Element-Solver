@@ -14,7 +14,6 @@ from fem.equations import Heat, Poisson
 from fem.forms import BoundaryMassForm
 from fem.integrators import ThetaMethod
 from fem.mesh.mesh import Mesh
-from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.structured import box_mesh
 from fem.regions import TimeDependent, in_box, on_plane, union
 from fem.solution import TransientSolution
@@ -238,9 +237,8 @@ def run(dt=0.05, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0, ramp=0.6, fl
     # A heatsink conducts heat up its fins and sheds it, so the shape is worth measuring;
     # the mesh is built here because it is part of what the demo says.
     pslg = heatsink_pslg()
-    pslg.validate()
     target_area = max_area_fraction * pslg.area()
-    mesh = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=target_area).refine()
+    mesh = pslg.mesh(min_angle=min_angle, max_area=target_area)
     width = float(np.max(mesh.vertices[:, 0]))
     height = float(np.max(mesh.vertices[:, 1]))
     # The naive baseline: a solid block of the same bounding box. The fins carve channels

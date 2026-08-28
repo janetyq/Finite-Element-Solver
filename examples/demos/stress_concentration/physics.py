@@ -17,8 +17,7 @@ from fem.elements import IsoparametricTriangleElement
 from fem.equations import LinearElastic
 from fem.estimators import RecoveryEstimator
 from fem.mesh.mesh import Mesh
-from fem.mesh.svg import PSLG
-from fem.mesh.ruppert import RuppertsAlgorithm
+from fem.mesh.pslg import PSLG
 from fem.regions import intersect, on_plane
 from fem.solution import ElasticSolution
 
@@ -37,21 +36,26 @@ def finite_plate_kt(hole_over_width: float) -> float:
     return net / (1.0 - r)
 
 
+def rim_facets(mesh: Mesh) -> int:
+    """How many boundary facets lie on the hole: `plate_with_hole_pslg` draws the hole
+    as loop 1, and Ruppert's tags every facet with the loop it came from."""
+    assert mesh.boundary_tags is not None
+    return int(np.sum(mesh.boundary_tags == 1))
+
+
 def mesh_plate(length, height, radius, circle_segments, min_angle,
-               max_area_fraction) -> tuple[PSLG, RuppertsAlgorithm, Mesh]:
+               max_area_fraction) -> tuple[PSLG, Mesh]:
     """The outline and its coarse Ruppert's triangulation.
 
     The hole is a coarse 16-gon, which is enough: `plate_with_hole_pslg` tags the hole
     loop with a `Circle`, so Ruppert's split points, red-green refinement, and the
-    isoparametric element's edge nodes all land on the true rim.
+    isoparametric element's edge nodes all land on the true rim. The mesh's
+    `boundary_tags` name the rim (loop 1) on every mesh refinement builds from it.
     """
     pslg = plate_with_hole_pslg(length, height, radius, segments=circle_segments)
-    pslg.validate()
     # Coarse: resolving the rim is adaptive refinement's job. The rim still grades
     # finer than the interior, since Ruppert's honours its short segments.
-    rupperts = RuppertsAlgorithm(pslg, min_angle=min_angle,
-                                 max_area=max_area_fraction * pslg.area())
-    return pslg, rupperts, rupperts.refine()
+    return pslg, pslg.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
 
 
 def plate_bc(length, traction) -> BoundaryConditions:
@@ -101,10 +105,10 @@ class PlateStudy:
     traction: float
     min_angle: float
     pslg: PSLG
-    rupperts: RuppertsAlgorithm
     bc: BoundaryConditions
     n_initial: int                  # triangles before adaptive refinement
     initial_worst_angle: float
+    initial_rim_facets: int
     mesh: Mesh                      # after refinement
     solution: ElasticSolution
     sigma_xx: np.ndarray            # nodal stress on the refined mesh
@@ -130,18 +134,18 @@ class PlateStudy:
 
     @property
     def rim_facets(self) -> int:
-        """The rim facets before refinement: rupperts.boundary_loops describes the initial
-        triangulation, not the refined mesh (see BACKLOG.md)."""
-        return int(np.sum(self.rupperts.boundary_loops == 1))
+        """The rim facets of the refined mesh: the tag survives every split."""
+        return rim_facets(self.mesh)
 
 
 def run(traction=1.0, length=6.0, height=3.0, radius=0.15, min_angle=25,
         max_area_fraction=0.01, circle_segments=16, refinement_iters=36,
         refinement_budget=40000) -> PlateStudy:
     """Mesh the plate, refine into the rim, and read the concentration off it."""
-    pslg, rupperts, mesh = mesh_plate(length, height, radius, circle_segments, min_angle,
-                                      max_area_fraction)
+    pslg, mesh = mesh_plate(length, height, radius, circle_segments, min_angle,
+                            max_area_fraction)
     n_initial, initial_worst_angle = len(mesh.elements), mesh.min_angle
+    initial_rim_facets = rim_facets(mesh)
     bc = plate_bc(length, traction)
     mesh, solution = refine_to_the_rim(mesh, bc, refinement_iters, refinement_budget)
 
@@ -171,6 +175,6 @@ def run(traction=1.0, length=6.0, height=3.0, radius=0.15, min_angle=25,
     # too stiff and the steepest gradient is the last thing it resolves: 2.97, 3.00,
     # 3.00, 3.03 over 624, 970, 1877 and 3301 elements. Thirty-six rounds is enough to
     # agree to within a hundredth.
-    return PlateStudy(length, height, radius, traction, min_angle, pslg, rupperts, bc,
-                      n_initial, initial_worst_angle, mesh, solution, sigma_xx, y_strip,
-                      ratio_strip, peak)
+    return PlateStudy(length, height, radius, traction, min_angle, pslg, bc,
+                      n_initial, initial_worst_angle, initial_rim_facets, mesh, solution,
+                      sigma_xx, y_strip, ratio_strip, peak)

@@ -26,7 +26,8 @@ from fem.space import FunctionSpace
 from fem.mesh.structured import annulus_mesh, box_mesh
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.refinement import RedGreenRefiner
-from fem.mesh.svg import PSLG, read_svg_to_pslg
+from fem.mesh.pslg import PSLG
+from fem.mesh.svg import read_svg_to_pslg
 from fem.elements import (
     LinearLineElement,
     LinearTriangleElement,
@@ -41,6 +42,7 @@ from fem.regions import (
     everywhere,
     on_plane,
     in_box,
+    on_tag,
     intersect,
     union,
     at_indices,
@@ -164,6 +166,7 @@ __all__ = [
     "everywhere",
     "on_plane",
     "in_box",
+    "on_tag",
     "intersect",
     "union",
     "at_indices",

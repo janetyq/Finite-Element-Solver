@@ -10,7 +10,7 @@ import numpy as np
 from fem.mesh.curves import Arc, Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
-from fem.mesh.svg import PSLG
+from fem.mesh.pslg import PSLG
 
 
 def square(n: int = 40) -> Mesh:
@@ -55,11 +55,8 @@ def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float
     only the initial polygonisation.
     """
     outline = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
-    center = (length / 2, height / 2)
-    angles = np.linspace(0, 2*np.pi, segments, endpoint=False)
-    hole = np.column_stack([center[0] + radius*np.cos(angles),
-                            center[1] + radius*np.sin(angles)])
-    return PSLG.from_loops([outline, hole], curves=[None, Circle(list(center), radius)])
+    hole = Circle([length / 2, height / 2], radius)
+    return PSLG.from_loops([outline, hole.polygon(segments)], curves=[None, hole])
 
 
 def disk_pslg(radius: float = 1.0, center: tuple[float, float] = (0.0, 0.0),
@@ -69,10 +66,7 @@ def disk_pslg(radius: float = 1.0, center: tuple[float, float] = (0.0, 0.0),
     A single curved loop: with isoparametric elements the rim follows the true circle,
     so `segments` only sets the coarsest sampling refinement starts from.
     """
-    angles = np.linspace(0, 2*np.pi, segments, endpoint=False)
-    rim = np.column_stack([center[0] + radius*np.cos(angles),
-                           center[1] + radius*np.sin(angles)])
-    return PSLG.from_loops([rim], curves=[Circle(list(center), radius)])
+    return PSLG.circle(center, radius, segments)
 
 
 def annulus_pslg(inner_radius: float = 0.5, outer_radius: float = 1.0,
@@ -82,15 +76,9 @@ def annulus_pslg(inner_radius: float = 0.5, outer_radius: float = 1.0,
     The outer loop is the material's outer edge and the inner loop the hole; under the
     even-odd rule the mesh covers the ring between them, and both rims are curved.
     """
-    angles = np.linspace(0, 2*np.pi, segments, endpoint=False)
-
-    def ring(r: float) -> np.ndarray:
-        return np.column_stack([center[0] + r*np.cos(angles), center[1] + r*np.sin(angles)])
-
-    return PSLG.from_loops(
-        [ring(outer_radius), ring(inner_radius)],
-        curves=[Circle(list(center), outer_radius), Circle(list(center), inner_radius)],
-    )
+    outer, inner = Circle(list(center), outer_radius), Circle(list(center), inner_radius)
+    return PSLG.from_loops([outer.polygon(segments), inner.polygon(segments)],
+                           curves=[outer, inner])
 
 
 def heatsink_pslg(width: float = 3.0, base_height: float = 0.5, fin_height: float = 1.4,
@@ -191,10 +179,9 @@ def l_bracket_pslg(arm: float = 4.0, width: float = 1.2, fillet_radius: float = 
         # bottom limb's top edge (theta = 3pi/2) to B = (width, width+r) on the vertical
         # limb's right edge (theta = pi), replacing the sharp point between them.
         r = fillet_radius
-        theta = np.linspace(1.5 * np.pi, np.pi, n_fillet)
-        arc = np.column_stack([width + r + r * np.cos(theta), width + r + r * np.sin(theta)])
-        outline.extend(map(tuple, arc))
-        point_curves.extend([Arc([width + r, width + r], r, np.pi, 1.5 * np.pi)] * n_fillet)
+        fillet = Arc([width + r, width + r], r, np.pi, 1.5 * np.pi)
+        outline.extend(map(tuple, fillet.polygon(n_fillet)[::-1]))    # from A round to B
+        point_curves.extend([fillet] * n_fillet)
     else:
         outline.append((width, width))
         point_curves.append(None)
@@ -290,11 +277,9 @@ def gear_pslg(teeth: int = 12, root_radius: float = 0.7, tooth_height: float = 0
             outline.append((center[0] + radius * np.cos(angle),
                             center[1] + radius * np.sin(angle)))
 
-    bore_angles = np.linspace(0, 2 * np.pi, bore_segments, endpoint=False)
-    bore = np.column_stack([center[0] + bore_radius * np.cos(bore_angles),
-                            center[1] + bore_radius * np.sin(bore_angles)])
-    return PSLG.from_loops([np.array(outline), bore],
-                           curves=[None, Circle(list(center), bore_radius)])
+    bore = Circle(list(center), bore_radius)
+    return PSLG.from_loops([np.array(outline), bore.polygon(bore_segments)],
+                           curves=[None, bore])
 
 
 def harbor_pslg(length: float = 6.0, width: float = 4.0, wall_x: float = 2.5,

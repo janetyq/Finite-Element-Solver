@@ -5,14 +5,64 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import Delaunay, KDTree, QhullError
 
-from fem.mesh.mesh import Mesh, boundary_facets
-from fem.geometry import (
-    calculate_segment_angles,
-    calculate_triangle_angles,
-    calculate_circumcenter,
-)
+from fem.mesh.mesh import Mesh, boundary_facets, triangle_angles
 
 logger = logging.getLogger(__name__)
+
+
+def circumcenter(triangle_points):
+    '''Centre of the circle through a triangle's three vertices.
+
+    Takes a single `(3, 2)` triangle or a stacked `(..., 3, 2)` array. Solved
+    against the first vertex as origin, which keeps the accuracy of a very
+    flat triangle (the shape mesh refinement asks about most) rather than
+    intersecting bisectors by slope, where a near-horizontal edge loses most of
+    the available precision.
+    '''
+    points = np.asarray(triangle_points, dtype=float)
+    origin = points[..., 0, :]
+    b = points[..., 1, :] - origin
+    c = points[..., 2, :] - origin
+
+    twice_area = 2 * (b[..., 0]*c[..., 1] - b[..., 1]*c[..., 0])
+    if np.any(twice_area == 0):
+        raise ValueError('a degenerate triangle has no circumcenter')
+
+    b_sq = np.sum(b**2, axis=-1)
+    c_sq = np.sum(c**2, axis=-1)
+    return origin + np.stack([
+        (c[..., 1]*b_sq - b[..., 1]*c_sq) / twice_area,
+        (b[..., 0]*c_sq - c[..., 0]*b_sq) / twice_area,
+    ], axis=-1)
+
+
+def segment_angles(vertices, segments):
+    '''The smallest angle, in degrees, between two segments meeting at each
+    vertex, as `{vertex index: angle}`. Vertices where fewer than two segments
+    meet are left out.
+
+    Delaunay refinement is only guaranteed to terminate for inputs whose
+    segments meet at 60 degrees or more; below that a corner has to be treated
+    specially or refinement will chase it forever.
+    '''
+    vertices = np.asarray(vertices, dtype=float)
+    incident = {}
+    for start, end in np.asarray(segments):
+        incident.setdefault(int(start), []).append(int(end))
+        incident.setdefault(int(end), []).append(int(start))
+
+    angles = {}
+    for vertex, neighbours in incident.items():
+        if len(neighbours) < 2:
+            continue
+        directions = vertices[neighbours] - vertices[vertex]
+        lengths = np.linalg.norm(directions, axis=1, keepdims=True)
+        directions = directions / np.where(lengths == 0, 1, lengths)
+        cosines = np.clip(directions @ directions.T, -1.0, 1.0)
+        # The diagonal is each direction against itself; only distinct pairs count.
+        pairs = np.triu_indices(len(directions), k=1)
+        angles[vertex] = float(np.degrees(np.arccos(cosines[pairs])).min())
+    return angles
 
 # The sharpest corner (two input segments meeting at a shared vertex) for which
 # Ruppert's is proven to finish. Refinement fixes one problem at a time (a segment with
@@ -85,8 +135,8 @@ class RuppertsAlgorithm:
     Delaunay triangulation spans the convex hull, so a non-convex outline also
     produces triangles outside it. Interior/exterior alternates by the
     even-odd rule: a region with an odd number of segment crossings to
-    infinity is inside, so a loop inside another is a hole. After `refine`,
-    `boundary_loops` records which input loop each boundary facet came from.
+    infinity is inside, so a loop inside another is a hole. The returned mesh's
+    `boundary_tags` record which input loop each boundary facet came from.
 
     Ruppert proved termination for inputs whose segments meet at 60 degrees or
     more (`SAFE_INPUT_ANGLE`).  Segments meeting below it are the one case where
@@ -100,7 +150,7 @@ class RuppertsAlgorithm:
     (`fem.mesh.svg.douglas_peucker`) before handing it over.
     '''
 
-    def __init__(self, pslg, min_angle=30, max_area=None):
+    def __init__(self, pslg, min_angle: float = 30, max_area: float | None = None):
         '''Refine `pslg` until every triangle clears both bounds.
 
         `min_angle` is in degrees: the smallest interior angle any output triangle
@@ -127,8 +177,6 @@ class RuppertsAlgorithm:
         self._incremental = False
         self.min_angle = min_angle
         self.max_area = max_area
-        # Which loop each boundary facet of the returned mesh came from; set by refine().
-        self.boundary_loops = np.zeros(0, dtype=int)
 
         # A fixed seed so a mesh is reproducible: the only randomness is the direction of
         # the tiny nudge `_perturb` gives each inserted circumcenter (see there), and
@@ -156,7 +204,7 @@ class RuppertsAlgorithm:
         self._encroached = (~is_own_endpoint
                             & (distances**2 < radii_sq * (1 - ENCROACHMENT_TOLERANCE)))
 
-        corner_angles = calculate_segment_angles(self.vertices, self.segments)
+        corner_angles = segment_angles(self.vertices, self.segments)
         self.input_angle = min(corner_angles.values(), default=180.0)
         # Corners the angle bound cannot be met at. Their segments split on shells
         # rather than at midpoints, and the triangle across them is accepted as it
@@ -242,7 +290,7 @@ class RuppertsAlgorithm:
         triangulation, so the refinement loop can ask about the handful an
         insertion just created instead of about all of them.
         '''
-        angles = calculate_triangle_angles(self.vertices[simplices])
+        angles = triangle_angles(self.vertices[simplices])
         bad = angles.min(axis=-1) < self.min_angle
         if self.sharp_vertices:
             if segment_mask is None:
@@ -462,44 +510,29 @@ class RuppertsAlgorithm:
         elements = renumbered[elements]
 
         boundary = boundary_facets(elements)
-        self.boundary_loops = self._trace_boundary_to_loops(boundary, used, renumbered)
-        boundary_curves = self._trace_boundary_to_curves(boundary, used, renumbered)
-        return Mesh(self.vertices[used], elements, boundary, boundary_curves)
+        boundary_tags = self._trace_boundary(boundary, used, renumbered, self.segment_loops, -1)
+        boundary_curves = None
+        if any(curve is not None for curve in self.segment_curves):
+            boundary_curves = self._trace_boundary(
+                boundary, used, renumbered, self.segment_curves, None)
+        return Mesh(self.vertices[used], elements, boundary, boundary_curves, boundary_tags)
 
-    def _trace_boundary_to_curves(self, boundary, used, renumbered):
-        '''The analytic curve each boundary facet lies on, or None if no segment has one.
+    def _trace_boundary(self, boundary, used, renumbered, per_segment, missing):
+        '''`per_segment[i]` carried onto the boundary facet that matches segment `i`'s
+        endpoints, in `boundary` order; `missing` where no segment matches.
 
-        A boundary facet inherits the curve of the (possibly split) input segment whose
-        endpoints it matches, so an isoparametric space can place its boundary nodes on
-        the true curve. Built the same way as `_trace_boundary_to_loops`; only the
-        curved segments are entered.
-        '''
-        if not any(curve is not None for curve in self.segment_curves):
-            return None
-        is_used = np.zeros(len(self.vertices), dtype=bool)
-        is_used[used] = True
-        curve_of_edge = {}
-        for (start, end), curve in zip(self.segments, self.segment_curves):
-            if curve is not None and is_used[start] and is_used[end]:
-                key = tuple(sorted((int(renumbered[start]), int(renumbered[end]))))
-                curve_of_edge[key] = curve
-        return [curve_of_edge.get(tuple(sorted(int(v) for v in facet))) for facet in boundary]
-
-    def _trace_boundary_to_loops(self, boundary, used, renumbered):
-        '''The input loop each boundary facet came from, or -1 if none did.
-
-        This tells an obstacle's rim from the outer wall around it, and it
-        cannot be recovered from the finished mesh; a boundary is just edges
-        by then.
+        A boundary facet inherits the (possibly split) input segment it lies on: its
+        loop id, so an obstacle's rim can be told from the outer wall around it, and its
+        curve, so an isoparametric space can place its boundary nodes on the true curve.
+        Neither can be recovered from the finished mesh; a boundary is just edges by then.
         '''
         is_used = np.zeros(len(self.vertices), dtype=bool)
         is_used[used] = True
-        loop_of_edge = {}
-        for (start, end), loop_id in zip(self.segments, self.segment_loops):
+        of_edge = {}
+        for (start, end), value in zip(self.segments, per_segment):
             if is_used[start] and is_used[end]:
-                loop_of_edge[tuple(sorted((renumbered[start], renumbered[end])))] = int(loop_id)
-        return np.array([loop_of_edge.get(tuple(sorted(facet)), -1) for facet in boundary],
-                        dtype=int)
+                of_edge[tuple(sorted((int(renumbered[start]), int(renumbered[end]))))] = value
+        return [of_edge.get(tuple(sorted(int(v) for v in facet)), missing) for facet in boundary]
 
     def _retriangulate(self):
         '''Fold the vertices added since the last call into the triangulation.
@@ -573,16 +606,16 @@ class RuppertsAlgorithm:
                         break
                     self._refill_bad_queue(remaining)
                     continue
-                circumcenter = self._perturb(
-                    calculate_circumcenter(self.vertices[list(triangle)]), list(triangle))
+                centre = self._perturb(
+                    circumcenter(self.vertices[list(triangle)]), list(triangle))
                 # Inserting a point inside a segment's diametral circle would cut
                 # the mesh off from the outline, so split those segments instead
                 # and put the triangle back to be reconsidered once they are gone.
-                would_encroach = list(self.get_segments_encroached_by(circumcenter))
+                would_encroach = list(self.get_segments_encroached_by(centre))
                 if would_encroach:
                     self._bad_queue.append(triangle)
                 else:
-                    self.add_vertex(circumcenter)
+                    self.add_vertex(centre)
                     new_vertex = len(self.vertices) - 1
             if new_vertex is not None:
                 self._retriangulate()

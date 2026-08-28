@@ -14,7 +14,7 @@ from fem.materials import LinearElasticMaterial
 from fem.mesh.curves import Arc, Circle
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.ruppert import RuppertsAlgorithm
-from fem.mesh.svg import PSLG
+from fem.mesh.pslg import PSLG
 from fem.problem import LinearProblem
 from fem.regions import intersect, on_plane
 from fem.solution import ElasticSolution

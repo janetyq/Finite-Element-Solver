@@ -21,7 +21,7 @@ def _pipeline_figure(s: PlateStudy) -> Figure:
                 color='0.55', linewidth=0.2, zorder=1.5)
     # The input segments over the triangulation: which of the outline the mesher kept.
     ax0.add_collection(LineCollection(
-        s.rupperts.vertices[s.rupperts.segments], colors='blue', linewidths=1.0, zorder=2.0))
+        s.pslg.vertices[s.pslg.segments], colors='blue', linewidths=1.0, zorder=2.0))
     # Passing the solution draws the P2 field on its own tessellation, rim and all.
     figure.plot(s.solution, s.sigma_xx, mode='colored', idx=(0, 1), label='sigma_xx',
                 title='Stress concentration (sigma_xx)')
@@ -64,7 +64,8 @@ def _summary(s: PlateStudy) -> str:
             f'worst angle, refined     {s.worst_angle:.1f} deg   '
             f'(red-green carries no angle guarantee)\n'
             f'boundary edges           {len(s.mesh.boundary)}   '
-            f'({s.rim_facets} of them the hole rim, before refinement)\n'
+            f'({s.rim_facets} of them the hole rim, up from {s.initial_rim_facets} before '
+            f'refinement)\n'
             f'applied traction         {s.traction:.3g}\n'
             f'hole diameter / height   {s.hole_over_width:.2f}\n'
             f'peak sigma_xx / applied  {s.peak:.2f}   '

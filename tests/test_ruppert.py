@@ -10,14 +10,11 @@ import numpy as np
 import pytest
 from scipy.spatial import Delaunay, QhullError
 
-from fem.geometry import (
-    calculate_circumcenter,
-    calculate_polygon_area,
-    calculate_triangle_min_angle,
-    point_in_polygon,
-)
+from fem.mesh.mesh import triangle_min_angle
+from fem.mesh.pslg import point_in_polygon, polygon_area
+from fem.mesh.ruppert import circumcenter
 from fem.mesh.ruppert import ENCROACHMENT_TOLERANCE, RuppertsAlgorithm
-from fem.mesh.svg import PSLG
+from fem.mesh.pslg import PSLG
 
 L_SHAPE_OUTLINE = np.array([
     [0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [1.0, 1.0], [1.0, 2.0], [0.0, 2.0],
@@ -68,7 +65,7 @@ def _thin_slab() -> PSLG:
 
 def _min_angles(mesh) -> np.ndarray:
     vertices = np.asarray(mesh.vertices)
-    return np.array([calculate_triangle_min_angle(vertices[element]) for element in mesh.elements])
+    return np.array([triangle_min_angle(vertices[element]) for element in mesh.elements])
 
 
 @pytest.mark.parametrize('min_angle', [15, 20, 25, 30])
@@ -93,7 +90,7 @@ def test_growing_the_triangulation_keeps_it_delaunay():
 
     vertices = np.asarray(algo.vertices)
     simplices = algo.triangulation.simplices
-    centres = calculate_circumcenter(vertices[simplices])
+    centres = circumcenter(vertices[simplices])
     radii = np.linalg.norm(vertices[simplices][:, 0] - centres, axis=-1)
     distances = np.linalg.norm(vertices[None, :, :] - centres[:, None, :], axis=-1)
     # A triangle's own corners sit exactly on its circumcircle.
@@ -268,7 +265,7 @@ def test_max_area_bounds_every_element_without_losing_the_angle_bound():
     mesh = algo.refine()
 
     vertices = np.asarray(mesh.vertices)
-    areas = np.array([calculate_polygon_area(vertices[element]) for element in mesh.elements])
+    areas = np.array([polygon_area(vertices[element]) for element in mesh.elements])
     assert areas.max() <= max_area
     assert _min_angles(mesh).min() >= min_angle
 
@@ -363,8 +360,7 @@ def test_a_loop_inside_another_is_a_hole():
     """The even-odd rule at work, and the shape a flow-around-an-obstacle problem
     needs: a box around an outline meshes the material between them and leaves
     the outline itself empty."""
-    pslg = _l_shape()
-    pslg.add_bounding_box(buffer=0.2)
+    pslg = _l_shape().with_bounding_box(buffer=0.2)
     mesh = RuppertsAlgorithm(pslg, min_angle=20).refine()
 
     centroids = np.asarray(mesh.vertices)[np.asarray(mesh.elements)].mean(axis=1)
@@ -418,7 +414,7 @@ def test_pslg_area_matches_what_refinement_fills():
 
     mesh = RuppertsAlgorithm(pslg, min_angle=20).refine()
     vertices, elements = np.asarray(mesh.vertices), np.asarray(mesh.elements)
-    filled = sum(calculate_polygon_area(vertices[element]) for element in elements)
+    filled = sum(polygon_area(vertices[element]) for element in elements)
     assert filled == pytest.approx(expected)
 
 
@@ -430,12 +426,13 @@ def test_boundary_facets_name_the_loop_they_came_from():
     algo = RuppertsAlgorithm(pslg, min_angle=20)
     mesh = algo.refine()
 
-    assert len(algo.boundary_loops) == len(mesh.boundary)
-    assert set(np.unique(algo.boundary_loops)) == {0, 1}, 'both loops should appear'
+    assert mesh.boundary_tags is not None
+    assert len(mesh.boundary_tags) == len(mesh.boundary)
+    assert set(np.unique(mesh.boundary_tags)) == {0, 1}, 'both loops should appear'
 
     # Loop 1 is the hole; every facet attributed to it must sit on that outline.
     vertices = np.asarray(mesh.vertices)
-    for facet in np.asarray(mesh.boundary)[algo.boundary_loops == 1]:
+    for facet in np.asarray(mesh.boundary)[mesh.boundary_tags == 1]:
         midpoint = vertices[facet].mean(axis=0)
         on_outline = min(
             abs((end - start)[0]*(midpoint - start)[1] - (end - start)[1]*(midpoint - start)[0])
@@ -560,13 +557,13 @@ def test_zero_length_segments_are_refused():
 
 
 def test_min_angle_is_the_same_computed_singly_or_in_a_batch():
-    """`calculate_triangle_min_angle` takes a stacked array so the refinement
+    """`triangle_min_angle` takes a stacked array so the refinement
     loop can test every triangle at once; the two paths must agree."""
     rng = np.random.default_rng(0)
     triangles = rng.random((25, 3, 2))
 
-    batch = calculate_triangle_min_angle(triangles)
-    singly = np.array([calculate_triangle_min_angle(t) for t in triangles])
+    batch = triangle_min_angle(triangles)
+    singly = np.array([triangle_min_angle(t) for t in triangles])
 
     assert batch.shape == (25,)
     np.testing.assert_allclose(batch, singly)
@@ -578,7 +575,7 @@ def test_degenerate_triangle_has_a_zero_angle():
     false against the angle bound."""
     collinear = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
 
-    assert calculate_triangle_min_angle(collinear) == pytest.approx(0.0)
+    assert triangle_min_angle(collinear) == pytest.approx(0.0)
 
 
 def test_a_collinear_sliver_is_never_treated_as_a_bad_triangle():
@@ -612,7 +609,7 @@ def test_a_tight_outline_meshes_without_a_qhull_precision_error():
 
     assert _min_angles(mesh).min() >= 30
     vertices = np.asarray(mesh.vertices)
-    filled = sum(calculate_polygon_area(vertices[element]) for element in mesh.elements)
+    filled = sum(polygon_area(vertices[element]) for element in mesh.elements)
     assert filled == pytest.approx(pslg.area())
 
 
@@ -628,7 +625,7 @@ def test_a_reentrant_corner_meshes_through_an_incremental_precision_error(max_ar
 
     assert _min_angles(mesh).min() >= 25
     vertices = np.asarray(mesh.vertices)
-    filled = sum(calculate_polygon_area(vertices[element]) for element in mesh.elements)
+    filled = sum(polygon_area(vertices[element]) for element in mesh.elements)
     assert filled == pytest.approx(pslg.area())
 
 

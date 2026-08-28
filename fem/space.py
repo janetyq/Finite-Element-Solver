@@ -191,6 +191,7 @@ class NodeSet:
     boundary: Elements          # (n_boundary_facets, facet_N) boundary facets as node indices
     boundary_idxs: IntArray     # unique boundary node indices
     spatial_dim: int
+    boundary_tags: IntArray | None = None   # the mesh's; facet order shared with `boundary`
 
 
 def p2_connectivity(
@@ -388,6 +389,7 @@ class FunctionSpace:
             boundary=self.boundary_nodes,
             boundary_idxs=np.unique(self.boundary_nodes),
             spatial_dim=self.spatial_dim,
+            boundary_tags=self.mesh.boundary_tags,
         )
 
     @property

@@ -12,7 +12,6 @@ from fem.boundary import BoundaryConditions, Dirichlet
 from fem.elements import QuadraticTriangleElement
 from fem.equations import Poisson
 from fem.mesh.mesh import Mesh
-from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.regions import on_plane
 from fem.solution import ScalarFieldSolution
 from fem.solver import Solver
@@ -49,9 +48,7 @@ def run(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0, n_points=80, mi
     # flow through it, the natural (zero-flux) condition of the weak form: say nothing
     # on its surface and it becomes a streamline the flow parts around.
     pslg = airfoil_channel_pslg(length, height, chord, angle_of_attack, n_points=n_points)
-    pslg.validate()
-    mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
-                             max_area=max_area_fraction * pslg.area()).refine()
+    mesh = pslg.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
 
     equation = Poisson(source=0)   # Laplace: no sources in the flow
     # phi rises from inlet to outlet, so v = grad(phi) runs left to right. The wing and

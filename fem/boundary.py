@@ -17,7 +17,7 @@ from typing import ClassVar, Protocol
 
 import numpy as np
 
-from fem.regions import TimeDependent, _coerce_components, evaluate_field, field_at, is_mesh_bound
+from fem.regions import TimeDependent, _coerce_components, evaluate_field, field_at, is_mesh_bound, on_tag
 from fem.typing import (
     BoolArray,
     DofIndices,
@@ -50,6 +50,8 @@ class NodeGeometry(Protocol):
     def boundary(self) -> Elements: ...
     @property
     def boundary_idxs(self) -> IntArray: ...
+    @property
+    def boundary_tags(self) -> IntArray | None: ...
 
 
 def _evaluate_dirichlet_value(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
@@ -171,6 +173,9 @@ class Condition(ABC):
         set this picks up the edge-midpoint nodes on the boundary automatically,
         since they satisfy the same geometric region their endpoints do.
         '''
+        if isinstance(self.region, on_tag):
+            # Named by outline rather than by place: the facets say which nodes.
+            return self.region.select_nodes(nodes.boundary, nodes.boundary_tags)
         selected = np.flatnonzero(self.region(nodes.vertices))
         boundary = np.asarray(nodes.boundary_idxs, dtype=int)
         if self.is_mesh_bound:

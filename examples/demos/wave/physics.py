@@ -12,7 +12,6 @@ from fem.boundary import BoundaryConditions
 from fem.equations import Wave
 from fem.integrators import NewmarkMethod
 from fem.mesh.mesh import Mesh
-from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.solution import TransientSolution
 
 from domains import harbor_pslg
@@ -48,7 +47,7 @@ def run(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400, min_angle=28, 
     pslg = harbor_pslg(wall_x=WALL_X, wall_thickness=WALL_THICKNESS)
     # Ruppert's meshes the outline coarsely; uniform red refinement then supplies the
     # resolution the front needs, keeping the angle bound at a fraction of the cost.
-    mesh = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=max_area).refine()
+    mesh = pslg.mesh(min_angle=min_angle, max_area=max_area)
     for _ in range(uniform_rounds):
         mesh = mesh.refined()
 

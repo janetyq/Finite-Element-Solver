@@ -15,7 +15,6 @@ from fem.equations import LinearElastic
 from fem.integrators import NewmarkMethod
 from fem.loads import PointLoad
 from fem.mesh.mesh import Mesh
-from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.modal import ModalAnalysis
 from fem.problem import RayleighDamping
 from fem.regions import TimeDependent, at_indices, on_plane
@@ -45,9 +44,7 @@ def fork_modes(tine_length, tine_thickness, n_modes, across, min_angle=27) -> Mo
     thickness, since bending curves across it.
     """
     pslg = tuning_fork_pslg(tine_length=tine_length, tine_thickness=tine_thickness)
-    pslg.validate()
-    mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
-                             max_area=0.5*(tine_thickness/across)**2).refine()
+    mesh = pslg.mesh(min_angle=min_angle, max_area=0.5*(tine_thickness/across)**2)
     problem = LinearElastic(E, NU, density=RHO).problem(
         mesh, clamp, element_type=QuadraticTriangleElement)
     return ModalAnalysis(n_modes=n_modes).solve(problem)

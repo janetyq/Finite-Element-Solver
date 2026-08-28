@@ -18,7 +18,6 @@ from fem.equations import LinearElastic
 from fem.estimators import RecoveryEstimator
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
-from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.regions import on_plane
 from fem.solution import ElasticSolution
 
@@ -66,9 +65,7 @@ def refine_and_track(fillet, element_type, equation, bc, arm, width, min_angle,
     curved fillet's flux correctly).
     """
     pslg = l_bracket_pslg(arm, width, fillet_radius=fillet, n_fillet=20)
-    pslg.validate()
-    mesh = RuppertsAlgorithm(pslg, min_angle=min_angle,
-                             max_area=max_area_fraction * pslg.area()).refine()
+    mesh = pslg.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
 
     def solve(m):
         problem = equation.problem(m, bc, element_type=element_type)

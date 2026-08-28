@@ -11,8 +11,8 @@ import sys
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.mesh.curves import CubicBezier
 from fem.mesh.ruppert import RuppertsAlgorithm
+from fem.mesh.pslg import _find_crossing_segments
 from fem.mesh.svg import (
-    _find_crossing_segments,
     _simplify_indices,
     douglas_peucker,
     read_svg_to_list_of_path_points,
