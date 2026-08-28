@@ -71,6 +71,7 @@ class Entry:
     artifacts: list[str] = field(default_factory=list)
     skipped: str | None = None
     source: str = ''
+    full_source: str = ''          # the whole module, offered behind a fold; see `Demo.show_source`
     section: str = ''              # which heading of the index it belongs under
 
 
@@ -123,7 +124,8 @@ def run_demo(demo: Demo, out_dir: Path) -> Entry:
     Callable in a worker process because it depends on nothing but its arguments.
     """
     out_dir = Path(out_dir)
-    entry = Entry(demo.name, demo.description(), source=demo.source(), section=demo.section)
+    entry = Entry(demo.name, demo.description(), source=demo.source(),
+                  full_source=demo.full_source(), section=demo.section)
 
     skip = _missing_dependency(demo)
     if skip is not None:
@@ -208,6 +210,9 @@ pre.source { line-height: 1.45; tab-size: 4; }
 .heading { font-size: 1rem; margin: 2.5rem 0 .6rem; text-transform: uppercase;
            letter-spacing: .06em; color: var(--muted); }
 .run { margin: 0 0 2rem; }
+details.fold { margin-top: 1rem; }
+details.fold summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+details.fold pre { margin-top: .6rem; }
 .run code { font-size: .85rem; background: var(--code); border: 1px solid var(--line);
             border-radius: 6px; padding: .25rem .5rem; }
 .note { border-left: 3px solid var(--line); padding-left: .9rem; color: var(--muted); }
@@ -317,7 +322,13 @@ def _demo_page(entry: Entry) -> str:
     # was otherwise making only in pictures.
     if entry.source:
         parts.append('<h2 class="heading">Source</h2>')
+        if entry.full_source:
+            parts.append('<p class="sub">The functions that pose and solve the problem. '
+                         'The figures are below the fold.</p>')
         parts.append(f'<pre class="source">{html.escape(entry.source)}</pre>')
+    if entry.full_source:
+        parts.append('<details class="fold"><summary>The figures, and the demo that assembles them</summary>'
+                     f'<pre class="source">{html.escape(entry.full_source)}</pre></details>')
 
     return _page(f'{entry.name} - FEM demos', '\n'.join(parts), PLAYER_JS)
 

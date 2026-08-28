@@ -18,6 +18,7 @@ import benchmark_assembly
 import meshing_demos
 import refinement_demo
 import solver_demos
+from demos import modal
 
 DEFAULT_GALLERY_DIR = '.gallery'
 
@@ -27,8 +28,8 @@ def build_registry() -> dict[str, Demo]:
     to run them all, so a demo is covered by the smoke test as soon as it is listed.'''
     registry: dict[str, Demo] = {}
     # Meshing first, so the gallery's first section opens on building a domain.
-    for demo in (meshing_demos.DEMOS + solver_demos.DEMOS + refinement_demo.DEMOS
-                 + benchmark_assembly.DEMOS):
+    for demo in (meshing_demos.DEMOS + solver_demos.DEMOS + [modal.DEMO]
+                 + refinement_demo.DEMOS + benchmark_assembly.DEMOS):
         if demo.name in registry:
             raise ValueError(f'duplicate demo name: {demo.name!r}')
         registry[demo.name] = demo
