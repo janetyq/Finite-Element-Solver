@@ -96,6 +96,33 @@ class at_indices:  # noqa: N801 - lowercase to read like the function helpers ab
         return mask
 
 
+class on_tag:  # noqa: N801 - lowercase to read like the function helpers above
+    '''The boundary facets tagged `tag`: an outline of the `PSLG` the mesh was built
+    from (the hole in a plate is `on_tag(1)`), or a physical group of an imported mesh.
+
+    Unlike a geometric region it is resolved from the facets, not the coordinates, so
+    it needs a node geometry carrying `boundary_tags`; `select_nodes` is what
+    `Condition.select` calls. It is not mesh-bound: refinement carries tags onto the
+    split facets, so the same condition resolves on every mesh of the hierarchy.
+    '''
+
+    def __init__(self, tag: int) -> None:
+        self.tag = int(tag)
+
+    def select_nodes(self, boundary: IntArray, boundary_tags: IntArray | None) -> IntArray:
+        '''The nodes of every facet tagged `tag`, ascending.'''
+        if boundary_tags is None:
+            raise ValueError(
+                f'on_tag({self.tag}) needs a mesh with boundary_tags; a PSLG mesh has '
+                'them, a structured mesh does not (name its faces by coordinates)')
+        return np.unique(np.asarray(boundary)[np.asarray(boundary_tags) == self.tag])
+
+    def __call__(self, points: Vertices) -> BoolArray:
+        raise TypeError(
+            f'on_tag({self.tag}) selects boundary facets, not points, and cannot be '
+            'combined with a geometric region through intersect or union')
+
+
 class TimeDependent:
     '''A field that varies in time: `fn(p, t)` is the value at point `p` and time `t`.
 

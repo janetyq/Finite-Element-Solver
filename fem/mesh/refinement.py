@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from enum import Enum, auto
+from typing import TypeVar
 
 import numpy as np
 
@@ -49,6 +50,17 @@ class _Triangle:
             f'_Triangle(verts={self.vertex_idxs}, status={self.status.name}, '
             f'parent={self.parent is not None}, children={len(self.children)})'
         )
+
+
+T = TypeVar('T')
+
+
+def _carry_onto_halves(table: dict[Edge, T], edge: list[int], mid_idx: int) -> None:
+    """Whatever `table` holds for `edge`, held for both halves it was split into."""
+    value = table.get(_edge_key(edge[0], edge[1]))
+    if value is not None:
+        table[_edge_key(edge[0], mid_idx)] = value
+        table[_edge_key(mid_idx, edge[1])] = value
 
 
 def _edge_key(v0: int, v1: int) -> Edge:
@@ -94,6 +106,11 @@ class RedGreenRefiner:
             for facet, curve in zip(mesh.boundary, mesh.boundary_curves):
                 if curve is not None:
                     self._edge_curve[_edge_key(int(facet[0]), int(facet[1]))] = curve
+        # Likewise the outline each boundary edge came from, so its halves keep the tag.
+        self._edge_tag: dict[Edge, int] = {}
+        if mesh.boundary_tags is not None:
+            for facet, tag in zip(mesh.boundary, mesh.boundary_tags):
+                self._edge_tag[_edge_key(int(facet[0]), int(facet[1]))] = int(tag)
         for element in mesh.elements:
             self._append_triangle(_Triangle(list(element)))
 
@@ -288,12 +305,10 @@ class RedGreenRefiner:
             self._boundary.extend([[edge[1], mid_idx], [mid_idx, edge[0]]])
         else:
             return
-        # The two halves lie on whatever curve the split boundary edge did, so a facet
-        # keeps following the curve however many times it is bisected.
-        curve = self._edge_curve.get(_edge_key(edge[0], edge[1]))
-        if curve is not None:
-            self._edge_curve[_edge_key(edge[0], mid_idx)] = curve
-            self._edge_curve[_edge_key(mid_idx, edge[1])] = curve
+        # The two halves lie on whatever curve and outline the split boundary edge did,
+        # so a facet keeps following them however many times it is bisected.
+        _carry_onto_halves(self._edge_curve, edge, mid_idx)
+        _carry_onto_halves(self._edge_tag, edge, mid_idx)
 
     # -- internal: mesh emission --------------------------------------------
 
@@ -328,8 +343,13 @@ class RedGreenRefiner:
             boundary_curves = [
                 self._edge_curve.get(_edge_key(a, b)) for a, b in self._boundary]
 
+        boundary_tags = None
+        if self._source_mesh.boundary_tags is not None:
+            boundary_tags = np.array(
+                [self._edge_tag.get(_edge_key(a, b), -1) for a, b in self._boundary], dtype=int)
+
         self._source_mesh = self._source_mesh.with_topology(
-            vertices, remapped_elements, remapped_boundary, boundary_curves,
+            vertices, remapped_elements, remapped_boundary, boundary_curves, boundary_tags,
         )
         return self._source_mesh
 

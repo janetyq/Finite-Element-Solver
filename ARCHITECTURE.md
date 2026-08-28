@@ -57,7 +57,9 @@ hand (an initial condition, a comparison field) is `space.interpolate(value)`, n
 Boundary conditions are objects: `Dirichlet(region, value)`, `Neumann(region, value)`, and
 `Robin(region, kappa, g)`, collected by `BoundaryConditions(*conditions)` or `bc + condition`,
 both frozen. Each condition resolves itself against a node set (`condition.resolve`), and a
-`Dirichlet` value may leave a component `None` (free) for a roller.
+`Dirichlet` value may leave a component `None` (free) for a roller. A region is geometric
+(`on_plane`, `in_box`, a callable of points) or, for a mesh with `boundary_tags`, `on_tag(k)`,
+which resolves from the facets rather than the coordinates.
 
 Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
 names the `domain` it integrates over (the elements or the boundary facets), so a Robin condition
@@ -166,8 +168,13 @@ cached operators. Two spaces (P1 and P2, scalar and vector) can share one mesh. 
 imports no plot code.
 
 Meshes come from `box_mesh` (an axis-aligned line, rectangle, or box), `annulus_mesh`,
-`RuppertsAlgorithm(pslg, ...).refine()` over a `PSLG` (drawn by hand or read from an SVG), or
-`Mesh(vertices, elements)` directly.
+`pslg.mesh(min_angle, max_area_fraction)` over a `PSLG` (`fem/mesh/pslg.py`, frozen; drawn by
+hand with `PSLG.from_loops` / `PSLG.circle`, or read from an SVG), or `Mesh(vertices, elements)`
+directly. `RuppertsAlgorithm` is what `PSLG.mesh` runs, kept public for a caller that wants
+the refinement state. A PSLG mesh carries `boundary_tags`, one per boundary facet, naming the
+loop it came from; red-green refinement carries a tag onto a facet's halves, as it does the
+facet's curve. `on_tag(k)` is the region that names a tagged outline, so a condition on the
+hole in a plate is written without coordinates and survives refinement.
 
 ### Elements, quadrature, and assembly
 

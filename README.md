@@ -23,9 +23,11 @@ below are a subset of it, with the full captions in the gallery.
 ## Meshing a domain
 
 The library includes its own meshing. An outline, traced from an SVG or generated, is
-simplified with Douglas-Peucker, triangulated with Ruppert's algorithm to a
-minimum-angle and maximum-area bound, and can then be adaptively refined where the
-solution needs it (shown in later demos). Below, the same Poisson problem
+simplified with Douglas-Peucker, triangulated with Ruppert's algorithm
+(`pslg.mesh(min_angle=..., max_area_fraction=...)`) to a minimum-angle and maximum-area
+bound, and can then be adaptively refined where the solution needs it (shown in later
+demos). Each boundary facet of the result is tagged with the outline it came from, so a
+hole can take a condition by `on_tag(1)` rather than by coordinates. Below, the same Poisson problem
 ($-\nabla^2 u = 1$ with $u = 0$ on the boundary) is solved on four outlines. Each asks
 something different of the mesher: disconnected islands, Bezier curves, a hole, and
 sharp notches.

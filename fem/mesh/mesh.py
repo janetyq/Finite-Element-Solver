@@ -43,6 +43,34 @@ def boundary_facets(elements: Elements) -> Elements:
     return unique[counts == 1]
 
 
+def triangle_angles(triangle: FloatArray) -> FloatArray:
+    '''The three interior angles, in degrees, angle `i` at vertex `i`.
+
+    Takes a single `(3, d)` triangle and returns `(3,)`, or a stacked `(..., 3, d)`
+    array of triangles and returns `(..., 3)`. Mesh refinement tests every element on
+    every pass, so the batched form is the one that keeps that loop off Python.
+    '''
+    points = np.asarray(triangle, dtype=float)
+    # Side i is opposite vertex i.
+    sides = np.linalg.norm(np.roll(points, -1, axis=-2) - np.roll(points, 1, axis=-2), axis=-1)
+    a, b, c = sides[..., 0], sides[..., 1], sides[..., 2]
+    # Law of cosines. Clipped because a degenerate triangle can put the ratio a
+    # hair outside [-1, 1], and a NaN angle would compare false against any bound,
+    # accepting the sliver as good.
+    cosines = np.stack([
+        (b**2 + c**2 - a**2) / (2 * b * c),
+        (c**2 + a**2 - b**2) / (2 * c * a),
+        (a**2 + b**2 - c**2) / (2 * a * b),
+    ], axis=-1)
+    return np.degrees(np.arccos(np.clip(cosines, -1.0, 1.0)))
+
+
+def triangle_min_angle(triangle: FloatArray) -> FloatArray:
+    '''The smallest interior angle, in degrees. Batches like `triangle_angles`, one
+    angle per triangle.'''
+    return triangle_angles(triangle).min(axis=-1)
+
+
 def _edge_node_pairs(n_nodes: int) -> IntArray:
     '''Local node-index pairs spanning the edges of one linear simplex.
 
@@ -57,7 +85,13 @@ class Mesh:
 
     `boundary` is derived from `elements` when not given: a facet is on the boundary
     when exactly one element has it. Pass it only to fix the facet order, as a mesh
-    reloaded from a file does so that `boundary_curves` stay aligned with its facets.
+    reloaded from a file does so that `boundary_curves` and `boundary_tags` stay
+    aligned with its facets.
+
+    `boundary_tags` is one integer per boundary facet, or None: which outline the facet
+    came from. Ruppert's tags by the `PSLG` loop id, so the hole in a plate is the
+    facets tagged 1, and refinement carries a tag onto a facet's halves, so a condition
+    written as `on_tag(1)` resolves on any mesh in the hierarchy.
 
     The arrays are read-only. Every derived table below is cached, and a mesh is shared
     by the spaces, solutions, and refiners built on it, so a change in place would leave
@@ -70,6 +104,7 @@ class Mesh:
         elements: Elements | Sequence[Sequence[int]],
         boundary: Elements | Sequence[Sequence[int]] | None = None,
         boundary_curves: Sequence[Curve | None] | None = None,
+        boundary_tags: IntArray | Sequence[int] | None = None,
     ) -> None:
         self._vertices: Vertices = frozen_array(np.array(vertices, dtype=float))
         self._elements: Elements = frozen_array(np.array(elements, dtype=int))
@@ -84,6 +119,9 @@ class Mesh:
         # (isoparametric) space reads these to put its boundary nodes on the true curve.
         self.boundary_curves: tuple[Curve | None, ...] | None = self._per_facet(
             'boundary_curves', tuple(boundary_curves) if boundary_curves is not None else None)
+        self.boundary_tags: IntArray | None = self._per_facet(
+            'boundary_tags',
+            frozen_array(np.array(boundary_tags, dtype=int)) if boundary_tags is not None else None)
 
     # -- the arrays --------------------------------------------------------------------
 
@@ -251,8 +289,7 @@ class Mesh:
         does not.'''
         if self.element_dim != 2:
             raise ValueError('min_angle is for a triangle mesh')
-        from fem.geometry import calculate_triangle_min_angle
-        return float(calculate_triangle_min_angle(self._vertices[self._elements]).min())
+        return float(triangle_min_angle(self._vertices[self._elements]).min())
 
     # -- new meshes from this one ------------------------------------------------------
 
@@ -272,7 +309,8 @@ class Mesh:
                 f'displacement covers {len(displacement)} vertices, '
                 f'the mesh has {self.n_vertices}')
         vertices = self._vertices + scale * displacement[:self.n_vertices]
-        return Mesh(vertices, self._elements, self._boundary, self.boundary_curves)
+        return Mesh(vertices, self._elements, self._boundary, self.boundary_curves,
+                    self.boundary_tags)
 
     def refined(self, element_idxs: Sequence[int] | None = None) -> 'Mesh':
         '''Red-green refinement of the given elements, or of every element when None.'''
@@ -286,16 +324,17 @@ class Mesh:
         elements: Elements,
         boundary: Elements,
         boundary_curves: Sequence[Curve | None] | None = None,
+        boundary_tags: IntArray | None = None,
     ) -> 'Mesh':
         '''A new mesh over the given topology.
 
         The seam remeshers build through, so that refinement and coarsening name
         what they are doing rather than reaching for the constructor. A remesher that
-        keeps its boundary on the same curves passes the (remapped) `boundary_curves`;
-        omitting them yields a straight-sided mesh, since the new facets are otherwise
-        unrelated to the original facets' curves.
+        keeps its boundary on the same outlines passes the (remapped) `boundary_curves`
+        and `boundary_tags`; omitting them yields a straight-sided, untagged mesh, since
+        the new facets are otherwise unrelated to the original facets.
         '''
-        return Mesh(vertices, elements, boundary, boundary_curves)
+        return Mesh(vertices, elements, boundary, boundary_curves, boundary_tags)
 
     # -- files -------------------------------------------------------------------------
 

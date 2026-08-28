@@ -15,7 +15,6 @@ import numpy as np
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.equations import Poisson
 from fem.mesh.mesh import Mesh
-from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.svg import (
     PSLG, read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker)
 from fem.regions import everywhere
@@ -84,14 +83,6 @@ def zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE) -> list[tuple[str
     ]
 
 
-def mesh_outline(pslg: PSLG, min_angle, max_area_fraction) -> Mesh:
-    """Triangulate `pslg` by Ruppert's algorithm to a minimum-angle bound and a maximum
-    triangle area given as a fraction of the outline's own area."""
-    pslg.validate()
-    return RuppertsAlgorithm(pslg, min_angle=min_angle,
-                             max_area=max_area_fraction * pslg.area()).refine()
-
-
 def dome(mesh: Mesh) -> np.ndarray:
     """Solve -div(grad u) = 1 with u = 0 on every boundary of `mesh`."""
     return Solver(mesh, dome_equation, dome_bc).solve().u
@@ -130,6 +121,6 @@ def run(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0.001) -> OutlineS
     """
     shapes = []
     for name, pslg in zoo_shapes(svg_tolerance):
-        mesh = mesh_outline(pslg, min_angle, max_area_fraction)
+        mesh = pslg.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
         shapes.append(MeshedOutline(name, len(pslg.vertices), mesh, dome(mesh)))
     return OutlineStudy(shapes, min_angle)

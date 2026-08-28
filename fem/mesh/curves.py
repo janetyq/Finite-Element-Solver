@@ -45,6 +45,12 @@ class Circle:
         safe = np.where(distance == 0, 1.0, distance)
         return self.center + self.radius * offset / safe
 
+    def polygon(self, n: int) -> FloatArray:
+        '''`n` points around the circle, `(n, 2)`, starting at angle 0, without the
+        closing repeat: the loop a `PSLG` samples the circle by.'''
+        angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        return self.center + self.radius * np.column_stack([np.cos(angles), np.sin(angles)])
+
     def __repr__(self) -> str:
         return f'Circle(center={self.center.tolist()}, radius={self.radius})'
 
@@ -86,6 +92,11 @@ class Arc:
         clamped = np.where(wrapped <= hi, wrapped, np.where(wrapped < gap_mid, hi, lo))
         return self.center + self.radius * np.stack(
             [np.cos(clamped), np.sin(clamped)], axis=-1)
+
+    def polygon(self, n: int) -> FloatArray:
+        '''`n` points along the arc, `(n, 2)`, both endpoints included.'''
+        angles = np.linspace(self.start_angle, self.end_angle, n)
+        return self.center + self.radius * np.column_stack([np.cos(angles), np.sin(angles)])
 
     def __repr__(self) -> str:
         return (f'Arc(center={self.center.tolist()}, radius={self.radius}, '
