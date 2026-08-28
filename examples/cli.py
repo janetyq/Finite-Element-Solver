@@ -14,11 +14,7 @@ from pathlib import Path
 from fem.mesh.mesh import Mesh
 
 from demo_registry import Demo, DemoResult
-import benchmark_assembly
-import meshing_demos
-import refinement_demo
-import solver_demos
-from demos import modal
+import demos
 
 DEFAULT_GALLERY_DIR = '.gallery'
 
@@ -27,9 +23,7 @@ def build_registry() -> dict[str, Demo]:
     '''Every registered demo by name. Also the entry point `tests/test_demos.py` uses
     to run them all, so a demo is covered by the smoke test as soon as it is listed.'''
     registry: dict[str, Demo] = {}
-    # Meshing first, so the gallery's first section opens on building a domain.
-    for demo in (meshing_demos.DEMOS + solver_demos.DEMOS + [modal.DEMO]
-                 + refinement_demo.DEMOS + benchmark_assembly.DEMOS):
+    for demo in demos.all_demos():
         if demo.name in registry:
             raise ValueError(f'duplicate demo name: {demo.name!r}')
         registry[demo.name] = demo

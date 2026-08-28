@@ -9,7 +9,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
 
-from meshing_demos import close_ring  # noqa: E402
+from demos.outline_to_mesh.physics import close_ring  # noqa: E402
 
 
 def test_close_ring_appends_the_first_point():

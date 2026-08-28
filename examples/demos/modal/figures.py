@@ -4,7 +4,7 @@ import numpy as np
 from fem.plot.plotter import Plotter
 
 from demo_registry import Demo, DemoResult, Figure
-from demos._charts import share_panel_limits
+from demos._charts import hide_x_ticks, share_panel_limits
 from demos.modal import physics
 from demos.modal.physics import E, RHO, ForkStudy, cantilever_hz, clamp, run, transverse_motion
 
@@ -16,10 +16,6 @@ def _mode_shape(s: ForkStudy, i):
     return s.fork.mode_mesh(i, scale), scale * transverse
 
 
-def _hide_x_ticks(plotter, idx):
-    """Drop the x-axis ticks on a tall, thin fork panel, where the millimetre-scale
-    labels only collide; the y-axis carries the scale."""
-    plotter.get_ax(idx).tick_params(axis='x', labelbottom=False, bottom=False)
 
 
 def _modes_figure(s: ForkStudy, n_shown) -> Figure:
@@ -35,7 +31,7 @@ def _modes_figure(s: ForkStudy, n_shown) -> Figure:
                    clim=(-lim, lim), colorbar=False,
                    title=f'Mode {i+1}: {s.freqs[i]:.0f} Hz{tag}')
         modes.overlay_supports(s.mesh, clamp, idx=(0, i), coords=shape.vertices)
-        _hide_x_ticks(modes, (0, i))
+        hide_x_ticks(modes, (0, i))
     # One shared vertical scale, so the tines line up across panels like the buckling modes.
     share_panel_limits(modes, n_shown)
     modes.fig.supxlabel(
@@ -86,7 +82,7 @@ def _struck_figure(s: ForkStudy, shown_periods, frames_per_period) -> Figure:
     struck.plot_animation(s.mesh, sideways, mode='colored', meshes=frames, cmap='coolwarm',
                           cbar_lims=(-lim, lim), label='sideways displacement (nm)',
                           titles=titles)
-    _hide_x_ticks(struck, (0, 0))
+    hide_x_ticks(struck, (0, 0))
     struck.fig.supxlabel(f'Displacement exaggerated {scale:.0f}x; the colour is to scale.\n'
                          f'Played at about one second per period; the real period is '
                          f'{1e3 / f_voice:.2f} ms.', fontsize='small')
@@ -183,7 +179,7 @@ def _ring_down_figure(s: ForkStudy) -> Figure:
 def _setup_figure(s: ForkStudy) -> Figure:
     built = Plotter(1, 2, figsize=(6.0, 7.0), title='From an outline to a meshed fork')
     built.plot(s.mesh, mode='mesh', idx=(0, 0), title=f'{len(s.mesh.elements)} triangles')
-    _hide_x_ticks(built, (0, 0))
+    hide_x_ticks(built, (0, 0))
     built.plot(s.mesh, mode='bc', bc=clamp, idx=(0, 1), title='Clamped at the stem base')
     return Figure(
         built,
