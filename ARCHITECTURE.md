@@ -64,7 +64,7 @@ A `region` is a `Region` (`fem/regions.py`): `on_plane`, `in_box`, `everywhere`,
 `at_indices` name the cases, a bare callable is wrapped by `as_region`, and they compose with
 `&`, `|`, `~` (`left & bottom`). Only `at_indices` reports `mesh_bound`, so a remesher refuses it.
 A `value` (a source, a coefficient, a traction, a boundary value) normalizes through `as_field`
-to a `Field` that `sample`s to `(N, n_components)`: a `Constant`, a per-point `Spatial` callable,
+to a `Field` that `sample`s to `(N, n_components)`: a constant, a callable read point by point,
 or a `Vectorized` callable the user opts into to sample every quadrature point in one array call.
 A `TimeDependent` value is fixed at a time by `field_at` before sampling.
 
@@ -345,7 +345,7 @@ through `fem/io`.
 (`BoundaryConditions`, a frozen tuple of `Condition`s) separated from its resolution against one
 discretization (`ResolvedBC`, frozen, keyed by node set and component count), with the
 time-dependent values a second, cheaper step on the resolution (`ResolvedBC.at(t)`).
-`space.resolve(bc)` memoizes that geometry step per spec, so two problems on one space (a static
+`space.resolve_bc(bc)` memoizes that geometry step per spec, so two problems on one space (a static
 solve then a modal analysis, a design loop's rounds) resolve it once. The same
 shape recurs: `FunctionSpace` is the resolved
 discretization, `Form` the resolved view of an `Equation`'s physics, `Problem` the resolved

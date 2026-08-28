@@ -23,7 +23,7 @@ from fem.regions import (
     evaluate_field,
     field_at,
     is_mesh_bound,
-    sample_as_given,
+    sample_natural_width,
 )
 from fem.typing import (
     BoolArray,
@@ -425,7 +425,7 @@ class BoundaryConditions:
         out = []
         for condition in self.conditions:
             idxs = condition.select(nodes)
-            values = sample_as_given(field_at(condition.prescribed, 0.0), nodes.vertices[idxs])
+            values = sample_natural_width(field_at(condition.prescribed, 0.0), nodes.vertices[idxs])
             out.append((condition, idxs, values))
         return out
 

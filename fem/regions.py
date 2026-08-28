@@ -4,7 +4,8 @@ rather than vertex indices.
 A `Region` maps an (N, spatial_dim) array of point coordinates to an (N,) boolean
 mask. `everywhere`, `on_plane`, `in_box`, and `at_indices` name the common cases;
 a bare callable of the same shape is wrapped by `as_region`. Regions compose with
-`&`, `|`, and `~` (`left & bottom`, `~left`), and own the coordinate tolerance.
+`&`, `|`, and `~` (`left & bottom`, `~left`), and own the coordinate tolerance. The
+concrete region types are private: the helpers and the operators are the API.
 
 A `Field` is a prescribed value over the domain: a source, a coefficient, a traction,
 a boundary value. `as_field` normalizes a constant, a per-component constant, or a
@@ -40,9 +41,8 @@ DEFAULT_ATOL: float = 1e-9
 
 class Region(ABC):
     '''A geometric region: (N, spatial_dim) coordinates -> (N,) boolean membership
-    mask. Subclasses name the recurring cases and own the coordinate tolerance; a
-    bare callable of the same shape is wrapped by `as_region`. Combine with `&`, `|`,
-    and `~`.'''
+    mask. Build one with a helper (`everywhere`, `on_plane`, `in_box`, `at_indices`)
+    or `as_region` around a bare callable, and combine with `&`, `|`, and `~`.'''
 
     @abstractmethod
     def __call__(self, points: Vertices) -> BoolArray: ...
@@ -54,19 +54,19 @@ class Region(ABC):
         return False
 
     def __and__(self, other: RegionLike) -> 'Region':
-        return Intersect((self, as_region(other)))
+        return _Intersect((self, as_region(other)))
 
     def __rand__(self, other: RegionLike) -> 'Region':
-        return Intersect((as_region(other), self))
+        return _Intersect((as_region(other), self))
 
     def __or__(self, other: RegionLike) -> 'Region':
-        return Union((self, as_region(other)))
+        return _Union((self, as_region(other)))
 
     def __ror__(self, other: RegionLike) -> 'Region':
-        return Union((as_region(other), self))
+        return _Union((as_region(other), self))
 
     def __invert__(self) -> 'Region':
-        return Complement(self)
+        return _Complement(self)
 
 
 # A region argument: either a `Region` object or a bare callable `as_region` wraps.
@@ -74,8 +74,8 @@ RegionLike = Region | Callable[[Vertices], BoolArray]
 
 
 @dataclass(frozen=True)
-class Everywhere(Region):
-    '''Every point. Combined with the boundary-only resolution, this means "the
+class _Everywhere(Region):
+    '''Every point (`everywhere`). With the boundary-only resolution this means "the
     entire boundary", the most common Dirichlet region.'''
 
     def __call__(self, points: Vertices) -> BoolArray:
@@ -83,9 +83,8 @@ class Everywhere(Region):
 
 
 @dataclass(frozen=True)
-class OnPlane(Region):
-    '''Points whose `axis` coordinate equals `value` (the left edge is
-    `OnPlane(0, 0.0)`).'''
+class _OnPlane(Region):
+    '''Points whose `axis` coordinate equals `value` (`on_plane`).'''
     axis: int
     value: float
     atol: float = DEFAULT_ATOL
@@ -95,9 +94,9 @@ class OnPlane(Region):
 
 
 @dataclass(frozen=True)
-class InBox(Region):
-    '''Points inside an axis-aligned box, inclusive. A `None` bound on either side
-    leaves that direction unbounded, so a band in y is `InBox((None, 0.2), (None, 0.8))`.'''
+class _InBox(Region):
+    '''Points inside an axis-aligned box, inclusive (`in_box`). A `None` bound leaves
+    that direction unbounded.'''
     lower: tuple[float | None, ...]
     upper: tuple[float | None, ...]
     atol: float = DEFAULT_ATOL
@@ -114,9 +113,9 @@ class InBox(Region):
 
 
 @dataclass(frozen=True)
-class AtIndices(Region):
-    '''Named vertex indices. The escape hatch for work that is about specific nodes
-    rather than a place in the domain.
+class _AtIndices(Region):
+    '''Named vertex indices (`at_indices`): the escape hatch for work about specific
+    nodes rather than a place in the domain.
 
     Mesh-bound by construction: indices mean nothing once a remesher renumbers
     vertices, so `mesh_bound` is True and callers that remesh refuse it.
@@ -134,8 +133,8 @@ class AtIndices(Region):
 
 
 @dataclass(frozen=True)
-class Intersect(Region):
-    '''Points in every one of `regions`.'''
+class _Intersect(Region):
+    '''Points in every one of `regions` (`&`, `intersect`).'''
     regions: tuple[Region, ...]
 
     @property
@@ -150,8 +149,8 @@ class Intersect(Region):
 
 
 @dataclass(frozen=True)
-class Union(Region):
-    '''Points in any of `regions`.'''
+class _Union(Region):
+    '''Points in any of `regions` (`|`, `union`).'''
     regions: tuple[Region, ...]
 
     @property
@@ -166,9 +165,9 @@ class Union(Region):
 
 
 @dataclass(frozen=True)
-class Complement(Region):
-    '''Points outside `region`. Over the whole domain a complement is unbounded, so
-    it is meaningful in a boundary condition, where it intersects the boundary.'''
+class _Complement(Region):
+    '''Points outside `region` (`~`). Unbounded over the whole domain, so it is
+    meaningful in a boundary condition, where it intersects the boundary.'''
     region: Region
 
     @property
@@ -204,13 +203,13 @@ def as_region(region: RegionLike) -> Region:
 
 
 def everywhere() -> Region:
-    '''Every point (see `Everywhere`).'''
-    return Everywhere()
+    '''Every point.'''
+    return _Everywhere()
 
 
 def on_plane(axis: int, value: float, atol: float = DEFAULT_ATOL) -> Region:
-    '''Points on the plane `axis = value` (see `OnPlane`).'''
-    return OnPlane(axis, value, atol)
+    '''Points on the plane `axis = value` (the left edge is `on_plane(0, 0.0)`).'''
+    return _OnPlane(axis, value, atol)
 
 
 def in_box(
@@ -218,23 +217,24 @@ def in_box(
     upper: Sequence[float | None],
     atol: float = DEFAULT_ATOL,
 ) -> Region:
-    '''Points inside an axis-aligned box (see `InBox`).'''
-    return InBox(tuple(lower), tuple(upper), atol)
+    '''Points inside an axis-aligned box, inclusive. A `None` bound leaves that
+    direction unbounded, so a band in y is `in_box([None, 0.2], [None, 0.8])`.'''
+    return _InBox(tuple(lower), tuple(upper), atol)
 
 
 def intersect(*regions: RegionLike) -> Region:
     '''Points in every one of `regions`. `left & bottom` is the binary form.'''
-    return Intersect(tuple(as_region(r) for r in regions))
+    return _Intersect(tuple(as_region(r) for r in regions))
 
 
 def union(*regions: RegionLike) -> Region:
     '''Points in any of `regions`. `left | bottom` is the binary form.'''
-    return Union(tuple(as_region(r) for r in regions))
+    return _Union(tuple(as_region(r) for r in regions))
 
 
 def at_indices(indices: Sequence[int] | IntArray) -> Region:
-    '''The named vertices `indices` (see `AtIndices`).'''
-    return AtIndices(tuple(int(i) for i in np.asarray(indices, dtype=int).ravel()))
+    '''The named vertices `indices`. Mesh-bound, so a remesher refuses it.'''
+    return _AtIndices(tuple(int(i) for i in np.asarray(indices, dtype=int).ravel()))
 
 
 def is_mesh_bound(region: RegionLike) -> bool:
@@ -249,7 +249,8 @@ class Field(ABC):
     '''A prescribed value over the domain: a source, a coefficient, a traction, a
     boundary value. `as_field` builds one from a raw `FieldValue`; every consumer
     samples it the same way, so the polymorphic union is decoded once at the boundary
-    rather than at each call site.'''
+    rather than at each call site. `Vectorized` and `TimeDependent` are the two a user
+    constructs by hand; a constant or a plain callable normalizes on its own.'''
 
     @abstractmethod
     def sample(self, points: Vertices) -> FloatArray:
@@ -263,12 +264,12 @@ class Field(ABC):
     def is_pointwise(self) -> bool:
         '''Whether the value varies within an element, so it must be sampled at the
         quadrature points rather than integrated exactly as a constant. True for every
-        field but a `Constant`.'''
+        field but a constant.'''
         return True
 
 
 @dataclass(frozen=True)
-class Constant(Field):
+class _Constant(Field):
     '''A value the same at every point: a scalar, a per-component vector, or a `None`
     left as `NaN` for a free Dirichlet component. `values` is the (n_components,)
     per-point value, already validated by `as_field`.'''
@@ -283,13 +284,12 @@ class Constant(Field):
 
 
 @dataclass(frozen=True)
-class Spatial(Field):
-    '''A callable of position, `fn(p)`, read one point at a time: `fn` receives a
-    single `(d,)` coordinate and returns that point's value. The safe default for a
-    user-written lambda, since `p[0]` means the same thing on one point as the author
-    intends. `Vectorized` is the fast path for a callable that takes the whole array.
-    `allow_free` permits a `None`/`NaN` component, meaningful only for a Dirichlet
-    value.'''
+class _Pointwise(Field):
+    '''A callable of position read one point at a time: `fn` receives a single `(d,)`
+    coordinate and returns that point's value. The safe default for a user-written
+    lambda, since `p[0]` means the same thing on one point as the author intends;
+    `Vectorized` is the fast path for a callable that takes the whole array. Built by
+    `as_field` from a bare callable, so `n_components` comes from the consumer.'''
     fn: Callable[..., Any]
     n_components: int
     allow_free: bool = False
@@ -307,27 +307,31 @@ class Spatial(Field):
 class Vectorized(Field):
     '''A callable that takes the whole `(N, d)` array of coordinates at once and
     returns `(N, k)` (or `(N,)` for a scalar field): `fn` is array-aware, so one call
-    replaces the per-point loop. The user declares this contract by wrapping the
-    callable; nothing tries to guess it, because a point-by-point lambda handed the
-    batched array can return a plausibly-shaped but wrong result.
+    replaces the per-point loop, the fast path for an assembly-hot source or
+    coefficient. The user declares this contract by wrapping the callable; nothing
+    tries to guess it, because a point-by-point lambda handed the batched array can
+    return a plausibly-shaped but wrong result.
 
-    Pass one where a `FieldValue` is taken (a `Source`, a `Dirichlet` value): it is a
-    `Field`, so `as_field` returns it unchanged. `allow_free` permits a `NaN`
-    component, meaningful only for a Dirichlet value.
+    `n_components` is inferred from the first sample's width unless given; pass it to
+    pin the width and catch a wrong-shaped result early. Pass a `Vectorized` where a
+    `FieldValue` is taken (a `Source`, a `Dirichlet` value); it is a `Field`, so
+    `as_field` returns it unchanged. `allow_free` permits a `NaN` component,
+    meaningful only for a Dirichlet value.
     '''
     fn: Callable[[Vertices], FloatArray]
-    n_components: int
+    n_components: int | None = None
     allow_free: bool = False
 
     def sample(self, points: Vertices) -> FloatArray:
         pts = np.asarray(points, dtype=float)
         n = len(pts)
         if n == 0:
-            return np.zeros((0, self.n_components))
+            return np.zeros((0, self.n_components or 1))
         out = np.asarray(self.fn(pts), dtype=float)
-        if self.n_components == 1 and out.shape == (n,):
+        if out.ndim == 1:                       # a scalar field returning (N,)
             out = out.reshape(n, 1)
-        return _validate(out, n, self.n_components, self.allow_free)
+        k = self.n_components if self.n_components is not None else out.shape[-1]
+        return _validate(out, n, k, self.allow_free)
 
 
 @dataclass(frozen=True)
@@ -356,16 +360,17 @@ class TimeDependent(Field):
 def as_field(value: FieldValue, n_components: int, *, allow_free: bool = False) -> Field:
     '''Normalize a raw `FieldValue` into a `Field`.
 
-    A `Field` (including a `TimeDependent`) is returned as is; a callable becomes a
-    `Spatial`; anything else is a `Constant`, its width checked against `n_components`
-    now so a wrong-width value fails at the boundary. `allow_free` permits a `None`
-    component (left as `NaN`), meaningful only for a Dirichlet value.
+    A `Field` (including a `Vectorized` or `TimeDependent`) is returned as is; a
+    callable becomes a per-point field; anything else is a constant, its width checked
+    against `n_components` now so a wrong-width value fails at the boundary.
+    `allow_free` permits a `None` component (left as `NaN`), meaningful only for a
+    Dirichlet value.
     '''
     if isinstance(value, Field):
         return value
     if callable(value):
-        return Spatial(value, n_components, allow_free)
-    return Constant(_coerce_constant(value, n_components, allow_free))
+        return _Pointwise(value, n_components, allow_free)
+    return _Constant(_coerce_constant(value, n_components, allow_free))
 
 
 def field_at(value: FieldValue, t: float) -> FieldValue:
@@ -375,9 +380,9 @@ def field_at(value: FieldValue, t: float) -> FieldValue:
 
 def is_pointwise(value: FieldValue) -> bool:
     '''Whether `value` varies within an element and must be sampled at the quadrature
-    points, rather than integrated exactly as a constant: a callable, a `TimeDependent`,
-    or a pointwise `Field` (`Spatial`, `Vectorized`), but not a constant or a nodal
-    array. The predicate the assembling forms and loads branch on.'''
+    points, rather than integrated exactly as a constant: a callable, a `Vectorized`,
+    or a `TimeDependent`, but not a constant or a nodal array. The predicate the
+    assembling forms and loads branch on.'''
     if isinstance(value, Field):
         return value.is_pointwise
     return callable(value)
@@ -394,7 +399,7 @@ def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> Fl
     return as_field(value, n_components).sample(points)
 
 
-def sample_as_given(value: FieldValue, points: Vertices) -> FloatArray:
+def sample_natural_width(value: FieldValue, points: Vertices) -> FloatArray:
     '''Sample `value` at the width it declares, a `None` component kept as `NaN`.
 
     The inspection path: where the DOF count is not known (`BoundaryConditions.entries`,

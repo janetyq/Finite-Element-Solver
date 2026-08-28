@@ -138,27 +138,34 @@ def test_vectorized_field_takes_the_whole_array_at_once():
         calls.append(len(pts))          # one call for every point at once
         return (pts[:, 0] + pts[:, 1]).reshape(-1, 1)
 
-    values = evaluate_field(Vectorized(fn, n_components=1), POINTS, n_components=1)
+    values = evaluate_field(Vectorized(fn), POINTS, n_components=1)
     assert np.allclose(values.ravel(), POINTS.sum(axis=1))
     assert calls == [len(POINTS)]       # not one call per point
 
 
 def test_vectorized_scalar_field_may_return_a_flat_array():
-    field = Vectorized(lambda pts: pts[:, 0] * 2.0, n_components=1)
+    field = Vectorized(lambda pts: pts[:, 0] * 2.0)     # (N,), width inferred as 1
     values = evaluate_field(field, POINTS, n_components=1)
     assert np.allclose(values.ravel(), POINTS[:, 0] * 2.0)
+
+
+def test_vectorized_infers_the_component_count_from_the_output():
+    field = Vectorized(lambda pts: np.stack([pts[:, 0], -pts[:, 1]], axis=1))  # (N, 2)
+    values = field.sample(POINTS)
+    assert values.shape == (len(POINTS), 2)
+    assert np.allclose(values, np.stack([POINTS[:, 0], -POINTS[:, 1]], axis=1))
 
 
 def test_vectorized_matches_the_per_point_callable():
     per_point = evaluate_field(lambda p: [p[0] * p[1]], POINTS, n_components=1)
     batched = evaluate_field(
-        Vectorized(lambda pts: (pts[:, 0] * pts[:, 1]).reshape(-1, 1), n_components=1),
+        Vectorized(lambda pts: (pts[:, 0] * pts[:, 1]).reshape(-1, 1)),
         POINTS, n_components=1)
     assert np.allclose(per_point, batched)
 
 
-def test_vectorized_wrong_shape_raises_rather_than_being_reshaped():
-    field = Vectorized(lambda pts: pts, n_components=1)  # returns (N, 2), not (N, 1)
+def test_vectorized_declared_width_catches_a_wrong_shaped_result():
+    field = Vectorized(lambda pts: pts, n_components=1)  # returns (N, 2), pinned to 1
     with pytest.raises(ValueError):
         evaluate_field(field, POINTS, n_components=1)
 
@@ -172,11 +179,11 @@ def test_is_pointwise_separates_sampled_from_exactly_integrated():
     assert not is_pointwise([1.0, 2.0])
     assert not is_pointwise(as_field([1.0, 2.0], n_components=2))   # a Constant
     assert is_pointwise(lambda p: [p[0]])
-    assert is_pointwise(Vectorized(lambda pts: pts[:, :1], n_components=1))
+    assert is_pointwise(Vectorized(lambda pts: pts[:, :1]))
 
 
 def test_as_field_passes_a_field_through_unchanged():
-    field = Vectorized(lambda pts: pts[:, :1], n_components=1)
+    field = Vectorized(lambda pts: pts[:, :1])
     assert as_field(field, 1) is field
 
 

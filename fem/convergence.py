@@ -77,7 +77,7 @@ def _source_term(points: Vertices) -> FloatArray:
 
 
 # Vectorized: the assembly samples it once per element batch, not once per point.
-source_term = Vectorized(_source_term, n_components=1)
+source_term = Vectorized(_source_term)
 
 
 def l2_norm(space: FunctionSpace, values: VertexField) -> float:
@@ -237,7 +237,7 @@ def _elastic_source(points: Vertices) -> FloatArray:
     ], axis=-1)
 
 
-elastic_source = Vectorized(_elastic_source, n_components=2)
+elastic_source = Vectorized(_elastic_source)
 
 
 def elastic_exact(vertices: Vertices) -> FloatArray:
@@ -298,7 +298,7 @@ def _variable_coefficient(points: Vertices) -> FloatArray:
 
 
 # A pointwise Field coefficient: DiffusionForm samples it at the quadrature points.
-variable_coefficient = Vectorized(_variable_coefficient, n_components=1)
+variable_coefficient = Vectorized(_variable_coefficient)
 
 
 def _variable_source(points: Vertices) -> FloatArray:
@@ -312,7 +312,7 @@ def _variable_source(points: Vertices) -> FloatArray:
     return (-(grad_kappa_dot_grad_u + kappa_times_laplacian)).reshape(-1, 1)
 
 
-variable_source = Vectorized(_variable_source, n_components=1)
+variable_source = Vectorized(_variable_source)
 
 
 def solve_variable_coefficient_mms(n: int) -> MMSSolve:

@@ -505,7 +505,7 @@ class FunctionSpace:
     def total_volume(self) -> float:
         return float(self.element_volumes.sum())
 
-    def resolve(self, bc: 'BoundaryConditions') -> 'ResolvedBC':
+    def resolve_bc(self, bc: 'BoundaryConditions') -> 'ResolvedBC':
         '''`bc` resolved against this space's nodes, memoized by the spec's identity.
 
         The geometry step (which nodes and facets each region selects) depends only on
