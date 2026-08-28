@@ -48,6 +48,12 @@ def stretch_four_ways(mesh: Mesh, bc: BoundaryConditions):
     invariants of C = F^T F and carries the log J terms that keep it stable in
     compression. Both reach the same energy at small strain and part company here.
 
+    The finite-strain solves are seeded with the linear solution. Seeded from zero,
+    the elements beside the displaced edge start stretched by the whole prescribed
+    displacement over one element width, and Newton's early steps from there teeter on
+    inverting them (a J <= 0 element has infinite Neo-Hookean energy); the small-strain
+    answer is a few Newton steps from either finite-strain one.
+
     Returns the named solutions, and the energy problem with its minimiser.
     """
     linear = LinearElastic(E=E, nu=NU)
@@ -57,13 +63,15 @@ def stretch_four_ways(mesh: Mesh, bc: BoundaryConditions):
     # density the linear stiffness is the Hessian of, under Newton.
     energy_problem = Problem(linear.space(mesh), EnergyForm(linear.energy_density()), bc=bc)
     energy_u = NewtonSolve(line_search=BacktrackingLineSearch()).solve(energy_problem)
-    line_search = NewtonSolve(line_search=BacktrackingLineSearch())
+    linear_solution = Solver(mesh, linear, bc).solve()
+    newton = NewtonSolve(line_search=BacktrackingLineSearch())
     solutions = [
-        ('Linear solve\n(small strain)', Solver(mesh, linear, bc).solve()),
+        ('Linear solve\n(small strain)', linear_solution),
         ('Energy minimisation\n(small strain)', energy_problem.solution(energy_u)),
-        ('Green-Lagrange\n(St-Venant-Kirchhoff)', Solver(mesh, stvk, bc).solve()),
+        ('Green-Lagrange\n(St-Venant-Kirchhoff)',
+         Solver(mesh, stvk, bc).problem().solve(strategy=newton, u0=linear_solution.u)),
         ('Neo-Hookean\n(invariants of C)',
-         Solver(mesh, neohookean, bc, strategy=line_search).solve()),
+         Solver(mesh, neohookean, bc).problem().solve(strategy=newton, u0=linear_solution.u)),
     ]
     return solutions, energy_problem, energy_u
 
