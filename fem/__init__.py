@@ -65,13 +65,16 @@ from fem.forms import (
     LaplacianForm,
     LinearElasticForm,
     LinearForm,
+    MaskedMassForm,
     MassForm,
     ScaledForm,
+    SumForm,
 )
+from fem.loads import Load, PointLoad, Source, Traction
 from fem.materials import LinearElasticMaterial
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.postprocess import DerivedField
-from fem.problem import LinearProblem, Problem, Source
+from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.solve import (
     BacktrackingLineSearch,
     LinearSolve,
@@ -169,13 +172,19 @@ __all__ = [
     "FiniteStrainElastic",
     "LinearProblem",
     "Problem",
+    "RayleighDamping",
     "Source",
+    "Load",
+    "Traction",
+    "PointLoad",
     "Form",
     "BilinearForm",
     "EnergyForm",
     "EnergyDensity",
     "LinearForm",
     "MassForm",
+    "MaskedMassForm",
+    "SumForm",
     "LaplacianForm",
     "DiffusionForm",
     "LinearElasticForm",

@@ -27,7 +27,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import BilinearForm, Form, LinearForm, MassForm
+from fem.forms import Form, LinearForm, MassForm
 from fem.mesh.mesh import Mesh
 from fem.regions import evaluate_field
 from fem.typing import (
@@ -701,22 +701,33 @@ class FunctionSpace:
         '''Mass matrix over boundary facets, for integrating tractions.'''
         return self.assemble(MassForm(self.n_components), boundary=True)
 
-    def assemble(self, form: BilinearForm, boundary: bool = False) -> SparseMatrix:
-        '''Scatter a bilinear form's element matrices into a global matrix.
+    def assemble(self, form: Form, boundary: bool | None = None) -> SparseMatrix:
+        '''Scatter a constant-tangent form's element matrices into a global matrix.
 
-        `boundary=True` integrates over the boundary facets instead of the volume
-        elements. Not cached, since a form may carry material data that changes
-        between calls.
+        Each of the form's `terms` integrates over its own `domain` and the results are
+        added; `boundary` overrides the domain for every term (a volume `MassForm`
+        integrated over the facets is the boundary mass). Not cached, since a form may
+        carry material data that changes between calls.
         '''
-        geometry = self.boundary_geometry if boundary else self._geometry_for(form)
-        return self._assemble(form.element_matrices(geometry), boundary=boundary)
+        total = None
+        for term in form.terms:
+            on_boundary = term.domain == 'boundary' if boundary is None else boundary
+            if not term.constant_tangent:
+                raise TypeError(
+                    f'{type(term).__name__} has a state-dependent tangent; use assemble_tangent'
+                )
+            blocks = term.element_matrices(self._term_geometry(term, on_boundary))
+            matrix = self._term_matrix_scatter(on_boundary).scatter(blocks)
+            total = matrix if total is None else total + matrix
+        assert total is not None
+        return total
 
     def assemble_load(self, form: LinearForm) -> DofVector:
         '''Scatter a `LinearForm`'s element vectors into the global load vector.
 
         The vector counterpart of `assemble`: element load vectors summed into the
         DOFs their nodes own, the same scatter `assemble_residual` runs for the
-        nonlinear residual. This is the general load path; `problem.Source` is the
+        nonlinear residual. This is the general load path; `fem.loads.Source` is the
         mass-matrix special case that suffices when the source is given at the nodes.
         '''
         geometry = self.geometry_at(form.quadrature_degree)
@@ -726,37 +737,65 @@ class FunctionSpace:
     # -- state-dependent assembly -------------------------------------------
     #
     # A form's element quantities may depend on the current state, so these take
-    # `u` and evaluate the form at each element's slice of it. Constraints stay with
+    # `u` and evaluate each term at its elements' slice of it. Constraints stay with
     # the caller (the Problem and its solve strategy).
 
-    def _geometry_for(self, form: Form) -> ElementGeometry:
-        '''Geometry at a rule that integrates `form` on this element.
+    def _term_geometry(self, term: Form, on_boundary: bool) -> ElementGeometry:
+        '''Geometry at a rule that integrates `term` over its domain.
 
-        The larger of the element's default and what the form asks for: a quartic
-        St-Venant-Kirchhoff energy wants degree 4 on P2. One rule serves the energy,
-        residual, and tangent, so the residual is the exact gradient of the quadrature
-        energy and Newton sees a matching tangent.
+        On the volume, the larger of the element's default and what the term asks
+        for: a quartic St-Venant-Kirchhoff energy wants degree 4 on P2. One rule serves
+        the energy, residual, and tangent, so the residual is the exact gradient of the
+        quadrature energy and Newton sees a matching tangent.
         '''
+        if on_boundary:
+            return self.boundary_geometry
         degree = max(self.element_type.default_quadrature_degree(),
-                     form.quadrature_degree(self.element_type.SHAPE_DEGREE))
+                     term.quadrature_degree(self.element_type.SHAPE_DEGREE))
         return self.geometry_at(degree)
 
-    def _element_state(self, u: DofVector) -> FloatArray:
-        '''(n_elements, N, n_components): each element's slice of the state.'''
-        return np.asarray(u, dtype=float).reshape(-1, self.n_components)[self.element_nodes]
+    def _term_state(self, u: DofVector, on_boundary: bool) -> FloatArray:
+        '''(n_elements, N, n_components): each element's (or facet's) slice of the state.'''
+        nodes = self.boundary_nodes if on_boundary else self.element_nodes
+        return np.asarray(u, dtype=float).reshape(-1, self.n_components)[nodes]
+
+    def _term_matrix_scatter(self, on_boundary: bool) -> _ScatterPlan:
+        return self._boundary_scatter if on_boundary else self._volume_scatter
+
+    def _term_vector_scatter(self, on_boundary: bool) -> _VectorScatterPlan:
+        return self._boundary_vector_scatter if on_boundary else self._volume_vector_scatter
 
     def total_energy(self, form: Form, u: DofVector) -> float:
-        '''Sum a form's element energies at state `u`: the scalar Pi(u).'''
-        return float(form.element_energies(self._geometry_for(form), self._element_state(u)).sum())
+        '''Sum a form's element energies at state `u` over its terms: the scalar Pi(u).'''
+        total = 0.0
+        for term in form.terms:
+            on_boundary = term.domain == 'boundary'
+            energies = term.element_energies(
+                self._term_geometry(term, on_boundary), self._term_state(u, on_boundary))
+            total += float(energies.sum())
+        return total
 
     def assemble_residual(self, form: Form, u: DofVector) -> DofVector:
         '''Scatter element residuals at `u` into the global residual, shape (n_dofs,).'''
-        residuals = form.element_residuals(self._geometry_for(form), self._element_state(u))
-        return self._volume_vector_scatter.scatter(residuals)
+        total = np.zeros(self.n_dofs)
+        for term in form.terms:
+            on_boundary = term.domain == 'boundary'
+            residuals = term.element_residuals(
+                self._term_geometry(term, on_boundary), self._term_state(u, on_boundary))
+            total = total + self._term_vector_scatter(on_boundary).scatter(residuals)
+        return total
 
     def assemble_tangent(self, form: Form, u: DofVector) -> SparseMatrix:
         '''Scatter element tangents at `u` into the global tangent, shape (n_dofs, n_dofs).'''
-        return self._assemble(form.element_tangents(self._geometry_for(form), self._element_state(u)))
+        total = None
+        for term in form.terms:
+            on_boundary = term.domain == 'boundary'
+            tangents = term.element_tangents(
+                self._term_geometry(term, on_boundary), self._term_state(u, on_boundary))
+            matrix = self._term_matrix_scatter(on_boundary).scatter(tangents)
+            total = matrix if total is None else total + matrix
+        assert total is not None
+        return total
 
     # -- the scatter -------------------------------------------------------
 
@@ -793,6 +832,10 @@ class FunctionSpace:
     @cached_property
     def _boundary_scatter(self) -> _ScatterPlan:
         return self._scatter_plan(self.boundary_nodes)
+
+    @cached_property
+    def _boundary_vector_scatter(self) -> _VectorScatterPlan:
+        return _VectorScatterPlan.build(self.dof_indices(self.boundary_nodes), self.n_dofs)
 
     def _assemble(
         self,

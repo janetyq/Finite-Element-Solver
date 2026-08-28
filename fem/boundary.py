@@ -82,7 +82,9 @@ class NeumannContribution:
     spreading onto a neighbouring edge through a shared corner node.
     '''
     facet_mask: BoolArray       # one entry per boundary facet
-    traction: VertexField       # (n_vertices, n_components), nonzero on the region nodes
+    traction: VertexField       # (n_vertices, n_components) at the resolution time
+    node_idxs: VertexIndices    # the region's boundary nodes
+    value: FieldValue           # the spec's value, possibly TimeDependent
 
 
 @dataclass(frozen=True)
@@ -99,7 +101,9 @@ class RobinContribution:
     '''
     facet_mask: BoolArray       # one entry per boundary facet
     kappa: float
-    g: VertexField              # (n_vertices, n_components), nonzero on the Robin nodes
+    g: VertexField              # (n_vertices, n_components) at the resolution time
+    node_idxs: VertexIndices    # the region's boundary nodes
+    value: FieldValue           # the spec's g, possibly TimeDependent
 
 
 @dataclass(frozen=True)
@@ -252,9 +256,9 @@ class BoundaryConditions:
         robin: list[RobinContribution] = []
         dirichlet_vertices, neumann_vertices = [], []
 
-        for bc_type, region, value in self.conditions:
+        for bc_type, region, spec_value in self.conditions:
             idxs = self.select(nodes, region)
-            value = field_at(value, t)
+            value = field_at(spec_value, t)
 
             if bc_type is BCType.DIRICHLET:
                 values = _evaluate_dirichlet_value(value, nodes.vertices[idxs], n_components)
@@ -286,7 +290,13 @@ class BoundaryConditions:
                 traction = np.zeros((n, n_components))
                 traction[idxs] = values
                 facet_mask = np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
-                neumann_contributions.append(NeumannContribution(facet_mask, traction))
+                if len(idxs) and not facet_mask.any():
+                    raise ValueError(
+                        'a Neumann condition selects nodes but no boundary facet, so it '
+                        'integrates to nothing; a force at a node is a fem.loads.PointLoad'
+                    )
+                neumann_contributions.append(
+                    NeumannContribution(facet_mask, traction, idxs, spec_value))
                 neumann_vertices.extend(int(i) for i in idxs)
 
         for region, kappa, g_field in self.robin_conditions:
@@ -296,7 +306,12 @@ class BoundaryConditions:
             # A boundary facet is in the region iff all its nodes are: the
             # all-nodes rule that keeps the boundary integral crisp.
             facet_mask = np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
-            robin.append(RobinContribution(facet_mask, kappa, g))
+            if len(idxs) and not facet_mask.any():
+                raise ValueError(
+                    'a Robin condition selects nodes but no boundary facet, so its '
+                    'boundary integral is empty'
+                )
+            robin.append(RobinContribution(facet_mask, kappa, g, idxs, g_field))
 
         dirichlet_vertices = np.unique(dirichlet_vertices).astype(int)
         neumann_vertices = np.unique(neumann_vertices).astype(int)

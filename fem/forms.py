@@ -20,9 +20,14 @@ stiffness) and gets residual `K u`, tangent `K`, energy `½ uᵀ K u`; an `Energ
 writes a stored-energy density and gets all three by differentiating it at the state.
 What else a form can answer (a constant tangent, an energy, a recoverable flux, an AMG
 near-kernel) is a hook on `Form` with a default answer of "no".
+
+Forms compose: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, each answering the hooks
+from its terms. A form names its integration `domain` (the volume elements or the boundary
+facets), so a sum may mix the two, as an operator with a Robin boundary term does, and the
+space assembles each term over its own domain.
 """
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -31,10 +36,11 @@ from fem.elements import ElementGeometry
 from fem.energies import StrainEnergyDerivatives
 from fem.materials import LinearElasticMaterial
 from fem.postprocess import DerivedField, GradientField, StressField
-from fem.regions import evaluate_field
+from fem.regions import TimeDependent, evaluate_field, field_at
 from fem.typing import BoolArray, ElementField, FieldValue, FloatArray
 
 if TYPE_CHECKING:
+    from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
     from fem.space import FunctionSpace
 
 
@@ -218,17 +224,44 @@ class Form:
     - `near_null_space`: the AMG near-kernel an iterative solve of the tangent is
       built with (the rigid-body modes of elasticity).
 
+    `domain` is where the form integrates: `'volume'` over the elements (the default) or
+    `'boundary'` over the boundary facets. `terms` is the flat tuple of forms a sum is
+    made of, `(self,)` for a form that is not a sum; assembly iterates it so every term
+    integrates over its own domain.
+
     `u_elements` is `(n_elements, N, n_components)`, each element's slice of the state.
     Batched over the mesh: a Python loop over elements spends nearly all its time in
     per-call numpy overhead, and one vectorized pass is roughly 30x faster.
     '''
     constant_tangent: bool = False
     has_energy: bool = False
+    domain: ClassVar[Literal['volume', 'boundary']] = 'volume'
+
+    @property
+    def terms(self) -> tuple['Form', ...]:
+        return (self,)
+
+    def __add__(self, other: 'Form') -> 'Form':
+        if not isinstance(other, Form):
+            return NotImplemented
+        return SumForm(self.terms + other.terms)
+
+    def __mul__(self, factor: float) -> 'Form':
+        if not isinstance(factor, (int, float)):
+            return NotImplemented
+        scaled = tuple(ScaledForm(float(factor), term) for term in self.terms)
+        return scaled[0] if len(scaled) == 1 else SumForm(scaled)
+
+    __rmul__ = __mul__
 
     def quadrature_degree(self, shape_degree: int) -> int:
         '''The lowest rule degree that integrates this form on a degree-`shape_degree`
         element; the space uses the larger of it and the element's default.'''
         return 0
+
+    def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        '''(n_elements, k, k) constant element matrices; defined when `constant_tangent`.'''
+        raise TypeError(f'{type(self).__name__} has a state-dependent tangent and no constant matrices')
 
     def element_residuals(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, k) internal-force blocks at the state, k = N * n_components.'''
@@ -248,6 +281,12 @@ class Form:
     def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
         '''`(n_dofs, n_modes)` over every DOF of `space`; the solve restricts it to the free block.'''
         return None
+
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'FieldSolution':
+        '''Package a solved DOF vector as the typed `Solution` this physics recovers:
+        a bare `FieldSolution` unless a subclass recovers more.'''
+        from fem.solution import FieldSolution
+        return FieldSolution(space, u)
 
 
 class BilinearForm(Form):
@@ -320,18 +359,20 @@ class MassForm(BilinearForm):
         return block
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class MaskedMassForm(BilinearForm):
-    '''A mass form zeroed on the facets outside `mask`: a boundary mass over a
-    subset of the boundary.
+    '''A boundary mass form zeroed on the facets outside `mask`: ∫_Γ u·v over a
+    subset Γ of the boundary.
 
-    Used for the Robin term ∫_∂Ω_R u·v, restricted to its region: `mask` marks the
-    boundary facets that lie in the region, and the element matrices of the rest
-    are zeroed before scatter, so the assembled matrix integrates over the region
-    alone. `mask` is aligned with the facets `element_matrices` is called on.
+    The Robin operator term κ ∫_Γ u·v is `kappa * MaskedMassForm(n, mask)`, and the
+    traction and Robin loads integrate through the same matrix. `mask` marks the
+    boundary facets that lie in the region, and the element matrices of the rest are
+    zeroed before scatter, so the assembled matrix integrates over the region alone.
+    `mask` is aligned with the space's boundary facets.
     '''
     n_components: int
     mask: BoolArray  # one entry per facet
+    domain: ClassVar[Literal['volume', 'boundary']] = 'boundary'
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         base = MassForm(self.n_components).element_matrices(geometry)
@@ -349,6 +390,10 @@ class LaplacianForm(BilinearForm):
 
     def derived_field(self) -> DerivedField:
         return GradientField()
+
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ScalarFieldSolution':
+        from fem.solution import ScalarFieldSolution
+        return ScalarFieldSolution.from_solve(space, u)
 
 
 def _sample_field(field: FieldValue, geometry: ElementGeometry, n_components: int) -> FloatArray:
@@ -391,23 +436,44 @@ class DiffusionForm(BilinearForm):
     def derived_field(self) -> DerivedField:
         return GradientField()
 
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ScalarFieldSolution':
+        from fem.solution import ScalarFieldSolution
+        return ScalarFieldSolution.from_solve(space, u)
+
 
 @dataclass(frozen=True)
 class LinearForm:
     '''The linear form L(v) = ∫ f(x)·v, assembled by sampling f at the quadrature points.
 
-    A load, not a `Form`: it produces one element vector per element, which
-    `FunctionSpace.assemble_load` scatters into the global load.
-    `problem.Source` is the cheaper special case that integrates f's P1 interpolant
-    through the cached mass matrix; this samples f itself, capturing variation within
-    an element the interpolant cannot.
+    A load term, not a `Form`: it produces one element vector per element, which
+    `FunctionSpace.assemble_load` scatters into the global load; `vector` is that
+    scatter at a time, the `fem.loads.Load` contract. `fem.loads.Source` is the cheaper
+    special case that integrates f's P1 interpolant through the cached mass matrix;
+    this samples f itself, capturing variation within an element the interpolant
+    cannot. `field` may be `TimeDependent`.
     '''
     field: FieldValue
     n_components: int = 1
     quadrature_degree: int = 2
 
+    @property
+    def is_time_dependent(self) -> bool:
+        return isinstance(self.field, TimeDependent)
+
+    def vector(self, space: 'FunctionSpace', t: float = 0.0) -> FloatArray:
+        '''The assembled load at time `t`.'''
+        return space.assemble_load(self.at(t))
+
+    def at(self, t: float) -> 'LinearForm':
+        '''This form with a time-dependent field fixed at `t`; itself otherwise.'''
+        if not self.is_time_dependent:
+            return self
+        return LinearForm(field_at(self.field, t), self.n_components, self.quadrature_degree)
+
     def element_vectors(self, geometry: ElementGeometry) -> FloatArray:
         '''(n_elements, N*n_components) element load vectors, DOFs interleaved per node.'''
+        if self.is_time_dependent:
+            raise TypeError('a time-dependent LinearForm has no vectors without a time; use at(t)')
         f = _sample_field(self.field, geometry, self.n_components)   # (n_el, n_qp, c)
         # b[e, n, c] = sum_q weight_detJ[e,q] * shape[q,n] * f[e,q,c]
         b = np.einsum('eq,qn,eqc->enc', geometry.weight_detJ, geometry.shape, f)
@@ -432,6 +498,10 @@ class LinearElasticForm(BilinearForm):
 
     def derived_field(self) -> DerivedField:
         return StressField(self)
+
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ElasticSolution':
+        from fem.solution import ElasticSolution
+        return ElasticSolution.from_solve(space, u, self)
 
     def near_null_space(self, space: 'FunctionSpace') -> FloatArray:
         # Built at the space's node coordinates: a P2 space has edge nodes of its own,
@@ -489,7 +559,7 @@ class LinearElasticForm(BilinearForm):
                              _element_mean(fields.stress, geometry.weight_detJ),
                              compliance)
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class GeometricStiffnessForm(BilinearForm):
     '''Geometric (initial-stress) stiffness ∫ Gᵀ Σ₀ G, from a per-element prestress.
 
@@ -533,18 +603,123 @@ class GeometricStiffnessForm(BilinearForm):
 
 
 @dataclass(frozen=True)
-class ScaledForm(BilinearForm):
-    '''A form scaled by a constant coefficient, such as c² for the wave operator.
+class ScaledForm(Form):
+    '''A form scaled by a constant: `factor * form`, such as c² times the Laplacian for
+    the wave operator, or κ times a boundary mass for a Robin term.
 
-    The wave equation's stiffness is c²K, so `problem.tangent` returns the scaled
-    operator and the integrator never has to know the wave speed. Kept minimal: an
-    `OperatorSum` waits for a second operator term (Robin, advection).
+    Every hook is the wrapped form's; the energy, residual, and tangent are scaled. A
+    sum is never wrapped: `factor * (a + b)` distributes into a sum of scaled terms.
     '''
     factor: float
-    form: BilinearForm
+    form: Form
+
+    def __post_init__(self) -> None:
+        if len(self.form.terms) > 1:
+            raise TypeError('scale the terms of a sum, not the sum: write factor * form')
+
+    @property
+    def constant_tangent(self) -> bool:  # type: ignore[override]
+        return self.form.constant_tangent
+
+    @property
+    def has_energy(self) -> bool:  # type: ignore[override]
+        return self.form.has_energy
+
+    @property
+    def domain(self) -> Literal['volume', 'boundary']:  # type: ignore[override]
+        return self.form.domain
+
+    def quadrature_degree(self, shape_degree: int) -> int:
+        return self.form.quadrature_degree(shape_degree)
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         return self.factor * self.form.element_matrices(geometry)
+
+    def element_residuals(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        return self.factor * self.form.element_residuals(geometry, u_elements)
+
+    def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        return self.factor * self.form.element_tangents(geometry, u_elements)
+
+    def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        return self.factor * self.form.element_energies(geometry, u_elements)
+
+    def derived_field(self) -> DerivedField | None:
+        return self.form.derived_field()
+
+    def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
+        return self.form.near_null_space(space)
+
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'FieldSolution':
+        return self.form.solution(space, u)
+
+
+@dataclass(frozen=True)
+class SumForm(Form):
+    '''The sum of forms, each integrating over its own domain: `a + b`.
+
+    The tangent is constant when every term's is, and the energy exists when every
+    term has one. The derived field, the near-null space, and the solution packaging
+    come from the one term that answers (the physics term; a boundary mass answers
+    none), and two answering terms is an error. A sum has no element blocks of its
+    own: `FunctionSpace` assembles each of `terms` and adds the results.
+    '''
+    forms: tuple[Form, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.forms) < 2:
+            raise ValueError('a SumForm needs at least two terms')
+        if any(len(form.terms) > 1 for form in self.forms):
+            raise ValueError('a SumForm is flat; build it with a + b')
+
+    @property
+    def terms(self) -> tuple[Form, ...]:
+        return self.forms
+
+    @property
+    def constant_tangent(self) -> bool:  # type: ignore[override]
+        return all(term.constant_tangent for term in self.terms)
+
+    @property
+    def has_energy(self) -> bool:  # type: ignore[override]
+        return all(term.has_energy for term in self.terms)
+
+    def _physics_term(self) -> Form | None:
+        '''The one term that names a derived field, or None.'''
+        physics = [term for term in self.terms if term.derived_field() is not None]
+        if len(physics) > 1:
+            names = ', '.join(type(term).__name__ for term in physics)
+            raise ValueError(f'more than one term of the sum names a derived field: {names}')
+        return physics[0] if physics else None
+
+    def derived_field(self) -> DerivedField | None:
+        physics = self._physics_term()
+        return None if physics is None else physics.derived_field()
+
+    def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
+        modes = [m for m in (term.near_null_space(space) for term in self.terms) if m is not None]
+        if len(modes) > 1:
+            raise ValueError('more than one term of the sum names a near-null space')
+        return modes[0] if modes else None
+
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'FieldSolution':
+        physics = self._physics_term()
+        return super().solution(space, u) if physics is None else physics.solution(space, u)
+
+    def _no_blocks(self) -> TypeError:
+        return TypeError('a SumForm has no element blocks of its own; assemble its terms')
+
+    def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
+        raise self._no_blocks()
+
+    def element_residuals(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        raise self._no_blocks()
+
+    def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        raise self._no_blocks()
+
+    def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        raise self._no_blocks()
 
 
 @dataclass(frozen=True, eq=False)
@@ -739,6 +914,10 @@ class EnergyForm(Form):
 
     def derived_field(self) -> DerivedField:
         return StressField(self)
+
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ElasticSolution':
+        from fem.solution import ElasticSolution
+        return ElasticSolution.from_solve(space, u, self)
 
     def fields_at(
         self, geometry: ElementGeometry, u_elements: FloatArray,
