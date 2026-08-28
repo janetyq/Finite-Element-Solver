@@ -617,11 +617,18 @@ class ScaledForm(Form):
     def __post_init__(self) -> None:
         if len(self.form.terms) > 1:
             raise TypeError('scale the terms of a sum, not the sum: write factor * form')
-        # The hooks are the wrapped form's, set once as instance attributes over the
-        # base's class-level defaults.
-        object.__setattr__(self, 'constant_tangent', self.form.constant_tangent)
-        object.__setattr__(self, 'has_energy', self.form.has_energy)
-        object.__setattr__(self, 'domain', self.form.domain)
+
+    @property
+    def constant_tangent(self) -> bool:
+        return self.form.constant_tangent
+
+    @property
+    def has_energy(self) -> bool:
+        return self.form.has_energy
+
+    @property
+    def domain(self) -> Literal['volume', 'boundary']:
+        return self.form.domain
 
     def quadrature_degree(self, shape_degree: int) -> int:
         return self.form.quadrature_degree(shape_degree)
@@ -666,8 +673,13 @@ class SumForm(Form):
         if any(len(form.terms) > 1 for form in self.forms):
             raise ValueError('a SumForm is flat; build it with a + b')
 
-        object.__setattr__(self, 'constant_tangent', all(f.constant_tangent for f in self.forms))
-        object.__setattr__(self, 'has_energy', all(f.has_energy for f in self.forms))
+    @property
+    def constant_tangent(self) -> bool:
+        return all(f.constant_tangent for f in self.forms)
+
+    @property
+    def has_energy(self) -> bool:
+        return all(f.has_energy for f in self.forms)
 
     @property
     def terms(self) -> tuple[Form, ...]:
