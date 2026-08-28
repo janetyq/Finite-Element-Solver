@@ -163,7 +163,7 @@ STYLE = """
 }
 * { box-sizing: border-box; }
 body { margin: 0 auto; padding: 2.5rem 1.25rem 4rem; max-width: 70rem; background: var(--bg);
-       color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+       color: var(--fg); font: 17px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif; }
 h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
 h2 { font-size: 1.15rem; margin: 0 0 .35rem; }
 a { color: inherit; }
@@ -195,7 +195,7 @@ figure img { display: block; margin: 0 auto; width: auto; height: auto;
              max-width: 100%; max-height: 30rem;
              border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 figcaption { color: var(--muted); font-size: .9rem; margin-top: .5rem; }
-.figure-note { max-width: 54rem; margin: 1rem 0 2.5rem; }
+.figure-note { margin: 1rem 0 2.5rem; }
 .figure-note p { margin: 0 0 .85rem; }
 .player { display: flex; align-items: center; gap: .75rem; margin-top: .6rem; }
 .player button { font: inherit; padding: .25rem .9rem; border-radius: 6px;
