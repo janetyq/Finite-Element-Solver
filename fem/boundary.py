@@ -77,12 +77,12 @@ class NeumannContribution:
     '''One resolved Neumann condition: a traction ∫_∂Ω_R g·v over a region's facets.
 
     `facet_mask` marks the boundary facets in the region; a `MaskedMassForm` over them
-    integrates `traction` (the nodal field g) across those facets alone, the same
-    region-restricted integral a Robin condition uses. Masking keeps a traction from
-    spreading onto a neighbouring edge through a shared corner node.
+    integrates the traction across those facets alone, the same region-restricted
+    integral a Robin condition uses. Masking keeps a traction from spreading onto a
+    neighbouring edge through a shared corner node. `value` (evaluated on `node_idxs`)
+    is g, re-read per step for a `TimeDependent` traction.
     '''
     facet_mask: BoolArray       # one entry per boundary facet
-    traction: VertexField       # (n_vertices, n_components) at the resolution time
     node_idxs: VertexIndices    # the region's boundary nodes
     value: FieldValue           # the spec's value, possibly TimeDependent
 
@@ -94,14 +94,14 @@ class RobinContribution:
     It contributes to both sides of the system: the boundary term κ∫_∂Ω_R u·v to
     the operator and ∫_∂Ω_R g·v to the load. `facet_mask` marks which of the mesh's
     boundary facets lie in the region, so a `MaskedMassForm` over them assembles the
-    region-restricted boundary integral; `kappa` scales the operator term and `g`
-    (nonzero on the Robin nodes) drives the load. The assembly itself waits for a
-    FunctionSpace, so this carries only the data, keyed to the mesh, the same
-    spec-then-resolve split the rest of the BC layer uses.
+    region-restricted boundary integral; `kappa` scales the operator term and `value`
+    (evaluated on `node_idxs`) is g, driving the load and re-read per step when it is
+    `TimeDependent`. The assembly itself waits for a FunctionSpace, so this carries only
+    the data, keyed to the mesh, the same spec-then-resolve split the rest of the BC
+    layer uses.
     '''
     facet_mask: BoolArray       # one entry per boundary facet
     kappa: float
-    g: VertexField              # (n_vertices, n_components) at the resolution time
     node_idxs: VertexIndices    # the region's boundary nodes
     value: FieldValue           # the spec's g, possibly TimeDependent
 
@@ -283,12 +283,10 @@ class BoundaryConditions:
                 dirichlet_vertices.extend(int(i) for i in idxs)
             else:
                 values = evaluate_field(value, nodes.vertices[idxs], n_components)
+                # The global `neumann` field feeds the error estimator; the per-condition
+                # facet mask keeps this traction on its own region's facets (as Robin
+                # does) so a corner node cannot carry it onto a neighbour.
                 neumann[idxs] += values
-                # Per-condition facet mask, so the traction integrates over this region's
-                # facets alone (as Robin does) and a corner node cannot carry it onto a
-                # neighbour. The global `neumann` field above is for the error estimator.
-                traction = np.zeros((n, n_components))
-                traction[idxs] = values
                 facet_mask = np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
                 if len(idxs) and not facet_mask.any():
                     raise ValueError(
@@ -296,13 +294,11 @@ class BoundaryConditions:
                         'integrates to nothing; a force at a node is a fem.loads.PointLoad'
                     )
                 neumann_contributions.append(
-                    NeumannContribution(facet_mask, traction, idxs, spec_value))
+                    NeumannContribution(facet_mask, idxs, spec_value))
                 neumann_vertices.extend(int(i) for i in idxs)
 
         for region, kappa, g_field in self.robin_conditions:
             idxs = self.select(nodes, region)
-            g = np.zeros((n, n_components))
-            g[idxs] = evaluate_field(field_at(g_field, t), nodes.vertices[idxs], n_components)
             # A boundary facet is in the region iff all its nodes are: the
             # all-nodes rule that keeps the boundary integral crisp.
             facet_mask = np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
@@ -311,7 +307,7 @@ class BoundaryConditions:
                     'a Robin condition selects nodes but no boundary facet, so its '
                     'boundary integral is empty'
                 )
-            robin.append(RobinContribution(facet_mask, kappa, g, idxs, g_field))
+            robin.append(RobinContribution(facet_mask, kappa, idxs, g_field))
 
         dirichlet_vertices = np.unique(dirichlet_vertices).astype(int)
         neumann_vertices = np.unique(neumann_vertices).astype(int)
