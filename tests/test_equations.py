@@ -138,8 +138,8 @@ def test_equation_resolves_its_space_and_problem(make_unit_square):
 
 def test_default_strategy_follows_the_tangent(make_unit_square):
     """A constant tangent gets `LinearSolve`; a state-dependent one gets line-searched
-    `NewtonSolve`, paired with regularization only under an iterative backend."""
-    from fem.algebra.backends import MinresBackend
+    `NewtonSolve`, which regularizes only under the iterative backend it is handed."""
+    from fem.algebra.backends import DirectBackend, MinresBackend
     from fem.algebra.solve import LinearSolve, NewtonSolve, default_strategy
 
     mesh = make_unit_square(4)
@@ -149,9 +149,8 @@ def test_default_strategy_follows_the_tangent(make_unit_square):
     assert isinstance(default_strategy(linear.problem(mesh)), LinearSolve)
     newton = default_strategy(finite.problem(mesh))
     assert isinstance(newton, NewtonSolve)
-    assert newton.line_search is not None and newton.regularization is None
-    from fem.algebra.backends import DirectBackend
-    direct = default_strategy(finite.problem(mesh), DirectBackend())
-    assert isinstance(direct, NewtonSolve) and direct.regularization is None
-    iterative = default_strategy(finite.problem(mesh), MinresBackend())
-    assert isinstance(iterative, NewtonSolve) and iterative.regularization is not None
+    assert newton.line_search is not None and newton.regularization == 'auto'
+    assert newton.regularization_for(None) is None
+    assert newton.regularization_for(DirectBackend()) is None
+    assert newton.regularization_for(MinresBackend()) is not None
+    assert NewtonSolve(regularization=None).regularization_for(MinresBackend()) is None

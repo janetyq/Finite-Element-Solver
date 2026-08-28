@@ -305,14 +305,13 @@ class Problem:
     ) -> FieldSolution:
         '''Solve and package the result as the typed `Solution` for this operator.
 
-        `strategy` None is `default_strategy`: `LinearSolve` for a constant tangent,
-        line-searched `NewtonSolve` otherwise, over `backend`. A strategy carries its
-        own backend, so the two are not given together. `u0` seeds an iterative
-        strategy. A time-dependent problem is solved as its snapshot `at(t)`, so `t`
-        is required for one; an integrator steps it instead.
+        `strategy` is how the problem is iterated (`LinearSolve`, `NewtonSolve`); None is
+        `default_strategy`, `LinearSolve` for a constant tangent and line-searched
+        `NewtonSolve` otherwise. `backend` is how each linear system on the way is solved
+        (direct by default); the two are independent choices. `u0` seeds an iterative
+        strategy. A time-dependent problem is solved as its snapshot `at(t)`, so `t` is
+        required for one; an integrator steps it instead.
         '''
-        if strategy is not None and backend is not None:
-            raise ValueError('a strategy carries its own backend; pass one or the other')
         if 0 not in self.time_orders:
             raise TypeError(
                 f'a steady solve needs time order 0; this problem allows {sorted(self.time_orders)}. '
@@ -327,8 +326,8 @@ class Problem:
             return self.at(t).solve(strategy, backend, u0)
         if strategy is None:
             from fem.algebra.solve import default_strategy
-            strategy = default_strategy(self, backend)
-        return self.solution(strategy.solve(self, u0))
+            strategy = default_strategy(self)
+        return self.solution(strategy.solve(self, u0, backend=backend))
 
     def near_null_space(self) -> FloatArray | None:
         '''The operator's AMG near-kernel over all DOFs, or None.

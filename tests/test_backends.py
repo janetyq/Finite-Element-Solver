@@ -181,7 +181,7 @@ def test_iterative_elastic_solve_matches_direct_through_facade_and_composition()
     iterative = Solver(mesh, eq, bc, backend=IterativeBackend()).solve().u
     np.testing.assert_allclose(iterative, direct, atol=tol)
     problem = eq.problem(mesh, bc)
-    composed = LinearSolve(IterativeBackend()).solve(problem)
+    composed = LinearSolve().solve(problem, backend=IterativeBackend())
     np.testing.assert_allclose(composed, direct, atol=tol)
 
 
@@ -195,7 +195,7 @@ def test_iterative_backend_matches_direct_through_a_time_step():
     problem = Heat().problem(mesh)
 
     direct = ThetaMethod(dt=0.01, steps=5).solve(problem, u0.copy()).u[-1]
-    iterative = ThetaMethod(dt=0.01, steps=5, backend=IterativeBackend()).solve(problem, u0.copy()).u[-1]
+    iterative = ThetaMethod(dt=0.01, steps=5).solve(problem, u0.copy(), backend=IterativeBackend()).u[-1]
     np.testing.assert_allclose(iterative, direct, atol=1e-7)
 
 

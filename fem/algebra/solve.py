@@ -12,7 +12,7 @@ elimination. `BucklingAnalysis` and `ModalAnalysis` interpret its eigenvalues.
 """
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 import numpy as np
 from scipy.sparse import eye_array
@@ -25,25 +25,20 @@ from fem.typing import Constraints, DofIndices, DofVector, FloatArray, Operator
 
 
 class SolveStrategy(Protocol):
-    def solve(self, problem: Problem, u0: DofVector | None = None) -> DofVector: ...
+    '''How a `Problem` is iterated to its solution. Orthogonal to the `Backend`, which is
+    how each linear system on the way is solved and is given at the call.'''
+
+    def solve(self, problem: Problem, u0: DofVector | None = None, *,
+              backend: Backend | None = None) -> DofVector: ...
 
 
-def default_strategy(problem: Problem, backend: Backend | None = None) -> 'SolveStrategy':
+def default_strategy(problem: Problem) -> 'SolveStrategy':
     '''The strategy a caller gets by naming none: `LinearSolve` for a constant tangent,
-    line-searched `NewtonSolve` otherwise.
-
-    A state-dependent tangent is indefinite away from a convex minimum, so an
-    iterative `backend` on the Newton path is paired with the regularization that keeps
-    each step a descent direction; the direct default needs neither.
-    '''
+    line-searched `NewtonSolve` otherwise (which regularizes its tangent by itself when
+    the backend it is handed is iterative).'''
     if problem.is_linear:
-        return LinearSolve(backend)
-    return NewtonSolve(
-        line_search=BacktrackingLineSearch(),
-        backend=backend,
-        regularization=(TangentRegularization()
-                        if isinstance(backend, (IterativeBackend, MinresBackend)) else None),
-    )
+        return LinearSolve()
+    return NewtonSolve(line_search=BacktrackingLineSearch())
 
 
 def backend_for(problem: Problem, backend: Backend | None) -> Backend | None:
@@ -66,21 +61,19 @@ def backend_for(problem: Problem, backend: Backend | None) -> Backend | None:
 class LinearSolve:
     '''Assemble once, solve once: for a `Problem` with a state-independent tangent.
 
-    `backend` selects the linear algebra for the one solve: direct by default,
-    or an `IterativeBackend` for a large SPD system (Poisson, small-strain elasticity),
-    which is handed the problem's near-kernel (see `backend_for`).
+    `backend` (at the call) selects the linear algebra for the one solve: direct by
+    default, or an `IterativeBackend` for a large SPD system (Poisson, small-strain
+    elasticity), which is handed the problem's near-kernel (see `backend_for`).
     '''
 
-    def __init__(self, backend: Backend | None = None) -> None:
-        self.backend = backend
-
-    def solve(self, problem: Problem, u0: DofVector | None = None) -> DofVector:
+    def solve(self, problem: Problem, u0: DofVector | None = None, *,
+              backend: Backend | None = None) -> DofVector:
         if not problem.is_linear:
             raise TypeError(
                 f'LinearSolve needs a constant tangent; {type(problem.operator).__name__} '
                 'depends on the state. Use NewtonSolve.'
             )
-        backend = backend_for(problem, self.backend)
+        backend = backend_for(problem, backend)
         system = DiscreteSystem(problem.tangent(), problem.constraints, backend)
         return system.solve(problem.load)
 
@@ -167,12 +160,14 @@ class NewtonSolve:
     full step would send diverging. The line search is a no-op where the full step
     already works, including every `LinearProblem`, whose exact step passes at alpha = 1.
 
-    `backend` selects the linear algebra for each tangent solve (direct by default). A
-    nonlinear tangent is indefinite away from a convex minimum, so an iterative backend for
-    it must handle that: `MinresBackend`, not the SPD-only CG `IterativeBackend`.
-    `regularization` (a `TangentRegularization`) steers each step to a descent direction by
-    shifting an indefinite tangent; without it, an indefinite tangent falls back to the full
-    step (line-search globalization only).
+    The `backend` given at the call selects the linear algebra for each tangent solve
+    (direct by default). A nonlinear tangent is indefinite away from a convex minimum, so
+    an iterative backend for it must handle that: `MinresBackend`, not the SPD-only CG
+    `IterativeBackend`. `regularization` (a `TangentRegularization`) steers each step to a
+    descent direction by shifting an indefinite tangent; without it, an indefinite tangent
+    falls back to the full step (line-search globalization only). The default `'auto'`
+    regularizes exactly when the backend is iterative, where an indefinite tangent would
+    otherwise break the solve; `None` never does, an instance always does.
     '''
 
     def __init__(
@@ -180,24 +175,32 @@ class NewtonSolve:
         max_iters: int = 100,
         tol: float = 1e-6,
         line_search: BacktrackingLineSearch | None = None,
-        backend: Backend | None = None,
-        regularization: TangentRegularization | None = None,
+        regularization: TangentRegularization | None | Literal['auto'] = 'auto',
     ) -> None:
         self.max_iters = max_iters
         self.tol = tol
         self.line_search = line_search
-        self.backend = backend
         self.regularization = regularization
 
-    def solve(self, problem: Problem, u0: DofVector | None = None) -> DofVector:
+    def regularization_for(self, backend: Backend | None) -> TangentRegularization | None:
+        '''The regularization a solve over `backend` applies (see the class docstring).'''
+        if isinstance(self.regularization, str):   # 'auto'
+            iterative = isinstance(backend, (IterativeBackend, MinresBackend))
+            return TangentRegularization() if iterative else None
+        return self.regularization
+
+    def solve(self, problem: Problem, u0: DofVector | None = None, *,
+              backend: Backend | None = None) -> DofVector:
         free, fixed, fixed_values = problem.constraints
         u = np.zeros(problem.space.n_dofs) if u0 is None else np.asarray(u0, dtype=float).copy()
         u[fixed] = fixed_values
 
+        regularization = self.regularization_for(backend)
         step_constraints = (free, fixed, np.zeros(len(fixed)))
         for _ in range(self.max_iters):
             residual = problem.residual(u)
-            step = self._compute_step(problem, u, residual, free, step_constraints)
+            step = self._compute_step(problem, u, residual, free, step_constraints,
+                                      backend, regularization)
             if np.linalg.norm(step) < self.tol:
                 break
             u = self._advance(problem, free, u, step, residual)
@@ -206,6 +209,7 @@ class NewtonSolve:
     def _compute_step(
         self, problem: Problem, u: DofVector, residual: DofVector,
         free: DofIndices, step_constraints: Constraints,
+        backend: Backend | None, regularization: TangentRegularization | None,
     ) -> DofVector:
         '''The Newton increment, optionally regularized to a descent direction.
 
@@ -217,16 +221,16 @@ class NewtonSolve:
         '''
         H = problem.tangent(u)
         rhs = -residual
-        if self.regularization is None:
-            return DiscreteSystem(H, step_constraints, self.backend).solve(rhs)
+        if regularization is None:
+            return DiscreteSystem(H, step_constraints, backend).solve(rhs)
 
         identity = eye_array(H.shape[0], format='csr')
         diagonal_scale = float(np.abs(H.diagonal()).mean()) or 1.0
         step = None
-        for tau in self.regularization.schedule(diagonal_scale):
+        for tau in regularization.schedule(diagonal_scale):
             operator = H if tau == 0.0 else H + tau * identity
             try:
-                step = DiscreteSystem(operator, step_constraints, self.backend).solve(rhs)
+                step = DiscreteSystem(operator, step_constraints, backend).solve(rhs)
             except RuntimeError:
                 # An SPD-only backend (CG) breaks down on a still-indefinite shift; escalate.
                 continue

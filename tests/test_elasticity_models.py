@@ -257,6 +257,23 @@ def test_solver_uses_the_strategy_it_is_given(make_unit_square):
     np.testing.assert_allclose(solver.solve().u, reference, atol=1e-7 * np.abs(reference).max())
 
 
+def test_newton_regularizes_for_the_backend_it_is_handed(make_unit_square):
+    """`regularization='auto'` shifts the tangent only under an iterative backend: a
+    St-VK stretch solved with MINRES matches the direct solve, and both match plain
+    Newton with regularization off."""
+    from fem.algebra.backends import DirectBackend, MinresBackend
+    mesh, equation, bc = _stretched_stvk(make_unit_square)
+    problem = equation.problem(mesh, bc)
+    newton = NewtonSolve(line_search=BacktrackingLineSearch())
+
+    direct = newton.solve(problem, backend=DirectBackend())
+    minres = newton.solve(problem, backend=MinresBackend())
+    off = NewtonSolve(line_search=BacktrackingLineSearch(), regularization=None).solve(problem)
+    tol = 1e-6 * np.abs(direct).max()
+    np.testing.assert_allclose(minres, direct, atol=tol)
+    np.testing.assert_allclose(off, direct, atol=tol)
+
+
 def test_regularization_leaves_an_spd_tangent_unshifted(make_unit_square):
     """On a LinearProblem (SPD tangent), regularization changes nothing: tau stays 0."""
     mesh = make_unit_square(8)

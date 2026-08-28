@@ -46,20 +46,20 @@ class ThetaMethod:
     value is prescribed at each step's end time.
     '''
 
-    def __init__(self, dt: float, steps: int, theta: float = 0.5,
-                 backend: Backend | None = None) -> None:
+    def __init__(self, dt: float, steps: int, theta: float = 0.5) -> None:
         self.dt = dt
         self.steps = steps
         self.theta = theta
-        self.backend = backend
 
-    def solve(self, problem: Problem, u0: DofVector) -> TransientSolution:
+    def solve(self, problem: Problem, u0: DofVector, *,
+              backend: Backend | None = None) -> TransientSolution:
+        '''Step from `u0`; `backend` solves the factored-once step operator.'''
         _require_order(problem, 1, 'ThetaMethod integrates a first-order system', 'Heat')
         M = problem.mass
         K = problem.tangent(None)
         dt, theta = self.dt, self.theta
 
-        system = DiscreteSystem(M + theta * dt * K, problem.constraints, self.backend)
+        system = DiscreteSystem(M + theta * dt * K, problem.constraints, backend)
         rhs_operator = M - (1 - theta) * dt * K
 
         u = np.asarray(u0, dtype=float)
@@ -91,15 +91,15 @@ class NewmarkMethod:
     supported, since it needs the prescribed velocity and acceleration as well.
     '''
 
-    def __init__(self, dt: float, steps: int, beta: float = 0.25, gamma: float = 0.5,
-                 backend: Backend | None = None) -> None:
+    def __init__(self, dt: float, steps: int, beta: float = 0.25, gamma: float = 0.5) -> None:
         self.dt = dt
         self.steps = steps
         self.beta = beta
         self.gamma = gamma
-        self.backend = backend
 
-    def solve(self, problem: Problem, u0: DofVector, v0: DofVector) -> WaveSolution:
+    def solve(self, problem: Problem, u0: DofVector, v0: DofVector, *,
+              backend: Backend | None = None) -> WaveSolution:
+        '''Step from `(u0, v0)`; `backend` solves the factored-once effective operator.'''
         _require_order(problem, 2, 'NewmarkMethod integrates a second-order system',
                        'Wave or an elastic equation')
         if problem.bc.is_time_dependent:
@@ -131,11 +131,11 @@ class NewmarkMethod:
             '''The damping force C v, zero without a damping matrix.'''
             return np.zeros_like(velocity) if C is None else C @ velocity
 
-        a = DiscreteSystem(M, accel_constraints, self.backend).solve(b - damping(v) - K @ u)
+        a = DiscreteSystem(M, accel_constraints, backend).solve(b - damping(v) - K @ u)
         effective_operator = M + beta * dt**2 * K
         if C is not None:
             effective_operator = effective_operator + gamma * dt * C
-        effective = DiscreteSystem(effective_operator, accel_constraints, self.backend)
+        effective = DiscreteSystem(effective_operator, accel_constraints, backend)
 
         t_values: list[float] = [0.0]
         u_values: list[DofVector] = [u.copy()]
