@@ -36,7 +36,7 @@ class DiscreteSystem:
         # setup; the default direct backend is a sparse LU.
         backend = backend if backend is not None else DirectBackend()
         self._free_fixed = A[np.ix_(self.free, self.fixed)]
-        self._solver = backend.prepare(A[np.ix_(self.free, self.free)])
+        self._factorization = backend.prepare(A[np.ix_(self.free, self.free)])
 
     def solve(self, b: DofVector, fixed_values: FloatArray | None = None) -> DofVector:
         '''Solve for x given a right-hand side b, reusing the factorization.
@@ -48,7 +48,7 @@ class DiscreteSystem:
         x = np.zeros(self.n_dofs)
         x[self.fixed] = values
         b_free = b[self.free] - self._free_fixed @ values
-        x[self.free] = self._solver.solve(b_free)
+        x[self.free] = self._factorization.solve(b_free)
         return x
 
     def solve_homogeneous(self, b: DofVector) -> DofVector:
@@ -61,5 +61,5 @@ class DiscreteSystem:
         factored free block as `solve`, so it costs one back-substitution, not a refactor.
         '''
         x = np.zeros(self.n_dofs)
-        x[self.free] = self._solver.solve(b[self.free])
+        x[self.free] = self._factorization.solve(b[self.free])
         return x

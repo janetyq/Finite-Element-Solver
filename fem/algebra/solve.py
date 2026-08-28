@@ -58,8 +58,10 @@ def backend_for(problem: Problem, backend: Backend | None) -> Backend | None:
     return backend.with_near_null_space(modes[free])
 
 
+@dataclass(frozen=True)
 class LinearSolve:
     '''Assemble once, solve once: for a `Problem` with a state-independent tangent.
+    Nothing to configure: a named choice.
 
     `backend` (at the call) selects the linear algebra for the one solve: direct by
     default, or an `IterativeBackend` for a large SPD system (Poisson, small-strain
@@ -144,6 +146,7 @@ class TangentRegularization:
             tau *= self.growth
 
 
+@dataclass(frozen=True)
 class NewtonSolve:
     '''Newton's method on r(u) = 0, re-factoring the tangent each iteration.
 
@@ -170,17 +173,10 @@ class NewtonSolve:
     otherwise break the solve; `None` never does, an instance always does.
     '''
 
-    def __init__(
-        self,
-        max_iters: int = 100,
-        tol: float = 1e-6,
-        line_search: BacktrackingLineSearch | None = None,
-        regularization: TangentRegularization | None | Literal['auto'] = 'auto',
-    ) -> None:
-        self.max_iters = max_iters
-        self.tol = tol
-        self.line_search = line_search
-        self.regularization = regularization
+    max_iters: int = 100
+    tol: float = 1e-6
+    line_search: BacktrackingLineSearch | None = None
+    regularization: TangentRegularization | None | Literal['auto'] = 'auto'
 
     def regularization_for(self, backend: Backend | None) -> TangentRegularization | None:
         '''The regularization a solve over `backend` applies (see the class docstring).'''
