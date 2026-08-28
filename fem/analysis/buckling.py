@@ -46,7 +46,8 @@ class BucklingAnalysis:
         if self.n_modes < 1:
             raise ValueError(f'n_modes must be at least 1, got {self.n_modes}')
 
-    def solve(self, problem: LinearProblem, backend: Backend | None = None) -> BucklingSolution:
+    def solve(self, problem: LinearProblem[ElasticSolution],
+              backend: Backend | None = None) -> BucklingSolution:
         '''The buckling factors and modes about the problem's reference solve, which
         runs over `backend` (direct by default).'''
         if not problem.is_linear:

@@ -8,7 +8,7 @@ builder and the strategy are the caller's.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 import numpy as np
 
@@ -19,6 +19,8 @@ from fem.algebra.backends import Backend
 from fem.algebra.solve import SolveStrategy
 from fem.post.solution import FieldSolution
 
+S = TypeVar('S', bound=FieldSolution)   # the solution each round packages
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -28,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class AdaptiveRefinement:
+class AdaptiveRefinement(Generic[S]):
     '''Refine where the error estimate is largest, re-solving on each new mesh.
 
     `problem_for(mesh)` states the problem on any mesh (`equation.problem(mesh,
@@ -42,7 +44,7 @@ class AdaptiveRefinement:
     def __init__(
         self,
         mesh: Mesh,
-        problem_for: Callable[[Mesh], Problem],
+        problem_for: Callable[[Mesh], Problem[S]],
         estimator: ErrorEstimator | Callable[[Problem, FieldSolution], ElementField],
         strategy: SolveStrategy | None = None,
         backend: Backend | None = None,
@@ -58,15 +60,15 @@ class AdaptiveRefinement:
         self.max_triangles = max_triangles
         self.max_iters = max_iters
         self.refine_fraction = refine_fraction
-        self.problem: Problem | None = None
-        self.solution: FieldSolution | None = None
+        self.problem: Problem[S] | None = None
+        self.solution: S | None = None
 
-    def _solve(self) -> FieldSolution:
+    def _solve(self) -> S:
         assert self.problem is not None
         self.solution = self.problem.solve(strategy=self.strategy, backend=self.backend)
         return self.solution
 
-    def run(self) -> FieldSolution:
+    def run(self) -> S:
         '''Refine and re-solve until a budget is hit; return the final solution.
 
         Elements whose estimate is within `refine_fraction` of the largest are

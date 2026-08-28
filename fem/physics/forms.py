@@ -29,7 +29,7 @@ space assembles each term over its own domain.
 from dataclasses import dataclass
 from numbers import Real
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, Protocol, TypeVar, cast, runtime_checkable
 
 import numpy as np
 
@@ -43,6 +43,11 @@ from fem.typing import BoolArray, ElementField, FieldValue, FloatArray, Vertices
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace
+
+# The typed solution a form packages (`solution`): `ElasticSolution` for a form that
+# recovers stress, `ScalarFieldSolution` for one naming a flux, else `FieldSolution`.
+# It flows up through `Problem[S]` to `Problem.solve() -> S`.
+S = TypeVar('S', bound=FieldSolution)
 
 
 def strain_displacement(grad_phi: FloatArray) -> FloatArray:
@@ -209,7 +214,7 @@ def _element_mean(values: FloatArray, weight_detJ: FloatArray) -> FloatArray:
     return np.einsum('eq,eq...->e...', weights, values)
 
 
-class Form(ABC):
+class Form(ABC, Generic[S]):
     '''Element residual and tangent at a nodal state: what a `Problem` assembles.
 
     A subclass writes `element_residuals` and `element_tangents`. Everything else is
@@ -239,15 +244,17 @@ class Form(ABC):
     domain: ClassVar[Literal['volume', 'boundary']] = 'volume'
 
     @property
-    def terms(self) -> tuple['Form', ...]:
+    def terms(self) -> tuple['Form[Any]', ...]:
         return (self,)
 
-    def __add__(self, other: 'Form') -> 'Form':
+    def __add__(self, other: 'Form[Any]') -> 'Form[S]':
+        # A sum packages through its physics term, and a boundary term added to a
+        # physics form is the common sum, so the left operand's solution type is kept.
         if not isinstance(other, Form):
             return NotImplemented
         return SumForm(self.terms + other.terms)
 
-    def __mul__(self, factor: float) -> 'Form':
+    def __mul__(self, factor: float) -> 'Form[S]':
         if not isinstance(factor, Real):
             return NotImplemented
         scaled = tuple(ScaledForm(float(factor), term) for term in self.terms)
@@ -283,13 +290,14 @@ class Form(ABC):
         '''`(n_dofs, n_modes)` over every DOF of `space`; the solve restricts it to the free block.'''
         return None
 
-    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'FieldSolution':
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> S:
         '''Package a solved DOF vector as the typed `Solution` this physics recovers:
-        a bare `FieldSolution` unless a subclass recovers more.'''
-        return FieldSolution(space, u)
+        a bare `FieldSolution` unless a subclass recovers more (and then says so in
+        its `S`; a form that keeps this default is a `Form[FieldSolution]`).'''
+        return cast(S, FieldSolution(space, u))
 
 
-class BilinearForm(Form):
+class BilinearForm(Form[S]):
     '''A form with a constant element matrix K: residual K u, tangent K, energy ½ uᵀKu.
 
     Subclasses write `element_matrices`; the rest follows from it. The state is
@@ -318,7 +326,7 @@ class BilinearForm(Form):
 
 
 @dataclass(frozen=True)
-class MassForm(BilinearForm):
+class MassForm(BilinearForm[FieldSolution]):
     '''The mass form ∫ u·v: the consistent P1 mass matrix.
 
     The scalar `∫ phi_i phi_j` is element geometry; a k-component field repeats it
@@ -360,7 +368,7 @@ class MassForm(BilinearForm):
 
 
 @dataclass(frozen=True, eq=False)
-class BoundaryMassForm(BilinearForm):
+class BoundaryMassForm(BilinearForm[FieldSolution]):
     '''The boundary mass form ∫_Γ u·v over the subset Γ of the boundary that `mask`
     marks.
 
@@ -393,7 +401,7 @@ def sample_field(field: FieldValue, geometry: ElementGeometry, n_components: int
 
 
 @dataclass(frozen=True)
-class DiffusionForm(BilinearForm):
+class DiffusionForm(BilinearForm[ScalarFieldSolution]):
     '''The diffusion form ∫ κ ∇u·∇v: the Laplacian at κ ≡ 1, the operator of Poisson,
     heat, and (with κ = c²) the wave equation.
 
@@ -463,7 +471,7 @@ def rigid_body_modes(vertices: Vertices, n_components: int) -> FloatArray:
 
 
 @dataclass(frozen=True)
-class LinearElasticForm(BilinearForm):
+class LinearElasticForm(BilinearForm[ElasticSolution]):
     '''Small-strain linear elasticity ∫ ε(u):D:ε(v), so G = B, C = D.'''
     material: LinearElasticMaterial
 
@@ -541,7 +549,7 @@ class LinearElasticForm(BilinearForm):
                              compliance)
 
 @dataclass(frozen=True, eq=False)
-class GeometricStiffnessForm(BilinearForm):
+class GeometricStiffnessForm(BilinearForm[FieldSolution]):
     '''Geometric (initial-stress) stiffness ∫ Gᵀ Σ₀ G, from a per-element prestress.
 
     The material `C` here is not a constitutive law but the stress the structure
@@ -584,7 +592,7 @@ class GeometricStiffnessForm(BilinearForm):
 
 
 @dataclass(frozen=True)
-class ScaledForm(Form):
+class ScaledForm(Form[S]):
     '''A form scaled by a constant: `factor * form`, such as c² times the Laplacian for
     the wave operator, or κ times a boundary mass for a Robin term.
 
@@ -592,7 +600,7 @@ class ScaledForm(Form):
     sum is never wrapped: `factor * (a + b)` distributes into a sum of scaled terms.
     '''
     factor: float
-    form: Form
+    form: Form[S]
 
     def __post_init__(self) -> None:
         if len(self.form.terms) > 1:
@@ -631,12 +639,12 @@ class ScaledForm(Form):
     def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
         return self.form.near_null_space(space)
 
-    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'FieldSolution':
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> S:
         return self.form.solution(space, u)
 
 
 @dataclass(frozen=True)
-class SumForm(Form):
+class SumForm(Form[S]):
     '''The sum of forms, each integrating over its own domain: `a + b`.
 
     The tangent is constant when every term's is, and the energy exists when every
@@ -645,7 +653,7 @@ class SumForm(Form):
     none), and two answering terms is an error. A sum has no element blocks of its
     own: `FunctionSpace` assembles each of `terms` and adds the results.
     '''
-    forms: tuple[Form, ...]
+    forms: tuple[Form[Any], ...]
 
     def __post_init__(self) -> None:
         if len(self.forms) < 2:
@@ -662,10 +670,10 @@ class SumForm(Form):
         return all(f.has_energy for f in self.forms)
 
     @property
-    def terms(self) -> tuple[Form, ...]:
+    def terms(self) -> tuple[Form[Any], ...]:
         return self.forms
 
-    def _physics_term(self) -> Form | None:
+    def _physics_term(self) -> Form[Any] | None:
         '''The one term that names a derived field, or None.'''
         physics = [term for term in self.terms if term.derived_field() is not None]
         if len(physics) > 1:
@@ -683,7 +691,7 @@ class SumForm(Form):
             raise ValueError('more than one term of the sum names a near-null space')
         return modes[0] if modes else None
 
-    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'FieldSolution':
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> S:
         physics = self._physics_term()
         return super().solution(space, u) if physics is None else physics.solution(space, u)
 
@@ -704,7 +712,7 @@ _NO_BLOCKS = 'a SumForm has no element blocks of its own; assemble its terms'
 
 
 @dataclass(frozen=True, eq=False)
-class PrecomputedForm(BilinearForm):
+class PrecomputedForm(BilinearForm[FieldSolution]):
     '''Element matrices computed elsewhere, handed to assembly as they are.
 
     An escape hatch for a driver that can derive its element matrices more cheaply
@@ -747,7 +755,7 @@ class EnergyDensity(Protocol):
 
 
 @dataclass(frozen=True)
-class EnergyForm(Form):
+class EnergyForm(Form[ElasticSolution]):
     '''A hyperelastic `Form`: the energy, residual, and tangent of a stored-energy density.
 
     Maps geometry and the current nodal displacement to three volume-weighted
