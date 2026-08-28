@@ -560,8 +560,11 @@ def demo_elasticity_models(mesh, stretch=0.5):
     # invariants of C = F^T F and carries the log J terms that keep it stable in
     # compression. Both reach the same energy at small strain and part company here.
     #
-    # The stress peak sits at the clamped corners, where the imposed displacement is
-    # singular, so the median is quoted beside it.
+    # The stress diverges at the clamped corners, where the imposed displacement is
+    # singular (it grows without bound under refinement, so it is a mesh artefact, not a
+    # material fact). Each panel's colour range is therefore capped at the 99th percentile
+    # so those few corner nodes saturate rather than spending the whole colormap, and the
+    # median, not the singular peak, is quoted as the comparable number.
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
@@ -590,21 +593,27 @@ def demo_elasticity_models(mesh, stretch=0.5):
     plotter = Plotter(1, 4, title=f'One {stretch:.0%} stretch, four ways to model it')
     for i, (name, solution) in enumerate(solutions):
         vm = solution.von_mises
+        # Cap at the 99th percentile: the singular corners saturate, the bulk field reads.
+        hi = float(np.percentile(vm, 99))
         plotter.plot(solution.deformed_mesh(), vm, mode='colored', idx=(0, i),
-                     label='von Mises stress',
-                     title=f'{name}\nmedian {np.median(vm):.0f}, peak {vm.max():.0f}')
+                     label='von Mises stress', clim=(float(np.min(vm)), hi),
+                     title=f'{name}\nmedian {np.median(vm):.0f}')
     linear_u = solutions[0][1].u
     drift = np.linalg.norm(energy_u - linear_u) / np.linalg.norm(linear_u)
     return DemoResult(
         [Figure(plotter,
-                'The first two are the same physics solved two ways, as a linear system and '
-                'by Newton on the energy that system is the stationary point of. Their '
-                'displacements are identical to machine precision (below). Their stress is '
-                'not, because the two recover different measures, sigma = D:eps against the '
-                'Cauchy stress at the deformed configuration, which agree only for small '
-                'gradients. The last two change the physics: two finite-strain laws, '
-                'Green-Lagrange and Neo-Hookean, that share the small-strain limit but '
-                'stiffen differently as the stretch grows, which small strain cannot.',
+                'Read it as two knobs. Panels 1 and 2 turn the method: the same small-strain '
+                'physics as a linear solve and as Newton on the energy it is the stationary '
+                'point of, so their displacements match to machine precision (below). Their '
+                'colour still differs because panel 1 reports the linear stress sigma = D:eps '
+                'while panel 2 reports the true Cauchy stress on the deformed shape, which '
+                'part once the stretch is large. Panels 2 to 4 hold the method and turn the '
+                'material: small strain is a rough linearisation, St-Venant-Kirchhoff has a '
+                'polynomial energy that over-stiffens sharply in tension (its median stress '
+                'runs several times the others), and Neo-Hookean carries log-J terms that '
+                'keep it physical at large strain. Colour is capped at the 99th percentile so '
+                'the singular clamped corners do not wash out the bulk; that same singularity '
+                'is why the median, not the peak, is the number to compare.',
                 'stress'),
          Figure(conditions,
                 'Both ends are Dirichlet. The left is held at zero and the right is displaced '
