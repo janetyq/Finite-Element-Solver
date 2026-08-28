@@ -14,8 +14,36 @@ from fem.loads import PointLoad, Source, BoundaryLoad
 from fem.materials import LinearElasticMaterial
 from fem.modal import ModalAnalysis
 from fem.problem import LinearProblem, RayleighDamping
-from fem.regions import TimeDependent, at_indices, everywhere, on_plane
+from fem.regions import TimeDependent, Vectorized, at_indices, everywhere, on_plane
 from fem.space import FunctionSpace
+
+
+# -- vectorized sources --------------------------------------------------------
+
+
+def test_a_vectorized_source_is_sampled_in_one_batched_call(make_unit_square):
+    """The assembly hot path hands every quadrature point to a Vectorized source at
+    once, not one Python call per point."""
+    space = FunctionSpace(make_unit_square(8))
+    calls = []
+
+    def fn(pts):
+        calls.append(len(pts))
+        return (pts[:, 0] + pts[:, 1]).reshape(-1, 1)
+
+    source = Source(Vectorized(fn, n_components=1), n_components=1)
+    space.assemble_load(source)
+    assert len(calls) == 1                          # one call for the whole assembly
+    assert calls[0] >= len(space.mesh.elements)     # every quadrature point at once
+
+
+def test_a_vectorized_source_matches_the_per_point_source(make_unit_square):
+    space = FunctionSpace(make_unit_square(8))
+    per_point = Source(lambda p: [np.sin(p[0]) * p[1]], n_components=1)
+    batched = Source(
+        Vectorized(lambda pts: (np.sin(pts[:, 0]) * pts[:, 1]).reshape(-1, 1), n_components=1),
+        n_components=1)
+    np.testing.assert_allclose(space.assemble_load(per_point), space.assemble_load(batched))
 
 
 # -- forms compose --------------------------------------------------------------

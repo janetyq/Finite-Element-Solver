@@ -35,6 +35,9 @@ from fem.elements import (
 )
 from fem.boundary import BoundaryConditions, Condition, Dirichlet, Neumann, ResolvedBC, Robin
 from fem.regions import (
+    Region,
+    Field,
+    Vectorized,
     everywhere,
     on_plane,
     in_box,
@@ -153,6 +156,9 @@ __all__ = [
     "Neumann",
     "Robin",
     "ResolvedBC",
+    "Region",
+    "Field",
+    "Vectorized",
     "everywhere",
     "on_plane",
     "in_box",

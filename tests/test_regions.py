@@ -3,6 +3,10 @@ import numpy as np
 import pytest
 
 from fem.regions import (
+    Region,
+    Vectorized,
+    as_field,
+    as_region,
     everywhere,
     on_plane,
     in_box,
@@ -53,6 +57,29 @@ def test_intersect_and_union():
     assert list(np.flatnonzero(union(right, top)(POINTS))) == [1, 3, 4]
 
 
+def test_operators_compose_regions():
+    right = on_plane(0, 1.0)
+    top = on_plane(1, 1.0)
+    assert list(np.flatnonzero((right & top)(POINTS))) == [4]
+    assert list(np.flatnonzero((right | top)(POINTS))) == [1, 3, 4]
+    # The complement of the right edge is every point not on it.
+    assert list(np.flatnonzero((~right)(POINTS))) == [0, 1, 2]
+
+
+def test_operators_accept_a_bare_callable_on_either_side():
+    right = on_plane(0, 1.0)
+    only_top = lambda pts: pts[:, 1] == 1.0  # noqa: E731
+    assert list(np.flatnonzero((right & only_top)(POINTS))) == [4]
+    assert list(np.flatnonzero((only_top & right)(POINTS))) == [4]
+
+
+def test_helpers_return_region_objects():
+    assert isinstance(on_plane(0, 0.0), Region)
+    assert isinstance(right := (on_plane(0, 1.0) | on_plane(1, 1.0)), Region)
+    assert isinstance(~right, Region)
+    assert isinstance(as_region(lambda pts: np.ones(len(pts), dtype=bool)), Region)
+
+
 def test_at_indices_is_mesh_bound_and_plain_regions_are_not():
     assert is_mesh_bound(at_indices([0, 2]))
     assert not is_mesh_bound(everywhere())
@@ -99,3 +126,52 @@ def test_field_width_is_independent_of_point_count():
     values = evaluate_field([7.0, 9.0], two_points, n_components=2)
     assert values.shape == (2, 2)
     assert np.allclose(values, [7.0, 9.0])
+
+
+# --- Vectorized fields ---
+
+def test_vectorized_field_takes_the_whole_array_at_once():
+    calls = []
+
+    def fn(pts):
+        calls.append(len(pts))          # one call for every point at once
+        return (pts[:, 0] + pts[:, 1]).reshape(-1, 1)
+
+    values = evaluate_field(Vectorized(fn, n_components=1), POINTS, n_components=1)
+    assert np.allclose(values.ravel(), POINTS.sum(axis=1))
+    assert calls == [len(POINTS)]       # not one call per point
+
+
+def test_vectorized_scalar_field_may_return_a_flat_array():
+    field = Vectorized(lambda pts: pts[:, 0] * 2.0, n_components=1)
+    values = evaluate_field(field, POINTS, n_components=1)
+    assert np.allclose(values.ravel(), POINTS[:, 0] * 2.0)
+
+
+def test_vectorized_matches_the_per_point_callable():
+    per_point = evaluate_field(lambda p: [p[0] * p[1]], POINTS, n_components=1)
+    batched = evaluate_field(
+        Vectorized(lambda pts: (pts[:, 0] * pts[:, 1]).reshape(-1, 1), n_components=1),
+        POINTS, n_components=1)
+    assert np.allclose(per_point, batched)
+
+
+def test_vectorized_wrong_shape_raises_rather_than_being_reshaped():
+    field = Vectorized(lambda pts: pts, n_components=1)  # returns (N, 2), not (N, 1)
+    with pytest.raises(ValueError):
+        evaluate_field(field, POINTS, n_components=1)
+
+
+# --- as_field normalization ---
+
+def test_as_field_passes_a_field_through_unchanged():
+    field = Vectorized(lambda pts: pts[:, :1], n_components=1)
+    assert as_field(field, 1) is field
+
+
+def test_as_field_allows_a_free_component_only_when_asked():
+    with pytest.raises(ValueError):
+        as_field([0.0, None], n_components=2)          # a load: None rejected at the boundary
+    free = as_field([0.0, None], n_components=2, allow_free=True)  # a Dirichlet value
+    values = free.sample(POINTS)
+    assert np.isnan(values[:, 1]).all() and np.allclose(values[:, 0], 0.0)

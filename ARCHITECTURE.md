@@ -59,6 +59,14 @@ Boundary conditions are objects: `Dirichlet(region, value)`, `Neumann(region, va
 both frozen. Each condition resolves itself against a node set (`condition.resolve`), and a
 `Dirichlet` value may leave a component `None` (free) for a roller.
 
+A `region` is a `Region` (`fem/regions.py`): `on_plane`, `in_box`, `everywhere`, and
+`at_indices` name the cases, a bare callable is wrapped by `as_region`, and they compose with
+`&`, `|`, `~` (`left & bottom`). Only `at_indices` reports `mesh_bound`, so a remesher refuses it.
+A `value` (a source, a coefficient, a traction, a boundary value) normalizes through `as_field`
+to a `Field` that `sample`s to `(N, n_components)`: a `Constant`, a per-point `Spatial` callable,
+or a `Vectorized` callable the user opts into to sample every quadrature point in one array call.
+A `TimeDependent` value is fixed at a time by `field_at` before sampling.
+
 Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
 names the `domain` it integrates over (the elements or the boundary facets), so a Robin condition
 is `kappa * BoundaryMassForm(mask)` added to the physics form and assembled beside it.
@@ -335,7 +343,9 @@ through `fem/io`.
 `fem/regions.py` + `fem/boundary.py` is the model: a mesh-independent specification
 (`BoundaryConditions`, a frozen tuple of `Condition`s) separated from its resolution against one
 discretization (`ResolvedBC`, frozen, keyed by node set and component count), with the
-time-dependent values a second, cheaper step on the resolution (`ResolvedBC.at(t)`). The same
+time-dependent values a second, cheaper step on the resolution (`ResolvedBC.at(t)`).
+`space.resolve(bc)` memoizes that geometry step per spec, so two problems on one space (a static
+solve then a modal analysis, a design loop's rounds) resolve it once. The same
 shape recurs: `FunctionSpace` is the resolved
 discretization, `Form` the resolved view of an `Equation`'s physics, `Problem` the resolved
 composition, and `LinearSolver` a `Backend` resolved against one matrix.

@@ -17,7 +17,14 @@ from typing import ClassVar, Protocol
 
 import numpy as np
 
-from fem.regions import TimeDependent, _coerce_components, evaluate_field, field_at, is_mesh_bound
+from fem.regions import (
+    TimeDependent,
+    _coerce_components,
+    as_field,
+    evaluate_field,
+    field_at,
+    is_mesh_bound,
+)
 from fem.typing import (
     BoolArray,
     DofIndices,
@@ -57,13 +64,7 @@ def _evaluate_dirichlet_value(value: FieldValue, points: Vertices, n_components:
     "this DOF stays free" rather than "pinned to this value". Dirichlet-specific: a
     free component is only meaningful for an essential condition, never a load.
     '''
-    values = _coerce_components(value, points, n_components)
-    if values.shape != (len(points), n_components):
-        raise ValueError(
-            f'field must give {n_components} component(s) per point, got shape {values.shape} '
-            f'for {len(points)} point(s)'
-        )
-    return values
+    return as_field(value, n_components, allow_free=True).sample(points)
 
 
 def _has_free_component(value: FieldValue) -> bool:

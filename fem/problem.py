@@ -104,7 +104,7 @@ class Problem:
         self.damping = damping
         self.time_orders = frozenset(time_orders)
         self.bc = bc if bc is not None else BoundaryConditions()
-        self._resolved = self.bc.resolve(space.nodes, space.n_components)
+        self._resolved = space.resolve(self.bc)
 
         # A Robin condition contributes to both sides: κ∫_Γ u·v on the operator and
         # ∫_Γ g·v on the load, each over the region's facets. The operator half is a

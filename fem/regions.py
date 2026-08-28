@@ -1,41 +1,216 @@
 """Position-based regions and fields: specifications written against coordinates
 rather than vertex indices.
 
-A region is any callable mapping an (N, spatial_dim) array of point coordinates to an
-(N,) boolean mask, so a bare lambda qualifies. The helpers below name the common
-cases and own the coordinate tolerance.
+A `Region` maps an (N, spatial_dim) array of point coordinates to an (N,) boolean
+mask. `everywhere`, `on_plane`, `in_box`, and `at_indices` name the common cases;
+a bare callable of the same shape is wrapped by `as_region`. Regions compose with
+`&`, `|`, and `~` (`left & bottom`, `~left`), and own the coordinate tolerance.
 
-A field is a constant or a callable of position; `evaluate_field` normalizes both
-into a (N, n_components) array. A `TimeDependent` field is a callable of position and
-time; `at(t)` turns it into a field of position, which is what every consumer takes.
+A `Field` is a prescribed value over the domain: a source, a coefficient, a traction,
+a boundary value. `as_field` normalizes a constant, a per-component constant, or a
+callable of position into one; `sample` evaluates it to an (N, n_components) array. A
+plain callable is read point by point; wrap it in `Vectorized` to promise it takes
+the whole (N, d) array at once, the fast path for an assembly-hot source or
+coefficient. A `TimeDependent` field is a callable of position and time; `at(t)`
+fixes the time and returns the plain field of position every consumer takes.
 
-Both are mesh-independent, so a boundary condition described this way can be
-resolved again against whatever mesh is current and survives refinement.
-`at_indices` is the escape hatch for node-specific work; it marks itself mesh-bound
-so remeshers can refuse it.
+Both regions and fields are mesh-independent, so a boundary condition described this
+way can be resolved again against whatever mesh is current and survives refinement.
+`at_indices` is the escape hatch for node-specific work; it reports `mesh_bound` so
+remeshers can refuse it.
 """
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, cast
 
 import numpy as np
 
-from fem.typing import BoolArray, FieldValue, FloatArray, IntArray, Point, Region, Vertices
+from fem.typing import BoolArray, FieldValue, FloatArray, IntArray, Point, Vertices
 
 # Coordinates come from linspace/midpoint arithmetic, so exact boundary values
 # are representable; this only absorbs round-off, not genuine mesh spacing.
 DEFAULT_ATOL: float = 1e-9
 
 
+# -- regions -------------------------------------------------------------------------
+
+
+class Region(ABC):
+    '''A geometric region: (N, spatial_dim) coordinates -> (N,) boolean membership
+    mask. Subclasses name the recurring cases and own the coordinate tolerance; a
+    bare callable of the same shape is wrapped by `as_region`. Combine with `&`, `|`,
+    and `~`.'''
+
+    @abstractmethod
+    def __call__(self, points: Vertices) -> BoolArray: ...
+
+    @property
+    def mesh_bound(self) -> bool:
+        '''Whether the region names vertices of one specific mesh, so a remesh that
+        renumbers vertices invalidates it. False for a geometric region.'''
+        return False
+
+    def __and__(self, other: RegionLike) -> 'Region':
+        return Intersect((self, as_region(other)))
+
+    def __rand__(self, other: RegionLike) -> 'Region':
+        return Intersect((as_region(other), self))
+
+    def __or__(self, other: RegionLike) -> 'Region':
+        return Union((self, as_region(other)))
+
+    def __ror__(self, other: RegionLike) -> 'Region':
+        return Union((as_region(other), self))
+
+    def __invert__(self) -> 'Region':
+        return Complement(self)
+
+
+# A region argument: either a `Region` object or a bare callable `as_region` wraps.
+RegionLike = Region | Callable[[Vertices], BoolArray]
+
+
+@dataclass(frozen=True)
+class Everywhere(Region):
+    '''Every point. Combined with the boundary-only resolution, this means "the
+    entire boundary", the most common Dirichlet region.'''
+
+    def __call__(self, points: Vertices) -> BoolArray:
+        return np.ones(len(points), dtype=bool)
+
+
+@dataclass(frozen=True)
+class OnPlane(Region):
+    '''Points whose `axis` coordinate equals `value` (the left edge is
+    `OnPlane(0, 0.0)`).'''
+    axis: int
+    value: float
+    atol: float = DEFAULT_ATOL
+
+    def __call__(self, points: Vertices) -> BoolArray:
+        return np.abs(points[:, self.axis] - self.value) <= self.atol
+
+
+@dataclass(frozen=True)
+class InBox(Region):
+    '''Points inside an axis-aligned box, inclusive. A `None` bound on either side
+    leaves that direction unbounded, so a band in y is `InBox((None, 0.2), (None, 0.8))`.'''
+    lower: tuple[float | None, ...]
+    upper: tuple[float | None, ...]
+    atol: float = DEFAULT_ATOL
+
+    def __call__(self, points: Vertices) -> BoolArray:
+        mask = np.ones(len(points), dtype=bool)
+        for axis, bound in enumerate(self.lower):
+            if bound is not None:
+                mask &= points[:, axis] >= bound - self.atol
+        for axis, bound in enumerate(self.upper):
+            if bound is not None:
+                mask &= points[:, axis] <= bound + self.atol
+        return mask
+
+
+@dataclass(frozen=True)
+class AtIndices(Region):
+    '''Named vertex indices. The escape hatch for work that is about specific nodes
+    rather than a place in the domain.
+
+    Mesh-bound by construction: indices mean nothing once a remesher renumbers
+    vertices, so `mesh_bound` is True and callers that remesh refuse it.
+    '''
+    indices: tuple[int, ...]
+
+    @property
+    def mesh_bound(self) -> bool:
+        return True
+
+    def __call__(self, points: Vertices) -> BoolArray:
+        mask = np.zeros(len(points), dtype=bool)
+        mask[list(self.indices)] = True
+        return mask
+
+
+@dataclass(frozen=True)
+class Intersect(Region):
+    '''Points in every one of `regions`.'''
+    regions: tuple[Region, ...]
+
+    @property
+    def mesh_bound(self) -> bool:
+        return any(r.mesh_bound for r in self.regions)
+
+    def __call__(self, points: Vertices) -> BoolArray:
+        mask = np.ones(len(points), dtype=bool)
+        for r in self.regions:
+            mask &= r(points)
+        return mask
+
+
+@dataclass(frozen=True)
+class Union(Region):
+    '''Points in any of `regions`.'''
+    regions: tuple[Region, ...]
+
+    @property
+    def mesh_bound(self) -> bool:
+        return any(r.mesh_bound for r in self.regions)
+
+    def __call__(self, points: Vertices) -> BoolArray:
+        mask = np.zeros(len(points), dtype=bool)
+        for r in self.regions:
+            mask |= r(points)
+        return mask
+
+
+@dataclass(frozen=True)
+class Complement(Region):
+    '''Points outside `region`. Over the whole domain a complement is unbounded, so
+    it is meaningful in a boundary condition, where it intersects the boundary.'''
+    region: Region
+
+    @property
+    def mesh_bound(self) -> bool:
+        return self.region.mesh_bound
+
+    def __call__(self, points: Vertices) -> BoolArray:
+        return ~self.region(points)
+
+
+@dataclass(frozen=True)
+class _CallableRegion(Region):
+    '''A bare callable wrapped as a `Region`, so a user-written lambda composes with
+    the operators and answers `mesh_bound` (False) like any geometric region.'''
+    fn: Callable[[Vertices], BoolArray]
+
+    def __call__(self, points: Vertices) -> BoolArray:
+        return np.asarray(self.fn(points), dtype=bool)
+
+
+def as_region(region: RegionLike) -> Region:
+    '''`region` as a `Region`: itself if it already is one, else a bare callable
+    wrapped so it composes and reports `mesh_bound`.'''
+    if isinstance(region, Region):
+        return region
+    if callable(region):
+        return _CallableRegion(region)
+    raise TypeError(
+        'a region must be a Region or a callable over point coordinates; pass a '
+        'helper from fem.regions (e.g. on_plane(0, 0.0)), or at_indices([...]) for '
+        f'specific nodes. Got {type(region).__name__}.'
+    )
+
+
 def everywhere() -> Region:
-    '''Every point. Combined with the boundary-only resolution, this means
-    "the entire boundary", the most common Dirichlet region.'''
-    return lambda points: np.ones(len(points), dtype=bool)
+    '''Every point (see `Everywhere`).'''
+    return Everywhere()
 
 
 def on_plane(axis: int, value: float, atol: float = DEFAULT_ATOL) -> Region:
-    '''Points whose `axis` coordinate equals `value` (e.g. the left edge is
-    on_plane(0, 0.0)).'''
-    return lambda points: np.abs(points[:, axis] - value) <= atol
+    '''Points on the plane `axis = value` (see `OnPlane`).'''
+    return OnPlane(axis, value, atol)
 
 
 def in_box(
@@ -43,74 +218,143 @@ def in_box(
     upper: Sequence[float | None],
     atol: float = DEFAULT_ATOL,
 ) -> Region:
-    '''Points inside an axis-aligned box, inclusive. A `None` bound on either
-    side leaves that direction unbounded, so a band in y is
-    in_box([None, 0.2], [None, 0.8]).'''
-    def region(points: Vertices) -> BoolArray:
-        mask = np.ones(len(points), dtype=bool)
-        for axis, bound in enumerate(lower):
-            if bound is not None:
-                mask &= points[:, axis] >= bound - atol
-        for axis, bound in enumerate(upper):
-            if bound is not None:
-                mask &= points[:, axis] <= bound + atol
-        return mask
-    return region
+    '''Points inside an axis-aligned box (see `InBox`).'''
+    return InBox(tuple(lower), tuple(upper), atol)
 
 
-def intersect(*regions: Region) -> Region:
-    '''Points in every one of `regions`.'''
-    def region(points: Vertices) -> BoolArray:
-        mask = np.ones(len(points), dtype=bool)
-        for r in regions:
-            mask &= r(points)
-        return mask
-    return _propagate_mesh_bound(region, regions)
+def intersect(*regions: RegionLike) -> Region:
+    '''Points in every one of `regions`. `left & bottom` is the binary form.'''
+    return Intersect(tuple(as_region(r) for r in regions))
 
 
-def union(*regions: Region) -> Region:
-    '''Points in any of `regions`.'''
-    def region(points: Vertices) -> BoolArray:
-        mask = np.zeros(len(points), dtype=bool)
-        for r in regions:
-            mask |= r(points)
-        return mask
-    return _propagate_mesh_bound(region, regions)
+def union(*regions: RegionLike) -> Region:
+    '''Points in any of `regions`. `left | bottom` is the binary form.'''
+    return Union(tuple(as_region(r) for r in regions))
 
 
-class at_indices:  # noqa: N801 - lowercase to read like the function helpers above
-    '''Named vertex indices. The escape hatch for work that is about specific nodes
-    rather than a place in the domain.
+def at_indices(indices: Sequence[int] | IntArray) -> Region:
+    '''The named vertices `indices` (see `AtIndices`).'''
+    return AtIndices(tuple(int(i) for i in np.asarray(indices, dtype=int).ravel()))
 
-    Mesh-bound by construction: indices mean nothing once a remesher renumbers
-    vertices, so `is_mesh_bound` reports True and callers that remesh refuse it.
+
+def is_mesh_bound(region: RegionLike) -> bool:
+    '''Whether `region` is tied to one specific mesh's vertex numbering.'''
+    return as_region(region).mesh_bound
+
+
+# -- fields --------------------------------------------------------------------------
+
+
+class Field(ABC):
+    '''A prescribed value over the domain: a source, a coefficient, a traction, a
+    boundary value. `as_field` builds one from a raw `FieldValue`; every consumer
+    samples it the same way, so the polymorphic union is decoded once at the boundary
+    rather than at each call site.'''
+
+    @abstractmethod
+    def sample(self, points: Vertices) -> FloatArray:
+        '''(N, spatial_dim) coordinates -> (N, n_components) values.'''
+
+    @property
+    def is_time_dependent(self) -> bool:
+        return False
+
+
+@dataclass(frozen=True)
+class Constant(Field):
+    '''A value the same at every point: a scalar, a per-component vector, or a `None`
+    left as `NaN` for a free Dirichlet component. `values` is the (n_components,)
+    per-point value, already validated by `as_field`.'''
+    values: FloatArray
+
+    def sample(self, points: Vertices) -> FloatArray:
+        return np.tile(self.values, (len(points), 1))
+
+
+@dataclass(frozen=True)
+class Spatial(Field):
+    '''A callable of position, `fn(p)`, read one point at a time: `fn` receives a
+    single `(d,)` coordinate and returns that point's value. The safe default for a
+    user-written lambda, since `p[0]` means the same thing on one point as the author
+    intends. `Vectorized` is the fast path for a callable that takes the whole array.
+    `allow_free` permits a `None`/`NaN` component, meaningful only for a Dirichlet
+    value.'''
+    fn: Callable[..., Any]
+    n_components: int
+    allow_free: bool = False
+
+    def sample(self, points: Vertices) -> FloatArray:
+        pts = np.asarray(points, dtype=float)
+        n = len(pts)
+        if n == 0:
+            return np.zeros((0, self.n_components))
+        values = np.array([_coerce_value(self.fn(p)) for p in pts])
+        return _validate(values, n, self.n_components, self.allow_free)
+
+
+@dataclass(frozen=True)
+class Vectorized(Field):
+    '''A callable that takes the whole `(N, d)` array of coordinates at once and
+    returns `(N, k)` (or `(N,)` for a scalar field): `fn` is array-aware, so one call
+    replaces the per-point loop. The user declares this contract by wrapping the
+    callable; nothing tries to guess it, because a point-by-point lambda handed the
+    batched array can return a plausibly-shaped but wrong result.
+
+    Pass one where a `FieldValue` is taken (a `Source`, a `Dirichlet` value): it is a
+    `Field`, so `as_field` returns it unchanged. `allow_free` permits a `NaN`
+    component, meaningful only for a Dirichlet value.
     '''
-    mesh_bound = True
+    fn: Callable[[Vertices], FloatArray]
+    n_components: int
+    allow_free: bool = False
 
-    def __init__(self, indices: Sequence[int] | IntArray) -> None:
-        self.indices = np.asarray(indices, dtype=int)
+    def sample(self, points: Vertices) -> FloatArray:
+        pts = np.asarray(points, dtype=float)
+        n = len(pts)
+        if n == 0:
+            return np.zeros((0, self.n_components))
+        out = np.asarray(self.fn(pts), dtype=float)
+        if self.n_components == 1 and out.shape == (n,):
+            out = out.reshape(n, 1)
+        return _validate(out, n, self.n_components, self.allow_free)
 
-    def __call__(self, points: Vertices) -> BoolArray:
-        mask = np.zeros(len(points), dtype=bool)
-        mask[self.indices] = True
-        return mask
 
-
-class TimeDependent:
+@dataclass(frozen=True)
+class TimeDependent(Field):
     '''A field that varies in time: `fn(p, t)` is the value at point `p` and time `t`.
 
     A source, a traction, a Robin `g`, or a Dirichlet value may be one; the
     integrators evaluate it at each step through `Problem.load_at` and
     `Problem.constraints_at`. `at(t)` fixes the time and returns the plain field of
-    position every other consumer takes.
+    position (a callable) every other consumer takes.
     '''
+    fn: Callable[[Point, float], Any]
 
-    def __init__(self, fn: Callable[[Point, float], Any]) -> None:
-        self.fn = fn
+    @property
+    def is_time_dependent(self) -> bool:
+        return True
+
+    def sample(self, points: Vertices) -> FloatArray:
+        raise TypeError('a TimeDependent field has no value without a time; use field_at(value, t)')
 
     def at(self, t: float) -> Callable[[Point], Any]:
         fn = self.fn
         return lambda p: fn(p, t)
+
+
+def as_field(value: FieldValue, n_components: int, *, allow_free: bool = False) -> Field:
+    '''Normalize a raw `FieldValue` into a `Field`.
+
+    A `Field` (including a `TimeDependent`) is returned as is; a callable becomes a
+    `Spatial`; anything else is a `Constant`, its width checked against `n_components`
+    now so a wrong-width value fails at the boundary. `allow_free` permits a `None`
+    component (left as `NaN`), meaningful only for a Dirichlet value.
+    '''
+    if isinstance(value, Field):
+        return value
+    if callable(value):
+        return Spatial(value, n_components, allow_free)
+    return Constant(_coerce_constant(value, n_components, allow_free))
 
 
 def field_at(value: FieldValue, t: float) -> FieldValue:
@@ -118,65 +362,70 @@ def field_at(value: FieldValue, t: float) -> FieldValue:
     return value.at(t) if isinstance(value, TimeDependent) else value
 
 
-def is_mesh_bound(region: Region) -> bool:
-    '''Whether `region` is tied to one specific mesh's vertex numbering.'''
-    return bool(getattr(region, 'mesh_bound', False))
+def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
+    '''Normalize `value` and sample it at `points`: an (N, n_components) array.
 
-
-def _propagate_mesh_bound(combined: Region, regions: tuple[Region, ...]) -> Region:
-    if any(is_mesh_bound(r) for r in regions):
-        # Mirrors the getattr in is_mesh_bound: the flag rides on the callable
-        # itself, so a bare lambda can carry it without a wrapper type.
-        setattr(combined, 'mesh_bound', True)
-    return combined
+    A single rule, "the value at a point", for a constant and a callable alike; a
+    value's width is checked against `n_components`, never inferred from the point
+    count. Every component must be a real number: `None` has no meaning for a source,
+    a traction, or a Robin `g`. Use a Dirichlet value for a component left free.
+    '''
+    return as_field(value, n_components).sample(points)
 
 
 def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
-    '''Normalize a constant or a callable-of-position into an (N, n_components) array.
-
-    Mechanical only: a `None` found among a value's components becomes `np.nan`,
-    with no judgment about whether that is meaningful. `evaluate_field` and
-    `BoundaryConditions`' Dirichlet resolver both build on this and differ only in
-    what a `NaN` component means to each of them.
-    '''
+    '''Coerce `value` to its own natural width at every point, a `None` component left
+    as `NaN`. Unlike `evaluate_field`/`as_field`, the width is not checked against
+    `n_components` (which sizes only an all-`None` value): the inspection and plotting
+    path in `BoundaryConditions.entries` shows however many components the spec gives.'''
     if value is None:
         return np.zeros((len(points), n_components))
     if isinstance(value, TimeDependent):
         raise TypeError('a TimeDependent field has no value without a time; use field_at(value, t)')
-
-    def coerce(raw: float | Sequence[float | None] | FloatArray) -> FloatArray:
-        # object dtype defers numeric coercion to the comprehension below, so a
-        # scalar and a sequence, with or without a None in it, all flatten
-        # to something iterable the same way.
-        components = np.atleast_1d(np.asarray(raw, dtype=object))
-        return np.array([np.nan if c is None else float(c) for c in components])
-
+    if isinstance(value, Field):
+        return value.sample(points)
     if callable(value):
-        values = np.array([coerce(value(p)) for p in points])
-    else:
-        values = np.tile(coerce(value), (len(points), 1))
-    return values
+        if len(points) == 0:
+            return np.zeros((0, n_components))
+        fn = cast(Callable[[Point], Any], value)
+        return np.array([_coerce_value(fn(p)) for p in points])
+    return np.tile(_coerce_value(value), (len(points), 1))
 
 
-def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
-    '''Normalize a constant or a callable-of-position into an (N, n_components) array.
+def _coerce_value(raw: float | Sequence[float | None] | FloatArray) -> FloatArray:
+    '''A single point's raw value as a (k,) float array, `None` -> `NaN`. Object
+    dtype defers numeric coercion so a scalar and a sequence flatten the same way;
+    the width is checked by `_validate` against the whole array.'''
+    components = np.atleast_1d(np.asarray(raw, dtype=object))
+    return np.array([np.nan if c is None else float(c) for c in components])
 
-    A single rule, "the value at a point", for both forms; a value's width is
-    checked against `n_components`, never inferred from the point count.
 
-    Every component must be a real number: `None` has no meaning for a source,
-    a traction, or a Robin `g`: there is nothing "left free" about a load. Use
-    `BoundaryConditions`' own Dirichlet resolver for a value that may leave a
-    component unconstrained.
-    '''
-    values = _coerce_components(value, points, n_components)
-
-    if values.shape != (len(points), n_components):
+def _coerce_constant(
+    value: float | Sequence[float | None] | FloatArray | None, n_components: int, allow_free: bool,
+) -> FloatArray:
+    '''A constant value as a validated (n_components,) array.'''
+    if value is None:
+        return np.zeros(n_components)
+    arr = _coerce_value(value)
+    if arr.shape != (n_components,):
         raise ValueError(
-            f'field must give {n_components} component(s) per point, got shape {values.shape} '
-            f'for {len(points)} point(s)'
+            f'field must give {n_components} component(s) per point, got a constant '
+            f'of width {arr.shape[0]}'
         )
-    if np.any(np.isnan(values)):
+    if not allow_free and np.any(np.isnan(arr)):
+        raise ValueError('field component is None; every component must be a real number here')
+    return arr
+
+
+def _validate(values: FloatArray, n: int, n_components: int, allow_free: bool) -> FloatArray:
+    '''Check a sampled array is (n, n_components) and, unless `allow_free`, real.'''
+    values = np.asarray(values, dtype=float)
+    if values.shape != (n, n_components):
+        raise ValueError(
+            f'field must give {n_components} component(s) per point, got shape '
+            f'{values.shape} for {n} point(s)'
+        )
+    if not allow_free and np.any(np.isnan(values)):
         raise ValueError(
             'field component is None (or NaN); every component must be a real number here'
         )

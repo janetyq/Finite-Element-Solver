@@ -13,6 +13,7 @@ derives it from the equation one layer up.
 The cached operators are valid only while the mesh is not mutated underneath them.
 Build a new space instead of editing one.
 """
+import weakref
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from dataclasses import dataclass
@@ -45,6 +46,7 @@ from fem.typing import (
 )
 
 if TYPE_CHECKING:
+    from fem.boundary import BoundaryConditions, ResolvedBC
     from fem.loads import Source
 
 from scipy.sparse import csr_array
@@ -329,6 +331,11 @@ class FunctionSpace:
         # rule for constant-coefficient P1 forms, higher rules for variable
         # coefficients and higher-order elements, each built once and shared.
         self._geometry_cache: dict[int, ElementGeometry] = {}
+        # BC geometry resolution keyed by the spec's identity: two problems on this
+        # space (a static solve then a modal analysis, a design loop's rounds) share
+        # one resolution. Keyed by id with a weakref guard rather than by value, since
+        # a spec may carry an unhashable value (a list, an array, a lambda).
+        self._resolved_bc_cache: dict[int, tuple['weakref.ref[BoundaryConditions]', 'ResolvedBC']] = {}
 
     def __repr__(self) -> str:
         return (
@@ -497,6 +504,24 @@ class FunctionSpace:
     @property
     def total_volume(self) -> float:
         return float(self.element_volumes.sum())
+
+    def resolve(self, bc: 'BoundaryConditions') -> 'ResolvedBC':
+        '''`bc` resolved against this space's nodes, memoized by the spec's identity.
+
+        The geometry step (which nodes and facets each region selects) depends only on
+        the mesh, so two problems built on this space from the same `BoundaryConditions`
+        resolve it once. Values are re-evaluated per time downstream through
+        `ResolvedBC.at(t)`, so a time-dependent spec still shares the geometry.
+        '''
+        key = id(bc)
+        entry = self._resolved_bc_cache.get(key)
+        # The weakref guards against id reuse: if the cached spec was collected and a
+        # new object took its id, the ref no longer resolves to `bc` and we recompute.
+        if entry is not None and entry[0]() is bc:
+            return entry[1]
+        resolved = bc.resolve(self.nodes, self.n_components)
+        self._resolved_bc_cache[key] = (weakref.ref(bc), resolved)
+        return resolved
 
     def interpolate(self, value: FieldValue) -> DofVector:
         '''The nodal interpolant of a field as a DOF vector: `value` (a constant, a
