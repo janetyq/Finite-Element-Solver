@@ -16,7 +16,7 @@ import pytest
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import QuadraticTriangleElement
 from fem.equations import LinearElastic, FiniteStrainElastic
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import intersect, on_plane
 from fem.buckling import BucklingAnalysis
 
@@ -32,7 +32,7 @@ def _problem(mesh, bc=None, equation=None):
 def column(length, height=1.0, n_length=40, n_across=5):
     """A slender rectangular column, with `n_across` elements through the thickness so
     bending is resolved."""
-    return create_rect_mesh(corners=[[0, 0], [length, height]],
+    return box_mesh(corners=[[0, 0], [length, height]],
                             resolution=(n_length, n_across))
 
 

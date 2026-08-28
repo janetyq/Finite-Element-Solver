@@ -17,7 +17,7 @@ from fem.convergence import (
 from fem.elements import QuadraticTriangleElement
 from fem.forms import LinearElasticForm
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.problem import LinearProblem
 from fem.regions import everywhere
 from fem.solution import ElasticSolution
@@ -65,7 +65,7 @@ def test_p2_reproduces_a_linear_displacement_and_its_constant_stress():
     unloaded block is reproduced in the interior to machine precision, and the recovered
     stress is the single constant plane-strain value that strain implies."""
     E, nu, a = 200.0, 0.3, 0.01
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
 
     bc = BoundaryConditions(Dirichlet(everywhere(), lambda p: [a * p[0], 0.0]))
@@ -91,7 +91,7 @@ def test_p2_is_reachable_through_the_solver_facade():
     from fem.equations import Poisson
     from fem.solver import Solver
 
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     source = lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]  # noqa: E731
     solver = Solver(mesh, Poisson(source=source), bc, element_type=QuadraticTriangleElement)

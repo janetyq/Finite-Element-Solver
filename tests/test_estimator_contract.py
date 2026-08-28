@@ -11,20 +11,20 @@ from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.equations import LinearElastic, Poisson
 from fem.estimators import GoalOrientedEstimator, RecoveryEstimator, ResidualEstimator
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import everywhere, on_plane
 from fem.sensitivity import PointValue
 
 
 def _poisson(element_type):
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(8, 8))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(8, 8))
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     equation = Poisson(source=1.0)
     return equation, equation.problem(mesh, bc, element_type=element_type)
 
 
 def _elastic(element_type):
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(8, 8))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(8, 8))
     bc = BoundaryConditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [1.0, 0]),

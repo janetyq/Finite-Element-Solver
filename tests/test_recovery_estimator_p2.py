@@ -14,7 +14,7 @@ from fem.convergence import (
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.equations import Poisson
 from fem.estimators import RecoveryEstimator
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.postprocess import GradientField
 from fem.regions import everywhere
 
@@ -28,7 +28,7 @@ def _global(eta):
 
 
 def _solve(equation, n, element_type, bc_value=0.0):
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     bc = BoundaryConditions(Dirichlet(everywhere(), bc_value))
     problem = equation.problem(mesh, bc, element_type=element_type)
     return problem, problem.solve()
@@ -88,7 +88,7 @@ def test_p2_recovery_effectivity_stays_bounded():
 def test_p2_recovery_drives_adaptive_refinement():
     """The full loop on a P2 space: recovery drives the refiner, the mesh grows and
     concentrates near a localised source, and the solve stays P2 across remeshes."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
 

@@ -155,10 +155,19 @@ operator (`solution(u)` packages a vector solved elsewhere); `Solution` owns the
 
 ### `Mesh` / `FunctionSpace`: geometry vs discretization
 
-`Mesh` is geometry: vertices, elements, boundary, topology queries, and optionally the analytic
-`Curve` each boundary facet was sampled from. `FunctionSpace` has a mesh and owns the
-discretization: element geometry, DOF numbering, cached operators. Two spaces (P1 and P2, scalar
-and vector) can share one mesh. `fem/mesh` imports no plot code.
+`Mesh` is geometry: vertices, elements, boundary, topology queries (`edges`, `edge_elements`,
+`element_neighbours`), element geometry (`bounds`, `centroids`, `element_measures`, `measure`,
+`element_diameters`, `min_angle`), and optionally the analytic `Curve` each boundary facet was
+sampled from. Its arrays are read-only, since every space, solution, and refiner built on it
+shares it and its derived tables are cached; a changed mesh is a new one (`displaced`,
+`refined`, `with_topology`). The boundary is derived from the elements unless given.
+`FunctionSpace` has a mesh and owns the discretization: element geometry, DOF numbering,
+cached operators. Two spaces (P1 and P2, scalar and vector) can share one mesh. `fem/mesh`
+imports no plot code.
+
+Meshes come from `box_mesh` (an axis-aligned line, rectangle, or box), `annulus_mesh`,
+`RuppertsAlgorithm(pslg, ...).refine()` over a `PSLG` (drawn by hand or read from an SVG), or
+`Mesh(vertices, elements)` directly.
 
 ### Elements, quadrature, and assembly
 

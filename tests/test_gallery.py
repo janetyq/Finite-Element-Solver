@@ -19,7 +19,7 @@ from demos import l2_projection, timing_benchmark, topology_optimization  # noqa
 from demo_registry import Demo, DemoResult, Figure  # noqa: E402
 from gallery import build_gallery  # noqa: E402
 
-from fem.mesh.structured import create_rect_mesh  # noqa: E402
+from fem.mesh.structured import box_mesh  # noqa: E402
 from fem.plot.plotter import Plotter  # noqa: E402
 
 # The smallest valid GIF: a 1x1 pixel. Enough to stand in for a demo's rendered output.
@@ -75,7 +75,7 @@ def _registry():
     """The hand-made registry the module gallery is built from."""
     # The gallery runs demos with no overrides -- neither arguments nor domain -- so
     # the cheap variants are bound here rather than declared on the Demo.
-    small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
+    small = partial(box_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     return {
         'poisson': Demo('poisson', _poisson, domain=small,
                         section='Meshing & solving PDEs'),
@@ -112,7 +112,7 @@ def gallery(tmp_path_factory):
 def test_parallel_build_renders_every_demo(tmp_path):
     """Across worker processes, each demo still produces its page and its figures. Only
     module-level demos are used, since a worker unpickles each by importing its module."""
-    small = partial(create_rect_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
+    small = partial(box_mesh, corners=[[0, 0], [1, 1]], resolution=(8, 8))
     registry = {
         'poisson': Demo('poisson', _poisson, domain=small,
                         section='Meshing & solving PDEs'),

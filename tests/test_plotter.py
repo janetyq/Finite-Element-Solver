@@ -6,16 +6,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from fem.convergence import ANNULUS_INNER, ANNULUS_OUTER, create_annulus_mesh
+from fem.convergence import ANNULUS_INNER, ANNULUS_OUTER, annulus_mesh
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.plot.plotter import Plotter
 from fem.space import FunctionSpace
 
 
 @pytest.fixture
 def mesh():
-    return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(4, 4))
+    return box_mesh(corners=[[0, 0], [1, 1]], resolution=(4, 4))
 
 
 def _pixel_size(fig):
@@ -135,7 +135,7 @@ def test_contour_overlays_isolines_on_a_colored_panel(mesh):
 def test_colorbar_matches_the_height_of_the_panel_it_annotates():
     """Constrained layout sizes a colorbar to the subplot cell; `set_aspect('equal')` then
     shrinks the axes inside it. Measured after `format_axs`."""
-    wide = create_rect_mesh(corners=[[0, 0], [4, 1]], resolution=(8, 4))
+    wide = box_mesh(corners=[[0, 0], [4, 1]], resolution=(8, 4))
     values = np.linspace(0.0, 1.0, len(wide.vertices))
 
     plotter = Plotter(1, 1, panel_aspect=4.0)
@@ -295,7 +295,7 @@ def test_explicit_colorbar_limits_are_respected(mesh):
 
 
 def _annulus_spaces(n=9):
-    mesh = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
+    mesh = annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
     return (mesh,
             FunctionSpace(mesh, QuadraticTriangleElement, n_components=1),
             FunctionSpace(mesh, IsoparametricTriangleElement, n_components=1))
@@ -382,7 +382,7 @@ def test_colored_with_a_space_draws_a_denser_tessellation():
 
 
 def _p2_square(n=5):
-    mesh = create_rect_mesh(corners=[[0, 0], [2, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [2, 1]], resolution=(n, n))
     return mesh, FunctionSpace(mesh, QuadraticTriangleElement, n_components=1)
 
 

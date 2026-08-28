@@ -31,12 +31,10 @@ from fem.elements import (
 )
 from fem.equations import Heat, LinearElastic, Poisson
 from fem.forms import DiffusionForm, LinearElasticForm
-from fem.geometry import get_boundary_from_vertices_elements
 from fem.integrators import ThetaMethod
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
-from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import annulus_mesh, box_mesh
 from fem.loads import NodalSource, Source
 from fem.problem import LinearProblem
 from fem.regions import everywhere
@@ -181,7 +179,7 @@ class ConvergenceStudy:
 
 def solve_poisson_mms(n: int) -> MMSSolve:
     """Solve the manufactured problem on an `n` x `n` unit-square grid."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     solver = Solver(mesh, Poisson(source=source_term), bc)
@@ -239,7 +237,7 @@ def elastic_exact(vertices: Vertices) -> FloatArray:
 
 def solve_elastic_mms(n: int) -> MMSSolve:
     """Solve the manufactured elasticity problem on an `n` x `n` unit-square grid."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
     bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
     equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
@@ -298,7 +296,7 @@ def variable_source(point: FloatArray) -> list[float]:
 
 def solve_variable_coefficient_mms(n: int) -> MMSSolve:
     """Solve the manufactured variable-coefficient problem on an `n` x `n` grid."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, n_components=1)
 
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
@@ -333,7 +331,7 @@ def variable_coefficient_convergence(resolutions: tuple[int, ...]) -> list[MMSSo
 
 def solve_poisson_mms_p2(n: int) -> MMSSolve:
     """Solve the manufactured Poisson problem on a P2 space over an `n` x `n` grid."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=1)
 
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
@@ -369,7 +367,7 @@ def solve_elastic_mms_p2(n: int) -> MMSSolve:
     exercises the node numbering under `n_components = 2` and the coupled elastic
     operator, and it must converge at O(h^3) like the scalar P2 Poisson does.
     """
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
 
     bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
@@ -407,43 +405,6 @@ def elastic_p2_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 ANNULUS_INNER, ANNULUS_OUTER = 1.0, 2.0
 
 
-def create_annulus_mesh(
-    inner_radius: float, outer_radius: float, n_radial: int, n_theta: int,
-) -> Mesh:
-    """Structured triangle mesh of the annulus, with its rims attached as `Circle`s.
-
-    `n_radial` nodes across the radial direction and `n_theta` sectors around. The
-    inner and outer boundary facets carry a `Circle`, so a curved space places their
-    midside nodes on the true rim rather than at the chord midpoint.
-    """
-    rings = np.arange(n_radial)
-    radii = inner_radius + (outer_radius - inner_radius) * (rings / (n_radial - 1))
-    thetas = 2 * np.pi * np.arange(n_theta) / n_theta
-    r, t = np.meshgrid(radii, thetas, indexing="ij")
-    vertices = np.column_stack([(r * np.cos(t)).ravel(), (r * np.sin(t)).ravel()])
-
-    def node(ring: int, sector: int) -> int:
-        return ring * n_theta + sector % n_theta
-
-    elements = []
-    for ring in range(n_radial - 1):
-        for sector in range(n_theta):
-            a, b = node(ring, sector), node(ring, sector + 1)
-            c, d = node(ring + 1, sector + 1), node(ring + 1, sector)
-            elements.extend([[a, b, c], [a, c, d]])
-    elements = np.array(elements)
-
-    boundary = get_boundary_from_vertices_elements(elements)
-    inner_curve = Circle([0.0, 0.0], inner_radius)
-    outer_curve = Circle([0.0, 0.0], outer_radius)
-    midradius = 0.5 * (inner_radius + outer_radius)
-    boundary_curves = [
-        inner_curve if float(np.hypot(*vertices[facet[0]])) < midradius else outer_curve
-        for facet in boundary
-    ]
-    return Mesh(vertices, elements, boundary, boundary_curves)
-
-
 def annulus_exact(points: FloatArray) -> FloatArray:
     """The manufactured u = sin(x) sin(y), sampled at `points` (any leading axes)."""
     return np.sin(points[..., 0]) * np.sin(points[..., 1])
@@ -470,7 +431,7 @@ def solve_annulus_mms(
     function measures both. `n` sets the radial resolution; the angular count scales
     with it to keep triangle aspect ratios bounded.
     """
-    mesh = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
+    mesh = annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
 
     bc = BoundaryConditions(Dirichlet(everywhere(), lambda p: [float(annulus_exact(np.asarray(p)))]))
     solver = Solver(mesh, Poisson(source=annulus_source), bc, element_type=element_type)
@@ -544,7 +505,7 @@ def solve_load_comparison(n: int, quadrature_degree: int = 4) -> LoadComparison:
     (the source integrated as its P1 interpolant) against a Source that samples
     the source at the quadrature points.
     """
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, n_components=1)
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
@@ -583,7 +544,7 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
     """
     from scipy.linalg import expm
 
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     u0 = exact_solution(mesh.vertices)   # an eigenmode, and zero on the boundary
 

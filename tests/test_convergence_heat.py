@@ -10,7 +10,7 @@ from scipy.linalg import expm
 
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.integrators import ThetaMethod
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.equations import Heat
 from fem.regions import everywhere
 
@@ -49,7 +49,7 @@ def _orders(mesh, bc, u0, T, theta, n_steps):
 
 @pytest.fixture(scope="module")
 def setup():
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(11, 11))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(11, 11))
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     x, y = mesh.vertices[:, 0], mesh.vertices[:, 1]
     u0 = np.sin(np.pi * x) * np.sin(np.pi * y)  # an eigenmode; zero on the boundary

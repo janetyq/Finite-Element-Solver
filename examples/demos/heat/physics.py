@@ -15,7 +15,7 @@ from fem.forms import BoundaryMassForm
 from fem.integrators import ThetaMethod
 from fem.mesh.mesh import Mesh
 from fem.mesh.ruppert import RuppertsAlgorithm
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import TimeDependent, in_box, on_plane, union
 from fem.solution import TransientSolution
 from fem.solver import Solver
@@ -61,14 +61,7 @@ def solid_block(width, height, target_area):
     element so it matches a Ruppert's mesh built to the same cap."""
     nx = max(2, round(width / np.sqrt(target_area)))
     ny = max(2, round(height / np.sqrt(target_area)))
-    return create_rect_mesh(corners=[[0.0, 0.0], [width, height]], resolution=(nx, ny))
-
-
-def mesh_area(mesh):
-    """Total area of a triangle mesh: its material, per unit depth."""
-    tri = np.asarray(mesh.vertices)[np.asarray(mesh.elements)]
-    e1, e2 = tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]
-    return float(np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum() / 2)
+    return box_mesh(corners=[[0.0, 0.0], [width, height]], resolution=(nx, ny))
 
 
 def fin_efficiency(kappa, u_ambient, u_hot, thickness, lengths):
@@ -85,7 +78,7 @@ def fin_efficiency(kappa, u_ambient, u_hot, thickness, lengths):
     eta_fem = []
     for length in lengths:
         ny = max(10, round(10 * length / thickness))    # ~10 elements across the thickness
-        fin = create_rect_mesh(corners=[[0.0, 0.0], [thickness, length]], resolution=(10, ny))
+        fin = box_mesh(corners=[[0.0, 0.0], [thickness, length]], resolution=(10, ny))
         _, shed = steady_heatsink(fin, heatsink_bc(fin, hot, kappa, u_ambient),
                                   kappa, u_ambient)
         area = 2 * length + thickness
@@ -197,7 +190,7 @@ class HeatsinkStudy:
     @property
     def metal_ratio(self) -> float:
         """The finned sink's material over the block's: the fins carve channels out of it."""
-        return mesh_area(self.mesh) / mesh_area(self.block)
+        return self.mesh.area / self.block.area
 
     @property
     def power(self) -> float:

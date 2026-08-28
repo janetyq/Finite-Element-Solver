@@ -10,7 +10,7 @@ matplotlib.use("Agg")
 
 import pytest
 
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 
 
 @pytest.fixture
@@ -22,6 +22,6 @@ def make_unit_square():
     FunctionSpace, so there is no assembled state to bleed between tests.
     """
     def _make(n=20):
-        return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+        return box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
     return _make

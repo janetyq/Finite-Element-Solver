@@ -1,8 +1,6 @@
 """Geometric primitives: areas, volumes, point-in-polygon, circumcenters,
 triangle angles, and boundary extraction from a triangulation.
 """
-import itertools
-from collections import Counter
 
 import numpy as np
 
@@ -126,19 +124,3 @@ def calculate_triangle_min_angle(triangle):
     '''The smallest interior angle, in degrees. Batches like
     `calculate_triangle_angles`, one angle per triangle.'''
     return calculate_triangle_angles(triangle).min(axis=-1)
-
-
-def get_boundary_from_vertices_elements(elements):
-    '''Boundary facets of a linear simplex mesh, as sorted vertex-index lists.
-
-    A facet is the codimension-1 face of an element (an edge of a triangle, a
-    face of a tet), and it lies on the boundary exactly when it belongs to one
-    element instead of two. Counting occurrences in a single pass is O(elements);
-    the facets are unoriented, which is all the boundary mass matrix needs.
-    '''
-    facet_counts = Counter(
-        facet
-        for element in elements
-        for facet in itertools.combinations(sorted(element), len(element) - 1)
-    )
-    return [list(facet) for facet, count in facet_counts.items() if count == 1]

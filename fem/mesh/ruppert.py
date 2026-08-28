@@ -5,12 +5,11 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import Delaunay, KDTree, QhullError
 
-from fem.mesh.mesh import Mesh
+from fem.mesh.mesh import Mesh, boundary_facets
 from fem.geometry import (
     calculate_segment_angles,
     calculate_triangle_angles,
     calculate_circumcenter,
-    get_boundary_from_vertices_elements,
 )
 
 logger = logging.getLogger(__name__)
@@ -462,7 +461,7 @@ class RuppertsAlgorithm:
         renumbered[used] = np.arange(len(used))
         elements = renumbered[elements]
 
-        boundary = get_boundary_from_vertices_elements(elements)
+        boundary = boundary_facets(elements)
         self.boundary_loops = self._trace_boundary_to_loops(boundary, used, renumbered)
         boundary_curves = self._trace_boundary_to_curves(boundary, used, renumbered)
         return Mesh(self.vertices[used], elements, boundary, boundary_curves)

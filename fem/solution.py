@@ -71,10 +71,7 @@ class FieldSolution(Solution):
         Only the leading vertex DOFs move the geometry: a P2 field's edge-midpoint
         DOFs have no mesh vertices, so the warp is the field's P1 restriction.
         '''
-        mesh = self.mesh.copy()
-        n_vertices = len(mesh.vertices)
-        mesh.vertices = mesh.vertices + np.asarray(self.u).reshape(-1, self.n_components)[:n_vertices]
-        return mesh
+        return self.mesh.displaced(np.asarray(self.u).reshape(-1, self.n_components))
 
 
 @dataclass(frozen=True, eq=False)
@@ -233,11 +230,7 @@ class BucklingSolution(Solution):
         The amplitude is arbitrary, so `scale` is a display choice. Only the leading
         vertex DOFs move the geometry (a P2 mode draws as its P1 restriction).
         '''
-        mesh = self.mesh.copy()
-        n_vertices = len(mesh.vertices)
-        displacement = self.modes[i].reshape(-1, self.n_components)[:n_vertices]
-        mesh.vertices = mesh.vertices + scale * displacement
-        return mesh
+        return self.mesh.displaced(self.modes[i].reshape(-1, self.n_components), scale)
 
 
 @dataclass(frozen=True, eq=False)
@@ -271,11 +264,7 @@ class ModalSolution(Solution):
         The amplitude is arbitrary, so `scale` is a display choice. Only the leading
         vertex DOFs move the geometry (a P2 mode draws as its P1 restriction).
         '''
-        mesh = self.mesh.copy()
-        n_vertices = len(mesh.vertices)
-        displacement = self.modes[i].reshape(-1, self.n_components)[:n_vertices]
-        mesh.vertices = mesh.vertices + scale * displacement
-        return mesh
+        return self.mesh.displaced(self.modes[i].reshape(-1, self.n_components), scale)
 
 
 @dataclass(frozen=True, eq=False)

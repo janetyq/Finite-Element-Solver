@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.backends import DirectBackend, IterativeBackend
-from fem.mesh.structured import create_box_mesh
+from fem.mesh.structured import box_mesh
 from fem.equations import LinearElastic
 from fem.regions import everywhere
 from fem.system import DiscreteSystem
@@ -55,7 +55,7 @@ class Timing:
 
 
 def benchmark(n: int) -> Timing:
-    mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
     bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0, 0.0]))
     equation = LinearElastic(E=200.0, nu=0.3, source=lambda p: [1.0, 0.0, 0.0])
 

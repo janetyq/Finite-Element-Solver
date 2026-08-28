@@ -9,13 +9,13 @@ import numpy as np
 
 from fem.mesh.curves import Arc, Circle
 from fem.mesh.mesh import Mesh
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.mesh.svg import PSLG
 
 
 def square(n: int = 40) -> Mesh:
     """The unit square at `n` divisions a side."""
-    return create_rect_mesh(corners=[[0.0, 0.0], [1.0, 1.0]], resolution=(n, n))
+    return box_mesh(corners=[[0.0, 0.0], [1.0, 1.0]], resolution=(n, n))
 
 
 def beam(length: float = 4.0, height: float = 1.0, n: int = 80) -> Mesh:
@@ -25,7 +25,7 @@ def beam(length: float = 4.0, height: float = 1.0, n: int = 80) -> Mesh:
     as the beam gets longer.
     """
     across = max(2, round(n * height / length))
-    return create_rect_mesh(corners=[[0.0, 0.0], [length, height]], resolution=(n, across))
+    return box_mesh(corners=[[0.0, 0.0], [length, height]], resolution=(n, across))
 
 
 def column(length: float = 24.0, height: float = 1.0,
@@ -41,7 +41,7 @@ def column(length: float = 24.0, height: float = 1.0,
     pinned end to anchor.
     """
     n_across += 1 - n_across % 2
-    return create_rect_mesh(corners=[[0.0, 0.0], [height, length]],
+    return box_mesh(corners=[[0.0, 0.0], [height, length]],
                             resolution=(n_across, n_length))
 
 

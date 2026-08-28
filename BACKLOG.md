@@ -66,7 +66,7 @@ Two approaches measured and rejected, so they are not proposed again:
 - 💡 **Finish P2: 3D, deformed geometry, adaptivity.** The 2D P2 path shipped; three pieces are
   still open. **3D P2** wants a `QuadraticTetrahedralElement` (ten nodes) and the edge/face numbering
   to match. The `Element` base and the `FunctionSpace` node set generalize, but the 3D shape functions
-  and connectivity are not written. **`deformed_mesh`** reads the vertex DOFs and drops the
+  and connectivity are not written. **`Mesh.displaced`** (behind `deformed_mesh` and `mode_mesh`) reads the vertex DOFs and drops the
   edge-midpoint displacements, so a P2 displacement warp draws as its P1 restriction (field plotting
   itself is now P2-aware via `FunctionSpace.tessellation`). **Adaptive refinement** drives a P2 solve
   through either estimator: the recovery one samples the flux per quadrature point and recovers by L2

@@ -11,7 +11,7 @@ from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.forms import LinearElasticForm
 from fem.backends import DirectBackend, IterativeBackend, MinresBackend, rigid_body_modes
 from fem.materials import LinearElasticMaterial
-from fem.mesh.structured import create_box_mesh, create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import everywhere, on_plane
 from fem.equations import Heat, LinearElastic, Poisson
 from fem.solver import Solver
@@ -37,7 +37,7 @@ def _symmetric_indefinite(n, seed=0):
 
 def _poisson_mms(n, backend):
     """Solve the manufactured sin*sin Poisson problem; return (h, L2 error)."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     eq = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     solver = Solver(mesh, eq, bc, backend=backend)
@@ -49,7 +49,7 @@ def _poisson_mms(n, backend):
 
 def test_iterative_matches_direct_on_poisson():
     """AMG-CG reproduces the direct Poisson solution to solver tolerance."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(41, 41))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(41, 41))
     eq = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
@@ -60,7 +60,7 @@ def test_iterative_matches_direct_on_poisson():
 
 def test_iterative_matches_direct_on_elasticity():
     """AMG-CG reproduces the direct elasticity solution (vector field, SPD K)."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(31, 31))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(31, 31))
     bc = BoundaryConditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [50, 0]),
@@ -89,7 +89,7 @@ def test_iterative_backend_preserves_second_order_convergence():
 def test_iterative_matches_direct_on_3d_elasticity():
     """The direct/iterative equivalence holds for 3D vector elasticity, where the rigid-body
     near-kernel and the tet assembly both differ from 2D."""
-    mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(7, 7, 7))
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(7, 7, 7))
     bc = BoundaryConditions(
         Dirichlet(on_plane(0, 0.0), [0, 0, 0]),
         Neumann(on_plane(0, 1.0), [0, -5, 0]),
@@ -126,7 +126,7 @@ def test_iterative_solver_reuses_its_setup_across_right_hand_sides():
 
 def test_rigid_body_modes_are_in_the_stiffness_kernel():
     """Translations and rotations produce no strain: K @ mode == 0 unconstrained."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
     space = FunctionSpace(mesh, n_components=2)
     K = space.assemble(LinearElasticForm(LinearElasticMaterial(E=200, nu=0.3)))
     modes = rigid_body_modes(mesh.vertices, 2)
@@ -136,7 +136,7 @@ def test_rigid_body_modes_are_in_the_stiffness_kernel():
 
 
 def _cantilever():
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(25, 25))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(25, 25))
     bc = BoundaryConditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [0, -20]),
@@ -189,7 +189,7 @@ def test_iterative_backend_matches_direct_through_a_time_step():
     from fem.integrators import ThetaMethod
     from fem.numerics import bump_function
 
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(21, 21))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(21, 21))
     u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=10, size=0.2) + 300
     problem = Heat().problem(mesh)
 

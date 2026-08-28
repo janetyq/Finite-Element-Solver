@@ -15,7 +15,7 @@ from fem.elements import QuadraticTriangleElement
 from fem.energies import NeohookeanEnergyDensity
 from fem.equations import FiniteStrainElastic, LinearElastic
 from fem.forms import EnergyForm
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.numerics import central_difference_order
 from fem.regions import on_plane
 from fem.solution import ElasticSolution
@@ -126,7 +126,7 @@ def test_neohookean_solve_converges_and_reports_stress(make_unit_square):
 def test_neohookean_on_p2_converges(make_unit_square):
     """The material carries its own quadrature hint (degree 4), so it also assembles and
     converges on quadratic elements."""
-    mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
+    mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
     bc = BoundaryConditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, 2.0), [0.3, 0.15]),

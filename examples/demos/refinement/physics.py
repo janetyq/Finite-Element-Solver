@@ -18,7 +18,7 @@ from fem.equations import Poisson
 from fem.estimators import ResidualEstimator
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
 from fem.solution import Solution
 
@@ -46,7 +46,7 @@ estimator = ResidualEstimator()
 
 
 def square_mesh(n) -> Mesh:
-    return create_rect_mesh(corners=[[0.0, 0.0], [W, H]], resolution=(n, n))
+    return box_mesh(corners=[[0.0, 0.0], [W, H]], resolution=(n, n))
 
 
 def problem_for(m):

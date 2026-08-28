@@ -291,7 +291,7 @@ def _draw_arrows(ax, mesh, points, values, color, label):
     magnitude = np.linalg.norm(direction, axis=1, keepdims=True)
     hat = np.divide(direction, magnitude, out=np.zeros_like(direction), where=magnitude > 0)
 
-    span = mesh.vertices.max(axis=0) - mesh.vertices.min(axis=0)
+    span = mesh.bounds[1] - mesh.bounds[0]
     length = BC_ARROW_LENGTH * float(np.max(span[:2]))
     # Heads set explicitly: quiver sizes them off the shaft width, which is a fraction of
     # the axes width, so on a long flat panel the default is a barely visible point.
@@ -424,7 +424,7 @@ def plot_bc(ax, mesh, bc):
     # takes as the shape of its box), so a 4:1 beam does not put the legend through its
     # own tick labels while a square leaves a gap.
     if any(ax.get_legend_handles_labels()[1]):
-        span = mesh.vertices.max(axis=0) - mesh.vertices.min(axis=0)
+        span = mesh.bounds[1] - mesh.bounds[0]
         aspect = float(np.clip(span[1] / span[0], 0.4, 4.0))
         ax.legend(loc='upper center', bbox_to_anchor=(0.5, -(0.06 + 0.10/aspect)),
                   ncol=2, frameon=False, fontsize='small')

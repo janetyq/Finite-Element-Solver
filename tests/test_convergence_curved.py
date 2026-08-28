@@ -14,7 +14,7 @@ from fem.convergence import (
     ANNULUS_OUTER,
     ConvergenceStudy,
     annulus_convergence,
-    create_annulus_mesh,
+    annulus_mesh,
 )
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.space import FunctionSpace
@@ -31,7 +31,7 @@ def _observed_orders(hs, errors):
 def _area_errors(element_type):
     hs, errors = [], []
     for n in RESOLUTIONS:
-        mesh = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
+        mesh = annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
         space = FunctionSpace(mesh, element_type, n_components=1)
         errors.append(abs(space.geometry.total_volume - TRUE_AREA))
         hs.append(1.0 / (n - 1))
@@ -41,7 +41,7 @@ def _area_errors(element_type):
 def test_curved_boundary_nodes_lie_on_the_true_rim():
     """The defining property: an isoparametric element's boundary edge nodes sit on the
     true circle, where a straight element's chord midpoints fall short by the sagitta."""
-    mesh = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, 9, 36)
+    mesh = annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, 9, 36)
 
     def max_rim_distance(element_type):
         space = FunctionSpace(mesh, element_type, n_components=1)
@@ -87,6 +87,6 @@ def test_curved_mass_matrix_integrates_the_curved_area():
     """The consistent mass matrix sums to the domain measure (the P2 hats are a
     partition of unity), a direct check that the curved MassForm integrates over the
     true curved area rather than the inscribed polygon's."""
-    mesh = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, 17, 68)
+    mesh = annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, 17, 68)
     space = FunctionSpace(mesh, IsoparametricTriangleElement, n_components=1)
     assert space.mass_matrix.sum() == pytest.approx(TRUE_AREA, rel=1e-3)

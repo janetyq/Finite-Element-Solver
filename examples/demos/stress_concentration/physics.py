@@ -16,7 +16,6 @@ from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import IsoparametricTriangleElement
 from fem.equations import LinearElastic
 from fem.estimators import RecoveryEstimator
-from fem.geometry import calculate_triangle_min_angle
 from fem.mesh.mesh import Mesh
 from fem.mesh.svg import PSLG
 from fem.mesh.ruppert import RuppertsAlgorithm
@@ -36,12 +35,6 @@ def finite_plate_kt(hole_over_width: float) -> float:
     r = hole_over_width
     net = 3.000 - 3.140 * r + 3.667 * r**2 - 1.527 * r**3
     return net / (1.0 - r)
-
-
-def worst_angle(mesh: Mesh) -> float:
-    """The smallest angle in any triangle of `mesh`, in degrees."""
-    return float(calculate_triangle_min_angle(
-        np.asarray(mesh.vertices)[np.asarray(mesh.elements)]).min())
 
 
 def mesh_plate(length, height, radius, circle_segments, min_angle,
@@ -133,7 +126,7 @@ class PlateStudy:
         """Ruppert's angle guarantee does not survive red-green refinement, which bisects
         existing triangles rather than re-triangulating for shape; reported rather than
         hidden."""
-        return worst_angle(self.mesh)
+        return self.mesh.min_angle
 
     @property
     def rim_facets(self) -> int:
@@ -148,7 +141,7 @@ def run(traction=1.0, length=6.0, height=3.0, radius=0.15, min_angle=25,
     """Mesh the plate, refine into the rim, and read the concentration off it."""
     pslg, rupperts, mesh = mesh_plate(length, height, radius, circle_segments, min_angle,
                                       max_area_fraction)
-    n_initial, initial_worst_angle = len(mesh.elements), worst_angle(mesh)
+    n_initial, initial_worst_angle = len(mesh.elements), mesh.min_angle
     bc = plate_bc(length, traction)
     mesh, solution = refine_to_the_rim(mesh, bc, refinement_iters, refinement_budget)
 

@@ -12,7 +12,7 @@ from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.energies import SmallStrain, StVenantKirchhoff
 from fem.equations import FiniteStrainElastic
 from fem.forms import EnergyForm
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import on_plane
 from fem.solver import Solver
 from fem.solution import ElasticSolution
@@ -29,7 +29,7 @@ def test_energy_assembly_is_its_own_derivative_chain(element_type):
     assembled energy, and the tangent is the gradient of the residual, at an arbitrary
     deformed state. This is what makes Newton converge, and it holds only if the energy,
     residual, and tangent share one quadrature rule (degree 4 on P2 St-VK)."""
-    mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [5, 4])
+    mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [5, 4])
     space = FunctionSpace(mesh, element_type, n_components=2)
     form = _stvk_form()
     rng = np.random.default_rng(0)
@@ -61,7 +61,7 @@ def test_the_energy_rule_is_degree_aware():
 def test_full_integration_changes_the_p2_stvk_energy():
     """Integrating the quartic St-VK energy on P2 at the default degree-2 rule
     under-integrates it by over 10 percent."""
-    mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
+    mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
     form = _stvk_form()
     u_elements = (0.1 * np.random.default_rng(1).standard_normal(space.n_dofs)
@@ -76,7 +76,7 @@ def test_a_p2_hyperelastic_solve_converges_and_carries_its_element_type():
     """End to end: a Green-Lagrange solve on P2 converges and comes back as a P2
     ElasticSolution, so it knows its space and its recovered stress reaches the edge
     nodes too."""
-    mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
+    mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
     bc = BoundaryConditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, 2.0), [0.3, 0.15]),

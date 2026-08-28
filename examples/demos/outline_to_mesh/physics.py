@@ -14,7 +14,6 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.equations import Poisson
-from fem.geometry import calculate_triangle_min_angle
 from fem.mesh.mesh import Mesh
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.svg import (
@@ -113,8 +112,7 @@ class MeshedOutline:
     @property
     def worst_angle(self) -> float:
         """The smallest angle in the mesh (degrees), against the bound Ruppert's was set."""
-        return float(calculate_triangle_min_angle(
-            np.asarray(self.mesh.vertices)[np.asarray(self.mesh.elements)]).min())
+        return self.mesh.min_angle
 
 
 @dataclass
