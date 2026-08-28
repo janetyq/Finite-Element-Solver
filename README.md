@@ -274,8 +274,26 @@ chooses how it iterates and `backend=` how each linear system is solved, indepen
 result is typed by the physics: `Poisson(...).problem(mesh, bc).solve()` is a
 `ScalarFieldSolution`, an elastic one an `ElasticSolution`, with no narrowing at the call.
 
-Swap the form, the source, the boundary conditions, the element type, the solve strategy, or the
-linear-algebra backend independently; `ARCHITECTURE.md` lists the steps and their options.
+### What you choose at each step
+
+Every step of a solve is one choice among a few named objects, all importable from `fem`.
+`ARCHITECTURE.md` explains how they fit; this is the menu.
+
+| Step | Options | Default |
+|---|---|---|
+| Mesh | `box_mesh`, `annulus_mesh`, `PSLG.from_loops(...).mesh()`, `PSLG.circle`, `read_svg_to_pslg`, `Mesh(vertices, elements)`; refine with `RedGreenRefiner` | |
+| Element | `LinearTriangleElement`, `LinearTetrahedralElement`, `QuadraticTriangleElement`, `IsoparametricTriangleElement`, via `element_type=` | linear, read off the mesh |
+| Equation | `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`, `FiniteStrainElastic` (with `law=` `StVenantKirchhoff` or `NeohookeanEnergyDensity`) | |
+| Where | `everywhere`, `on_plane`, `in_box`, `on_tag`, `at_indices`, `union`, `intersect` | |
+| Conditions | `Dirichlet`, `Neumann`, `Robin`; a value is a constant, a callable of position, or `TimeDependent` | none |
+| Loads | `source=`, `PointLoad`, `BoundaryLoad` | none |
+| Strategy | `LinearSolve`, `NewtonSolve` (with `BacktrackingLineSearch`, `TangentRegularization`), via `strategy=` | `default_strategy`: by the tangent |
+| Backend | `DirectBackend`, `IterativeBackend`, `MinresBackend`, via `backend=` | direct |
+| In time | `ThetaMethod`, `NewmarkMethod` (with `RayleighDamping`) | |
+| Analyses | `BucklingAnalysis`, `ModalAnalysis`, `AdaptiveRefinement` with `ResidualEstimator` / `RecoveryEstimator` / `GoalOrientedEstimator`, `SensitivityAnalysis`, `DesignOptimizer` over a `SIMPModel` | |
+| Result | `ScalarFieldSolution`, `ElasticSolution`, `FieldSolution`, `TransientSolution`, `BucklingSolution`, `ModalSolution` | by the physics |
+| Plot | `Plotter.plot(target, values, mode=)` with `mesh`, `boundary`, `colored`, `surface`, `arrows`, `solid`, `bc`, `refinement` | |
+
 
 A solution is a typed dataclass. An elastic solve returns an `ElasticSolution`, which
 carries the stress and strain as full tensors and derives the scalar measures on

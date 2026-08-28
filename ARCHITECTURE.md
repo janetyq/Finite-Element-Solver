@@ -18,6 +18,7 @@ solve" is the `Problem`; "how" is the strategy.
 
 The chain is the same for every problem. Each step has one required object and a few options with
 defaults; `Equation.problem` is this chain with the defaults filled in from the equation.
+The README's "What you choose at each step" table is the menu of options; this is the chain.
 
 | Step | Required | Options (default) |
 |---|---|---|
