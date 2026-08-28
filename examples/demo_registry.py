@@ -9,6 +9,8 @@ import functools
 import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -76,6 +78,13 @@ class DemoResult:
         return [figure for figure in self.figures if not figure.animated]
 
 
+def _source_of(obj: Callable[..., Any] | ModuleType) -> str:
+    try:
+        return inspect.getsource(obj)
+    except (OSError, TypeError):      # no source: a REPL-defined, C, or built-in object
+        return ''
+
+
 @dataclass
 class Demo:
     name: str
@@ -97,6 +106,13 @@ class Demo:
     # either way. Everyone else (the CLI and the gallery) runs demos exactly as
     # written, so a demo's defaults are what a reader actually sees.
     smoke_kwargs: dict[str, Any] = field(default_factory=dict)
+    # What the gallery shows as the demo's source: the part that poses and solves the
+    # problem, not the part that draws it. A module (a demo split into `physics.py` and
+    # `figures.py` passes its physics module), or a list of functions to show in that
+    # order. `None` shows the demo function itself, which is right for a demo short
+    # enough to read whole. A demo setting this also gets the module the demo function
+    # lives in offered behind a fold, for a reader reproducing a figure.
+    show_source: ModuleType | Sequence[Callable[..., Any]] | None = None
 
     def _unwrapped(self) -> Callable[..., DemoResult]:
         """The demo function itself, from behind any `functools.partial` around it.
@@ -110,15 +126,25 @@ class Demo:
         return func
 
     def source(self) -> str:
-        """The demo function's own source, for readers who came for the code.
+        """The source a reader who came for the code is shown: `show_source`, or the
+        demo function itself.
 
         The bound arguments of a preconfigured demo are not shown: they are the
         gallery's cheaper settings, not part of what the demo is saying.
         """
-        try:
-            return inspect.getsource(self._unwrapped())
-        except OSError:      # no source available: a REPL-defined or C function
+        if self.show_source is None:
+            return _source_of(self._unwrapped())
+        if isinstance(self.show_source, ModuleType):
+            return _source_of(self.show_source)
+        return '\n\n'.join(filter(None, (_source_of(f) for f in self.show_source)))
+
+    def full_source(self) -> str:
+        """The module the demo function lives in, plotting included, for a demo whose
+        `source` is only the part that poses and solves; empty otherwise."""
+        if self.show_source is None:
             return ''
+        module = inspect.getmodule(self._unwrapped())
+        return _source_of(module) if module is not None else ''
 
     def description(self) -> str:
         """The first paragraph of the demo's docstring on one line, for `list` and for
