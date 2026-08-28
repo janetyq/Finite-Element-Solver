@@ -59,6 +59,7 @@ class Panel:
     frames: list[str] = field(default_factory=list)
     thumbnail: bool = False        # nominated as the card image; see `Figure.thumbnail`
     setup: bool = False            # how the problem was posed; see `Figure.setup`
+    body: str = ''                 # prose rendered under the figure; see `Figure.body`
 
 
 @dataclass
@@ -99,11 +100,12 @@ def _render_figures(result: DemoResult, name: str, out_dir: Path) -> list[Panel]
                                                  max_frames=budget)
             frames = [f'{IMAGES}/{stem}/{Path(p).name}' for p in written]
             panels.append(Panel(figure.caption, frames[0], frames, figure.thumbnail,
-                                figure.setup))
+                                figure.setup, body=figure.body))
         else:
             figure.plotter.save(str(images / f'{stem}.png'))
             panels.append(Panel(figure.caption, f'{IMAGES}/{stem}.png',
-                                thumbnail=figure.thumbnail, setup=figure.setup))
+                                thumbnail=figure.thumbnail, setup=figure.setup,
+                                body=figure.body))
 
         figure.plotter.close()
 
@@ -193,6 +195,8 @@ figure img { display: block; margin: 0 auto; width: auto; height: auto;
              max-width: 100%; max-height: 30rem;
              border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 figcaption { color: var(--muted); font-size: .9rem; margin-top: .5rem; }
+.figure-note { max-width: 54rem; margin: 1rem 0 2.5rem; }
+.figure-note p { margin: 0 0 .85rem; }
 .player { display: flex; align-items: center; gap: .75rem; margin-top: .6rem; }
 .player button { font: inherit; padding: .25rem .9rem; border-radius: 6px;
                  border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
@@ -250,11 +254,21 @@ def _page(title: str, body: str, script: str = '') -> str:
     )
 
 
+def _figure_note(body: str) -> str:
+    """Render a figure's longer explanation as prose paragraphs, split on blank lines."""
+    paragraphs = [p.strip() for p in body.split('\n\n') if p.strip()]
+    if not paragraphs:
+        return ''
+    inner = '\n'.join(f'<p>{html.escape(p)}</p>' for p in paragraphs)
+    return f'\n<div class="figure-note">\n{inner}\n</div>'
+
+
 def _panel_html(panel: Panel, index: int) -> str:
     caption = html.escape(panel.caption)
+    note = _figure_note(panel.body)
     if not panel.frames:
         return (f'<figure>\n<img src="{panel.src}" alt="{caption}">\n'
-                f'<figcaption>{caption}</figcaption>\n</figure>')
+                f'<figcaption>{caption}</figcaption>\n</figure>{note}')
 
     frames = html.escape(str(panel.frames).replace("'", '"'), quote=True)
     return (
@@ -265,7 +279,7 @@ def _panel_html(panel: Panel, index: int) -> str:
         '<input type="range" min="0" value="0" step="1">'
         '<span class="count"></span>'
         '</div>\n'
-        f'<figcaption>{caption}</figcaption>\n</figure>'
+        f'<figcaption>{caption}</figcaption>\n</figure>{note}'
     )
 
 
