@@ -16,7 +16,7 @@ than four branches in one function.
 A field may be `TimeDependent`; each term fixes it at `t` before evaluating.
 """
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
@@ -130,23 +130,21 @@ class FixedLoad:
         return self.values
 
 
-def as_load(source: 'FieldValue | LinearForm | Load', n_components: int) -> 'Load | None':
-    '''Normalize a `Problem` source into one load term, or None for no source.
+def as_load(source: 'FieldValue | LinearForm | Source', n_components: int) -> 'Source | LinearForm | None':
+    '''Normalize a `Problem` source into its volume load term, or None for no source.
 
-    A `Load` (a `Source`, `LinearForm`, `Traction`, `PointLoad`) is taken as it is. A
-    callable of position, or a `TimeDependent`, is sampled at the quadrature points as a
-    `LinearForm`; a constant or a nodal array is a `Source`.
+    A `Source` or `LinearForm` is taken as it is. A callable of position, or a
+    `TimeDependent`, is sampled at the quadrature points as a `LinearForm`; a constant
+    or a nodal array is a `Source`. Any other load term (a `PointLoad`) is a `Problem`
+    `loads` entry, not a source.
     '''
     if source is None:
         return None
-    if isinstance(source, (Source, LinearForm, Traction, PointLoad, FixedLoad)):
+    if isinstance(source, (Source, LinearForm)):
         return source
-    if hasattr(source, 'vector') and hasattr(source, 'is_time_dependent'):
-        return cast(Load, source)
-    field = cast(FieldValue, source)
-    if callable(field) or isinstance(field, TimeDependent):
-        return LinearForm(field, n_components=n_components)
-    return Source(field)
+    if callable(source) or isinstance(source, TimeDependent):
+        return LinearForm(source, n_components=n_components)
+    return Source(source)
 
 
 def total_load(terms: 'tuple[Load, ...]', space: 'FunctionSpace', t: float = 0.0) -> DofVector:

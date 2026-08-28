@@ -100,10 +100,6 @@ def _source(problem: Problem) -> FieldValue:
     # Source is that field wrapped for one of the two load paths.
     if isinstance(source, (LinearForm, Source)):
         return source.field
-    if source is not None:
-        raise NotImplementedError(
-            f'the residual estimator reads a pointwise source; got {type(source).__name__}'
-        )
     return None
 
 
