@@ -16,7 +16,6 @@ from fem.physics.derived import GradientField, StressField
 from fem.post.recovery import nodal_gradient, recover_nodal
 from fem.regions import everywhere, on_plane
 from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
-from fem.solver import Solver
 from fem.space import FunctionSpace
 
 
@@ -45,8 +44,7 @@ def test_a_poisson_solve_carries_its_flux_and_recovers_it_to_the_nodes():
         Dirichlet(everywhere(), 0.0),
     )
 
-    solution = Solver(mesh, Poisson(source=1.0), bc,
-                      element_type=QuadraticTriangleElement).solve()
+    solution = Poisson(source=1.0).problem(mesh, bc, element_type=QuadraticTriangleElement).solve()
 
     assert isinstance(solution, ScalarFieldSolution)
     assert solution.flux.shape == (len(mesh.elements), 2)
@@ -64,7 +62,7 @@ def test_nodal_flux_takes_a_recovery_method():
     bc = BoundaryConditions(
         Dirichlet(everywhere(), 0.0),
     )
-    solution = Solver(mesh, Poisson(source=1.0), bc).solve()  # varying flux (curved u)
+    solution = Poisson(source=1.0).problem(mesh, bc).solve()  # varying flux (curved u)
 
     average = solution.nodal_flux(method='average')
     l2 = solution.nodal_flux(method='l2')
@@ -76,7 +74,7 @@ def test_nodal_flux_takes_a_recovery_method():
 def test_a_projection_stays_a_bare_field_solution():
     """A projection names no derived field, so it is not upgraded to a ScalarFieldSolution."""
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
-    solution = Solver(mesh, Projection(source=2.0), BoundaryConditions()).solve()
+    solution = Projection(source=2.0).problem(mesh, BoundaryConditions()).solve()
     assert type(solution) is FieldSolution
 
 
@@ -89,7 +87,7 @@ def test_nodal_von_mises_recovers_the_tensor_then_reduces():
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 4.0), [0, -0.3]),
     )
-    solution = Solver(mesh, LinearElastic(200.0, 0.3), bc).solve()
+    solution = LinearElastic(200.0, 0.3).problem(mesh, bc).solve()
 
     assert isinstance(solution, ElasticSolution)
     assert solution.nodal_stress().shape == (solution.space.n_nodes, 3, 3)
@@ -109,8 +107,7 @@ def test_solution_carries_its_space_and_deformed_mesh_uses_only_vertex_dofs():
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 4.0), [0, -0.2]),
     )
-    solution = Solver(mesh, LinearElastic(200.0, 0.3), bc,
-                      element_type=QuadraticTriangleElement).solve()
+    solution = LinearElastic(200.0, 0.3).problem(mesh, bc, element_type=QuadraticTriangleElement).solve()
 
     assert solution.element_type is QuadraticTriangleElement
     assert solution.space.n_nodes > len(mesh.vertices)         # edge nodes exist
@@ -123,7 +120,7 @@ def test_solution_carries_its_space_and_deformed_mesh_uses_only_vertex_dofs():
 
 def test_scalar_solution_nodal_values_are_one_per_node():
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
-    solution = Solver(mesh, Poisson(source=1.0)).solve()
+    solution = Poisson(source=1.0).problem(mesh).solve()
     assert solution.nodal_values.shape == (len(mesh.vertices),)
     np.testing.assert_array_equal(solution.nodal_values, solution.u)
 
@@ -159,8 +156,7 @@ def test_element_type_round_trips_through_save_and_load(tmp_path):
     bc = BoundaryConditions(
         Dirichlet(everywhere(), 0.0),
     )
-    solution = Solver(mesh, Poisson(source=1.0), bc,
-                      element_type=QuadraticTriangleElement).solve()
+    solution = Poisson(source=1.0).problem(mesh, bc, element_type=QuadraticTriangleElement).solve()
 
     path = str(tmp_path / 'solution.npz')
     solution.save(path)

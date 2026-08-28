@@ -59,7 +59,6 @@ from fem.physics.equations import (
     LinearElastic,
     FiniteStrainElastic,
 )
-from fem.solver import Solver
 from fem.physics.forms import (
     BilinearForm,
     DiffusionForm,
@@ -186,7 +185,6 @@ __all__ = [
     "union",
     "at_indices",
     "TimeDependent",
-    "Solver",
     "Equation",
     "Projection",
     "Poisson",

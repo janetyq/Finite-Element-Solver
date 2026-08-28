@@ -243,7 +243,7 @@ starts from, and refining the mesh is what lowers it.
 ## Quick Start
 
 ```python
-from fem import box_mesh, BoundaryConditions, Dirichlet, Solver, Poisson, Plotter
+from fem import box_mesh, BoundaryConditions, Dirichlet, Poisson, Plotter
 from fem.regions import everywhere
 
 mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))
@@ -252,14 +252,14 @@ mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))
 equation = Poisson(source=1)
 bc = BoundaryConditions(Dirichlet(everywhere(), 0))
 
-solution = Solver(mesh, equation, bc).solve()
+solution = equation.problem(mesh, bc).solve()
 
 plotter = Plotter(title="Poisson")
 plotter.plot(mesh, solution.u, mode="surface")
 plotter.show()
 ```
 
-`Solver` is a convenience over the parts, which compose directly. The same solve, by hand:
+The equation builds a problem from the parts, which compose directly. The same solve, by hand:
 
 ```python
 from fem import FunctionSpace, LinearProblem, DiffusionForm
@@ -269,9 +269,10 @@ problem = LinearProblem(space, DiffusionForm(), source=1, bc=bc)
 solution = problem.solve()
 ```
 
-`problem.solve()` picks `LinearSolve` for a constant tangent and Newton otherwise; pass
-`strategy=` or `backend=` to choose. `equation.problem(mesh, bc)` builds the same problem
-from a named equation.
+`problem.solve()` picks `LinearSolve` for a constant tangent and Newton otherwise; `strategy=`
+chooses how it iterates and `backend=` how each linear system is solved, independently. The
+result is typed by the physics: `Poisson(...).problem(mesh, bc).solve()` is a
+`ScalarFieldSolution`, an elastic one an `ElasticSolution`, with no narrowing at the call.
 
 Swap the form, the source, the boundary conditions, the element type, the solve strategy, or the
 linear-algebra backend independently; `ARCHITECTURE.md` lists the steps and their options.
@@ -281,7 +282,7 @@ carries the stress and strain as full tensors and derives the scalar measures on
 demand:
 
 ```python
-solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
+solution = LinearElastic(E=200, nu=0.3).problem(mesh, bc).solve()
 
 solution.u                 # (n_vertices * n_components,) displacement
 solution.stress            # (n_elements, 3, 3) Cauchy stress tensors
@@ -341,7 +342,6 @@ fem/                 # the solver package; grouped by layer, everything re-expor
 ├── boundary.py      # BoundaryConditions spec -> ResolvedBC for one mesh
 ├── loads.py         # Source, BoundaryLoad, PointLoad
 ├── problem.py       # Problem: space + operator + load + constraints; the narrow waist
-├── solver.py        # Solver: the steady facade over Equation.problem(...).solve()
 │
 ├── physics/         # what equation, what material
 │   ├── equations.py #   Equation: Projection, Poisson, Heat, Wave, LinearElastic, FiniteStrainElastic

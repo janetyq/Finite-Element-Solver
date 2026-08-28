@@ -15,7 +15,6 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
 from fem.regions import in_box, intersect, on_plane
 from fem.post.solution import ElasticSolution
-from fem.solver import Solver
 
 E, NU = 200.0, 0.4
 
@@ -32,13 +31,13 @@ def clamp_and_tip_load(width) -> BoundaryConditions:
 
 def bend_2d(mesh: Mesh, bc: BoundaryConditions) -> ElasticSolution:
     """The 2D cantilever solve."""
-    return Solver(mesh, LinearElastic(E, NU), bc).solve()
+    return LinearElastic(E, NU).problem(mesh, bc).solve()
 
 
 def bend_3d(n_3d) -> tuple[Mesh, ElasticSolution]:
     """The same clamp-and-load, one dimension up.
 
-    The same assembly, Solver reading the tetrahedron off the connectivity. AMG-CG
+    The same assembly, the equation reading the tetrahedron off the connectivity. AMG-CG
     rather than a direct factorization, whose fill-in hurts in 3D.
     """
     box = box_mesh(corners=[[0, 0, 0], [4, 1, 1]],
@@ -47,7 +46,7 @@ def bend_3d(n_3d) -> tuple[Mesh, ElasticSolution]:
         Dirichlet(on_plane(0, 0.0), [0, 0, 0]),
         Neumann(on_plane(0, 4.0), [0, 0, -0.5]),
     )
-    solution = Solver(box, LinearElastic(E, NU), bc_3d, backend=IterativeBackend()).solve()
+    solution = LinearElastic(E, NU).problem(box, bc_3d).solve(backend=IterativeBackend())
     return box, solution
 
 

@@ -20,7 +20,7 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
-from fem.post.solution import Solution
+from fem.post.solution import ScalarFieldSolution
 
 W, H = 1.0, 1.0
 A = 300      # the peak's sharpness: its width is about 1/sqrt(2a)
@@ -64,7 +64,7 @@ def error_of(solution) -> float:
     return l2_norm(space, solution.u - exact(space.node_coords))
 
 
-def adapt(mesh, max_triangles=3000, max_iters=20) -> tuple[Mesh, Solution, np.ndarray]:
+def adapt(mesh, max_triangles=3000, max_iters=20) -> tuple[Mesh, ScalarFieldSolution, np.ndarray]:
     """Refine `mesh` where the estimator points, half the worst elements each round,
     until the mesh reaches `max_triangles` or `max_iters` rounds. Returns the refined
     mesh, its solution, and the estimated error per element."""
@@ -110,7 +110,7 @@ def adaptive_sweep(mesh, rounds, max_dofs) -> tuple[list[int], list[float]]:
     return dofs, errors
 
 
-def red_green_example() -> tuple[Mesh, Mesh, np.ndarray]:
+def red_green_example() -> tuple[Mesh, Mesh, list[str]]:
     """What red-green splitting does to an element: a four-triangle square, two of them
     refined red and then a third, with the leaves classified red or green."""
     vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
@@ -129,10 +129,10 @@ def red_green_example() -> tuple[Mesh, Mesh, np.ndarray]:
 class RefinementStudy:
     """Everything `run` computed, for the figures to read."""
     coarse_mesh: Mesh
-    coarse_solution: Solution
+    coarse_solution: ScalarFieldSolution
     coarse_error: np.ndarray        # the estimator's eta per element
     refined_mesh: Mesh
-    refined_solution: Solution
+    refined_solution: ScalarFieldSolution
     refined_error: np.ndarray
     uniform_dofs: list[int]
     uniform_errors: list[float]
@@ -140,7 +140,7 @@ class RefinementStudy:
     adaptive_errors: list[float]
     red_green_original: Mesh
     red_green_refined: Mesh
-    red_green_classes: np.ndarray
+    red_green_classes: list[str]
 
     @property
     def n_coarse(self) -> int:

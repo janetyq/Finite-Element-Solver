@@ -41,10 +41,9 @@ def _poisson(mesh):
     from fem.boundary import BoundaryConditions, Dirichlet
     from fem.physics.equations import Poisson
     from fem.regions import everywhere
-    from fem.solver import Solver
 
     bc = BoundaryConditions(Dirichlet(everywhere(), 0))
-    solution = Solver(mesh, Poisson(source=1), bc).solve()
+    solution = Poisson(source=1).problem(mesh, bc).solve()
     plotter = Plotter()
     plotter.plot(mesh, solution.u, mode='colored')
     return DemoResult([Figure(plotter, 'the dome')])

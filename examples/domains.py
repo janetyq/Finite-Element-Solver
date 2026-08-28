@@ -7,7 +7,7 @@ substitutes a tiny mesh for every domain.
 """
 import numpy as np
 
-from fem.mesh.curves import Arc, Circle
+from fem.mesh.curves import Arc, Circle, Curve
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
 from fem.mesh.pslg import PSLG
@@ -172,7 +172,7 @@ def l_bracket_pslg(arm: float = 4.0, width: float = 1.2, fillet_radius: float = 
     horizontal one (`on_plane(0, arm)`); the concentration then sits at the inner corner.
     """
     outline = [(0.0, 0.0), (arm, 0.0), (arm, width)]
-    point_curves = [None, None, None]
+    point_curves: list[Curve | None] = [None, None, None]
     if fillet_radius > 0:
         # Round the re-entrant corner: an arc of radius r centred at (width+r, width+r),
         # bulging into the notch to add material. It runs from A = (width+r, width) on the

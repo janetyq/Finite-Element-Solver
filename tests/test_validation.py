@@ -4,7 +4,6 @@ returning wrong or empty results.
 import numpy as np
 import pytest
 
-from fem.solver import Solver
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.mesh.mesh import Mesh
 from fem.physics.equations import FiniteStrainElastic
@@ -100,10 +99,8 @@ def test_finite_strain_accepts_a_3d_mesh():
         elements=[[0, 1, 2, 3]],
         boundary=[[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
     )
-    bc = BoundaryConditions(Dirichlet(on_plane(2, 0.0), [0, 0, 0]))
-
     equation = FiniteStrainElastic(E=200, nu=0.4)
-    assert Solver(mesh, equation, bc).space.n_components == 3
+    assert equation.space(mesh).n_components == 3
 
 
 def test_finite_strain_rejects_a_per_element_modulus(make_unit_square):
@@ -116,7 +113,7 @@ def test_finite_strain_rejects_a_per_element_modulus(make_unit_square):
     E = np.full(len(mesh.elements), 200.0)
     equation = FiniteStrainElastic(E=E, nu=0.4)
     with pytest.raises(NotImplementedError):
-        Solver(mesh, equation, bc).problem()
+        equation.problem(mesh, bc)
 
 
 def test_a_shared_specification_is_unchanged_by_resolution(make_unit_square):

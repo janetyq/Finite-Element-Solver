@@ -17,7 +17,7 @@ solve" is the `Problem`; "how" is the strategy.
 ## Building a solve
 
 The chain is the same for every problem. Each step has one required object and a few options with
-defaults; a facade is this chain with the defaults filled in from an `Equation`.
+defaults; `Equation.problem` is this chain with the defaults filled in from the equation.
 
 | Step | Required | Options (default) |
 |---|---|---|
@@ -45,7 +45,7 @@ solution = Poisson(source=1.0).problem(mesh, bc).solve(backend=IterativeBackend(
 
 The two agree exactly: `Equation.problem` and `Problem.solve` hold no policy of their own, so
 anything they can do can be composed, and anything composed (a different form, a hand-built load,
-a custom strategy) needs neither. `Solver(mesh, equation, bc)` is that second line held as an object.
+a custom strategy) needs neither. There is no third way: the equation builds, the problem solves.
 
 The load is a sum of `Load` terms (`fem/loads.py`), each answering `vector(space, t)`. The volume
 source is a `Source`: a constant or a nodal array is integrated exactly through the mass matrix, a
@@ -68,7 +68,7 @@ is `kappa * BoundaryMassForm(mask)` added to the physics form and assembled besi
 ## Package layout
 
 `fem/` keeps the core objects at the top level (`typing`, `numerics`, `quadrature`, `regions`,
-`elements`, `boundary`, `loads`, `space`, `problem`, `solver`) and groups the rest by layer:
+`elements`, `boundary`, `loads`, `space`, `problem`) and groups the rest by layer:
 
 - `fem/mesh`: geometry and meshing (`Mesh`, curves, `PSLG`, Ruppert, red-green refinement, SVG).
 - `fem/physics`: `forms`, `energies`, `materials`, `fields`, the named `equations`, and `derived`
@@ -148,7 +148,6 @@ two elastic forms share with `ElasticSolution` and `StressField`.
 | `Backend` (`Direct`, `Iterative`, `Minres`) | | | | | | █ | | | |
 | `LinearSolve` / `NewtonSolve` / `EigenSolve` | | | | | | ▒ | | | |
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
-| `Solver` | composition only: `Equation.problem` then `Problem.solve` | | | | | | | | |
 | `BucklingAnalysis`, `ModalAnalysis` | | | | | | ▒ | | | ▒ |
 | `AdaptiveRefinement`, `SIMPModel` / `DesignOptimizer` | | | | | | | | █ | ▒ |
 | Error estimators, `SensitivityAnalysis` | | | | | | | | ▒ | █ |
@@ -267,8 +266,11 @@ resolution on this space. It also answers the two questions that depend on which
 composed from: `solution(u)`
 packages a solved vector as the typed `Solution` its operator recovers (`ElasticSolution` for a
 form that recovers stress, `ScalarFieldSolution` for one naming a flux, else `FieldSolution`), and
-`near_null_space()` is the operator's AMG near-kernel, if it has one. Both delegate to the form,
-so a solve composed by hand and one through a facade give the same answer.
+`near_null_space()` is the operator's AMG near-kernel, if it has one. Both delegate to the form.
+The solution type is carried statically the same way: a form is a `Form[S]` for the solution it
+packages (`LinearElasticForm` is a `Form[ElasticSolution]`), a problem over it a `Problem[S]` whose
+`solve()` returns `S`, and an equation an `Equation[P]` whose `problem()` returns its `P`
+(`LinearElastic` builds a `LinearProblem[ElasticSolution]`), so nothing downstream narrows.
 
 ### Solve strategies and backends
 
@@ -276,9 +278,13 @@ so a solve composed by hand and one through a facade give the same answer.
 factor-once solve) and know nothing about the PDE. `LinearSolve` requires a constant tangent.
 `NewtonSolve` takes any `Problem` and an optional `BacktrackingLineSearch` that scales each step
 to decrease a merit (the energy `Π(u)` where the problem has one, else `½‖r‖²`).
-`default_strategy(problem, backend)` is the one place the choice between them is made for a
-caller who names none: `LinearSolve` for a constant tangent, line-searched Newton otherwise,
-with `TangentRegularization` added under an iterative backend.
+`default_strategy(problem)` is the one place the choice between them is made for a caller who
+names none: `LinearSolve` for a constant tangent, line-searched Newton otherwise. The strategy is
+how the problem is iterated; the `Backend` is how each linear system on the way is solved, and it
+is given at the call, `strategy.solve(problem, backend=...)` or `problem.solve(strategy, backend)`,
+so the two choices compose without either knowing the other. `NewtonSolve` reads the backend it
+is handed to decide its regularization (`'auto'`: a `TangentRegularization` under an iterative
+backend, none under the direct one).
 
 `DiscreteSystem` eliminates the Dirichlet DOFs and hands the free-free block to a `Backend`, which
 prepares it into a `LinearSolver` solved against many right-hand sides. `DirectBackend` is sparse
@@ -320,14 +326,10 @@ finite-strain law. It refuses rather than approximates when the physics does not
 in `fem/physics/equations.py` maps each PDE to its class and the solve that steps it.
 Two more resolve it against a discretization: `space(mesh, element_type)` builds the
 `FunctionSpace` with the component count the field implies, and `problem(mesh_or_space, bc,
-element_type)` the `LinearProblem` for a constant tangent, else a `Problem`. Every facade and
-driver goes through these two.
+element_type)` the `LinearProblem` for a constant tangent, else a `Problem`. Every driver goes
+through these two.
 
-### Facades and drivers
-
-`Solver` holds an equation, a BC spec, and the space on a mesh; each `solve` is
-`equation.problem(space, bc).solve(strategy, backend)`. It holds no solve policy and no state
-between solves.
+### Drivers
 
 Two drivers, each over one spec. `AdaptiveRefinement` owns a mesh and a `problem_for(mesh)`
 builder (`equation.problem(mesh, bc)`), solves each round's problem with `Problem.solve` (the

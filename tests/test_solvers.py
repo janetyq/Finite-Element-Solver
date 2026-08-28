@@ -1,4 +1,4 @@
-"""Solver tests asserting on physical and mathematical invariants."""
+"""Solve tests asserting on physical and mathematical invariants."""
 import numpy as np
 import pytest
 
@@ -6,7 +6,6 @@ from fem.numerics import bump_function
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.regions import everywhere, on_plane
 from fem.physics.equations import Heat, Projection, Poisson, LinearElastic, Wave
-from fem.solver import Solver
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod, wave_energy
 
 
@@ -36,7 +35,7 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
     def linear_field(p):
         return [2.0 * p[0] + 3.0 * p[1] - 1.0]
 
-    solution = Solver(mesh, Projection(source=linear_field)).solve()
+    solution = Projection(source=linear_field).problem(mesh).solve()
 
     u = solution.u
     expected = np.array([linear_field(v)[0] for v in mesh.vertices])
@@ -56,7 +55,7 @@ def test_wave_holds_static_equilibrium_under_load(make_unit_square):
     mesh, bc = _pinned_square(make_unit_square)
     source = 1.0
 
-    u_static = Solver(mesh, Poisson(source=source), bc).solve().u
+    u_static = Poisson(source=source).problem(mesh, bc).solve().u
     assert np.abs(u_static).max() > 0, "static solution is trivial; test proves nothing"
 
     problem = _on(Wave(stiffness=1.0, source=source), mesh, bc)
@@ -120,7 +119,7 @@ def test_linear_elastic_stretches_under_tension(make_unit_square):
     )
 
     eq = LinearElastic(E=200, nu=0.4)
-    solution = Solver(mesh, eq, bc).solve()
+    solution = eq.problem(mesh, bc).solve()
 
     bidx = mesh.boundary_idxs
     bx = mesh.vertices[bidx, 0]

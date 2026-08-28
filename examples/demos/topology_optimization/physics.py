@@ -14,7 +14,6 @@ from fem.physics.equations import LinearElastic
 from fem.mesh.mesh import Mesh
 from fem.regions import in_box, intersect, on_plane
 from fem.post.solution import ElasticSolution
-from fem.solver import Solver
 
 E, NU = 200.0, 0.4
 equation = LinearElastic(E, NU)
@@ -39,7 +38,7 @@ def mbb_conditions(mesh) -> BoundaryConditions:
 def solve_solid(mesh, bc) -> ElasticSolution:
     """The solid block: 100% material, the baseline the optimized one is measured
     against."""
-    return Solver(mesh, equation, bc).solve()
+    return equation.problem(mesh, bc).solve()
 
 
 def optimize(mesh, bc, iters, smoothing_radius=0.05) -> tuple[DesignOptimizer, DesignHistory]:

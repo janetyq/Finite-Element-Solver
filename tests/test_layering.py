@@ -39,8 +39,7 @@ ORDER = [
     # post-processing that reads the whole stack
     'post.io', 'post',
     'plot.tessellation', 'plot.helpers', 'plot.bc', 'plot.plotter', 'plot',
-    # facades
-    'solver', '',
+    '',
 ]
 RANK = {name: i for i, name in enumerate(ORDER)}
 

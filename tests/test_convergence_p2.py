@@ -86,18 +86,17 @@ def test_p2_reproduces_a_linear_displacement_and_its_constant_stress():
 
 def test_p2_is_reachable_through_the_solver_facade():
     """P2 is a first-class option on the documented entry point, not only by
-    hand-building a LinearProblem: `element_type` flows through Solver to the space,
+    hand-building a LinearProblem: `element_type` flows through `Equation.problem` to the space,
     and the solve is the accurate quadratic one."""
     from fem.physics.equations import Poisson
-    from fem.solver import Solver
 
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     source = lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]  # noqa: E731
-    solver = Solver(mesh, Poisson(source=source), bc, element_type=QuadraticTriangleElement)
-    solution = solver.solve()
+    problem = Poisson(source=source).problem(mesh, bc, element_type=QuadraticTriangleElement)
+    solution = problem.solve()
 
-    exact = np.sin(np.pi * solver.space.node_coords[:, 0]) * np.sin(np.pi * solver.space.node_coords[:, 1])
+    exact = np.sin(np.pi * problem.space.node_coords[:, 0]) * np.sin(np.pi * problem.space.node_coords[:, 1])
     # P2 on this mesh is already far past the P1 error floor at the same spacing.
-    assert len(solution.u) == solver.space.n_dofs
+    assert len(solution.u) == problem.space.n_dofs
     assert np.abs(solution.u - exact).max() < 5e-3

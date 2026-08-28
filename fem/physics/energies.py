@@ -170,7 +170,7 @@ class SmallStrain(StVenantKirchhoff):
 
     The linearisation of Green-Lagrange. The strain is affine in F, so dS/dF is
     constant, d²S/dF² vanishes, the energy is quadratic in u, and Newton converges
-    in one step. This is the same physics `Solver` solves by direct assembly; its
+    in one step. This is the same physics `LinearElastic` solves by direct assembly; its
     value is as the independent cross-check and as the small-strain member of the
     strain-measure axis.
     """

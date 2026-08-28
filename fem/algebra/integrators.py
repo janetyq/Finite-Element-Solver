@@ -11,13 +11,17 @@ come in through `solve`, as DOF vectors (`FunctionSpace.interpolate`). The resul
 The wave path uses Newmark rather than a 2N first-order block: its effective operator
 `M + β dt² K` is SPD and N-sized, so it stays inside the CG/preconditioning path.
 """
+from typing import TypeVar
+
 import numpy as np
 
 from fem.algebra.backends import Backend
 from fem.problem import Problem
-from fem.post.solution import TransientSolution, WaveSolution
+from fem.post.solution import FieldSolution, TransientSolution, WaveSolution
 from fem.algebra.system import DiscreteSystem
 from fem.typing import DofVector
+
+S = TypeVar('S', bound=FieldSolution)
 
 
 def _require_order(problem: Problem, order: int, what: str, use: str) -> None:
@@ -28,8 +32,8 @@ def _require_order(problem: Problem, order: int, what: str, use: str) -> None:
         )
 
 
-def _history(problem: Problem, t_values: list[float], u_values: list[DofVector],
-             dudt_values: list[DofVector] | None = None) -> TransientSolution:
+def _history(problem: Problem[S], t_values: list[float], u_values: list[DofVector],
+             dudt_values: list[DofVector] | None = None) -> TransientSolution[S]:
     '''Package a time series into the matching transient solution type.'''
     t = np.asarray(t_values)
     if dudt_values is not None:
@@ -51,8 +55,8 @@ class ThetaMethod:
         self.steps = steps
         self.theta = theta
 
-    def solve(self, problem: Problem, u0: DofVector, *,
-              backend: Backend | None = None) -> TransientSolution:
+    def solve(self, problem: Problem[S], u0: DofVector, *,
+              backend: Backend | None = None) -> TransientSolution[S]:
         '''Step from `u0`; `backend` solves the factored-once step operator.'''
         _require_order(problem, 1, 'ThetaMethod integrates a first-order system', 'Heat')
         M = problem.mass
@@ -97,8 +101,8 @@ class NewmarkMethod:
         self.beta = beta
         self.gamma = gamma
 
-    def solve(self, problem: Problem, u0: DofVector, v0: DofVector, *,
-              backend: Backend | None = None) -> WaveSolution:
+    def solve(self, problem: Problem[S], u0: DofVector, v0: DofVector, *,
+              backend: Backend | None = None) -> WaveSolution[S]:
         '''Step from `(u0, v0)`; `backend` solves the factored-once effective operator.'''
         _require_order(problem, 2, 'NewmarkMethod integrates a second-order system',
                        'Wave or an elastic equation')

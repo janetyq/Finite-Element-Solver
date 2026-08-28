@@ -14,7 +14,6 @@ from fem.physics.equations import FiniteStrainElastic
 from fem.physics.forms import EnergyForm
 from fem.mesh.structured import box_mesh
 from fem.regions import on_plane
-from fem.solver import Solver
 from fem.post.solution import ElasticSolution
 from fem.space import FunctionSpace
 
@@ -83,7 +82,7 @@ def test_a_p2_hyperelastic_solve_converges_and_carries_its_element_type():
     )
     equation = FiniteStrainElastic(200.0, 0.3)
 
-    solution = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement).solve()
+    solution = equation.problem(mesh, bc, element_type=QuadraticTriangleElement).solve()
 
     assert isinstance(solution, ElasticSolution)
     assert solution.element_type is QuadraticTriangleElement

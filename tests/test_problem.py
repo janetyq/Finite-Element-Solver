@@ -14,7 +14,6 @@ from fem.problem import LinearProblem, Problem
 from fem.regions import everywhere, on_plane
 from fem.algebra.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
 from fem.physics.equations import Heat, LinearElastic, Poisson, Projection, FiniteStrainElastic
-from fem.solver import Solver
 from fem.space import FunctionSpace
 
 
@@ -68,7 +67,7 @@ def test_composed_poisson_matches_the_solver_facade(make_unit_square):
     equation = Poisson(source=_mms_source)
 
     u_composed = LinearSolve().solve(_problem(equation, mesh, bc))
-    u_solver = Solver(mesh, equation, bc).solve().u
+    u_solver = equation.problem(mesh, bc).solve().u
     np.testing.assert_allclose(u_composed, u_solver, atol=1e-12)
 
 
@@ -81,7 +80,7 @@ def test_composed_linear_elastic_matches_the_solver_facade(make_unit_square):
     equation = LinearElastic(E=200, nu=0.4)
 
     u_composed = LinearSolve().solve(_problem(equation, mesh, bc))
-    u_solver = Solver(mesh, equation, bc).solve().u
+    u_solver = equation.problem(mesh, bc).solve().u
     np.testing.assert_allclose(u_composed, u_solver, atol=1e-12)
 
 
@@ -99,7 +98,7 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     elastic = _problem(LinearElastic(E=200, nu=0.4), mesh, bc)
     solution = elastic.solve()
     assert isinstance(solution, ElasticSolution)
-    facade = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
+    facade = LinearElastic(E=200, nu=0.4).problem(mesh, bc).solve()
     assert isinstance(facade, ElasticSolution)
     np.testing.assert_allclose(solution.stress, facade.stress, atol=1e-12)
 
