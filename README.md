@@ -330,51 +330,52 @@ The package is grouped by the job each object does. `ARCHITECTURE.md` is the ove
 this is the map.
 
 ```
-fem/                 # the solver package
-├── mesh/            # Mesh geometry, generation, red-green refinement, SVG outlines
-├── plot/            # Plotter, 2D drawing helpers, 3D tet rendering
+fem/                 # the solver package; grouped by layer, everything re-exported from `fem`
+├── mesh/            # Mesh geometry, PSLG outlines, Ruppert meshing, red-green refinement, SVG
 │
-│   # discretization: what functions can be represented
-├── elements.py      # stateless element types (P1/P2) + batched ElementGeometry
+│   # discretization and constraints
+├── elements.py      # stateless element types (P1/P2/curved) + batched ElementGeometry
 ├── quadrature.py    # reference-simplex Gauss rules, wired into assembly
-├── space.py         # FunctionSpace: DOF numbering, cached operators, assembly
-│
-│   # physics: what equation, what material
-├── equations.py     # Equation: Projection, Poisson, LinearElastic, FiniteStrainElastic
-├── forms.py         # Form: bilinear and energy integrands; derived-field recovery
-├── materials.py     # Hooke's law, Lame conversions (2D is plane strain)
-├── energies.py      # hyperelastic strain-energy densities and their derivatives
-├── fields.py        # Scalar/Vector: components per node, resolved against the mesh
-│
-│   # constraints
+├── space.py         # FunctionSpace: DOF numbering, geometry, assembly
+├── regions.py       # position-based regions and fields (on_plane, in_box, on_tag, ...)
 ├── boundary.py      # BoundaryConditions spec -> ResolvedBC for one mesh
-├── regions.py       # position-based regions and fields (on_plane, in_box, ...)
+├── loads.py         # Source, BoundaryLoad, PointLoad
+├── problem.py       # Problem: space + operator + load + constraints; the narrow waist
+├── solver.py        # Solver: the steady facade over Equation.problem(...).solve()
 │
-│   # composition and algebra
-├── problem.py       # Problem: space + operator + load + constraints
-├── solve.py         # LinearSolve / NewtonSolve / EigenSolve strategies
-├── system.py        # DiscreteSystem: Dirichlet elimination, factor once
-├── backends.py      # DirectBackend (sparse LU) / IterativeBackend (AMG-CG)
-├── integrators.py   # ThetaMethod (1st order), NewmarkMethod (2nd order)
+├── physics/         # what equation, what material
+│   ├── equations.py #   Equation: Projection, Poisson, Heat, Wave, LinearElastic, FiniteStrainElastic
+│   ├── forms.py     #   Form: bilinear and energy integrands; stress recovery; rigid-body modes
+│   ├── materials.py #   Hooke's law, Lame conversions (2D is plane strain)
+│   ├── energies.py  #   hyperelastic strain-energy densities and their derivatives
+│   ├── fields.py    #   Scalar/Vector: components per node, resolved against the mesh
+│   └── derived.py   #   DerivedField: the flux or stress a form recovers
 │
-│   # facades and drivers
-├── solver.py        # Solver: the steady facade, linear or Newton by the problem
-├── buckling.py      # BucklingAnalysis: linearised (eigenvalue) buckling of a Problem
-├── modal.py         # ModalAnalysis: free-vibration modes of a Problem
-├── adaptivity.py    # AdaptiveRefinement driver
-├── estimators.py    # residual, recovery, and goal-oriented error estimators
-├── sensitivity.py   # adjoint sensitivity: quantities of interest and their gradients
-├── design.py        # SIMPModel + DesignOptimizer: density (topology) design over any quantity of interest
+├── algebra/         # how Ax = b and F(x) = 0 are solved
+│   ├── system.py    #   DiscreteSystem: Dirichlet elimination, factor once
+│   ├── backends.py  #   DirectBackend (sparse LU) / IterativeBackend (AMG-CG) / MinresBackend
+│   ├── solve.py     #   LinearSolve / NewtonSolve / EigenSolve strategies
+│   └── integrators.py # ThetaMethod (1st order), NewmarkMethod (2nd order)
 │
-│   # results
-├── solution.py      # typed Solution hierarchy; ElasticSolution.from_solve
-├── invariants.py    # rotation-invariant tensor reductions (von Mises, ...)
-├── convergence.py   # manufactured-solution studies and error norms
-├── io.py            # mesh JSON, solution npz (no pickle)
+├── analysis/        # analyses and drivers that re-solve
+│   ├── buckling.py  #   BucklingAnalysis: linearised (eigenvalue) buckling
+│   ├── modal.py     #   ModalAnalysis: free-vibration modes
+│   ├── adaptivity.py #  AdaptiveRefinement driver
+│   ├── estimators.py #  residual, recovery, and goal-oriented error estimators
+│   ├── sensitivity.py # adjoint sensitivity: quantities of interest and their gradients
+│   └── design.py    #   SIMPModel + DesignOptimizer: density (topology) design
 │
-└── geometry.py, numerics.py, typing.py   # helpers and semantic array aliases
-tests/               # pytest suite
-examples/            # the CLI, the gallery builder, and demos/<name>/{physics,figures}.py
+├── post/            # results
+│   ├── solution.py  #   typed Solution hierarchy; ElasticSolution.from_solve
+│   ├── recovery.py  #   nodal recovery: volume-weighted average and L2 projection
+│   ├── invariants.py #  rotation-invariant tensor reductions (von Mises, ...)
+│   └── io.py        #   mesh JSON, solution npz (no pickle)
+│
+├── plot/            # matplotlib only, loaded on first use: Plotter, FieldView tessellation, BC glyphs
+└── numerics.py, typing.py   # helpers and semantic array aliases
+tests/               # pytest suite (test_layering.py holds the module order)
+examples/            # the CLI, the gallery builder, mms.py (manufactured-solution studies),
+                     # and demos/<name>/{physics,figures}.py
 files/               # example SVG outlines
 ```
 
