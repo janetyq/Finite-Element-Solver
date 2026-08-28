@@ -6,10 +6,10 @@ optimization.
 
 Common entry points are re-exported here, so typical use is:
 
-    from fem import create_rect_mesh, BoundaryConditions, Dirichlet, Poisson
+    from fem import box_mesh, BoundaryConditions, Dirichlet, Poisson
     from fem.regions import everywhere
 
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))
     # Conditions are described geometrically, so one spec holds on any mesh.
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
@@ -23,7 +23,10 @@ import logging
 from fem.mesh.mesh import Mesh
 from fem.mesh.curves import Arc, Circle, Curve
 from fem.space import FunctionSpace
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import annulus_mesh, box_mesh
+from fem.mesh.ruppert import RuppertsAlgorithm
+from fem.mesh.refinement import RedGreenRefiner
+from fem.mesh.svg import PSLG, read_svg_to_pslg
 from fem.elements import (
     LinearLineElement,
     LinearTriangleElement,
@@ -139,7 +142,12 @@ __all__ = [
     "Circle",
     "Curve",
     "FunctionSpace",
-    "create_rect_mesh",
+    "box_mesh",
+    "annulus_mesh",
+    "RuppertsAlgorithm",
+    "RedGreenRefiner",
+    "PSLG",
+    "read_svg_to_pslg",
     "LinearLineElement",
     "LinearTriangleElement",
     "LinearTetrahedralElement",

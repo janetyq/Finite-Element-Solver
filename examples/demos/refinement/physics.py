@@ -18,7 +18,7 @@ from fem.equations import Poisson
 from fem.estimators import ResidualEstimator
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
 from fem.solution import Solution
 
@@ -46,7 +46,7 @@ estimator = ResidualEstimator()
 
 
 def square_mesh(n) -> Mesh:
-    return create_rect_mesh(corners=[[0.0, 0.0], [W, H]], resolution=(n, n))
+    return box_mesh(corners=[[0.0, 0.0], [W, H]], resolution=(n, n))
 
 
 def problem_for(m):
@@ -116,8 +116,8 @@ def red_green_example() -> tuple[Mesh, Mesh, np.ndarray]:
     vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
     elements = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]])
     boundary = [[0, 1], [1, 2], [2, 3], [3, 0]]
-    small = Mesh(vertices, elements, boundary)
-    original = small.copy()
+    original = Mesh(vertices, elements, boundary)
+    small = original
 
     refiner = RedGreenRefiner(small)
     small = refiner.refine([0, 2])
@@ -184,14 +184,14 @@ def run(_mesh, uniform_resolutions=(10, 20, 40, 80, 160), adaptive_rounds=30,
     builds its own squares at the resolutions it needs."""
     mesh = square_mesh(coarse_resolution)
 
-    coarse_mesh = mesh.copy()
+    coarse_mesh = mesh
     coarse_problem, coarse_solution = solve(coarse_mesh)
     coarse_error = estimator.estimate(coarse_problem, coarse_solution)
 
-    refined_mesh, refined_solution, refined_error = adapt(mesh.copy())
+    refined_mesh, refined_solution, refined_error = adapt(mesh)
 
     uniform_dofs, uniform_errors = uniform_sweep(uniform_resolutions)
-    adaptive_dofs, adaptive_errors = adaptive_sweep(mesh.copy(), adaptive_rounds,
+    adaptive_dofs, adaptive_errors = adaptive_sweep(mesh, adaptive_rounds,
                                                     max(uniform_dofs) // 2)
 
     original, refined, classes = red_green_example()

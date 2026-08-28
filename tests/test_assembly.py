@@ -12,7 +12,7 @@ from scipy.sparse import csr_array
 
 from fem.forms import DiffusionForm, LinearElasticForm
 from fem.materials import LinearElasticMaterial
-from fem.mesh.structured import create_box_mesh, create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.space import FunctionSpace, dof_indices
 
 
@@ -45,7 +45,7 @@ def approx(expected):
 def unit_square():
     # The two-triangle unit square: vertices (0,0) (1,0) (0,1) (1,1), split
     # along the 0--3 diagonal. Small enough to write every operator out in full.
-    return FunctionSpace(create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(2, 2)))
+    return FunctionSpace(box_mesh(corners=[[0, 0], [1, 1]], resolution=(2, 2)))
 
 
 def test_laplacian_global_matrix(unit_square):
@@ -90,7 +90,7 @@ def test_boundary_mass_global_matrix(unit_square):
 
 @pytest.fixture(scope='module')
 def unit_cube():
-    return create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(3, 3, 3))
+    return box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(3, 3, 3))
 
 
 def test_scalar_operators_on_cube(unit_cube):
@@ -129,8 +129,8 @@ def test_vector_operators_on_cube(unit_cube):
 @pytest.fixture(scope='module', params=['2d', '3d'])
 def mesh(request):
     if request.param == '2d':
-        return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(5, 5))
-    return create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(4, 4, 4))
+        return box_mesh(corners=[[0, 0], [1, 1]], resolution=(5, 5))
+    return box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(4, 4, 4))
 
 
 @pytest.mark.parametrize('n_components', [1, 2])

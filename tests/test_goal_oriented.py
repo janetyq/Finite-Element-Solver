@@ -7,7 +7,7 @@ from fem.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.equations import Poisson
 from fem.estimators import GoalOrientedEstimator, RecoveryEstimator
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
 from fem.sensitivity import PointValue
 
@@ -24,7 +24,7 @@ def _problem_for(mesh):
 
 
 def _square(n):
-    return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    return box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
 
 def _near_far(mesh, point, near=0.15, far=0.35):

@@ -8,14 +8,14 @@ from fem.elements import (
     LinearTriangleElement,
     QuadraticTriangleElement,
 )
-from fem.mesh.structured import create_box_mesh, create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.mesh.mesh import Mesh
 from fem.space import FunctionSpace
 
 
 @pytest.fixture
 def unit_square():
-    return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
+    return box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
 
 
 # --- numbering and sizing ---
@@ -35,7 +35,7 @@ def test_dof_indices_interleave_by_node(unit_square):
 def test_spatial_dim_is_not_n_components(unit_square):
     space = FunctionSpace(unit_square, n_components=2)
     assert space.spatial_dim == 2
-    box = create_box_mesh([[0, 0, 0], [1, 1, 1]], (3, 3, 3))
+    box = box_mesh([[0, 0, 0], [1, 1, 1]], (3, 3, 3))
     scalar_on_tets = FunctionSpace(box, element_type=LinearTetrahedralElement, n_components=1)
     assert scalar_on_tets.spatial_dim == 3
     assert scalar_on_tets.n_components == 1
@@ -163,7 +163,7 @@ def test_unknown_recovery_method_is_rejected(make_unit_square):
 def test_l2_recovery_reproduces_a_constant_field(element_type):
     """The patch test for the L2 projection: a constant per-element field projects to
     that same constant at every node, since the constant lies in the nodal space."""
-    mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 5])
+    mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 5])
     space = FunctionSpace(mesh, element_type, n_components=1)
     constant = np.full(len(mesh.elements), 3.5)
     assert np.allclose(space.recover_nodal(constant, method='l2'), 3.5)
@@ -173,8 +173,10 @@ def test_l2_recovery_conserves_the_field_integral():
     """The L2 projection satisfies ∫ q = ∫ f (test against the constant 1, which the
     nodal space represents), so the recovered field carries the per-element field's
     integral to machine precision on any mesh."""
-    mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [10, 10])
-    mesh.vertices[:, 0] = mesh.vertices[:, 0] ** 2          # a graded mesh
+    uniform = box_mesh([[0.0, 0.0], [1.0, 1.0]], [10, 10])
+    grading = np.column_stack([uniform.vertices[:, 0] ** 2 - uniform.vertices[:, 0],
+                               np.zeros(uniform.n_vertices)])
+    mesh = uniform.displaced(grading)                        # x -> x^2, a graded mesh
     space = FunctionSpace(mesh)
     field = mesh.vertices[mesh.elements].mean(axis=1)[:, 0]  # varies element to element
     exact = float((field * space.element_volumes).sum())
@@ -187,7 +189,7 @@ def test_l2_and_average_recovery_differ_on_a_varying_field():
     """The two recoveries are different operators: the local weighted average
     and the global mass projection agree only on a field the space reproduces exactly
     (a constant), and differ on one that varies element to element."""
-    mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [8, 8])
+    mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [8, 8])
     space = FunctionSpace(mesh)
     field = mesh.vertices[mesh.elements].mean(axis=1)[:, 0] ** 2
 

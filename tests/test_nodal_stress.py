@@ -17,7 +17,7 @@ from fem.elements import (
 )
 from fem.forms import LinearElasticForm
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.solution import ElasticSolution
 from fem.space import FunctionSpace
 
@@ -26,7 +26,7 @@ def _quadratic_displacement_solution(element_type, E=200.0, nu=0.3):
     """An `ElasticSolution` whose displacement is a known quadratic field, so its stress
     is linear, which a P2 space carries exactly. Built from the nodal values
     rather than solved, so the discretization error is zero by construction."""
-    mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
+    mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
     space = FunctionSpace(mesh, element_type, n_components=2)
     x, y = space.node_coords.T
     u = np.column_stack([0.01 * x**2 + 0.02 * x * y, -0.015 * y**2 + 0.005 * x * y]).ravel()
@@ -124,7 +124,7 @@ def test_reference_nodes_are_where_the_basis_is_nodal(element_type):
 def test_geometry_at_nodes_places_its_points_on_the_element_nodes():
     """The nodal geometry's points are the element's own nodes, in node order. For P1
     its gradient is the integration geometry's (constant), and its volumes are right."""
-    mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
+    mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
     space = FunctionSpace(mesh, QuadraticTriangleElement)
     geometry = space.geometry_at_nodes
     np.testing.assert_allclose(geometry.points, space.node_coords[space.element_nodes])
@@ -136,7 +136,7 @@ def test_geometry_at_nodes_places_its_points_on_the_element_nodes():
 
 
 def test_average_to_nodal_agrees_with_recover_nodal_for_an_element_constant_field():
-    mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
+    mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
     space = FunctionSpace(mesh, QuadraticTriangleElement)
     values = np.random.default_rng(0).normal(size=(len(mesh.elements), 2, 2))
     per_node = np.repeat(values[:, None], QuadraticTriangleElement.N, axis=1)
@@ -151,7 +151,7 @@ def _quadratic_scalar_solution(element_type):
     """A `ScalarFieldSolution` whose field is a known quadratic, so its gradient is
     exactly linear and a P2 space carries it exactly."""
     from fem.solution import ScalarFieldSolution
-    mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
+    mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
     space = FunctionSpace(mesh, element_type)
     x, y = space.node_coords.T
     solution = ScalarFieldSolution.from_solve(space, x**2 + x * y - 0.5 * y**2)

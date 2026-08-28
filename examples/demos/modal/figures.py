@@ -65,11 +65,7 @@ def _struck_figure(s: ForkStudy, shown_periods, frames_per_period) -> Figure:
     scale = 0.8 * half_slot / np.abs(tip_x).max()
     n_v = len(verts)
     sideways = [1e9 * s.ringing.u[i].reshape(-1, 2)[:n_v, 0] for i in shown]   # nm
-    frames = []
-    for i in shown:
-        mesh = s.mesh.copy()
-        mesh.vertices = mesh.vertices + scale * s.ringing.u[i].reshape(-1, 2)[:n_v]
-        frames.append(mesh)
+    frames = [s.mesh.displaced(s.ringing.u[i], scale) for i in shown]
     lim = float(np.abs(sideways).max())
     # The title counts two things that should agree: the periods elapsed at the voice's
     # frequency, and the swings the tip has actually made (its upward zero crossings).

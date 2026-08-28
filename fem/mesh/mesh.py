@@ -1,4 +1,5 @@
 import itertools
+import math
 from collections.abc import Sequence
 from functools import cached_property
 
@@ -14,6 +15,33 @@ Edge = tuple[int, int]
 # (it adds midside DOFs on top of a P1 Mesh), not the geometry's.
 _SIMPLEX_NODE_COUNTS = (2, 3, 4)
 
+_ELEMENT_NAMES = {1: 'line', 2: 'triangle', 3: 'tet'}
+
+
+def frozen_array(array: np.ndarray) -> np.ndarray:
+    '''`array`, made read-only in place: the arrays of an immutable object.'''
+    array.setflags(write=False)
+    return array
+
+
+def boundary_facets(elements: Elements) -> Elements:
+    '''The facets belonging to exactly one element, as sorted vertex-index rows.
+
+    A facet is the codimension-1 face of an element (an edge of a triangle, a face of
+    a tet). Every element's facets are listed, sorted within the row, and grouped with
+    one `np.unique`; those seen once are the boundary. The facets are unoriented, which
+    is all the boundary mass matrix and the region resolution need.
+    '''
+    elements = np.asarray(elements, dtype=int)
+    n_nodes = elements.shape[1]
+    if len(elements) == 0:
+        return np.zeros((0, n_nodes - 1), dtype=int)
+    # Dropping each node in turn gives the n_nodes facets of a simplex.
+    keep = np.array([[j for j in range(n_nodes) if j != i] for i in range(n_nodes)])
+    facets = np.sort(elements[:, keep].reshape(-1, n_nodes - 1), axis=1)
+    unique, counts = np.unique(facets, axis=0, return_counts=True)
+    return unique[counts == 1]
+
 
 def _edge_node_pairs(n_nodes: int) -> IntArray:
     '''Local node-index pairs spanning the edges of one linear simplex.
@@ -25,31 +53,56 @@ def _edge_node_pairs(n_nodes: int) -> IntArray:
 
 
 class Mesh:
+    '''A linear simplex mesh: vertices, the elements over them, and the boundary facets.
+
+    `boundary` is derived from `elements` when not given: a facet is on the boundary
+    when exactly one element has it. Pass it only to fix the facet order, as a mesh
+    reloaded from a file does so that `boundary_curves` stay aligned with its facets.
+
+    The arrays are read-only. Every derived table below is cached, and a mesh is shared
+    by the spaces, solutions, and refiners built on it, so a change in place would leave
+    all of them stale; `displaced`, `refined`, and `with_topology` build a new mesh.
+    '''
+
     def __init__(
         self,
         vertices: Vertices | Sequence[Sequence[float]],
         elements: Elements | Sequence[Sequence[int]],
-        boundary: Elements | Sequence[Sequence[int]],
+        boundary: Elements | Sequence[Sequence[int]] | None = None,
         boundary_curves: Sequence[Curve | None] | None = None,
     ) -> None:
-        self.vertices: Vertices = np.array(vertices)
-        self.elements: Elements = np.array(elements)  # vertex indices per element
-        self.boundary: Elements = np.array(boundary)  # vertex indices per facet
-        self._validate()
-        self.boundary_idxs: IntArray = np.unique(self.boundary.ravel())
+        self._vertices: Vertices = frozen_array(np.array(vertices, dtype=float))
+        self._elements: Elements = frozen_array(np.array(elements, dtype=int))
+        self._validate_elements()
+        if boundary is None:
+            boundary = boundary_facets(self._elements)
+        self._boundary: Elements = frozen_array(np.array(boundary, dtype=int))
+        self._validate_boundary()
+        self._boundary_idxs: IntArray | None = None
         # Optional analytic curve each boundary facet lies on (or None), aligned with
         # `boundary` rows. None (the default) is a fully straight-sided mesh; a curved
         # (isoparametric) space reads these to put its boundary nodes on the true curve.
-        self.boundary_curves: list[Curve | None] | None = (
-            list(boundary_curves) if boundary_curves is not None else None
-        )
-        if self.boundary_curves is not None and len(self.boundary_curves) != len(self.boundary):
-            raise ValueError(
-                f'boundary_curves has {len(self.boundary_curves)} entries but the mesh '
-                f'has {len(self.boundary)} boundary facets'
-            )
+        self.boundary_curves: tuple[Curve | None, ...] | None = self._per_facet(
+            'boundary_curves', tuple(boundary_curves) if boundary_curves is not None else None)
 
-    def _validate(self) -> None:
+    # -- the arrays --------------------------------------------------------------------
+
+    @property
+    def vertices(self) -> Vertices:
+        '''(n_vertices, spatial_dim) coordinates.'''
+        return self._vertices
+
+    @property
+    def elements(self) -> Elements:
+        '''(n_elements, n_nodes) vertex indices per element.'''
+        return self._elements
+
+    @property
+    def boundary(self) -> Elements:
+        '''(n_facets, n_nodes - 1) vertex indices per boundary facet.'''
+        return self._boundary
+
+    def _validate_elements(self) -> None:
         '''Reject malformed topology at the source with a named error.
 
         Without this a wrong-rank or out-of-range array survives the constructor
@@ -58,36 +111,48 @@ class Mesh:
         entry point for user data (`Mesh.load`, hand-built meshes), so this is
         where a clear message pays off.
         '''
-        if self.vertices.ndim != 2:
+        if self._vertices.ndim != 2:
             raise ValueError(
                 'vertices must be a 2D (n_vertices, spatial_dim) array, '
-                f'got shape {self.vertices.shape}'
+                f'got shape {self._vertices.shape}'
             )
-        if self.elements.ndim != 2:
+        if self._elements.ndim != 2:
             raise ValueError(
                 'elements must be a 2D (n_elements, n_nodes) array, '
-                f'got shape {self.elements.shape}'
+                f'got shape {self._elements.shape}'
             )
-        n_nodes = self.elements.shape[1]
+        n_nodes = self._elements.shape[1]
         if n_nodes not in _SIMPLEX_NODE_COUNTS:
             raise NotImplementedError(
                 'elements must be linear simplices with 2, 3, or 4 nodes '
                 f'(a line, triangle, or tet), got {n_nodes}-node elements'
             )
-        n_vertices = len(self.vertices)
-        self._check_indices_in_range(self.elements, n_vertices, 'element')
-        if self.boundary.size:
-            if self.boundary.ndim != 2:
-                raise ValueError(
-                    'boundary must be a 2D (n_facets, n_nodes) array, '
-                    f'got shape {self.boundary.shape}'
-                )
-            if self.boundary.shape[1] != n_nodes - 1:
-                raise ValueError(
-                    f'a boundary facet of a {n_nodes}-node element has '
-                    f'{n_nodes - 1} nodes, got {self.boundary.shape[1]}'
-                )
-            self._check_indices_in_range(self.boundary, n_vertices, 'boundary')
+        self._check_indices_in_range(self._elements, self.n_vertices, 'element')
+
+    def _validate_boundary(self) -> None:
+        if not self._boundary.size:
+            return
+        n_nodes = self._elements.shape[1]
+        if self._boundary.ndim != 2:
+            raise ValueError(
+                'boundary must be a 2D (n_facets, n_nodes) array, '
+                f'got shape {self._boundary.shape}'
+            )
+        if self._boundary.shape[1] != n_nodes - 1:
+            raise ValueError(
+                f'a boundary facet of a {n_nodes}-node element has '
+                f'{n_nodes - 1} nodes, got {self._boundary.shape[1]}'
+            )
+        self._check_indices_in_range(self._boundary, self.n_vertices, 'boundary')
+
+    def _per_facet(self, name, values):
+        '''`values`, checked to have one entry per boundary facet (or be None).'''
+        if values is not None and len(values) != len(self._boundary):
+            raise ValueError(
+                f'{name} has {len(values)} entries but the mesh has '
+                f'{len(self._boundary)} boundary facets'
+            )
+        return values
 
     @staticmethod
     def _check_indices_in_range(indices: IntArray, n_vertices: int, name: str) -> None:
@@ -100,27 +165,120 @@ class Mesh:
                 f'got range [{lo}, {hi}]'
             )
 
+    # -- sizes and extent --------------------------------------------------------------
+
+    @property
+    def n_vertices(self) -> int:
+        return len(self._vertices)
+
+    @property
+    def n_elements(self) -> int:
+        return len(self._elements)
+
     @property
     def spatial_dim(self) -> int:
         '''Dimension of the space the nodes live in.
 
-        Distinct from an element's `reference_dim`: a triangle mesh embedded in
-        3D has spatial_dim 3 but reference_dim 2.
+        Distinct from `element_dim`: a triangle mesh embedded in 3D has spatial_dim 3
+        but element_dim 2.
         '''
-        return int(self.vertices.shape[1])
+        return int(self._vertices.shape[1])
 
-    # TODO: Save and load to better formats - off, obj
-    def save(self, path: str = 'test_mesh.json') -> None:
-        from fem.io import save_mesh
-        save_mesh(self, path)
+    @property
+    def element_dim(self) -> int:
+        '''Dimension of the elements themselves: 1 for lines, 2 for triangles, 3 for tets.'''
+        return int(self._elements.shape[1]) - 1
 
-    @classmethod
-    def load(cls, path: str = 'test_mesh.json') -> 'Mesh':
-        from fem.io import load_mesh
-        return load_mesh(path)
+    @cached_property
+    def bounds(self) -> tuple[FloatArray, FloatArray]:
+        '''The axis-aligned extent, `(lower, upper)`, each of length `spatial_dim`.'''
+        return self._vertices.min(axis=0), self._vertices.max(axis=0)
 
-    def __repr__(self) -> str:
-        return f'Mesh(vertices={self.vertices}, elements={self.elements}, boundary={self.boundary})'
+    @property
+    def boundary_idxs(self) -> IntArray:
+        '''The unique vertex indices on the boundary, ascending.'''
+        # A plain property over a cached value, rather than `cached_property`, so it
+        # satisfies the `NodeGeometry` protocol's read-only property as pyright sees it.
+        if self._boundary_idxs is None:
+            self._boundary_idxs = frozen_array(np.unique(self._boundary.ravel()))
+        return self._boundary_idxs
+
+    # -- element geometry --------------------------------------------------------------
+
+    @cached_property
+    def centroids(self) -> FloatArray:
+        '''(n_elements, spatial_dim) element centroids.'''
+        return self._vertices[self._elements].mean(axis=1)
+
+    @cached_property
+    def element_measures(self) -> FloatArray:
+        '''Length, area, or volume of each element, by `element_dim`.
+
+        The Gram determinant of the edge vectors from one corner, rooted and divided
+        by d!, which is one formula for every dimension and holds for an element
+        embedded in a higher space (a triangle in 3D) as well.
+        '''
+        corners = self._vertices[self._elements]                       # (n_el, n_nodes, dim)
+        edges = corners[:, 1:] - corners[:, :1]                        # (n_el, d, dim)
+        gram = np.einsum('eid,ejd->eij', edges, edges)                 # (n_el, d, d)
+        return np.sqrt(np.abs(np.linalg.det(gram))) / math.factorial(self.element_dim)
+
+    @property
+    def measure(self) -> float:
+        '''Total length, area, or volume of the mesh.'''
+        return float(self.element_measures.sum())
+
+    @property
+    def area(self) -> float:
+        '''`measure`, named for a triangle mesh.'''
+        if self.element_dim != 2:
+            raise ValueError(
+                f'area is for a triangle mesh; this one has {_ELEMENT_NAMES[self.element_dim]}s')
+        return self.measure
+
+    @cached_property
+    def element_diameters(self) -> FloatArray:
+        '''Maximum edge length per element: the h_K in error estimates.'''
+        pairs = _edge_node_pairs(self._elements.shape[1])
+        corners = self._vertices[self._elements]                        # (n_el, n_nodes, dim)
+        edge_vecs = corners[:, pairs[:, 1]] - corners[:, pairs[:, 0]]  # (n_el, n_pairs, dim)
+        return np.linalg.norm(edge_vecs, axis=2).max(axis=1)
+
+    @cached_property
+    def min_angle(self) -> float:
+        '''The smallest interior angle of any triangle, in degrees: the quality a
+        Delaunay refinement was asked to guarantee, and what red-green refinement
+        does not.'''
+        if self.element_dim != 2:
+            raise ValueError('min_angle is for a triangle mesh')
+        from fem.geometry import calculate_triangle_min_angle
+        return float(calculate_triangle_min_angle(self._vertices[self._elements]).min())
+
+    # -- new meshes from this one ------------------------------------------------------
+
+    def displaced(self, displacement: FloatArray, scale: float = 1.0) -> 'Mesh':
+        '''The mesh with every vertex moved by `scale * displacement`.
+
+        `displacement` is per vertex, `(n_vertices, spatial_dim)`, or a flat vector in
+        that order. A longer vector (a P2 DOF vector, whose edge nodes follow the
+        vertices) is read for its leading vertex entries, so the warp is the field's P1
+        restriction. The topology is unchanged, so the facets keep their curves.
+        '''
+        displacement = np.asarray(displacement, dtype=float)
+        if displacement.ndim == 1:
+            displacement = displacement.reshape(-1, self.spatial_dim)
+        if len(displacement) < self.n_vertices:
+            raise ValueError(
+                f'displacement covers {len(displacement)} vertices, '
+                f'the mesh has {self.n_vertices}')
+        vertices = self._vertices + scale * displacement[:self.n_vertices]
+        return Mesh(vertices, self._elements, self._boundary, self.boundary_curves)
+
+    def refined(self, element_idxs: Sequence[int] | None = None) -> 'Mesh':
+        '''Red-green refinement of the given elements, or of every element when None.'''
+        from fem.mesh.refinement import RedGreenRefiner
+        idxs = range(self.n_elements) if element_idxs is None else element_idxs
+        return RedGreenRefiner(self).refine([int(i) for i in idxs])
 
     def with_topology(
         self,
@@ -139,13 +297,23 @@ class Mesh:
         '''
         return Mesh(vertices, elements, boundary, boundary_curves)
 
-    def copy(self) -> 'Mesh':
-        # Same topology, so the per-facet curve association carries unchanged.
-        # `with_topology` builds a different topology and so does not carry it.
-        curves = list(self.boundary_curves) if self.boundary_curves is not None else None
-        return Mesh(
-            self.vertices.copy(), self.elements.copy(), self.boundary.copy(), curves
-        )
+    # -- files -------------------------------------------------------------------------
+
+    def save(self, path: str) -> None:
+        from fem.io import save_mesh
+        save_mesh(self, path)
+
+    @classmethod
+    def load(cls, path: str) -> 'Mesh':
+        from fem.io import load_mesh
+        return load_mesh(path)
+
+    def __repr__(self) -> str:
+        return (f'Mesh({self.n_vertices} vertices, {self.n_elements} '
+                f'{_ELEMENT_NAMES[self.element_dim]}s, {len(self._boundary)} boundary facets, '
+                f'{self.spatial_dim}D)')
+
+    # -- connectivity ------------------------------------------------------------------
 
     @cached_property
     def _edge_table(self) -> tuple[IntArray, IntArray]:
@@ -160,10 +328,10 @@ class Mesh:
         Lazy, like its connectivity siblings: a P1 solve with no refinement or
         estimation never reads `edges`/`edge_elements`, so the build is skipped.
         '''
-        node_pairs = _edge_node_pairs(self.elements.shape[1])
+        node_pairs = _edge_node_pairs(self._elements.shape[1])
         n_pairs = len(node_pairs)
-        edge_rows = np.sort(self.elements[:, node_pairs].reshape(-1, 2), axis=1)
-        owners = np.repeat(np.arange(len(self.elements)), n_pairs)
+        edge_rows = np.sort(self._elements[:, node_pairs].reshape(-1, 2), axis=1)
+        owners = np.repeat(np.arange(self.n_elements), n_pairs)
         edges, inverse = np.unique(edge_rows, axis=0, return_inverse=True)
         inverse = inverse.reshape(-1)
 
@@ -203,17 +371,9 @@ class Mesh:
         return self._edge_table[1]
 
     @cached_property
-    def element_diameters(self) -> FloatArray:
-        '''Maximum edge length per element: the h_K in error estimates.'''
-        pairs = _edge_node_pairs(self.elements.shape[1])
-        corners = self.vertices[self.elements]                        # (n_el, n_nodes, dim)
-        edge_vecs = corners[:, pairs[:, 1]] - corners[:, pairs[:, 0]]  # (n_el, n_pairs, dim)
-        return np.linalg.norm(edge_vecs, axis=2).max(axis=1)
-
-    @cached_property
     def element_neighbours(self) -> list[list[int]]:
         '''For each element, the indices of elements sharing at least one edge.'''
-        neighbours: list[set[int]] = [set() for _ in range(len(self.elements))]
+        neighbours: list[set[int]] = [set() for _ in range(self.n_elements)]
         for elements in self.edge_to_elements.values():
             if len(elements) == 2:
                 a, b = elements
@@ -233,4 +393,3 @@ class Mesh:
         exist).
         '''
         return self._edge_table[0]
-

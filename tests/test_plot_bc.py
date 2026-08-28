@@ -10,14 +10,14 @@ from matplotlib.patches import Polygon
 from matplotlib.quiver import Quiver
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.plot.bc import overlay_supports, plot_bc
 from fem.regions import everywhere, intersect, on_plane
 
 
 @pytest.fixture
 def mesh():
-    return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
+    return box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
 
 
 def _labels(mesh, bc):

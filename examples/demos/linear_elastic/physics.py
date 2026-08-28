@@ -12,7 +12,7 @@ from fem.backends import IterativeBackend
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.equations import LinearElastic
 from fem.mesh.mesh import Mesh
-from fem.mesh.structured import create_box_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import in_box, intersect, on_plane
 from fem.solution import ElasticSolution
 from fem.solver import Solver
@@ -41,7 +41,7 @@ def bend_3d(n_3d) -> tuple[Mesh, ElasticSolution]:
     The same assembly, Solver reading the tetrahedron off the connectivity. AMG-CG
     rather than a direct factorization, whose fill-in hurts in 3D.
     """
-    box = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]],
+    box = box_mesh(corners=[[0, 0, 0], [4, 1, 1]],
                           resolution=(4 * n_3d // 2, n_3d // 2, n_3d // 2))
     bc_3d = BoundaryConditions(
         Dirichlet(on_plane(0, 0.0), [0, 0, 0]),

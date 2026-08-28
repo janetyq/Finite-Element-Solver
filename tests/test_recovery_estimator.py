@@ -17,7 +17,7 @@ from fem.convergence import (
 from fem.equations import LinearElastic, Poisson
 from fem.estimators import RecoveryEstimator
 from fem.materials import Enu_to_Lame
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
 
 POISSON = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
@@ -57,7 +57,7 @@ def _solved(equation, mesh, bc_value):
 
 
 def _square(n):
-    return create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    return box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
 
 # -- effectivity: the estimate tracks the true error -------------------------

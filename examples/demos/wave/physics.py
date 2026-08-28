@@ -12,7 +12,6 @@ from fem.boundary import BoundaryConditions
 from fem.equations import Wave
 from fem.integrators import NewmarkMethod
 from fem.mesh.mesh import Mesh
-from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.solution import TransientSolution
 
@@ -51,7 +50,7 @@ def run(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400, min_angle=28, 
     # resolution the front needs, keeping the angle bound at a fraction of the cost.
     mesh = RuppertsAlgorithm(pslg, min_angle=min_angle, max_area=max_area).refine()
     for _ in range(uniform_rounds):
-        mesh = RedGreenRefiner(mesh).refine(range(len(mesh.elements)))
+        mesh = mesh.refined()
 
     # No conditions, so every edge is a wall: the natural du/dn = 0 reflects a wave
     # the same way up.

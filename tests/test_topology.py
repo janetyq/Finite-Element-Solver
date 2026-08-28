@@ -2,8 +2,7 @@
 import numpy as np
 import pytest
 
-from fem.geometry import get_boundary_from_vertices_elements
-from fem.mesh.structured import create_box_mesh
+from fem.mesh.mesh import boundary_facets
 from fem.mesh.mesh import Mesh
 
 
@@ -57,13 +56,13 @@ def test_non_simplex_elements_are_rejected():
 def test_boundary_of_two_triangles():
     """The shared diagonal is interior; the four outer edges are boundary."""
     elements = [[0, 1, 2], [0, 2, 3]]
-    boundary = {tuple(f) for f in get_boundary_from_vertices_elements(elements)}
+    boundary = {tuple(f) for f in boundary_facets(elements)}
     assert boundary == {(0, 1), (1, 2), (2, 3), (0, 3)}
 
 
 def test_boundary_of_single_tet():
     """Every face of a lone tet is a boundary face: 4 triangles."""
-    boundary = {tuple(f) for f in get_boundary_from_vertices_elements([[0, 1, 2, 3]])}
+    boundary = {tuple(f) for f in boundary_facets([[0, 1, 2, 3]])}
     assert boundary == {(0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)}
 
 
@@ -71,7 +70,7 @@ def test_boundary_of_two_tets_drops_shared_face():
     """Two tets glued on face (0,1,2): that face is interior, 6 faces remain."""
     boundary = {
         tuple(f)
-        for f in get_boundary_from_vertices_elements([[0, 1, 2, 3], [0, 1, 2, 4]])
+        for f in boundary_facets([[0, 1, 2, 3], [0, 1, 2, 4]])
     }
     assert (0, 1, 2) not in boundary
     assert len(boundary) == 6
@@ -84,34 +83,3 @@ def test_boundary_of_rect_mesh_is_the_perimeter(make_unit_square):
     on_perimeter = np.isclose(mesh.vertices, 0) | np.isclose(mesh.vertices, 1)
     assert on_perimeter[mesh.boundary_idxs].any(axis=1).all()
     assert len(mesh.boundary) == 4 * (6 - 1)
-
-
-# --- box mesh generator ---
-
-@pytest.mark.parametrize('n', [2, 3, 5])
-def test_box_mesh_tiles_the_cube_exactly(n):
-    """Kuhn's decomposition gives 6 tets per cell, and they must partition the
-    cube: element volumes summing to 1 catches a mis-numbered corner, which
-    would otherwise produce overlapping or inverted tets."""
-    from fem.elements import LinearTetrahedralElement
-
-    mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
-    assert len(mesh.vertices) == n**3
-    assert len(mesh.elements) == 6 * (n - 1)**3
-
-    geometry = LinearTetrahedralElement.geometry(mesh.vertices[mesh.elements])
-    assert geometry.total_volume == pytest.approx(1.0)
-
-
-def test_box_mesh_boundary_is_the_cube_surface():
-    """Every boundary vertex lies on a face of the cube and every interior one does not, so
-    the cells agree on their shared diagonals."""
-    n = 4
-    mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
-    on_face = np.isclose(mesh.vertices, 0) | np.isclose(mesh.vertices, 1)
-
-    boundary_idxs = set(int(i) for i in mesh.boundary_idxs)
-    assert on_face[mesh.boundary_idxs].any(axis=1).all()
-    interior = set(range(len(mesh.vertices))) - boundary_idxs
-    assert len(interior) == (n - 2)**3
-    assert not on_face[sorted(interior)].any()

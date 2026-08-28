@@ -18,7 +18,7 @@ import pytest
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.backends import IterativeBackend
 from fem.materials import Enu_to_Lame
-from fem.mesh.structured import create_box_mesh, create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
 from fem.equations import LinearElastic
 from fem.solver import Solver
@@ -49,7 +49,7 @@ def _l2_error(space, u_h, u_exact):
 # --------------------------------------------------------------------------
 
 def _solve_2d(n):
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
     def source(p):
         x, y = p
@@ -87,7 +87,7 @@ def test_2d_second_order(convergence_2d):
 def _solve_3d(n):
     # No element type to state: Solver reads it off the connectivity.
     # n vertices per side, so h = 1/(n-1) and the mesh has 6(n-1)^3 tets.
-    mesh = create_box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
 
     def source(p):
         x, y, z = p

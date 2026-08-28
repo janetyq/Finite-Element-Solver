@@ -281,7 +281,7 @@ def _fit_3d_limits(ax, mesh):
     """Frame a 3D mesh: `add_collection3d` does not autoscale, so the limits come from
     the mesh. Ticks are thinned too: a thin direction seen in projection puts six
     labels in the space of two."""
-    lower, upper = mesh.vertices.min(axis=0), mesh.vertices.max(axis=0)
+    lower, upper = mesh.bounds
     ax.set_xlim(lower[0], upper[0])
     ax.set_ylim(lower[1], upper[1])
     ax.set_zlim(lower[2], upper[2])
@@ -322,7 +322,7 @@ def plot_arrows(ax, mesh, values, max_arrows=MAX_ARROWS,
         # deformed configuration, rather than one arrow per element at its centroid.
         positions = space.node_coords if warp is None else space.node_coords + np.asarray(warp)
     else:
-        positions = np.mean(mesh.vertices[mesh.elements], axis=1)   # per-element, at centroids
+        positions = mesh.centroids                      # per-element
     keep = _spread_sample(positions, max_arrows)
     ax.quiver(positions[keep, 0], positions[keep, 1],
               values[keep, 0], values[keep, 1], alpha=0.5, scale=10)

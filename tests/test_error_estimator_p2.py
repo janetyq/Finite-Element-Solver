@@ -17,7 +17,7 @@ from fem.equations import LinearElastic, Poisson
 from fem.estimators import ResidualEstimator
 from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.postprocess import GradientField
 from fem.regions import everywhere, on_plane
 from fem.solution import ElasticSolution, ScalarFieldSolution
@@ -38,7 +38,7 @@ def _solved(equation, mesh, bc, element_type=QuadraticTriangleElement):
 
 
 def _solve(equation, n, bc_value=0.0):
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     bc = BoundaryConditions(Dirichlet(everywhere(), bc_value))
     return _solved(equation, mesh, bc)
 
@@ -69,7 +69,7 @@ def test_element_field_hessian_recovers_a_quadratic_fields_curvature():
     """u = a x^2 + b xy + c y^2 has constant Hessian [[2a, b], [b, 2c]]; the space
     recovers exactly that on every element, the physical mapping of the reference
     Hessian through the inverse Jacobian working out."""
-    mesh = create_rect_mesh(corners=[[0, 0], [2, 1]], resolution=(4, 3))
+    mesh = box_mesh(corners=[[0, 0], [2, 1]], resolution=(4, 3))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=1)
     a, b, c = 1.5, -0.7, 2.0
     x, y = space.node_coords[:, 0], space.node_coords[:, 1]
@@ -84,7 +84,7 @@ def test_element_field_hessian_recovers_a_quadratic_fields_curvature():
 def test_p2_poisson_divergence_is_the_laplacian():
     """div(grad u) = laplacian(u). For u = x^2 + 2 y^2 that is a constant 6, recovered
     per element from the P2 field."""
-    mesh = create_rect_mesh(corners=[[0, 0], [2, 1]], resolution=(5, 4))
+    mesh = box_mesh(corners=[[0, 0], [2, 1]], resolution=(5, 4))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=1)
     x, y = space.node_coords[:, 0], space.node_coords[:, 1]
     u = x**2 + 2 * y**2
@@ -100,7 +100,7 @@ def test_p2_elastic_divergence_is_the_navier_operator():
     interior term needs."""
     E, nu = 200.0, 0.3
     mu, lamb = Enu_to_Lame(E, nu)
-    mesh = create_rect_mesh(corners=[[0, 0], [2, 1]], resolution=(5, 4))
+    mesh = box_mesh(corners=[[0, 0], [2, 1]], resolution=(5, 4))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
     u = np.zeros((space.n_nodes, 2))
     u[:, 0] = space.node_coords[:, 0]**2
@@ -116,7 +116,7 @@ def test_stress_divergence_refuses_a_finite_strain_form():
     """The divergence is the small-strain Navier operator, so a residual estimate of a
     finite-strain solve is refused rather than computed with the wrong operator."""
     E, nu = 200.0, 0.3
-    mesh = create_rect_mesh(corners=[[0, 0], [2, 1]], resolution=(5, 4))
+    mesh = box_mesh(corners=[[0, 0], [2, 1]], resolution=(5, 4))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
     n_el = len(mesh.elements)
     solution = ElasticSolution(space, np.zeros(space.n_dofs), strain=np.zeros((n_el, 3, 3)),
@@ -171,7 +171,7 @@ def test_p2_residual_reliability_is_bounded_and_stable():
 
 def test_p2_residual_concentrates_near_a_peaked_source():
     """The indicator is largest where the solution is hardest to resolve."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(10, 10))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(10, 10))
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
     def peaked_source(point):
@@ -192,7 +192,7 @@ def test_p2_residual_concentrates_near_a_peaked_source():
 def test_p2_residual_drives_adaptive_refinement():
     """The full loop on a P2 space: the mesh grows, concentrates near a localised source,
     and the solve stays P2 across remeshes."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
 
@@ -215,7 +215,7 @@ def test_p2_residual_drives_adaptive_refinement():
 def test_p2_elastic_residual_runs_end_to_end():
     """A P2 elastic solve with a Neumann edge produces a finite, non-negative estimate,
     exercising the stress divergence and the masked boundary term together."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
     bc = BoundaryConditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [1.0, 0]),
@@ -231,7 +231,7 @@ def test_p2_elastic_residual_runs_end_to_end():
 def test_residual_estimator_refuses_curved_elements():
     """The interior term's divergence assumes a constant Jacobian, so a curved element
     is refused."""
-    mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(4, 4))
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(4, 4))
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     equation = Poisson(source=1.0)
     problem, solution = _solved(equation, mesh, bc, IsoparametricTriangleElement)

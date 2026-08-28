@@ -15,7 +15,7 @@ import pytest
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.elements import QuadraticTriangleElement
 from fem.equations import LinearElastic, FiniteStrainElastic
-from fem.mesh.structured import create_rect_mesh
+from fem.mesh.structured import box_mesh
 from fem.regions import on_plane
 from fem.solution import ModalSolution, Solution
 from fem.space import FunctionSpace
@@ -29,7 +29,7 @@ BETA_L = np.array([1.875104, 4.694091, 7.854757, 10.995541])   # fixed-free beam
 def cantilever(length, height=1.0, n_length=48, n_across=6):
     """A slender rectangular beam, with `n_across` elements through the thickness so bending
     is resolved."""
-    return create_rect_mesh(corners=[[0, 0], [length, height]],
+    return box_mesh(corners=[[0, 0], [length, height]],
                             resolution=(n_length, n_across))
 
 

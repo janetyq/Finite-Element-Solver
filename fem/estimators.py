@@ -163,7 +163,7 @@ class ResidualEstimator:
 
         # The strong-form interior residual `f + div(flux)`, read at the element centroid.
         # `div(flux)` is zero for P1 (a constant flux).
-        centroids = mesh.vertices[mesh.elements].mean(axis=1)
+        centroids = mesh.centroids
         f = evaluate_field(source, centroids, space.n_components)   # (n_el, k)
         residual = f + flux_field.divergence(ctx.solution)          # (n_el, k)
         interior = h_K**2 * np.sum(residual**2, axis=1) * space.element_volumes

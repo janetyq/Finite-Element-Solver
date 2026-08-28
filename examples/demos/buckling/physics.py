@@ -90,7 +90,7 @@ def solve_buckling(mesh, bc, span, height, n_modes) -> tuple[BucklingSolution, n
     """
     problem = equation.problem(mesh, bc, element_type=QuadraticTriangleElement)
     solution = BucklingAnalysis(n_modes=n_modes).solve(problem)
-    centroids = mesh.vertices[mesh.elements].mean(axis=1)
+    centroids = mesh.centroids
     dy = span / (len(np.unique(mesh.vertices[:, 1])) - 1)
     midspan = np.abs(centroids[:, 1] - span / 2) < dy
     assert solution.reference is not None
