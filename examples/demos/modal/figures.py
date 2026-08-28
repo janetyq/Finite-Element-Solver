@@ -80,7 +80,7 @@ def _struck_figure(s: ForkStudy, shown_periods, frames_per_period) -> Figure:
                           cbar_lims=(-lim, lim), label='sideways displacement (m)',
                           titles=[f't = {1e3 * t[i]:.2f} ms' for i in shown])
     _hide_x_ticks(struck, (0, 0))
-    struck.fig.supxlabel(f'Displacement exaggerated {scale:.0f}x; the colour is to scale.',
+    struck.fig.supxlabel(f'Displacement exaggerated {scale:.0f}x.\nThe colour is to scale.',
                          fontsize='small')
     return Figure(
         struck,
@@ -215,8 +215,8 @@ def demo(n_shown=4, shown_periods=6, frames_per_period=8, **kwargs) -> DemoResul
     return DemoResult([
         _modes_figure(s, n_shown),
         _struck_figure(s, shown_periods, frames_per_period),
-        _tuning_law_figure(s, n_shown),
         _ring_down_figure(s),
+        _tuning_law_figure(s, n_shown),
         _setup_figure(s),
     ], text=_summary(s, n_shown))
 
