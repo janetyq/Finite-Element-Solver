@@ -7,13 +7,13 @@ import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
 from fem.energies import StVenantKirchhoff
-from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, ScaledForm
+from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm, ScaledForm
 from fem.materials import LinearElasticMaterial
 from fem.numerics import central_difference_order
 from fem.problem import LinearProblem, Problem
 from fem.regions import everywhere, on_plane
 from fem.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
-from fem.equations import LinearElastic, Poisson, Projection, FiniteStrainElastic
+from fem.equations import Heat, LinearElastic, Poisson, Projection, FiniteStrainElastic
 from fem.solver import Solver
 from fem.space import FunctionSpace
 
@@ -153,7 +153,7 @@ def test_with_operator_reapplies_the_robin_boundary_term(make_unit_square):
     space = FunctionSpace(mesh, n_components=1)
     bc = BoundaryConditions(Robin(everywhere(), kappa=3.0, g=1.0))
 
-    laplacian = LaplacianForm()
+    laplacian = DiffusionForm()
     doubled = ScaledForm(2.0, laplacian)
     derived = LinearProblem(space, laplacian, 1.0, bc).with_operator(doubled)
     direct = LinearProblem(space, doubled, 1.0, bc)
@@ -171,7 +171,7 @@ def test_traction_load_has_the_exact_resultant(make_unit_square):
     mesh = make_unit_square(10)
     space = FunctionSpace(mesh, n_components=1)
     bc = BoundaryConditions(Neumann(on_plane(0, 1.0), 2.0))
-    load = LinearProblem(space, LaplacianForm(), None, bc).load
+    load = LinearProblem(space, DiffusionForm(), None, bc).load
     np.testing.assert_allclose(load.sum(), 2.0, atol=1e-12)
 
 
@@ -181,7 +181,7 @@ def test_traction_stays_on_its_own_edge(make_unit_square):
     mesh = make_unit_square(10)
     space = FunctionSpace(mesh, n_components=1)
     bc = BoundaryConditions(Neumann(on_plane(0, 1.0), 2.0))
-    load = LinearProblem(space, LaplacianForm(), None, bc).load
+    load = LinearProblem(space, DiffusionForm(), None, bc).load
     off_edge = mesh.vertices[:, 0] < 1.0 - 1e-9
     np.testing.assert_allclose(load[off_edge], 0.0, atol=1e-12)
 
@@ -190,10 +190,10 @@ def test_derived_problem_does_not_answer_with_the_parents_operator(make_unit_squ
     """A derived problem must not keep the parent's already-assembled tangent."""
     space = FunctionSpace(make_unit_square(6), n_components=1)
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    parent = LinearProblem(space, LaplacianForm(), 1.0, bc)
+    parent = LinearProblem(space, DiffusionForm(), 1.0, bc)
     parent.tangent()   # populate the parent's cache *before* deriving
 
-    derived = parent.with_operator(ScaledForm(3.0, LaplacianForm()))
+    derived = parent.with_operator(ScaledForm(3.0, DiffusionForm()))
 
     np.testing.assert_allclose(
         derived.tangent().toarray(), 3.0 * parent.tangent().toarray(), atol=1e-12,
@@ -204,7 +204,7 @@ def test_tangent_is_assembled_once_and_held(make_unit_square):
     """Deferring the assembly must not turn into repeating it: the operator is
     constant, so every later call answers from the first assembly."""
     space = FunctionSpace(make_unit_square(6), n_components=1)
-    problem = LinearProblem(space, LaplacianForm(), 1.0)
+    problem = LinearProblem(space, DiffusionForm(), 1.0)
 
     assert problem.tangent() is problem.tangent()
 
@@ -223,11 +223,11 @@ def test_stating_a_problem_does_not_assemble_it(make_unit_square, monkeypatch):
 
     # The load still assembles a mass matrix, so it is the operator specifically
     # that must not have been touched yet.
-    problem = LinearProblem(space, LaplacianForm(), 1.0)
-    assert not any(isinstance(form, LaplacianForm) for form in assembled)
+    problem = LinearProblem(space, DiffusionForm(), 1.0)
+    assert not any(isinstance(form, DiffusionForm) for form in assembled)
 
     problem.tangent()
-    assert any(isinstance(form, LaplacianForm) for form in assembled)
+    assert any(isinstance(form, DiffusionForm) for form in assembled)
 
 
 def test_with_operator_leaves_the_original_alone(make_unit_square):
@@ -235,18 +235,18 @@ def test_with_operator_leaves_the_original_alone(make_unit_square):
     answers with its own tangent."""
     space = FunctionSpace(make_unit_square(6), n_components=1)
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    original = LinearProblem(space, LaplacianForm(), 1.0, bc)
+    original = LinearProblem(space, DiffusionForm(), 1.0, bc)
     before = original.tangent().toarray()
 
-    original.with_operator(ScaledForm(5.0, LaplacianForm()))
+    original.with_operator(ScaledForm(5.0, DiffusionForm()))
 
     np.testing.assert_array_equal(original.tangent().toarray(), before)
 
 
 def test_callable_source_is_sampled_at_the_quadrature_points(make_unit_square):
-    """A callable source builds the same load as the LinearForm it is wrapped in, not
+    """A callable source builds the same load as the Source it is wrapped in, not
     the mass matrix times its nodal values."""
-    from fem.forms import LinearForm
+    from fem.loads import Source
 
     mesh = make_unit_square(6)
     space = FunctionSpace(mesh)
@@ -254,8 +254,8 @@ def test_callable_source_is_sampled_at_the_quadrature_points(make_unit_square):
     def peaked(point):
         return float(np.exp(-40 * np.sum((point - 0.5) ** 2)))
 
-    sampled = LinearProblem(space, LaplacianForm(), peaked).load
-    explicit = LinearProblem(space, LaplacianForm(), LinearForm(peaked)).load
+    sampled = LinearProblem(space, DiffusionForm(), peaked).load
+    explicit = LinearProblem(space, DiffusionForm(), Source(peaked)).load
     nodal = space.mass_matrix @ np.array([peaked(p) for p in space.node_coords])
     assert np.allclose(sampled, explicit)
     assert not np.allclose(sampled, nodal)
@@ -395,10 +395,10 @@ def test_mass_is_the_density_scaled_mass_matrix_held_across_operators(make_unit_
     problem derived with `with_operator` keeps it."""
     from fem.forms import MassForm
     mesh = make_unit_square(5)
-    problem = Poisson(density=3.0).problem(mesh)
+    problem = Heat(capacity=3.0).problem(mesh)
     assert problem.density == 3.0
     np.testing.assert_allclose(problem.mass.toarray(), 3.0 * problem.space.mass_matrix.toarray())
     assert problem.mass is problem.mass
     assert problem.with_operator(MassForm()).mass is problem.mass
     with pytest.raises(ValueError, match='density'):
-        Problem(problem.space, LaplacianForm(), density=0.0)
+        Problem(problem.space, DiffusionForm(), density=0.0)

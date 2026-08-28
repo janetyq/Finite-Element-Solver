@@ -37,7 +37,7 @@ from fem.elements import ElementGeometry
 from fem.energies import StrainEnergyDerivatives
 from fem.materials import LinearElasticMaterial
 from fem.postprocess import DerivedField, GradientField, StressField
-from fem.regions import TimeDependent, evaluate_field, field_at
+from fem.regions import evaluate_field
 from fem.typing import BoolArray, ElementField, FieldValue, FloatArray
 
 if TYPE_CHECKING:
@@ -361,12 +361,12 @@ class MassForm(BilinearForm):
 
 
 @dataclass(frozen=True, eq=False)
-class MaskedMassForm(BilinearForm):
-    '''A boundary mass form zeroed on the facets outside `mask`: ∫_Γ u·v over a
-    subset Γ of the boundary.
+class BoundaryMassForm(BilinearForm):
+    '''The boundary mass form ∫_Γ u·v over the subset Γ of the boundary that `mask`
+    marks.
 
-    The Robin operator term κ ∫_Γ u·v is `kappa * MaskedMassForm(n, mask)`, and the
-    traction and Robin loads integrate through the same matrix. `mask` marks the
+    The Robin operator term κ ∫_Γ u·v is `kappa * BoundaryMassForm(n, mask)`, and the
+    Neumann and Robin loads integrate through the same matrix. `mask` marks the
     boundary facets that lie in the region, and the element matrices of the rest are
     zeroed before scatter, so the assembled matrix integrates over the region alone.
     `mask` is aligned with the space's boundary facets.
@@ -380,24 +380,7 @@ class MaskedMassForm(BilinearForm):
         return base * np.asarray(self.mask, dtype=float)[:, None, None]
 
 
-@dataclass(frozen=True)
-class LaplacianForm(BilinearForm):
-    '''The scalar Laplacian ∫ ∇u·∇v: material-free, so G = grad_phi, C = I.'''
-
-    def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
-        # Sum over quadrature points q and spatial index d.
-        grad_phi = geometry.grad_phi
-        return np.einsum('eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ)
-
-    def derived_field(self) -> DerivedField:
-        return GradientField()
-
-    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ScalarFieldSolution':
-        from fem.solution import ScalarFieldSolution
-        return ScalarFieldSolution.from_solve(space, u)
-
-
-def _sample_field(field: FieldValue, geometry: ElementGeometry, n_components: int) -> FloatArray:
+def sample_field(field: FieldValue, geometry: ElementGeometry, n_components: int) -> FloatArray:
     '''Evaluate a coefficient or source at every quadrature point: (n_el, n_qp, n_components).
 
     Reads a value that varies within an element at the interior points assembly
@@ -412,25 +395,31 @@ def _sample_field(field: FieldValue, geometry: ElementGeometry, n_components: in
 
 @dataclass(frozen=True)
 class DiffusionForm(BilinearForm):
-    '''Variable-coefficient diffusion ∫ κ(x) ∇u·∇v, κ sampled at the quadrature points.
+    '''The diffusion form ∫ κ ∇u·∇v: the Laplacian at κ ≡ 1, the operator of Poisson,
+    heat, and (with κ = c²) the wave equation.
 
-    `LaplacianForm` is the κ ≡ 1 special case, kept as the cheaper constant path
-    that needs no sampling. Here κ is a `FieldValue` (a constant or a callable of
-    position) and scales each quadrature point's weight, so a spatially varying
-    conductivity is one multiply in the sum.
-
-    `rule_degree` is the rule the space integrates this against; 2 (three points on
-    a triangle) resolves a smoothly varying κ against a P1 field.
+    `coefficient` is κ, a constant or a callable of position. A constant scales the
+    element's own rule (one point on P1); a callable is sampled at the quadrature
+    points of a rule of `rule_degree` (2, three points on a triangle, resolves a
+    smoothly varying κ against a P1 field), so a spatially varying conductivity is one
+    multiply per point in the sum.
     '''
-    coefficient: FieldValue
+    coefficient: FieldValue = 1.0
     rule_degree: int = 2
 
+    @property
+    def is_sampled(self) -> bool:
+        return callable(self.coefficient)
+
     def quadrature_degree(self, shape_degree: int) -> int:
-        return self.rule_degree
+        return self.rule_degree if self.is_sampled else 0
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
-        kappa = _sample_field(self.coefficient, geometry, 1)[..., 0]   # (n_el, n_qp)
         grad_phi = geometry.grad_phi
+        if not self.is_sampled:
+            kappa = float(np.asarray(self.coefficient, dtype=float).reshape(-1)[0])
+            return kappa * np.einsum('eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ)
+        kappa = sample_field(self.coefficient, geometry, 1)[..., 0]   # (n_el, n_qp)
         return np.einsum(
             'eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ * kappa)
 
@@ -440,45 +429,6 @@ class DiffusionForm(BilinearForm):
     def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ScalarFieldSolution':
         from fem.solution import ScalarFieldSolution
         return ScalarFieldSolution.from_solve(space, u)
-
-
-@dataclass(frozen=True)
-class LinearForm:
-    '''The linear form L(v) = ∫ f(x)·v, assembled by sampling f at the quadrature points.
-
-    A load term, not a `Form`: it produces one element vector per element, which
-    `FunctionSpace.assemble_load` scatters into the global load; `vector` is that
-    scatter at a time, the `fem.loads.Load` contract. `fem.loads.Source` is the cheaper
-    special case that integrates f's P1 interpolant through the cached mass matrix;
-    this samples f itself, capturing variation within an element the interpolant
-    cannot. `field` may be `TimeDependent`.
-    '''
-    field: FieldValue
-    n_components: int = 1
-    quadrature_degree: int = 2
-
-    @property
-    def is_time_dependent(self) -> bool:
-        return isinstance(self.field, TimeDependent)
-
-    def vector(self, space: 'FunctionSpace', t: float = 0.0) -> FloatArray:
-        '''The assembled load at time `t`.'''
-        return space.assemble_load(self.at(t))
-
-    def at(self, t: float) -> 'LinearForm':
-        '''This form with a time-dependent field fixed at `t`; itself otherwise.'''
-        if not self.is_time_dependent:
-            return self
-        return LinearForm(field_at(self.field, t), self.n_components, self.quadrature_degree)
-
-    def element_vectors(self, geometry: ElementGeometry) -> FloatArray:
-        '''(n_elements, N*n_components) element load vectors, DOFs interleaved per node.'''
-        if self.is_time_dependent:
-            raise TypeError('a time-dependent LinearForm has no vectors without a time; use at(t)')
-        f = _sample_field(self.field, geometry, self.n_components)   # (n_el, n_qp, c)
-        # b[e, n, c] = sum_q weight_detJ[e,q] * shape[q,n] * f[e,q,c]
-        b = np.einsum('eq,qn,eqc->enc', geometry.weight_detJ, geometry.shape, f)
-        return b.reshape(geometry.n_elements, -1)
 
 
 @dataclass(frozen=True)

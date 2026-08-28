@@ -9,7 +9,7 @@ come in through `solve`, as DOF vectors (`FunctionSpace.interpolate`). The resul
 `TransientSolution` that packages any step as the typed steady solution (`at(i)`).
 
 The wave path uses Newmark rather than a 2N first-order block: its effective operator
-`M + β dt² c²K` is SPD and N-sized, so it stays inside the CG/preconditioning path.
+`M + β dt² K` is SPD and N-sized, so it stays inside the CG/preconditioning path.
 """
 import numpy as np
 
@@ -18,6 +18,14 @@ from fem.problem import Problem
 from fem.solution import TransientSolution, WaveSolution
 from fem.system import DiscreteSystem
 from fem.typing import DofVector
+
+
+def _require_order(problem: Problem, order: int, what: str, use: str) -> None:
+    '''Refuse a problem whose equation has no meaning at this time order.'''
+    if order not in problem.time_orders:
+        raise TypeError(
+            f'{what}; this problem allows time orders {sorted(problem.time_orders)}. Use {use}.'
+        )
 
 
 def _history(problem: Problem, t_values: list[float], u_values: list[DofVector],
@@ -46,6 +54,7 @@ class ThetaMethod:
         self.backend = backend
 
     def solve(self, problem: Problem, u0: DofVector) -> TransientSolution:
+        _require_order(problem, 1, 'ThetaMethod integrates a first-order system', 'Heat')
         M = problem.mass
         K = problem.tangent(None)
         dt, theta = self.dt, self.theta
@@ -91,13 +100,15 @@ class NewmarkMethod:
         self.backend = backend
 
     def solve(self, problem: Problem, u0: DofVector, v0: DofVector) -> WaveSolution:
+        _require_order(problem, 2, 'NewmarkMethod integrates a second-order system',
+                       'Wave or an elastic equation')
         if problem.bc.is_time_dependent:
             raise NotImplementedError(
                 'NewmarkMethod takes a time-dependent load but not time-dependent '
                 'Dirichlet data, which would need the prescribed velocity and acceleration'
             )
         M = problem.mass
-        K = problem.tangent(None)  # already c²K for the wave factory
+        K = problem.tangent(None)
         b = problem.load_at(0.0)
         free, fixed, fixed_values = problem.constraints
 

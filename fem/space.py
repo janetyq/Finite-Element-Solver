@@ -14,6 +14,7 @@ The cached operators are valid only while the mesh is not mutated underneath the
 Build a new space instead of editing one.
 """
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 from dataclasses import dataclass
 from functools import cached_property
 
@@ -27,7 +28,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.forms import Form, LinearForm, MassForm
+from fem.forms import Form, MassForm
 from fem.mesh.mesh import Mesh
 from fem.regions import evaluate_field
 from fem.typing import (
@@ -42,6 +43,9 @@ from fem.typing import (
     VertexField,
     Vertices,
 )
+
+if TYPE_CHECKING:
+    from fem.loads import Source
 
 from scipy.sparse import csr_array
 from scipy.sparse.linalg import spsolve
@@ -500,7 +504,7 @@ class FunctionSpace:
         the space, components interleaved per node.
 
         The way to build an initial condition or a comparison field. A load that must
-        resolve variation within an element is a `LinearForm`.
+        resolve variation within an element is a `Source` over a callable.
         '''
         return evaluate_field(value, self.node_coords, self.n_components).flatten()
 
@@ -722,16 +726,16 @@ class FunctionSpace:
         assert total is not None
         return total
 
-    def assemble_load(self, form: LinearForm) -> DofVector:
-        '''Scatter a `LinearForm`'s element vectors into the global load vector.
+    def assemble_load(self, source: 'Source') -> DofVector:
+        '''Scatter a sampled `Source`'s element vectors into the global load vector.
 
         The vector counterpart of `assemble`: element load vectors summed into the
         DOFs their nodes own, the same scatter `assemble_residual` runs for the
-        nonlinear residual. This is the general load path; `fem.loads.Source` is the
-        mass-matrix special case that suffices when the source is given at the nodes.
+        nonlinear residual. The source is sampled at the quadrature points of a rule
+        of its `quadrature_degree`.
         '''
-        geometry = self.geometry_at(form.quadrature_degree)
-        vectors = form.element_vectors(geometry)
+        geometry = self.geometry_at(source.quadrature_degree)
+        vectors = source.element_vectors(geometry)
         return self._volume_vector_scatter.scatter(vectors)
 
     # -- state-dependent assembly -------------------------------------------

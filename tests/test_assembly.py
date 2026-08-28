@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_array
 
-from fem.forms import LaplacianForm, LinearElasticForm
+from fem.forms import DiffusionForm, LinearElasticForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.space import FunctionSpace, dof_indices
@@ -55,7 +55,7 @@ def test_laplacian_global_matrix(unit_square):
         [-0.5, 0.0, 1.0, -0.5],
         [0.0, -0.5, -0.5, 1.0],
     ])
-    K = unit_square.assemble(LaplacianForm()).toarray()
+    K = unit_square.assemble(DiffusionForm()).toarray()
     # atol, not exact: the shared diagonal's off-diagonal entry is a cancellation
     # of two equal-and-opposite element contributions, so it lands at rounding.
     np.testing.assert_allclose(K, expected, atol=1e-12)
@@ -99,7 +99,7 @@ def test_scalar_operators_on_cube(unit_cube):
         'shape': (27, 27), 'nnz': 223, 'trace': 0.4,
         'fro': 0.10520317644135, 'sum': 1.0,
     })
-    assert fingerprint(V.assemble(LaplacianForm())) == approx({
+    assert fingerprint(V.assemble(DiffusionForm())) == approx({
         'shape': (27, 27), 'nnz': 135, 'trace': 24.0,
         'fro': 6.1101009266078, 'sum': 0.0,
     })
@@ -142,7 +142,7 @@ def test_mass_matrix_sums_to_the_measure(mesh, n_components):
 
 
 def test_laplacian_is_symmetric_and_annihilates_constants(mesh):
-    K = FunctionSpace(mesh).assemble(LaplacianForm()).toarray()
+    K = FunctionSpace(mesh).assemble(DiffusionForm()).toarray()
     np.testing.assert_allclose(K, K.T, atol=1e-12)
     np.testing.assert_allclose(K @ np.ones(K.shape[0]), 0, atol=1e-10)
 

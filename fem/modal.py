@@ -60,6 +60,11 @@ class ModalAnalysis:
                 'modal analysis needs a constant tangent (the small-strain stiffness); '
                 f'{type(problem.operator).__name__} depends on the state'
             )
+        if 2 not in problem.time_orders:
+            raise TypeError(
+                'modal analysis is the free vibration of a second-order system; this problem '
+                f'allows time orders {sorted(problem.time_orders)}'
+            )
         space = problem.space
         K = problem.tangent()
         M = problem.mass
