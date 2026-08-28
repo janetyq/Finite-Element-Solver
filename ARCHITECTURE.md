@@ -197,12 +197,14 @@ assemble through `assemble_residual` / `assemble_tangent` / `total_energy`, at t
 element's default rule and the one the form asks for.
 
 `Material` owns the constitutive matrix `D`; the strain-displacement matrix `B` sits in
-`fem/forms.py` next to the form that contracts it. The physics decomposes as material (the energy
-`W`) times kinematics (the strain measure): `SmallStrain` and `StVenantKirchhoff` feed one `W`
-either the small-strain `ε` or the Green-Lagrange `S`. The equation names the model:
-`LinearElastic` gives the constant stiffness `LinearElasticForm`, `FiniteStrainElastic` the
-`EnergyForm` over its `law` (`StVenantKirchhoff` by default). In 2D the law is plane strain
-throughout.
+`fem/forms.py` next to the form that contracts it. An `EnergyDensity` returns the one thing an
+`EnergyForm` contracts: the energy `W`, the first Piola-Kirchhoff stress `P = dW/dF`, and the
+material tangent `A = d²W/dF²`, all in F. How it gets there is the density's own business:
+`SmallStrain` and `StVenantKirchhoff` build the chain through a strain measure (small-strain `ε`
+or Green-Lagrange `S`), while `NeohookeanEnergyDensity` is written in the invariants of `C = FᵀF`
+and writes `P` and `A` directly. The equation names the model: `LinearElastic` gives the constant
+stiffness `LinearElasticForm`, `FiniteStrainElastic` the `EnergyForm` over its `law`
+(`StVenantKirchhoff` by default). In 2D the law is plane strain throughout.
 
 Stress recovery is on the form (`RecoversElasticFields`): `fields_at` gives strain and stress at
 every point of a geometry's rule, `derived_fields` reduces that to one tensor per element. Full

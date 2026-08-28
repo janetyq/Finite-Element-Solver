@@ -401,7 +401,7 @@ uv run python examples/make_readme_figures.py   # rewrites the figures in images
 `BACKLOG.md` tracks the detailed open work; this is the direction.
 
 - Broaden the physics: thermoelasticity, plasticity, fluids (Stokes / Navier-Stokes),
-  electrostatics, advection-diffusion, Neo-Hookean
+  electrostatics, advection-diffusion
 - Inverse problems and shape optimization on the adjoint core
 - Standard formats: STL and OBJ meshes, Gmsh `.msh` import, VTK/ParaView `.vtu` export
 - Standard benchmark suite: NAFEMS, Cook's membrane, plate-with-hole, L-shaped

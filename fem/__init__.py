@@ -68,7 +68,7 @@ from fem.forms import (
 )
 from fem.loads import BoundaryLoad, Load, NodalSource, PointLoad, Source
 from fem.materials import LinearElasticMaterial
-from fem.energies import SmallStrain, StVenantKirchhoff
+from fem.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
 from fem.postprocess import DerivedField
 from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.solve import (
@@ -190,6 +190,7 @@ __all__ = [
     "LinearElasticMaterial",
     "StVenantKirchhoff",
     "SmallStrain",
+    "NeohookeanEnergyDensity",
     "DerivedField",
     "SolveStrategy",
     "LinearSolve",

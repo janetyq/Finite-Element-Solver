@@ -4,19 +4,11 @@ returning wrong or empty results.
 import numpy as np
 import pytest
 
-from fem.energies import NeohookeanEnergyDensity
 from fem.solver import Solver
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.mesh.mesh import Mesh
 from fem.equations import FiniteStrainElastic
 from fem.regions import everywhere, on_plane, at_indices
-
-
-def test_neohookean_is_gated():
-    """The unfinished Neohookean material raises."""
-    density = NeohookeanEnergyDensity(E=200, nu=0.3)
-    with pytest.raises(NotImplementedError):
-        density.evaluate(np.zeros((1, 2, 2)))
 
 
 def test_named_interior_vertex_is_rejected(make_unit_square):

@@ -184,12 +184,9 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   optimizer, for objectives the optimality-criteria update cannot take); and the **nonlinear tangent
   path** (a `Problem` with a state-dependent tangent, where the adjoint uses `tangent(u)` at the
   converged state).
-- 💡 The README's roadmap (thermal expansion, transport, fluid mechanics, nonlinear hyperelasticity
-  via the existing `EnergyForm` / `Energies` machinery) all fit the current architecture well.
-  `NeohookeanEnergyDensity` is a stub: filling in its `W` and derivatives gives a nonlinear material
-  through the already-working Newton solver. Note it is naturally written in invariants of `C = FᵀF`
-  rather than in a strain tensor `S`, so it does not slot into the St-VK class's `S`-based derivative
-  chain as cleanly as the shared-`W` framing above might suggest; it wants its own `evaluate`.
+- 💡 The README's roadmap (thermal expansion, transport, fluid mechanics) fits the current
+  architecture well, on the same `EnergyForm` / `Energies` machinery that now carries both the
+  strain-measure densities and the invariant-based `NeohookeanEnergyDensity`.
 - 💡 **Prescribed motion under Newmark.** A `TimeDependent` source, traction, or Robin value is
   re-evaluated per step by both integrators, and `ThetaMethod` takes a time-dependent Dirichlet
   value too. `NewmarkMethod` refuses one: a prescribed displacement `g(t)` at the fixed DOFs also

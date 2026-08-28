@@ -25,6 +25,7 @@ from fem.problem import Problem, RayleighDamping
 from fem.space import FunctionSpace
 from fem.regions import TimeDependent, at_indices, on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
+from fem.energies import NeohookeanEnergyDensity
 from fem.equations import Heat, Projection, Poisson, LinearElastic, FiniteStrainElastic, Wave
 from fem.solve import BacktrackingLineSearch, NewtonSolve
 from fem.solver import Solver
@@ -545,17 +546,19 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
 
 
 def demo_elasticity_models(mesh, stretch=0.5):
-    """One clamped block stretched by a linear solve, by energy minimisation, and at
-    finite strain."""
+    """One clamped block stretched by a linear solve, by energy minimisation, and by two
+    finite-strain material laws."""
     # Panels 1 and 2 are the same physics reached two ways: solving K u = f, and Newton
     # on the elastic energy that system is the stationary point of. Their displacements
     # agree to machine precision (printed below). Their stress does not, since the two
     # recover different measures: sigma = D:eps against the true Cauchy stress J^-1 P F^T
     # at the deformed configuration, which agree only to O(||grad u||).
     #
-    # Panel 3 changes the physics: the small-strain eps is the leading term of the
-    # Green-Lagrange S = (F^T F - I)/2, so the finite-strain model stiffens as the
-    # stretch grows and the linear one cannot.
+    # Panels 3 and 4 change the physics: two finite-strain laws that share the same
+    # small-strain linearisation but differ once the stretch is large. Green-Lagrange
+    # St-Venant-Kirchhoff has a polynomial energy; Neo-Hookean is written in the
+    # invariants of C = F^T F and carries the log J terms that keep it stable in
+    # compression. Both reach the same energy at small strain and part company here.
     #
     # The stress peak sits at the clamped corners, where the imposed displacement is
     # singular, so the median is quoted beside it.
@@ -566,21 +569,25 @@ def demo_elasticity_models(mesh, stretch=0.5):
     )
 
     linear = LinearElastic(E=200, nu=0.4)
-    finite = FiniteStrainElastic(E=200, nu=0.4)
+    stvk = FiniteStrainElastic(E=200, nu=0.4)
+    neohookean = FiniteStrainElastic(E=200, nu=0.4, law=NeohookeanEnergyDensity)
     # Panel 2 states small strain as an energy and minimises it: the same density the
     # linear stiffness is the Hessian of, under Newton.
     energy_problem = Problem(linear.space(mesh), EnergyForm(linear.energy_density()), bc=bc)
     energy_u = NewtonSolve(line_search=BacktrackingLineSearch()).solve(energy_problem)
+    line_search = NewtonSolve(line_search=BacktrackingLineSearch())
     solutions = [
         ('Linear solve\n(small strain)', Solver(mesh, linear, bc).solve()),
         ('Energy minimisation\n(small strain)', energy_problem.solution(energy_u)),
-        ('Energy minimisation\n(Green-Lagrange)', Solver(mesh, finite, bc).solve()),
+        ('Green-Lagrange\n(St-Venant-Kirchhoff)', Solver(mesh, stvk, bc).solve()),
+        ('Neo-Hookean\n(invariants of C)',
+         Solver(mesh, neohookean, bc, strategy=line_search).solve()),
     ]
 
     conditions = Plotter()
     conditions.plot(mesh, mode='bc', bc=bc)
 
-    plotter = Plotter(1, 3, title=f'One {stretch:.0%} stretch, three ways to solve it')
+    plotter = Plotter(1, 4, title=f'One {stretch:.0%} stretch, four ways to model it')
     for i, (name, solution) in enumerate(solutions):
         vm = solution.von_mises
         plotter.plot(solution.deformed_mesh(), vm, mode='colored', idx=(0, i),
@@ -595,8 +602,9 @@ def demo_elasticity_models(mesh, stretch=0.5):
                 'displacements are identical to machine precision (below). Their stress is '
                 'not, because the two recover different measures, sigma = D:eps against the '
                 'Cauchy stress at the deformed configuration, which agree only for small '
-                'gradients. The third changes the physics: Green-Lagrange stiffens as the '
-                'stretch grows, which small strain cannot.',
+                'gradients. The last two change the physics: two finite-strain laws, '
+                'Green-Lagrange and Neo-Hookean, that share the small-strain limit but '
+                'stiffen differently as the stretch grows, which small strain cannot.',
                 'stress'),
          Figure(conditions,
                 'Both ends are Dirichlet. The left is held at zero and the right is displaced '
