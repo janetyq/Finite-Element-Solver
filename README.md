@@ -111,15 +111,25 @@ why real parts round their inner corners.
 
 <p align="center"><img src="images/bracket.png" height="280" alt="L-bracket von Mises stress: sharp corner vs filleted"> <img src="images/bracket_singularity.png" height="280" alt="Corner stress peak vs mesh refinement: sharp climbs, fillet converges"></p>
 
-### Three ways to solve the same stretch
+### Linear and nonlinear materials, one stretch
 
-The same clamped block is stretched three ways. The first is `LinearElastic`, a linear
-solve of $Ku = f$. The second minimises that model's elastic energy with Newton's
-method, and arrives at the same system from the other direction. The third is
-`FiniteStrainElastic`, a Green-Lagrange solve. The first two agree in displacement to
-machine precision. The third stiffens as the stretch grows, which small strain cannot.
+The same clamped block is stretched to the right in four ways, each panel coloured by
+how hard the material is working inside. The first two are ordinary small-strain
+elasticity, the familiar model where stress grows in proportion to strain, solved two
+different ways: directly, and by minimising the block's stored elastic energy. They
+settle into the same shape to machine precision, but their colour differs because they
+report stress differently: the first uses engineering stress, force over the block's
+original cross-section, the second the true stress on the stretched, now-thinner
+cross-section, which reads higher. The last two switch to nonlinear elasticity, which
+large deformations actually need. St-Venant-Kirchhoff is the simplest such model but
+stiffens far too aggressively in tension, while Neo-Hookean, a rubber-like law, stays
+realistic out to large stretch.
 
-<p align="center"><img src="images/elasticity_models.png" width="780" alt="Linear, energy-minimisation, and finite-strain solves of one stretch"></p>
+All four panels share one colour scale. The stresses span a wide range, so the scale is
+logarithmic: brighter means more stress, and a whole panel shifting brighter (as
+St-Venant-Kirchhoff's does) means that material is carrying more everywhere.
+
+<p align="center"><img src="images/elasticity_models.png" width="780" alt="One stretch, four elasticity models coloured by stress on a shared log scale: two small-strain solves, St-Venant-Kirchhoff, and Neo-Hookean"></p>
 
 ### From an outline to a stress concentration
 
@@ -401,7 +411,7 @@ uv run python examples/make_readme_figures.py   # rewrites the figures in images
 `BACKLOG.md` tracks the detailed open work; this is the direction.
 
 - Broaden the physics: thermoelasticity, plasticity, fluids (Stokes / Navier-Stokes),
-  electrostatics, advection-diffusion, Neo-Hookean
+  electrostatics, advection-diffusion
 - Inverse problems and shape optimization on the adjoint core
 - Standard formats: STL and OBJ meshes, Gmsh `.msh` import, VTK/ParaView `.vtu` export
 - Standard benchmark suite: NAFEMS, Cook's membrane, plate-with-hole, L-shaped

@@ -751,9 +751,11 @@ class EnergyForm(Form):
         return self.energy_density.energy_degree * max(0, shape_degree - 1)
 
     def _dF_dx(self, geometry: ElementGeometry, q: int) -> FloatArray:
-        '''(n_el, d, d, N, d): dF/dx at quadrature point q = I ⊗ grad_phi_qᵀ.'''
+        '''(n_el, d, d, N, d): dF/dx at quadrature point q. `dF_dx[e,c,i,p,k]` is
+        ∂F_ci/∂u_{p,k} = grad_phi[p,i] δ_ck, the shape-function contribution to the
+        deformation gradient in the standard `F[c,i]` orientation.'''
         d = geometry.spatial_dim
-        return np.einsum('emi,jn->eijmn', geometry.grad_phi[:, q, :, :d], np.eye(d))
+        return np.einsum('epi,ck->ecipk', geometry.grad_phi[:, q, :, :d], np.eye(d))
 
     def element_energies(
         self, geometry: ElementGeometry, u_elements: FloatArray,
@@ -777,7 +779,7 @@ class EnergyForm(Form):
         for q in range(geometry.n_qp):
             t = self.energy_density.evaluate(grad_u[:, q])
             dF_dx = self._dF_dx(geometry, q)
-            dW_dx = np.einsum('eij,eijmn->emn', t.dW_dF, dF_dx)
+            dW_dx = np.einsum('eci,ecipk->epk', t.P, dF_dx)
             residual += dW_dx * geometry.weight_detJ[:, q][:, None, None]
         return residual.reshape(geometry.n_elements, n_nodes * d)
 
@@ -785,38 +787,18 @@ class EnergyForm(Form):
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> FloatArray:
         '''(n_elements, k, k) element tangents d²Pi/dx², k = N * d in the residual's order.'''
-        # d2W_dx2 = dW_dS : (d2S_dF2 : dF_dx : dF_dx) + d2W_dS2 : (dS_dx : dS_dx)
-        #
-        # ":" is the tensor double contraction. For two second-order tensors,
-        # A : B = sum_ij A_ij B_ij, the elementwise product summed over both
-        # indices, giving a scalar. In general it contracts the last two indices
-        # of the left operand against the first two of the right; each ":" above
-        # is one such contraction, i.e. one "...ij,ij...->..." einsum below (with
-        # a leading "e" element axis on everything that varies per element).
-        #
-        # Summed over the quadrature points, each evaluated at its own dF_dx and
-        # weighted by `weight_detJ`.
+        # d²Pi/dx² = A : dF_dx : dF_dx, where A = d²W/dF² is the density's material
+        # tangent and dF_dx maps a nodal DOF to its contribution to F. Each "einsum"
+        # is one double contraction (the shared F-index pairs "ci" and "kl"), summed
+        # over the quadrature points and weighted by `weight_detJ`.
         grad_u = geometry.gradients(u_elements)
         n_nodes, d = geometry.grad_phi.shape[2], geometry.spatial_dim
         tangent = np.zeros((geometry.n_elements, n_nodes, d, n_nodes, d))
         for q in range(geometry.n_qp):
             t = self.energy_density.evaluate(grad_u[:, q])
             dF_dx = self._dF_dx(geometry, q)
-
-            dS_dx = np.einsum('eklij,eijmn->eklmn', t.dS_dF, dF_dx)
-
-            # term1: dW_dS : d²S_dF² : dF_dx : dF_dx
-            # d2S_dF2 is constant (no element axis), broadcast over elements.
-            term1 = np.einsum('abcdij,eijmn->eabcdmn', t.d2S_dF2, dF_dx)
-            term1 = np.einsum('eabijcd,eijmn->eabcdmn', term1, dF_dx)
-            term1 = np.einsum('eij,eijklmn->eklmn', t.dW_dS, term1)
-
-            # term2: d²W_dS² : dS_dx : dS_dx
-            # d2W_dS2 is constant (no element axis), broadcast over elements.
-            term2 = np.einsum('klij,eijmn->eklmn', t.d2W_dS2, dS_dx)
-            term2 = np.einsum('eijkl,eijmn->eklmn', term2, dS_dx)
-
-            tangent += (term1 + term2) * geometry.weight_detJ[:, q][:, None, None, None, None]
+            d2W_dx2 = np.einsum('ecikl,ecipq,eklrs->epqrs', t.A, dF_dx, dF_dx)
+            tangent += d2W_dx2 * geometry.weight_detJ[:, q][:, None, None, None, None]
         k = n_nodes * d
         return tangent.reshape(geometry.n_elements, k, k)
 
@@ -827,27 +809,23 @@ class EnergyForm(Form):
         `(n_elements, n_qp, 3, 3)` and the energy density as `(n_elements, n_qp)`.
 
         Stress is **Cauchy**, `sigma = J^-1 P F^T`, not the first Piola-Kirchhoff
-        `P = dW_dF` the energy derivative gives: P is measured per unit undeformed
+        `P = dW/dF` the energy derivative gives: P is measured per unit undeformed
         area, so it is not comparable with the small-strain path's stress. The two
         agree to O(||grad u||). Strain is the density's own measure.
 
-        Reconciles two conventions from `fem.energies`: the gradient orientation it
-        works in and the plane-strain reduction a 2D solve makes. Both are explained
-        there under "Solving versus reporting".
+        The one convention still to reconcile is the plane-strain reduction a 2D
+        solve makes; `F`, `P`, and the strain arrive in the standard orientation.
         '''
         grad_qp = geometry.gradients(u_elements)          # (n_el, n_qp, d, d)
         n_el, n_qp, d = grad_qp.shape[:3]
         grad_u = grad_qp.reshape(n_el * n_qp, d, d)
         t = self.energy_density.evaluate(grad_u)
 
-        # Put F and dW_dF into the standard orientation before anything contracts
-        # them; fem.energies works in the transposed one, which the energy cannot
-        # tell apart but a reported tensor can.
-        F = np.eye(d) + np.swapaxes(grad_u, -2, -1)
-        P = np.swapaxes(t.dW_dF, -2, -1)
+        F = np.eye(d) + grad_u
+        P = t.P
 
         J = np.linalg.det(F)
-        cauchy = np.einsum('e,eij,ekj->eik', 1.0 / J, P, F)
+        cauchy = np.einsum('e,eci,eki->eck', 1.0 / J, P, F)
 
         # The density's own measure: Green-Lagrange for St-VK, eps for its linearisation.
         strain = self.energy_density.strain(grad_u)

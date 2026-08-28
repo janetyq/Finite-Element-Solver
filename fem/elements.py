@@ -555,7 +555,10 @@ class ElementGeometry:
 
         `u_elements` is `(n_elements, N)` for a scalar field or
         `(n_elements, N, n_components)` for a vector one; the result is
-        `(n_elements, n_qp, spatial[, n_components])`. Constant across the points for P1.
+        `(n_elements, n_qp, spatial)` for a scalar and
+        `(n_elements, n_qp, n_components, spatial)` for a vector, so a vector's
+        gradient is the standard `F[c, i] = ∂u_c/∂x_i`. Constant across the points
+        for P1.
         '''
-        return np.einsum('eqni,en...->eqi...', self.grad_phi, u_elements)
+        return np.einsum('eqni,en...->eq...i', self.grad_phi, u_elements)
 

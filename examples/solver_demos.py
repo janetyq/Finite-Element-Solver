@@ -25,6 +25,7 @@ from fem.problem import Problem, RayleighDamping
 from fem.space import FunctionSpace
 from fem.regions import TimeDependent, at_indices, on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
+from fem.energies import NeohookeanEnergyDensity
 from fem.equations import Heat, Projection, Poisson, LinearElastic, FiniteStrainElastic, Wave
 from fem.solve import BacktrackingLineSearch, NewtonSolve
 from fem.solver import Solver
@@ -545,20 +546,26 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
 
 
 def demo_elasticity_models(mesh, stretch=0.5):
-    """One clamped block stretched by a linear solve, by energy minimisation, and at
-    finite strain."""
+    """One clamped block stretched by a linear solve, by energy minimisation, and by two
+    finite-strain material laws."""
     # Panels 1 and 2 are the same physics reached two ways: solving K u = f, and Newton
     # on the elastic energy that system is the stationary point of. Their displacements
     # agree to machine precision (printed below). Their stress does not, since the two
     # recover different measures: sigma = D:eps against the true Cauchy stress J^-1 P F^T
     # at the deformed configuration, which agree only to O(||grad u||).
     #
-    # Panel 3 changes the physics: the small-strain eps is the leading term of the
-    # Green-Lagrange S = (F^T F - I)/2, so the finite-strain model stiffens as the
-    # stretch grows and the linear one cannot.
+    # Panels 3 and 4 change the physics: two finite-strain laws that share the same
+    # small-strain linearisation but differ once the stretch is large. Green-Lagrange
+    # St-Venant-Kirchhoff has a polynomial energy; Neo-Hookean is written in the
+    # invariants of C = F^T F and carries the log J terms that keep it stable in
+    # compression. Both reach the same energy at small strain and part company here.
     #
-    # The stress peak sits at the clamped corners, where the imposed displacement is
-    # singular, so the median is quoted beside it.
+    # The four fields span roughly a factor of ten (Neo-Hookean's interior against St-VK's),
+    # so one shared *log* colour scale carries them all: each panel keeps its own structure
+    # while magnitudes still compare across panels. The stress diverges at the clamped corners,
+    # where the imposed displacement is singular (it grows without bound under refinement, a
+    # mesh artefact, not a material fact), so the scale is capped at the 99th percentile of the
+    # pooled field, those corner nodes saturate, and the per-panel median is the exact number.
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
@@ -566,38 +573,79 @@ def demo_elasticity_models(mesh, stretch=0.5):
     )
 
     linear = LinearElastic(E=200, nu=0.4)
-    finite = FiniteStrainElastic(E=200, nu=0.4)
+    stvk = FiniteStrainElastic(E=200, nu=0.4)
+    neohookean = FiniteStrainElastic(E=200, nu=0.4, law=NeohookeanEnergyDensity)
     # Panel 2 states small strain as an energy and minimises it: the same density the
     # linear stiffness is the Hessian of, under Newton.
     energy_problem = Problem(linear.space(mesh), EnergyForm(linear.energy_density()), bc=bc)
     energy_u = NewtonSolve(line_search=BacktrackingLineSearch()).solve(energy_problem)
+    line_search = NewtonSolve(line_search=BacktrackingLineSearch())
     solutions = [
         ('Linear solve\n(small strain)', Solver(mesh, linear, bc).solve()),
         ('Energy minimisation\n(small strain)', energy_problem.solution(energy_u)),
-        ('Energy minimisation\n(Green-Lagrange)', Solver(mesh, finite, bc).solve()),
+        ('Green-Lagrange\n(St-Venant-Kirchhoff)', Solver(mesh, stvk, bc).solve()),
+        ('Neo-Hookean\n(invariants of C)',
+         Solver(mesh, neohookean, bc, strategy=line_search).solve()),
     ]
 
     conditions = Plotter()
     conditions.plot(mesh, mode='bc', bc=bc)
 
-    plotter = Plotter(1, 3, title=f'One {stretch:.0%} stretch, three ways to solve it')
-    for i, (name, solution) in enumerate(solutions):
-        vm = solution.von_mises
+    vms = [solution.von_mises for _, solution in solutions]
+    pooled = np.concatenate([np.ravel(v) for v in vms])
+    # One shared log range for every panel: a positive floor (log needs one) and a cap that
+    # drops the singular corners, both from the pooled field so the four scales are identical.
+    lo = float(np.percentile(pooled[pooled > 0], 1))
+    hi = float(np.percentile(pooled, 99))
+
+    plotter = Plotter(1, 4, title=f'One {stretch:.0%} stretch, four ways to model it')
+    for i, ((name, solution), vm) in enumerate(zip(solutions, vms)):
         plotter.plot(solution.deformed_mesh(), vm, mode='colored', idx=(0, i),
-                     label='von Mises stress',
-                     title=f'{name}\nmedian {np.median(vm):.0f}, peak {vm.max():.0f}')
+                     label='von Mises stress (log)', clim=(lo, hi), log_scale=True,
+                     colorbar=(i == len(solutions) - 1),
+                     title=f'{name}\nmedian {np.median(vm):.0f}')
     linear_u = solutions[0][1].u
     drift = np.linalg.norm(energy_u - linear_u) / np.linalg.norm(linear_u)
     return DemoResult(
         [Figure(plotter,
-                'The first two are the same physics solved two ways, as a linear system and '
-                'by Newton on the energy that system is the stationary point of. Their '
-                'displacements are identical to machine precision (below). Their stress is '
-                'not, because the two recover different measures, sigma = D:eps against the '
-                'Cauchy stress at the deformed configuration, which agree only for small '
-                'gradients. The third changes the physics: Green-Lagrange stiffens as the '
-                'stretch grows, which small strain cannot.',
-                'stress'),
+                'Four solves of one boundary condition: the left edge clamped, the right edge '
+                'pulled to a 50% stretch, nothing else loaded. One shared log colour scale '
+                'spans all four panels, so magnitudes compare directly across them; the median '
+                'under each title is the exact figure, and the singular clamped corners '
+                'saturate at the top.',
+                'stress',
+                body=[
+                    'Panels 1 and 2 are the same physics, small-strain linear elasticity, '
+                    'solved two ways: panel 1 as a direct linear solve (K u = f), panel 2 by '
+                    'minimising the elastic energy with Newton. They reach the same '
+                    'displacement to machine precision, so the colour difference is not a '
+                    'physics difference. Panel 1 reports engineering stress sigma = D:eps, '
+                    'force per unit original area; panel 2 reports true (Cauchy) stress, force '
+                    'per unit deformed area. Because stretching thins the cross-section, the '
+                    'same internal force reads higher as true stress, about 50% higher here, '
+                    'near the 1.5 stretch factor. The two coincide only at small strain, when '
+                    'the geometry barely moves.',
+
+                    'Panels 2, 3 and 4 hold the method fixed and change the material. Panel 2 '
+                    'is small strain; panels 3 and 4 are nonlinear, finite-strain elasticity. '
+                    'St-Venant-Kirchhoff (panel 3) is the simplest finite-strain model, '
+                    'small-strain elasticity rewritten on the Green-Lagrange strain. Its '
+                    'strength is that it is frame-indifferent, a rigid rotation stores no '
+                    'energy, which small strain gets wrong; its weakness is that its energy is '
+                    'polynomial in the stretch, so it over-stiffens steeply in tension and '
+                    'loses stability in strong compression. In the plot it is by far the most '
+                    'stressed panel (median 396, several times the interior stress of the '
+                    'others), the block lit up and fighting the stretch.',
+
+                    'Neo-Hookean (panel 4) is a rubber-elasticity model written in the '
+                    'invariants of C = F^T F with a ln J volumetric term. Its strength is a '
+                    'physically realistic large-strain response, it does not over-stiffen in '
+                    'tension and stays stable in compression and near incompressibility; its '
+                    'cost is a more expensive, non-polynomial evaluation that must guard '
+                    'against element inversion. In the plot it is the calmest finite-strain '
+                    'panel, moderate stress everywhere, its median (102) sitting right next to '
+                    'the linear baseline (107).',
+                ]),
          Figure(conditions,
                 'Both ends are Dirichlet. The left is held at zero and the right is displaced '
                 f'to {stretch:.0%} of the width. Nothing is loaded; the stress above is what '
