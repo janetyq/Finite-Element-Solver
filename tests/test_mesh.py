@@ -70,14 +70,6 @@ def test_arrays_are_read_only():
         mesh.vertices = np.zeros((4, 2))  # type: ignore[misc]
 
 
-def test_copy_is_independent_of_its_source():
-    mesh = _two_triangle_square()
-    duplicate = mesh.copy()
-    assert duplicate.vertices is not mesh.vertices
-    assert np.array_equal(duplicate.vertices, mesh.vertices)
-    assert np.array_equal(duplicate.boundary, mesh.boundary)
-
-
 # --- construction ---
 
 def test_boundary_is_derived_when_not_given():

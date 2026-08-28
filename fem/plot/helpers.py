@@ -322,7 +322,7 @@ def plot_arrows(ax, mesh, values, max_arrows=MAX_ARROWS,
         # deformed configuration, rather than one arrow per element at its centroid.
         positions = space.node_coords if warp is None else space.node_coords + np.asarray(warp)
     else:
-        positions = np.mean(mesh.vertices[mesh.elements], axis=1)   # per-element, at centroids
+        positions = mesh.centroids                      # per-element
     keep = _spread_sample(positions, max_arrows)
     ax.quiver(positions[keep, 0], positions[keep, 1],
               values[keep, 0], values[keep, 1], alpha=0.5, scale=10)

@@ -48,7 +48,7 @@ def calculate_smoothing_matrix(mesh: Mesh, r: float) -> SparseMatrix:
     tracks the element size. Rows sum to 1, except at `r = 0`, where every weight is
     zero and the row is too.
     '''
-    centers = mesh.vertices[mesh.elements].mean(axis=1)
+    centers = mesh.centroids
     n_elements = len(centers)
 
     # Distinct pairs (i < j) within the radius, mirrored below; the diagonal is the

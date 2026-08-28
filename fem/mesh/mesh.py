@@ -81,8 +81,8 @@ class Mesh:
         # Optional analytic curve each boundary facet lies on (or None), aligned with
         # `boundary` rows. None (the default) is a fully straight-sided mesh; a curved
         # (isoparametric) space reads these to put its boundary nodes on the true curve.
-        self.boundary_curves: list[Curve | None] | None = (
-            list(boundary_curves) if boundary_curves is not None else None
+        self.boundary_curves: tuple[Curve | None, ...] | None = (
+            tuple(boundary_curves) if boundary_curves is not None else None
         )
         if self.boundary_curves is not None and len(self.boundary_curves) != len(self._boundary):
             raise ValueError(
@@ -292,11 +292,6 @@ class Mesh:
         unrelated to the original facets' curves.
         '''
         return Mesh(vertices, elements, boundary, boundary_curves)
-
-    def copy(self) -> 'Mesh':
-        '''A mesh equal to this one, with its own copies of the arrays and curve list.'''
-        curves = list(self.boundary_curves) if self.boundary_curves is not None else None
-        return Mesh(self._vertices.copy(), self._elements.copy(), self._boundary.copy(), curves)
 
     # -- files -------------------------------------------------------------------------
 
