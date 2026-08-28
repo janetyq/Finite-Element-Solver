@@ -39,7 +39,7 @@ target-version = "py311"
 select = ["E4", "E7", "E9", "F"]
 
 [tool.pyright]
-include = ["fem"]
+include = ["fem", "examples"]
 pythonVersion = "3.11"
 # "basic" infers types for the unannotated internals rather than demanding
 # annotations everywhere, so the checker is useful while only the public API is

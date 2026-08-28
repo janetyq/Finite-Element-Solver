@@ -1,7 +1,7 @@
 """The iterative backends agree with the direct one and fail loudly.
 
 AMG-CG and MINRES solve the same free-free block `DirectBackend` factors, so their
-answers must match a direct solve to solver tolerance: on isolated systems, through the
+answers must match a direct solve to problem tolerance: on isolated systems, through the
 full Poisson/elasticity solves, and through the MMS convergence net.
 """
 import numpy as np
@@ -15,7 +15,6 @@ from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere, on_plane
 from fem.physics.equations import Heat, LinearElastic, Poisson
-from fem.solver import Solver
 from fem.space import FunctionSpace
 from fem.algebra.system import DiscreteSystem
 
@@ -41,21 +40,21 @@ def _poisson_mms(n, backend):
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     eq = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    solver = Solver(mesh, eq, bc, backend=backend)
-    u = solver.solve().u
+    problem = eq.problem(mesh, bc)
+    u = problem.solve(backend=backend).u
     exact = np.sin(np.pi * mesh.vertices[:, 0]) * np.sin(np.pi * mesh.vertices[:, 1])
     error = u - exact
-    return 1.0 / (n - 1), np.sqrt(error @ solver.space.mass_matrix @ error)
+    return 1.0 / (n - 1), np.sqrt(error @ problem.space.mass_matrix @ error)
 
 
 def test_iterative_matches_direct_on_poisson():
-    """AMG-CG reproduces the direct Poisson solution to solver tolerance."""
+    """AMG-CG reproduces the direct Poisson solution to problem tolerance."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(41, 41))
     eq = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
-    direct = Solver(mesh, eq, bc, backend=DirectBackend()).solve().u
-    iterative = Solver(mesh, eq, bc, backend=IterativeBackend()).solve().u
+    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).u
+    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).u
     np.testing.assert_allclose(iterative, direct, atol=1e-8)
 
 
@@ -68,8 +67,8 @@ def test_iterative_matches_direct_on_elasticity():
     )
     eq = LinearElastic(E=200, nu=0.3)
 
-    direct = Solver(mesh, eq, bc, backend=DirectBackend()).solve().u
-    iterative = Solver(mesh, eq, bc, backend=IterativeBackend()).solve().u
+    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).u
+    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).u
     # Scale the tolerance to the field magnitude: the displacements are O(1).
     np.testing.assert_allclose(iterative, direct, atol=1e-8 * np.abs(direct).max())
 
@@ -97,8 +96,8 @@ def test_iterative_matches_direct_on_3d_elasticity():
     )
     eq = LinearElastic(E=200, nu=0.3)
 
-    direct = Solver(mesh, eq, bc, backend=DirectBackend()).solve().u
-    iterative = Solver(mesh, eq, bc, backend=IterativeBackend()).solve().u
+    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).u
+    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).u
     np.testing.assert_allclose(iterative, direct, atol=1e-7 * np.abs(direct).max())
 
 
@@ -175,13 +174,13 @@ def test_iterative_elastic_solve_matches_direct_through_facade_and_composition()
 
     mesh, bc = _cantilever()
     eq = LinearElastic(E=200, nu=0.3)
-    direct = Solver(mesh, eq, bc, backend=DirectBackend()).solve().u
+    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).u
     tol = 1e-7 * np.abs(direct).max()
 
-    iterative = Solver(mesh, eq, bc, backend=IterativeBackend()).solve().u
+    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).u
     np.testing.assert_allclose(iterative, direct, atol=tol)
     problem = eq.problem(mesh, bc)
-    composed = LinearSolve(IterativeBackend()).solve(problem)
+    composed = LinearSolve().solve(problem, backend=IterativeBackend())
     np.testing.assert_allclose(composed, direct, atol=tol)
 
 
@@ -195,7 +194,7 @@ def test_iterative_backend_matches_direct_through_a_time_step():
     problem = Heat().problem(mesh)
 
     direct = ThetaMethod(dt=0.01, steps=5).solve(problem, u0.copy()).u[-1]
-    iterative = ThetaMethod(dt=0.01, steps=5, backend=IterativeBackend()).solve(problem, u0.copy()).u[-1]
+    iterative = ThetaMethod(dt=0.01, steps=5).solve(problem, u0.copy(), backend=IterativeBackend()).u[-1]
     np.testing.assert_allclose(iterative, direct, atol=1e-7)
 
 

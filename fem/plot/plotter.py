@@ -113,7 +113,7 @@ class Plotter:
     def plot(
         self,
         target: "Mesh | Solution",
-        values: FloatArray | Sequence[float] | None = None,
+        values: FloatArray | Sequence[float] | Sequence[str] | None = None,
         mode: PlotMode | str = PlotMode.MESH,
         idx: tuple[int, int] = (0, 0),
         title: str | None = None,
@@ -169,7 +169,10 @@ class Plotter:
         artist an animation updates in place across frames), and `None` otherwise.
         """
         mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
-        view = field_view(target, values, space=space, warp=warp, subdivisions=subdivisions)
+        # The refinement mode takes the red/green classifications, not a field.
+        field = (None if values is None or mode is PlotMode.REFINEMENT
+                 else np.asarray(values, dtype=float))
+        view = field_view(target, field, space=space, warp=warp, subdivisions=subdivisions)
         mesh = view.mesh
         ax = self.axs[idx]
         if clear:

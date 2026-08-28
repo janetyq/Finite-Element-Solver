@@ -17,7 +17,6 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
 from fem.regions import TimeDependent, in_box, on_plane, union
 from fem.post.solution import TransientSolution
-from fem.solver import Solver
 
 from domains import heatsink_pslg
 
@@ -44,12 +43,12 @@ def steady_heatsink(mesh, bc, kappa, u_ambient):
     kappa * integral_film (u - u_ambient). At steady state that equals the heat entering
     the base, so it is the sink's dissipation.
     """
-    solver = Solver(mesh, Poisson(source=0), bc)
-    u = solver.solve().u
+    problem = Poisson(source=0).problem(mesh, bc)
+    u = problem.solve().u
     # The convective loss, read off the same region-restricted boundary mass a Robin
     # condition assembles, so it is the exact discrete integral of (u - u_ambient).
-    resolved = bc.resolve(solver.space.nodes, 1)
-    film_mass = solver.space.assemble(
+    resolved = bc.resolve(problem.space.nodes, 1)
+    film_mass = problem.space.assemble(
         BoundaryMassForm(1, resolved.robin[0].facet_mask), boundary=True)
     heat_shed = kappa * float(np.asarray(film_mass @ (u - u_ambient)).sum())
     return u, heat_shed

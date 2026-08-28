@@ -14,7 +14,6 @@ from fem.problem import LinearProblem, Problem
 from fem.regions import everywhere, on_plane
 from fem.algebra.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
 from fem.physics.equations import Heat, LinearElastic, Poisson, Projection, FiniteStrainElastic
-from fem.solver import Solver
 from fem.space import FunctionSpace
 
 
@@ -68,7 +67,7 @@ def test_composed_poisson_matches_the_solver_facade(make_unit_square):
     equation = Poisson(source=_mms_source)
 
     u_composed = LinearSolve().solve(_problem(equation, mesh, bc))
-    u_solver = Solver(mesh, equation, bc).solve().u
+    u_solver = equation.problem(mesh, bc).solve().u
     np.testing.assert_allclose(u_composed, u_solver, atol=1e-12)
 
 
@@ -81,7 +80,7 @@ def test_composed_linear_elastic_matches_the_solver_facade(make_unit_square):
     equation = LinearElastic(E=200, nu=0.4)
 
     u_composed = LinearSolve().solve(_problem(equation, mesh, bc))
-    u_solver = Solver(mesh, equation, bc).solve().u
+    u_solver = equation.problem(mesh, bc).solve().u
     np.testing.assert_allclose(u_composed, u_solver, atol=1e-12)
 
 
@@ -99,7 +98,7 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     elastic = _problem(LinearElastic(E=200, nu=0.4), mesh, bc)
     solution = elastic.solve()
     assert isinstance(solution, ElasticSolution)
-    facade = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve()
+    facade = LinearElastic(E=200, nu=0.4).problem(mesh, bc).solve()
     assert isinstance(facade, ElasticSolution)
     np.testing.assert_allclose(solution.stress, facade.stress, atol=1e-12)
 
@@ -347,15 +346,16 @@ def test_linear_problem_refuses_a_state_dependent_operator(make_unit_square):
 
 def test_problem_solve_is_the_strategy_solve_packaged(make_unit_square):
     """`Problem.solve()` returns the same typed solution as solving with the default
-    strategy by hand; a strategy and a backend together are refused."""
+    strategy by hand; a strategy and a backend are independent choices, so both may be
+    given."""
     from fem.algebra.backends import DirectBackend
     problem = _poisson_problem(make_unit_square(8))
     by_hand = problem.solution(LinearSolve().solve(problem))
     solution = problem.solve()
     assert type(solution) is type(by_hand)
     np.testing.assert_array_equal(solution.u, by_hand.u)
-    with pytest.raises(ValueError, match='one or the other'):
-        problem.solve(strategy=LinearSolve(), backend=DirectBackend())
+    both = problem.solve(strategy=LinearSolve(), backend=DirectBackend())
+    np.testing.assert_array_equal(both.u, by_hand.u)
 
 
 def test_problem_solve_picks_newton_for_a_state_dependent_operator(make_unit_square):

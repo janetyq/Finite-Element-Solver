@@ -20,7 +20,6 @@ from fem.physics.materials import LinearElasticMaterial
 from fem.problem import Problem
 from fem.regions import on_plane
 from fem.physics.equations import LinearElastic, FiniteStrainElastic
-from fem.solver import Solver
 from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve, TangentRegularization
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.forms import EnergyForm
@@ -117,13 +116,13 @@ def test_finite_strain_solve_matches_recorded_solution(make_unit_square):
     implementation, so this catches drift rather than proving correctness."""
     mesh, bc = _stretched_square(make_unit_square)
     equation = FiniteStrainElastic(E=200, nu=0.4)
-    solver = Solver(mesh, equation, bc)
-    u = solver.solve().u
+    problem = equation.problem(mesh, bc)
+    u = problem.solve().u
 
     np.testing.assert_allclose(np.linalg.norm(u), 0.503442620332, rtol=1e-9)
     np.testing.assert_allclose(u.max(), 0.1, rtol=1e-12)
     np.testing.assert_allclose(u.min(), -0.037995668257, rtol=1e-9)
-    np.testing.assert_allclose(solver.problem().energy(u.copy()), 1.590561321584, rtol=1e-9)
+    np.testing.assert_allclose(problem.energy(u.copy()), 1.590561321584, rtol=1e-9)
 
 
 def test_residual_and_tangent_are_consistent_by_finite_difference(make_unit_square):
@@ -152,11 +151,11 @@ def test_residual_and_tangent_are_consistent_by_finite_difference(make_unit_squa
 
 
 def test_small_strain_energy_equals_direct_solve(make_unit_square):
-    """Energy minimisation with small strain reproduces `Solver`'s direct assembly exactly,
+    """Energy minimisation with small strain reproduces the direct assembly exactly,
     and in a single Newton step: a quadratic energy has an affine gradient."""
     mesh, bc = _stretched_square(make_unit_square)
 
-    u_direct = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().u.flatten()
+    u_direct = LinearElastic(E=200, nu=0.4).problem(mesh, bc).solve().u.flatten()
     u_energy = _one_newton_step(_energy_problem(mesh, bc, LinearElastic))
 
     np.testing.assert_allclose(u_energy, u_direct, atol=1e-12)
@@ -168,7 +167,7 @@ def test_stvk_needs_more_than_one_newton_step(make_unit_square):
     equation = FiniteStrainElastic(E=200, nu=0.4)
 
     u_one = _one_newton_step(equation.problem(mesh, bc))
-    u_converged = Solver(mesh, equation, bc).solve().u
+    u_converged = equation.problem(mesh, bc).solve().u
 
     rel = np.linalg.norm(u_one - u_converged) / np.linalg.norm(u_converged)
     assert rel > 0.1, f"one step should be far from converged, got rel={rel:.2e}"
@@ -239,22 +238,39 @@ def test_finite_strain_solve_reaches_the_minres_backend(make_unit_square):
     Hessian is indefinite at the zero seed, exercising MINRES and the regularization."""
     mesh, equation, bc = _stretched_stvk(make_unit_square)
 
-    direct = Solver(mesh, equation, bc).solve().u
-    iterative = Solver(mesh, equation, bc, backend=MinresBackend()).solve().u
+    direct = equation.problem(mesh, bc).solve().u
+    iterative = equation.problem(mesh, bc).solve(backend=MinresBackend()).u
 
     assert np.abs(direct).max() > 0, "trivial solution; test proves nothing"
     np.testing.assert_allclose(iterative, direct, atol=1e-7 * np.abs(direct).max())
 
 
-def test_solver_uses_the_strategy_it_is_given(make_unit_square):
-    """A caller's `NewtonSolve` replaces the default; the facade adds no policy of its own."""
+def test_problem_solve_uses_the_strategy_it_is_given(make_unit_square):
+    """A caller's `NewtonSolve` replaces the default and reaches the same stretch."""
     mesh, equation, bc = _stretched_stvk(make_unit_square)
     plain = NewtonSolve(line_search=None)
-    solver = Solver(mesh, equation, bc, strategy=plain)
+    problem = equation.problem(mesh, bc)
 
-    assert solver.strategy is plain
-    reference = Solver(mesh, equation, bc).solve().u
-    np.testing.assert_allclose(solver.solve().u, reference, atol=1e-7 * np.abs(reference).max())
+    reference = problem.solve().u
+    np.testing.assert_allclose(problem.solve(strategy=plain).u, reference,
+                               atol=1e-7 * np.abs(reference).max())
+
+
+def test_newton_regularizes_for_the_backend_it_is_handed(make_unit_square):
+    """`regularization='auto'` shifts the tangent only under an iterative backend: a
+    St-VK stretch solved with MINRES matches the direct solve, and both match plain
+    Newton with regularization off."""
+    from fem.algebra.backends import DirectBackend, MinresBackend
+    mesh, equation, bc = _stretched_stvk(make_unit_square)
+    problem = equation.problem(mesh, bc)
+    newton = NewtonSolve(line_search=BacktrackingLineSearch())
+
+    direct = newton.solve(problem, backend=DirectBackend())
+    minres = newton.solve(problem, backend=MinresBackend())
+    off = NewtonSolve(line_search=BacktrackingLineSearch(), regularization=None).solve(problem)
+    tol = 1e-6 * np.abs(direct).max()
+    np.testing.assert_allclose(minres, direct, atol=tol)
+    np.testing.assert_allclose(off, direct, atol=tol)
 
 
 def test_regularization_leaves_an_spd_tangent_unshifted(make_unit_square):

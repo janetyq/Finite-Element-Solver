@@ -1,7 +1,7 @@
 """The figure and table of the outline-to-mesh demo, drawn from an `OutlineStudy`."""
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider
+from matplotlib.widgets import Button, Slider
 
 from fem.plot.plotter import Plotter
 from fem.plot.helpers import plot_mesh
@@ -29,9 +29,9 @@ def _explore_simplification(curve, save_file='douglas_peucker_output.json',
     sampled_plot = plt.plot(initial[:, 0], initial[:, 1], 'b-')[0]
     # Starting at zero would leave an untouched slider handing the full outline
     # downstream, which Ruppert's does not finish triangulating.
-    slider = Slider(plt.axes([0.15, 0.04, 0.6, 0.03]), 'Epsilon ', 0, d/20,
+    slider = Slider(plt.axes((0.15, 0.04, 0.6, 0.03)), 'Epsilon ', 0, d/20,
                     valinit=tolerance * d)
-    button = plt.Button(plt.axes([0.85, 0.04, 0.1, 0.04]), 'Save')
+    button = Button(plt.axes((0.85, 0.04, 0.1, 0.04)), 'Save')
 
     def update(val):
         dp = close_ring(douglas_peucker(curve, slider.val))

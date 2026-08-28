@@ -21,12 +21,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
 
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.fields import FieldShape, Scalar, Vector
 from fem.physics.forms import DiffusionForm, EnergyDensity, EnergyForm, Form, LinearElasticForm, MassForm
 from fem.physics.materials import LinearElasticMaterial
+from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 from fem.loads import Load, VolumeSource
 from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.space import FunctionSpace
@@ -34,12 +35,16 @@ from fem.typing import ElementField, FieldValue
 
 from fem.mesh.mesh import Mesh
 
+# The problem an equation builds, `LinearProblem[S]` for a constant tangent, else
+# `Problem[S]`, with `S` the solution its operator packages.
+P = TypeVar('P', bound=Problem[Any])
+
 if TYPE_CHECKING:
     from fem.boundary import BoundaryConditions
     from fem.elements import Element
 
 
-class Equation(ABC):
+class Equation(ABC, Generic[P]):
     '''Base class for a PDE to solve.
 
     An Equation says what to solve and carries the physical parameters; a solver
@@ -87,9 +92,10 @@ class Equation(ABC):
         domain: Mesh | FunctionSpace,
         bc: BoundaryConditions | None = None,
         element_type: type[Element] | None = None,
-    ) -> Problem:
+    ) -> P:
         '''The composition on `domain`: this operator, this source, `bc`. A
-        `LinearProblem` when the operator has a constant tangent.
+        `LinearProblem` when the operator has a constant tangent, which is what each
+        equation's `P` states.
 
         `domain` is a `Mesh`, discretized through `space(mesh, element_type)`, or a
         `FunctionSpace` with the component count this equation's field implies.
@@ -108,16 +114,18 @@ class Equation(ABC):
         else:
             space = self.space(domain, element_type)
         operator = self.operator(space)
+        # The class follows the operator's tangent, which is what the subclass's `P`
+        # declares; the one cast in the package, checked by the LinearProblem constructor.
         cls = LinearProblem if operator.constant_tangent else Problem
-        return cls(space, operator, self.source, bc, density=self.density,
-                   loads=self.loads, damping=self.damping, time_orders=self.time_orders)
+        return cast(P, cls(space, operator, self.source, bc, density=self.density,
+                           loads=self.loads, damping=self.damping, time_orders=self.time_orders))
 
     @abstractmethod
-    def operator(self, space: FunctionSpace) -> Form:
+    def operator(self, space: FunctionSpace) -> Form[Any]:
         '''The form a solve assembles for this equation on `space`.'''
 
 
-class Projection(Equation):
+class Projection(Equation[LinearProblem[FieldSolution]]):
     '''L2 projection of the source field onto the FE space (M u = b): a utility for
     putting a field on the mesh, not a PDE.'''
     time_orders = frozenset({0})
@@ -125,11 +133,11 @@ class Projection(Equation):
     def __init__(self, source: FieldValue | VolumeSource = None, loads: tuple[Load, ...] = ()) -> None:
         super().__init__(source, loads=loads)
 
-    def operator(self, space: FunctionSpace) -> Form:
+    def operator(self, space: FunctionSpace) -> MassForm:
         return MassForm(space.n_components)
 
 
-class Poisson(Equation):
+class Poisson(Equation[LinearProblem[ScalarFieldSolution]]):
     '''Poisson's equation −∇·(κ∇u) = f, Laplace's at f = 0: the steady scalar
     conservation law. `coefficient` is κ, a constant or a callable of position (a
     conductivity, a permittivity, a permeability). Its transient relatives are `Heat`
@@ -145,11 +153,11 @@ class Poisson(Equation):
         super().__init__(source, loads=loads)
         self.coefficient = coefficient
 
-    def operator(self, space: FunctionSpace) -> Form:
+    def operator(self, space: FunctionSpace) -> DiffusionForm:
         return DiffusionForm(self.coefficient)
 
 
-class Heat(Equation):
+class Heat(Equation[LinearProblem[ScalarFieldSolution]]):
     '''The heat equation ρ ∂u/∂t − ∇·(κ∇u) = f, stepped by a `ThetaMethod`.
     `conductivity` is κ (a constant or a callable of position) and `capacity` the
     volumetric heat capacity ρ on the time derivative. Its steady state is
@@ -170,11 +178,11 @@ class Heat(Equation):
     def capacity(self) -> float:
         return self.density
 
-    def operator(self, space: FunctionSpace) -> Form:
+    def operator(self, space: FunctionSpace) -> DiffusionForm:
         return DiffusionForm(self.conductivity)
 
 
-class Wave(Equation):
+class Wave(Equation[LinearProblem[ScalarFieldSolution]]):
     '''The wave equation ρ ∂²u/∂t² − ∇·(T∇u) = f, stepped by a `NewmarkMethod`.
     `stiffness` is T (a membrane's tension, a constant or a callable of position) and
     `density` ρ, so the wave speed is √(T/ρ). Its steady state is
@@ -192,11 +200,11 @@ class Wave(Equation):
         super().__init__(source, density, damping, loads)
         self.stiffness = stiffness
 
-    def operator(self, space: FunctionSpace) -> Form:
+    def operator(self, space: FunctionSpace) -> DiffusionForm:
         return DiffusionForm(self.stiffness)
 
 
-class Elasticity(Equation):
+class Elasticity(Equation[P]):
     '''Base of the elastic equations: a vector unknown with Young's modulus `E`,
     Poisson's ratio `nu`, and a mass `density`. Static (order 0) or, under a
     `NewmarkMethod`, elastodynamic (order 2). `LinearElastic` and
@@ -232,7 +240,7 @@ class Elasticity(Equation):
         return float(self.E)
 
 
-class LinearElastic(Elasticity):
+class LinearElastic(Elasticity[LinearProblem[ElasticSolution]]):
     '''Small-strain linear elasticity: the infinitesimal strain `ε = ½(∇u + ∇uᵀ)`
     under Hooke's law, a constant stiffness solved in one linear solve. `E` may be a
     scalar or a per-element array (a SIMP density-scaled modulus).'''
@@ -241,7 +249,7 @@ class LinearElastic(Elasticity):
     def material(self) -> LinearElasticMaterial:
         return LinearElasticMaterial(self.E, self.nu)
 
-    def operator(self, space: FunctionSpace) -> Form:
+    def operator(self, space: FunctionSpace) -> LinearElasticForm:
         return LinearElasticForm(self.material)
 
     def energy_density(self) -> SmallStrain:
@@ -249,7 +257,7 @@ class LinearElastic(Elasticity):
         return SmallStrain(self._scalar_modulus(), self.nu)
 
 
-class FiniteStrainElastic(Elasticity):
+class FiniteStrainElastic(Elasticity[Problem[ElasticSolution]]):
     '''Finite-strain elasticity on the Green-Lagrange strain `S = ½(FᵀF − I)`, a
     stored energy minimised by Newton. `law` builds the energy density from `(E, nu)`;
     St-Venant-Kirchhoff by default.'''
@@ -267,7 +275,7 @@ class FiniteStrainElastic(Elasticity):
         super().__init__(E, nu, source, density, damping, loads)
         self.law = law
 
-    def operator(self, space: FunctionSpace) -> Form:
+    def operator(self, space: FunctionSpace) -> EnergyForm:
         return EnergyForm(self.energy_density())
 
     def energy_density(self) -> EnergyDensity:

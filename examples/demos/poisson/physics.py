@@ -14,7 +14,6 @@ from fem.physics.equations import Poisson
 from fem.mesh.mesh import Mesh
 from fem.regions import on_plane
 from fem.post.solution import ScalarFieldSolution
-from fem.solver import Solver
 
 from domains import airfoil_channel_pslg
 
@@ -58,7 +57,6 @@ def run(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0, n_points=80, mi
         Dirichlet(on_plane(0, length), 1.0),
     )
 
-    solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
-    solution = solver.solve()
-    assert isinstance(solution, ScalarFieldSolution)
+    problem = equation.problem(mesh, bc, element_type=QuadraticTriangleElement)
+    solution = problem.solve()
     return FlowStudy(angle_of_attack, mesh, bc, solution)

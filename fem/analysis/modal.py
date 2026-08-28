@@ -22,6 +22,7 @@ are set by geometry and supports alone.
 """
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -53,7 +54,7 @@ class ModalAnalysis:
         if self.n_modes < 1:
             raise ValueError(f'n_modes must be at least 1, got {self.n_modes}')
 
-    def solve(self, problem: LinearProblem) -> ModalSolution:
+    def solve(self, problem: LinearProblem[Any]) -> ModalSolution:
         '''The modal frequencies and mode shapes of `problem`'s stiffness and supports.'''
         if not problem.is_linear:
             raise TypeError(

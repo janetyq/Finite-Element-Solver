@@ -1,6 +1,6 @@
 """MMS validation of linear elasticity in 2D and 3D.
 
-The solver assembles K from B^T D B and solves K u = M f, the weak form of
+The problem assembles K from B^T D B and solves K u = M f, the weak form of
 
     -div(sigma(u)) = f,     sigma = 2 mu eps(u) + lambda tr(eps(u)) I
 
@@ -21,7 +21,6 @@ from fem.physics.materials import Enu_to_Lame
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
 from fem.physics.equations import LinearElastic
-from fem.solver import Solver
 
 E, NU = 200.0, 0.3
 MU, LAMB = Enu_to_Lame(E, NU)
@@ -59,12 +58,12 @@ def _solve_2d(n):
         ]
 
     bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
-    solver = Solver(mesh, LinearElastic(E=E, nu=NU, source=source), bc)
-    solution = solver.solve()
+    problem = LinearElastic(E=E, nu=NU, source=source).problem(mesh, bc)
+    solution = problem.solve()
 
     exact = np.zeros((len(mesh.vertices), 2))
     exact[:, 0] = np.sin(PI * mesh.vertices[:, 0]) * np.sin(PI * mesh.vertices[:, 1])
-    return 1.0 / (n - 1), _l2_error(solver.space, solution.u, exact)
+    return 1.0 / (n - 1), _l2_error(problem.space, solution.u, exact)
 
 
 @pytest.fixture(scope='module')
@@ -85,7 +84,7 @@ def test_2d_second_order(convergence_2d):
 # --------------------------------------------------------------------------
 
 def _solve_3d(n):
-    # No element type to state: Solver reads it off the connectivity.
+    # No element type to state: the equation reads it off the connectivity.
     # n vertices per side, so h = 1/(n-1) and the mesh has 6(n-1)^3 tets.
     mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
 
@@ -102,13 +101,13 @@ def _solve_3d(n):
     # system (proven equivalent in test_linalg) but stays cheap on the fine meshes
     # this sequence needs, and it is what the convergence measures -- the assembly --
     # regardless of how the block is solved.
-    solver = Solver(mesh, LinearElastic(E=E, nu=NU, source=source), bc, backend=IterativeBackend())
-    solution = solver.solve()
+    problem = LinearElastic(E=E, nu=NU, source=source).problem(mesh, bc)
+    solution = problem.solve(backend=IterativeBackend())
 
     v = mesh.vertices
     exact = np.zeros((len(v), 3))
     exact[:, 0] = np.sin(PI * v[:, 0]) * np.sin(PI * v[:, 1]) * np.sin(PI * v[:, 2])
-    return 1.0 / (n - 1), _l2_error(solver.space, solution.u, exact)
+    return 1.0 / (n - 1), _l2_error(problem.space, solution.u, exact)
 
 
 @pytest.fixture(scope='module')

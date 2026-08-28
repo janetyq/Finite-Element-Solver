@@ -18,7 +18,6 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.svg import (
     PSLG, read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker)
 from fem.regions import everywhere
-from fem.solver import Solver
 
 from domains import gear_pslg, star_pslg
 
@@ -85,7 +84,7 @@ def zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE) -> list[tuple[str
 
 def dome(mesh: Mesh) -> np.ndarray:
     """Solve -div(grad u) = 1 with u = 0 on every boundary of `mesh`."""
-    return Solver(mesh, dome_equation, dome_bc).solve().u
+    return dome_equation.problem(mesh, dome_bc).solve().u
 
 
 @dataclass

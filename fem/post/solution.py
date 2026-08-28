@@ -9,13 +9,15 @@ reflects over the dataclass fields.
 points up and stays function-local.
 """
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 import numpy as np
 
 from fem.post import invariants
 from fem.post import recovery
 from fem.typing import DofVector, ElementField, FloatArray
+
+S = TypeVar('S', bound='FieldSolution')   # the steady solution a step packages
 
 if TYPE_CHECKING:
     from fem.elements import Element
@@ -272,7 +274,7 @@ class ModalSolution(Solution):
 
 
 @dataclass(frozen=True, eq=False)
-class TransientSolution(Solution):
+class TransientSolution(Solution, Generic[S]):
     '''A time series: the times t and the field u at each step.
 
     `problem` is the problem it was stepped from, kept so `at(i)` can package a step
@@ -281,22 +283,23 @@ class TransientSolution(Solution):
     '''
     t: FloatArray
     u: list[DofVector]
-    problem: 'Problem | None' = field(
+    problem: 'Problem[S] | None' = field(
         default=None, kw_only=True, repr=False, metadata={'persist': False})
 
-    def at(self, i: int) -> FieldSolution:
-        '''Step `i` as a steady solution, with the derived field the problem recovers.'''
+    def at(self, i: int) -> S:
+        '''Step `i` as a steady solution, with the derived field the problem recovers.
+        A loaded series (no problem) packages a bare `FieldSolution`.'''
         if self.problem is None:
-            return FieldSolution(self.space, self.u[i])
+            return cast(S, FieldSolution(self.space, self.u[i]))
         return self.problem.solution(self.u[i])
 
     @property
-    def final(self) -> FieldSolution:
+    def final(self) -> S:
         '''The last step, packaged; see `at`.'''
         return self.at(-1)
 
 
 @dataclass(frozen=True, eq=False)
-class WaveSolution(TransientSolution):
+class WaveSolution(TransientSolution[S]):
     '''A time series that also carries the velocity du/dt at each step.'''
     dudt: list[DofVector]

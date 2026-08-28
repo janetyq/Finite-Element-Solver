@@ -11,8 +11,7 @@ import numpy as np
 from fem.elements import QuadraticTriangleElement
 from fem.physics.equations import Projection
 from fem.mesh.mesh import Mesh
-from fem.post.solution import Solution
-from fem.solver import Solver
+from fem.post.solution import FieldSolution
 
 
 def target(point):
@@ -21,17 +20,17 @@ def target(point):
     return [np.sin(40 * (x**2 + y**2))]
 
 
-def project(mesh, element_type=None) -> Solution:
+def project(mesh, element_type=None) -> FieldSolution:
     """The L2 projection of `target` onto the mesh's space of the given element."""
-    return Solver(mesh, Projection(source=target), element_type=element_type).solve()
+    return Projection(source=target).problem(mesh, element_type=element_type).solve()
 
 
 @dataclass
 class ProjectionStudy:
     """Everything `run` computed, for the figure to read."""
     mesh: Mesh
-    p1: Solution
-    p2: Solution
+    p1: FieldSolution
+    p2: FieldSolution
 
 
 def run(mesh) -> ProjectionStudy:

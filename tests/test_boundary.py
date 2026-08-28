@@ -9,7 +9,6 @@ import pytest
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
 from fem.physics.equations import LinearElastic
 from fem.regions import at_indices, intersect, on_plane
-from fem.solver import Solver
 
 
 def test_partial_pin_leaves_the_other_component_free(make_unit_square):
@@ -22,7 +21,7 @@ def test_partial_pin_leaves_the_other_component_free(make_unit_square):
         Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0]),
         Neumann(on_plane(0, 1.0), [1.0, 0]),
     )
-    solution = Solver(mesh, LinearElastic(E=200, nu=0.3), bc).solve()
+    solution = LinearElastic(E=200, nu=0.3).problem(mesh, bc).solve()
 
     u = solution.u.reshape(-1, 2)
     left = np.flatnonzero(mesh.vertices[:, 0] == 0.0)

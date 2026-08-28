@@ -14,7 +14,6 @@ from fem.physics.equations import LinearElastic
 from fem.physics.forms import EnergyForm, LinearElasticForm
 from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.regions import on_plane
-from fem.solver import Solver
 
 E, NU = 210.0, 0.3
 REFERENCE_TRIANGLE = np.array([[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]])
@@ -38,17 +37,17 @@ def _cantilever_bc() -> BoundaryConditions:
 
 
 def _solved(mesh):
-    solver = Solver(mesh, LinearElastic(E=1.0, nu=0.3), _cantilever_bc())
-    return solver, solver.solve()
+    problem = LinearElastic(E=1.0, nu=0.3).problem(mesh, _cantilever_bc())
+    return problem, problem.solve()
 
 
 def test_element_compliance_sums_to_the_strain_energy_form(make_unit_square):
     """sum_e int sigma:epsilon == u^T K u. A dropped factor of two on the shear terms or a
     mismatched Voigt ordering breaks the identity."""
     mesh = make_unit_square(8)
-    solver, solution = _solved(mesh)
+    problem, solution = _solved(mesh)
 
-    K = solver.problem().tangent(None)
+    K = problem.tangent(None)
     np.testing.assert_allclose(
         solution.compliance.sum(), solution.u @ (K @ solution.u), rtol=1e-10
     )
@@ -63,7 +62,7 @@ def test_compliance_is_positive_and_finite(make_unit_square):
 
 
 def test_solver_and_design_model_recover_the_same_fields(make_unit_square):
-    """`Solver` and `SIMPModel` recover the same fields: at a uniform unit density the
+    """`Problem.solve` and `SIMPModel` recover the same fields: at a uniform unit density the
     diluted problem is the plain elastic solve."""
     from fem.analysis.design import SIMPModel
     from fem.algebra.solve import LinearSolve

@@ -1,7 +1,7 @@
 """The Method of Manufactured Solutions: check the discretization against an answer
 that is known exactly. It runs backwards from an ordinary solve: the exact solution
 u is chosen first and the forcing f (and boundary data) derived from it, so the answer
-is known before the solver runs, and the solver never sees it.
+is known before the problem runs, and the problem never sees it.
 
 The manufactured solution is picked for convenience, not physics. What it establishes
 is that assembly, boundary handling, and the solve together reproduce a known field,
@@ -38,9 +38,7 @@ from fem.mesh.structured import annulus_mesh, box_mesh
 from fem.loads import NodalSource, Source
 from fem.problem import LinearProblem
 from fem.regions import everywhere
-from fem.post.solution import FieldSolution, TransientSolution
 from fem.algebra.solve import LinearSolve
-from fem.solver import Solver
 from fem.space import FunctionSpace
 from fem.typing import FloatArray, Vertices, VertexField
 
@@ -128,7 +126,7 @@ class MMSSolve:
     """One solve of the manufactured problem, and how far off it came out."""
     h: float                   # grid spacing
     mesh: Mesh
-    u: VertexField             # what the solver computed
+    u: VertexField             # what the problem computed
     exact: VertexField         # the manufactured solution at the same nodes
     l2_error: float            # ||u - exact||_L2, the number a study plots
     h1_error: float | None = None  # ||grad(u - exact)||_L2, where a closed-form gradient exists
@@ -182,11 +180,8 @@ def solve_poisson_mms(n: int) -> MMSSolve:
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    solver = Solver(mesh, Poisson(source=source_term), bc)
-    # Poisson is a scalar field equation, so this is a FieldSolution; `solve` declares
-    # the base Solution, which carries no `u`.
-    solution = solver.solve()
-    assert isinstance(solution, FieldSolution)
+    problem = Poisson(source=source_term).problem(mesh, bc)
+    solution = problem.solve()
     u = solution.u
 
     exact = exact_solution(mesh.vertices)
@@ -195,8 +190,8 @@ def solve_poisson_mms(n: int) -> MMSSolve:
         mesh=mesh,
         u=u,
         exact=exact,
-        l2_error=l2_norm(solver.space, u - exact),
-        h1_error=h1_seminorm_error(solver.space, u, exact_gradient),
+        l2_error=l2_norm(problem.space, u - exact),
+        h1_error=h1_seminorm_error(problem.space, u, exact_gradient),
     )
 
 
@@ -241,9 +236,8 @@ def solve_elastic_mms(n: int) -> MMSSolve:
 
     bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
     equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
-    solver = Solver(mesh, equation, bc)
-    solution = solver.solve()
-    assert isinstance(solution, FieldSolution)
+    problem = equation.problem(mesh, bc)
+    solution = problem.solve()
 
     exact = elastic_exact(mesh.vertices)
     # The space's mass matrix is the scalar one repeated per component, so this is
@@ -254,7 +248,7 @@ def solve_elastic_mms(n: int) -> MMSSolve:
         mesh=mesh,
         u=solution.u,
         exact=exact.flatten(),
-        l2_error=l2_norm(solver.space, error.flatten()),
+        l2_error=l2_norm(problem.space, error.flatten()),
     )
 
 
@@ -434,10 +428,9 @@ def solve_annulus_mms(
     mesh = annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
 
     bc = BoundaryConditions(Dirichlet(everywhere(), lambda p: [float(annulus_exact(np.asarray(p)))]))
-    solver = Solver(mesh, Poisson(source=annulus_source), bc, element_type=element_type)
-    solution = solver.solve()
-    assert isinstance(solution, FieldSolution)
-    space = solver.space
+    problem = Poisson(source=annulus_source).problem(mesh, bc, element_type=element_type)
+    solution = problem.solve()
+    space = problem.space
 
     exact = annulus_exact(space.node_coords)
     return MMSSolve(
@@ -558,10 +551,7 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
 
     errors = []
     for steps in sorted(step_counts):
-        # A time-stepped solve returns a TransientSolution; `run` declares the base
-        # Solution, which carries no series.
         run = ThetaMethod(dt=T / steps, steps=steps, theta=theta).solve(problem, u0.copy())
-        assert isinstance(run, TransientSolution)
         u_h = run.u[-1]
         errors.append(l2_norm(problem.space, u_h - reference))
 

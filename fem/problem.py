@@ -42,7 +42,7 @@ consume a `Problem`, so the edge points up and stays function-local.
 """
 import copy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from fem.boundary import BoundaryConditions, ResolvedBC
 from fem.physics.forms import BoundaryMassForm, Form
@@ -50,6 +50,10 @@ from fem.loads import BoundaryLoad, EvaluatedLoad, Load, NodalSource, Source, Vo
 from fem.post.solution import FieldSolution
 from fem.space import FunctionSpace
 from fem.typing import Constraints, DofVector, FieldValue, FloatArray, Operator
+
+S = TypeVar('S', bound=FieldSolution)     # the solution the operator packages
+S2 = TypeVar('S2', bound=FieldSolution)
+P = TypeVar('P', bound='Problem[Any]')      # the problem's own type, for copies
 
 if TYPE_CHECKING:
     from fem.algebra.backends import Backend
@@ -74,7 +78,7 @@ class RayleighDamping:
         return self.alpha * mass + self.beta * stiffness
 
 
-class Problem:
+class Problem(Generic[S]):
     '''R(u) = 0: an operator, a load, and boundary conditions on one space.
 
     `source` is the volume load: a field or a `Source`, kept as the normalized load
@@ -87,12 +91,15 @@ class Problem:
     reads, or None. `time_orders` is the set of time-derivative orders the problem has
     a meaning for (an `Equation`'s; every order for a problem composed by hand), which
     `solve` and the integrators check.
+
+    `S` is the typed `Solution` the operator packages (`Form[S]`), so `solve` and
+    `solution` return it: `Problem[ElasticSolution]` for an elastic operator.
     '''
 
     def __init__(
         self,
         space: FunctionSpace,
-        operator: Form,
+        operator: Form[S],
         source: FieldValue | VolumeSource = None,
         bc: BoundaryConditions | None = None,
         density: float = 1.0,
@@ -113,12 +120,12 @@ class Problem:
         # ∫_Γ g·v on the load, each over the region's facets. The operator half is a
         # term of the operator, so every consumer of `operator` sees it; `physics` is
         # the form the problem was stated with, for a driver that rebuilds it.
-        self.physics = operator
+        self.physics: Form[S] = operator
         self._boundary_terms: tuple[Form, ...] = tuple(
             robin.kappa * BoundaryMassForm(space.n_components, robin.facet_mask)
             for robin in self._resolved.robin
         )
-        self.operator: Form = self._with_boundary_terms(operator)
+        self.operator: Form[S] = self._with_boundary_terms(operator)
 
         # Callers pass only the volume source; the BC resolution supplies the traction
         # terms, one masked boundary integral per condition so a traction stays on its
@@ -152,7 +159,7 @@ class Problem:
             return False
         return any(term.is_time_dependent for term in self.loads) or self.bc.is_time_dependent
 
-    def at(self, t: float) -> 'Problem':
+    def at(self: P, t: float) -> P:
         '''This problem with every time-dependent value fixed at time `t`: a steady
         problem sharing the space, operator, and boundary integrals.'''
         if not self.is_time_dependent:
@@ -228,7 +235,7 @@ class Problem:
     def load(self) -> DofVector:
         return self._b
 
-    def with_operator(self, operator: Form) -> 'Problem':
+    def with_operator(self, operator: Form[S2]) -> 'Problem[S2]':
         '''The same problem stated with a different physics operator.
 
         Which DOFs are constrained and what the load is follow from the boundary
@@ -241,16 +248,24 @@ class Problem:
         A new problem rather than a mutation: the two share the constraints and load
         they agree on, and nothing here writes to either.
         '''
-        derived = copy.copy(self)
-        derived.physics = operator
-        derived.operator = self._with_boundary_terms(operator)
-        # The copy carries this problem's assembled operator and damping, which are
-        # precisely what the derived one must not answer with.
-        derived._A = None
-        derived._C = None
+        derived = self._copy()
+        derived._restate(operator)
         return derived
 
-    def _with_boundary_terms(self, physics: Form) -> Form:
+    def _copy(self) -> 'Problem[Any]':
+        '''A shallow copy whose type parameter is left open, for `with_operator`.'''
+        return copy.copy(self)
+
+    def _restate(self, operator: Form[Any]) -> None:
+        '''Rebind a copy to `operator`; its type parameter is the operator's.'''
+        self.physics = operator
+        self.operator = self._with_boundary_terms(operator)
+        # The copy carries the original's assembled operator and damping, which are
+        # precisely what the derived one must not answer with.
+        self._A = None
+        self._C = None
+
+    def _with_boundary_terms(self, physics: Form[S2]) -> Form[S2]:
         operator = physics
         for term in self._boundary_terms:
             operator = operator + term
@@ -290,7 +305,7 @@ class Problem:
             return float(0.5 * u @ (self.tangent() @ u) - self._b @ u)
         return float(self.space.total_energy(self.operator, u) - self._b @ u)
 
-    def solution(self, u: DofVector) -> FieldSolution:
+    def solution(self, u: DofVector) -> S:
         '''The typed `Solution` the operator recovers: an `ElasticSolution` for an
         operator that recovers stress, a `ScalarFieldSolution` for one naming a flux
         (Poisson's gradient), else a bare `FieldSolution` (a projection).'''
@@ -302,17 +317,16 @@ class Problem:
         backend: 'Backend | None' = None,
         u0: DofVector | None = None,
         t: float | None = None,
-    ) -> FieldSolution:
+    ) -> S:
         '''Solve and package the result as the typed `Solution` for this operator.
 
-        `strategy` None is `default_strategy`: `LinearSolve` for a constant tangent,
-        line-searched `NewtonSolve` otherwise, over `backend`. A strategy carries its
-        own backend, so the two are not given together. `u0` seeds an iterative
-        strategy. A time-dependent problem is solved as its snapshot `at(t)`, so `t`
-        is required for one; an integrator steps it instead.
+        `strategy` is how the problem is iterated (`LinearSolve`, `NewtonSolve`); None is
+        `default_strategy`, `LinearSolve` for a constant tangent and line-searched
+        `NewtonSolve` otherwise. `backend` is how each linear system on the way is solved
+        (direct by default); the two are independent choices. `u0` seeds an iterative
+        strategy. A time-dependent problem is solved as its snapshot `at(t)`, so `t` is
+        required for one; an integrator steps it instead.
         '''
-        if strategy is not None and backend is not None:
-            raise ValueError('a strategy carries its own backend; pass one or the other')
         if 0 not in self.time_orders:
             raise TypeError(
                 f'a steady solve needs time order 0; this problem allows {sorted(self.time_orders)}. '
@@ -327,8 +341,8 @@ class Problem:
             return self.at(t).solve(strategy, backend, u0)
         if strategy is None:
             from fem.algebra.solve import default_strategy
-            strategy = default_strategy(self, backend)
-        return self.solution(strategy.solve(self, u0))
+            strategy = default_strategy(self)
+        return self.solution(strategy.solve(self, u0, backend=backend))
 
     def near_null_space(self) -> FloatArray | None:
         '''The operator's AMG near-kernel over all DOFs, or None.
@@ -339,7 +353,7 @@ class Problem:
         return self.operator.near_null_space(self.space)
 
 
-class LinearProblem(Problem):
+class LinearProblem(Problem[S]):
     '''a(u, v) = L(v): a `Problem` whose operator has a constant tangent.
 
     The type every consumer that needs one fixed operator asks for. `tangent()` with
@@ -349,7 +363,7 @@ class LinearProblem(Problem):
     def __init__(
         self,
         space: FunctionSpace,
-        operator: Form,
+        operator: Form[S],
         source: FieldValue | VolumeSource = None,
         bc: BoundaryConditions | None = None,
         density: float = 1.0,
@@ -364,9 +378,12 @@ class LinearProblem(Problem):
             )
         super().__init__(space, operator, source, bc, density, loads, damping, time_orders)
 
-    def with_operator(self, operator: Form) -> 'LinearProblem':
+    def with_operator(self, operator: Form[S2]) -> 'LinearProblem[S2]':
         if not operator.constant_tangent:
             raise TypeError(f'{type(operator).__name__} has a state-dependent tangent')
-        derived = super().with_operator(operator)
-        assert isinstance(derived, LinearProblem)
+        derived = self._copy()
+        derived._restate(operator)
         return derived
+
+    def _copy(self) -> 'LinearProblem[Any]':
+        return copy.copy(self)

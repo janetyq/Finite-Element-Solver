@@ -29,7 +29,7 @@ from fem.analysis.sensitivity import (
     QuantityOfInterest,
     SensitivityAnalysis,
 )
-from fem.post.solution import ElasticSolution
+from fem.post.solution import ElasticSolution, FieldSolution
 from fem.space import FunctionSpace
 from fem.typing import DofVector, ElementField, FloatArray, SparseMatrix
 
@@ -142,7 +142,7 @@ class SIMPModel:
     `sensitivity_filter` is the SIMP cone filter (`calculate_smoothing_matrix`), applied
     to the raw sensitivity by the optimizer.
     '''
-    template: LinearProblem
+    template: LinearProblem[ElasticSolution]
     penalty: float = 3.0
     sensitivity_filter: SparseMatrix | None = None
     _material: LinearElasticMaterial = field(init=False, repr=False)
@@ -179,7 +179,7 @@ class SIMPModel:
     def parameterization(self, rho: ElementField) -> DensityField:
         return self._density.with_density(rho)
 
-    def problem(self, rho: ElementField) -> LinearProblem:
+    def problem(self, rho: ElementField) -> LinearProblem[FieldSolution]:
         '''The elastic problem at density `rho`, its stiffness rescaled by `rho^p`.'''
         dilution = np.asarray(rho, dtype=float) ** self.penalty
         stiffness = PrecomputedForm(dilution[:, None, None] * self._density._K0)

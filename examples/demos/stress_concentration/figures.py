@@ -21,7 +21,7 @@ def _pipeline_figure(s: PlateStudy) -> Figure:
                 color='0.55', linewidth=0.2, zorder=1.5)
     # The input segments over the triangulation: which of the outline the mesher kept.
     ax0.add_collection(LineCollection(
-        s.pslg.vertices[s.pslg.segments], colors='blue', linewidths=1.0, zorder=2.0))
+        list(s.pslg.vertices[s.pslg.segments]), colors='blue', linewidths=1.0, zorder=2.0))
     # Passing the solution draws the P2 field on its own tessellation, rim and all.
     figure.plot(s.solution, s.sigma_xx, mode='colored', idx=(0, 1), label='sigma_xx',
                 title='Stress concentration (sigma_xx)')

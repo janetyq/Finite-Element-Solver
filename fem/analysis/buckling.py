@@ -19,6 +19,7 @@ import numpy as np
 from fem.physics.forms import GeometricStiffnessForm
 from fem.problem import LinearProblem
 from fem.post.solution import BucklingSolution, ElasticSolution
+from fem.algebra.backends import Backend
 from fem.algebra.solve import EigenSolve, LinearSolve
 from fem.typing import FloatArray
 
@@ -45,8 +46,10 @@ class BucklingAnalysis:
         if self.n_modes < 1:
             raise ValueError(f'n_modes must be at least 1, got {self.n_modes}')
 
-    def solve(self, problem: LinearProblem) -> BucklingSolution:
-        '''The buckling factors and modes about the problem's reference solve.'''
+    def solve(self, problem: LinearProblem[ElasticSolution],
+              backend: Backend | None = None) -> BucklingSolution:
+        '''The buckling factors and modes about the problem's reference solve, which
+        runs over `backend` (direct by default).'''
         if not problem.is_linear:
             raise TypeError(
                 'linearised buckling needs a constant tangent (the small-strain stiffness); '
@@ -54,7 +57,7 @@ class BucklingAnalysis:
             )
         logger.info('Buckling: reference solve for the prestress state...')
         space = problem.space
-        reference = problem.solve(LinearSolve())
+        reference = problem.solve(LinearSolve(), backend=backend)
         if not isinstance(reference, ElasticSolution):
             raise TypeError('buckling needs the recovered stress; got a bare FieldSolution')
 

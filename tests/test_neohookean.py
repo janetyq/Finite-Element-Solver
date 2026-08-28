@@ -20,7 +20,6 @@ from fem.numerics import central_difference_order
 from fem.regions import on_plane
 from fem.post.solution import ElasticSolution
 from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
-from fem.solver import Solver
 
 
 @pytest.mark.parametrize('d', [2, 3])
@@ -81,7 +80,7 @@ def _stretched(make_unit_square, model, stretch, n=8, **kw):
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, 1.0), [stretch, 0]),
     )
-    return Solver(mesh, model(E=200, nu=0.4, **kw), bc).solve().u
+    return model(E=200, nu=0.4, **kw).problem(mesh, bc).solve().u
 
 
 def test_neohookean_agrees_with_small_strain_to_second_order(make_unit_square):
@@ -109,8 +108,7 @@ def test_neohookean_solve_converges_and_reports_stress(make_unit_square):
         Dirichlet(on_plane(0, 1.0), [0.3, 0.1]),
     )
     equation = FiniteStrainElastic(E=200, nu=0.4, law=NeohookeanEnergyDensity)
-    solution = Solver(mesh, equation, bc,
-                      strategy=NewtonSolve(line_search=BacktrackingLineSearch())).solve()
+    solution = equation.problem(mesh, bc).solve(strategy=NewtonSolve(line_search=BacktrackingLineSearch()))
 
     assert isinstance(solution, ElasticSolution)
     vm = solution.nodal_von_mises()
@@ -118,7 +116,7 @@ def test_neohookean_solve_converges_and_reports_stress(make_unit_square):
     assert vm.max() > 0.0
     # A large stretch really engages the nonlinearity, so it disagrees with the small-strain
     # answer by well more than roundoff.
-    u_small = Solver(mesh, LinearElastic(E=200, nu=0.4), bc).solve().u
+    u_small = LinearElastic(E=200, nu=0.4).problem(mesh, bc).solve().u
     rel = np.linalg.norm(solution.u.flatten() - u_small.flatten()) / np.linalg.norm(u_small)
     assert rel > 1e-3, f"finite-strain answer should differ from small strain, got rel={rel:.2e}"
 
@@ -132,7 +130,7 @@ def test_neohookean_on_p2_converges(make_unit_square):
         Dirichlet(on_plane(0, 2.0), [0.3, 0.15]),
     )
     equation = FiniteStrainElastic(200.0, 0.3, law=NeohookeanEnergyDensity)
-    solution = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement).solve()
+    solution = equation.problem(mesh, bc, element_type=QuadraticTriangleElement).solve()
 
     assert isinstance(solution, ElasticSolution)
     assert solution.element_type is QuadraticTriangleElement
