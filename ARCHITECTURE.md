@@ -53,6 +53,11 @@ element; a Neumann traction or a Robin value is a `Traction` over its region's f
 is a `PointLoad`, passed through `Equation(loads=...)` or `Problem(loads=...)`. A DOF vector built by
 hand (an initial condition, a comparison field) is `space.interpolate(value)`, nodal on P2 as well.
 
+Boundary conditions are objects: `Dirichlet(region, value)`, `Neumann(region, traction)`, and
+`Robin(region, kappa, g)`, collected by `BoundaryConditions(*conditions)` or `bc + condition`,
+both frozen. Each condition resolves itself against a node set (`condition.resolve`), and a
+`Dirichlet` value may leave a component `None` (free) for a roller.
+
 Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
 names the `domain` it integrates over (the elements or the boundary facets), so a Robin condition
 is `kappa * MaskedMassForm(mask)` added to the physics form and assembled beside it.
@@ -323,7 +328,9 @@ through `fem/io`.
 ## The recurring pattern
 
 `fem/regions.py` + `fem/boundary.py` is the model: a mesh-independent specification
-(`BoundaryConditions`) separated from its resolution against one discretization (`ResolvedBC`,
-frozen, keyed by mesh and component count). The same shape recurs: `FunctionSpace` is the resolved
+(`BoundaryConditions`, a frozen tuple of `Condition`s) separated from its resolution against one
+discretization (`ResolvedBC`, frozen, keyed by node set and component count), with the
+time-dependent values a second, cheaper step on the resolution (`ResolvedBC.at(t)`). The same
+shape recurs: `FunctionSpace` is the resolved
 discretization, `Form` the resolved view of an `Equation`'s physics, `Problem` the resolved
 composition, and `LinearSolver` a `Backend` resolved against one matrix.

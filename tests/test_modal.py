@@ -12,7 +12,7 @@ that Euler-Bernoulli omits, so the frequencies sit a hair below the beam-theory 
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet
 from fem.elements import QuadraticTriangleElement
 from fem.equations import LinearElastic, FiniteStrainElastic
 from fem.mesh.structured import create_rect_mesh
@@ -36,7 +36,7 @@ def cantilever(length, height=1.0, n_length=48, n_across=6):
 def clamped_bc():
     """Fixed-free: one end clamped, the rest free, no load."""
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
     return bc
 
 

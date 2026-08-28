@@ -8,7 +8,7 @@ so a passing rate is strong evidence the whole P2 path is correct.
 import numpy as np
 import pytest
 
-from fem.boundary import BCType, BoundaryConditions
+from fem.boundary import BoundaryConditions, Dirichlet
 from fem.convergence import (
     ConvergenceStudy,
     elastic_p2_convergence,
@@ -69,7 +69,7 @@ def test_p2_reproduces_a_linear_displacement_and_its_constant_stress():
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
 
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), lambda p: [a * p[0], 0.0])
+    bc = bc + Dirichlet(everywhere(), lambda p: [a * p[0], 0.0])
     problem = LinearProblem(space, LinearElasticForm(LinearElasticMaterial(E, nu)), None, bc)
     u = LinearSolve().solve(problem)
 
@@ -94,7 +94,7 @@ def test_p2_is_reachable_through_the_solver_facade():
 
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = bc + Dirichlet(everywhere(), 0.0)
     source = lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]  # noqa: E731
     solver = Solver(mesh, Poisson(source=source), bc, element_type=QuadraticTriangleElement)
     solution = solver.solve()

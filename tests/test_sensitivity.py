@@ -5,7 +5,7 @@ self-adjoint and a non-self-adjoint quantity of interest.
 """
 import numpy as np
 
-from fem.boundary import BCType, BoundaryConditions
+from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.forms import LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
@@ -24,8 +24,8 @@ def _cantilever_bc():
     """Clamp the left edge, pull the right edge down: homogeneous supports, so the
     compliance shortcut (lambda = u) is exact."""
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [0.0, -1.0])
+    bc = bc + Dirichlet(on_plane(0, 0.0), [0.0, 0.0])
+    bc = bc + Neumann(on_plane(0, 1.0), [0.0, -1.0])
     return bc
 
 

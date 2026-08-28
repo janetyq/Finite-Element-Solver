@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from fem import invariants
-from fem.boundary import BCType, BoundaryConditions
+from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.forms import LinearElasticForm, PrecomputedForm
 from fem.materials import LinearElasticMaterial
@@ -19,8 +19,8 @@ from fem.space import FunctionSpace
 
 def _cantilever_bc(w):
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
-    bc.add(BCType.NEUMANN, on_plane(0, w), [0.0, -1.0])
+    bc = bc + Dirichlet(on_plane(0, 0.0), [0.0, 0.0])
+    bc = bc + Neumann(on_plane(0, w), [0.0, -1.0])
     return bc
 
 

@@ -12,7 +12,7 @@ from matplotlib.lines import Line2D
 from fem.adaptivity import AdaptiveRefinement
 from fem.backends import IterativeBackend
 from fem.geometry import calculate_triangle_min_angle
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
 from fem.convergence import (
     ConvergenceStudy, elastic_convergence, load_comparison_convergence, poisson_convergence,
     poisson_p2_convergence, theta_convergence,
@@ -96,8 +96,8 @@ def demo_poisson(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
     bc = BoundaryConditions()
     # phi rises from inlet to outlet, so v = grad(phi) runs left to right. The wing and
     # the walls take no condition, so they are no-flux streamlines.
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)      # inlet (left)
-    bc.add(BCType.DIRICHLET, on_plane(0, length), 1.0)   # outlet (right)
+    bc = bc + Dirichlet(on_plane(0, 0.0), 0.0)
+    bc = bc + Dirichlet(on_plane(0, length), 1.0)
 
     solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
     solution = solver.solve()
@@ -303,9 +303,9 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     # the hole for the estimator's attention. Pinning y along the edge would do the same,
     # so a second condition pins y at one corner only, removing the last rigid-body mode.
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, None])
-    bc.add(BCType.DIRICHLET, intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, length), [traction, 0])
+    bc = bc + Dirichlet(on_plane(0, 0.0), [0, None])
+    bc = bc + Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0])
+    bc = bc + Neumann(on_plane(0, length), [traction, 0])
 
     # Solved on the curved quadratic element and adaptively refined by the recovery
     # estimator, which reads the curved rim's stress correctly. Everything plotted and
@@ -432,8 +432,8 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
 
     def make_bc():
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(1, arm), [0, 0])        # clamp the top of the upright limb
-        bc.add(BCType.NEUMANN, on_plane(0, arm), [0, -traction])  # pull the horizontal tip down
+        bc = bc + Dirichlet(on_plane(1, arm), [0, 0])
+        bc = bc + Neumann(on_plane(0, arm), [0, -traction])
         return bc
 
     def corner_peak(solution):
@@ -558,8 +558,8 @@ def demo_elasticity_models(mesh, stretch=0.5):
     # singular, so the median is quoted beside it.
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.DIRICHLET, on_plane(0, w), [stretch*w, 0])
+    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
+    bc = bc + Dirichlet(on_plane(0, w), [stretch*w, 0])
 
     linear = LinearElastic(E=200, nu=0.4)
     finite = FiniteStrainElastic(E=200, nu=0.4)
@@ -611,12 +611,9 @@ def _heatsink_film(mesh):
     return union(in_box([None, 1e-6], [None, None]), on_plane(0, 0.0), on_plane(0, w))
 
 
-def _heatsink_bc(mesh, add_base, kappa, u_ambient):
-    """The boundary spec: `add_base(bc)` on the bottom edge, a Robin film everywhere else."""
-    bc = BoundaryConditions()
-    add_base(bc)
-    bc.add_robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
-    return bc
+def _heatsink_bc(mesh, base, kappa, u_ambient):
+    """The boundary spec: `base` on the bottom edge, a Robin film everywhere else."""
+    return BoundaryConditions(base, Robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient))
 
 
 def _steady_heatsink(mesh, bc, kappa, u_ambient):
@@ -661,15 +658,14 @@ def _fin_efficiency(kappa, u_ambient, u_hot, thickness, lengths):
     eta = tanh(m*Lc)/(m*Lc), with m = sqrt(2*kappa/(k*t)) and the corrected length
     Lc = L + t/2 standing in for the convecting tip.
     """
-    def add_hot(bc):
-        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), u_hot)
+    hot = Dirichlet(on_plane(1, 0.0), u_hot)
 
     m = np.sqrt(2 * kappa / thickness)      # conductivity k = 1
     eta_fem, eta_theory = [], []
     for length in lengths:
         ny = max(10, round(10 * length / thickness))    # ~10 elements across the thickness
         fin = create_rect_mesh(corners=[[0.0, 0.0], [thickness, length]], resolution=(10, ny))
-        _, shed = _steady_heatsink(fin, _heatsink_bc(fin, add_hot, kappa, u_ambient),
+        _, shed = _steady_heatsink(fin, _heatsink_bc(fin, hot, kappa, u_ambient),
                                    kappa, u_ambient)
         area = 2 * length + thickness
         eta_fem.append(shed / (kappa * area * (u_hot - u_ambient)))
@@ -722,8 +718,8 @@ def demo_heat_equation(dt=0.05, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
         return u_ambient + (u_hot - u_ambient) * min(t / ramp, 1.0)
 
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(1, 0.0), TimeDependent(base_temperature))
-    bc.add_robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
+    bc = bc + Dirichlet(on_plane(1, 0.0), TimeDependent(base_temperature))
+    bc = bc + Robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
     heat = Poisson().problem(mesh, bc)
     u_initial = heat.space.interpolate(u_ambient)
     solution = ThetaMethod(dt=dt, steps=steps).solve(heat, u_initial)
@@ -741,16 +737,13 @@ def demo_heat_equation(dt=0.05, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     # Fixed power: the same heat flux into each base (a chip of fixed wattage); compare the
     # base temperature. Fixed temperature: each base held hot; compare the heat shed. The
     # thermal resistance R = (base rise)/power is the shape's property either way.
-    def add_flux(bc):
-        bc.add(BCType.NEUMANN, on_plane(1, 0.0), [flux])
+    flux_in = Neumann(on_plane(1, 0.0), [flux])
+    hot = Dirichlet(on_plane(1, 0.0), u_hot)
 
-    def add_hot(bc):
-        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), u_hot)
-
-    bc_block_p = _heatsink_bc(block, add_flux, kappa, u_ambient)
-    bc_fin_p = _heatsink_bc(mesh, add_flux, kappa, u_ambient)
-    bc_block_t = _heatsink_bc(block, add_hot, kappa, u_ambient)
-    bc_fin_t = _heatsink_bc(mesh, add_hot, kappa, u_ambient)
+    bc_block_p = _heatsink_bc(block, flux_in, kappa, u_ambient)
+    bc_fin_p = _heatsink_bc(mesh, flux_in, kappa, u_ambient)
+    bc_block_t = _heatsink_bc(block, hot, kappa, u_ambient)
+    bc_fin_t = _heatsink_bc(mesh, hot, kappa, u_ambient)
 
     power = flux * width
     u_block_p, _ = _steady_heatsink(block, bc_block_p, kappa, u_ambient)
@@ -963,12 +956,10 @@ def demo_linear_elastic(mesh, n_3d=14):
     # -- 2D: clamped on the left, pulled down over the middle of the right edge ---------
     w = np.max(mesh.vertices[:, 0])
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
+    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
     # Transverse, so the beam bends. Sized for a tip deflection near 9% of the span,
     # inside the small-strain regime.
-    bc.add(BCType.NEUMANN,
-           intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])),
-           [0, -0.5])
+    bc = bc + Neumann(intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])), [0, -0.5])
     solution = Solver(mesh, LinearElastic(E, nu), bc).solve()
     deformed = solution.deformed_mesh()
 
@@ -979,8 +970,8 @@ def demo_linear_elastic(mesh, n_3d=14):
     box = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]],
                           resolution=(4 * n_3d // 2, n_3d // 2, n_3d // 2))
     bc_3d = BoundaryConditions()
-    bc_3d.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0, 0])
-    bc_3d.add(BCType.NEUMANN, on_plane(0, 4.0), [0, 0, -0.5])
+    bc_3d = bc_3d + Dirichlet(on_plane(0, 0.0), [0, 0, 0])
+    bc_3d = bc_3d + Neumann(on_plane(0, 4.0), [0, 0, -0.5])
     solution_3d = Solver(box, LinearElastic(E, nu), bc_3d, backend=IterativeBackend()).solve()
     tip_3d = float(np.abs(solution_3d.u.reshape(-1, 3)[:, 2]).max())
 
@@ -1039,11 +1030,11 @@ def demo_topology_optimization(mesh, iters=60):
     # bottom corner, a vertical roller at the other, a downward load at the top centre.
     bc = BoundaryConditions()
     bottom, top = on_plane(1, 0.0), on_plane(1, h)
-    bc.add(BCType.DIRICHLET, intersect(bottom, in_box([None, None], [0.04 * w, None])), [0, 0])
-    bc.add(BCType.DIRICHLET, intersect(bottom, in_box([0.96 * w, None], [None, None])), [None, 0])
+    bc = bc + Dirichlet(intersect(bottom, in_box([None, None], [0.04 * w, None])), [0, 0])
+    bc = bc + Dirichlet(intersect(bottom, in_box([0.96 * w, None], [None, None])), [None, 0])
     # A load over the central fifth of the top rather than a point, so it lands on a
     # boundary edge on any mesh, including the tiny smoke-test one.
-    bc.add(BCType.NEUMANN, intersect(top, in_box([0.4 * w, None], [0.6 * w, None])), [0, -0.5])
+    bc = bc + Neumann(intersect(top, in_box([0.4 * w, None], [0.6 * w, None])), [0, -0.5])
 
     equation = LinearElastic(E, nu)
 
@@ -1145,29 +1136,29 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     # stands along y, so the ends are at y = 0 and y = span and the load pushes in -y.
     def cantilever(span):   # fixed-free, K = 2
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
-        bc.add(BCType.NEUMANN, on_plane(1, span), [0, -1.0])
+        bc = bc + Dirichlet(on_plane(1, 0.0), [0, 0])
+        bc = bc + Neumann(on_plane(1, span), [0, -1.0])
         return bc
 
     def pinned(span):       # pinned-pinned, K = 1
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, None])
-        bc.add(BCType.DIRICHLET, intersect(on_plane(1, 0.0), on_plane(0, height / 2)), [0, 0])
-        bc.add(BCType.DIRICHLET, on_plane(1, span), [0, None])
-        bc.add(BCType.NEUMANN, on_plane(1, span), [0, -1.0])
+        bc = bc + Dirichlet(on_plane(1, 0.0), [0, None])
+        bc = bc + Dirichlet(intersect(on_plane(1, 0.0), on_plane(0, height / 2)), [0, 0])
+        bc = bc + Dirichlet(on_plane(1, span), [0, None])
+        bc = bc + Neumann(on_plane(1, span), [0, -1.0])
         return bc
 
     def fixed(span):        # fixed-fixed, K = 1/2
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
-        bc.add(BCType.DIRICHLET, on_plane(1, span), [0, -0.02 * span])
+        bc = bc + Dirichlet(on_plane(1, 0.0), [0, 0])
+        bc = bc + Dirichlet(on_plane(1, span), [0, -0.02 * span])
         return bc
 
     def fixed_pinned(span):  # fixed-pinned, K ~ 0.7
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
-        bc.add(BCType.DIRICHLET, on_plane(1, span), [0, None])
-        bc.add(BCType.NEUMANN, on_plane(1, span), [0, -1.0])
+        bc = bc + Dirichlet(on_plane(1, 0.0), [0, 0])
+        bc = bc + Dirichlet(on_plane(1, span), [0, None])
+        bc = bc + Neumann(on_plane(1, span), [0, -1.0])
         return bc
 
     ends = [('Cantilever\n(fixed-free)', cantilever, 2.0),
@@ -1318,7 +1309,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
     def clamp():
         """Grounded at the stem base: the fork's node, held without damping the voice."""
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])
+        bc = bc + Dirichlet(on_plane(1, 0.0), [0, 0])
         return bc
 
     def solve_fork(length, modes, across=n_across_tine):

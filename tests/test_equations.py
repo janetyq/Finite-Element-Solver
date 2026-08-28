@@ -79,13 +79,13 @@ def test_equation_resolves_its_space_and_problem(make_unit_square):
     """`space` sizes the discretization from the field (one component for Poisson, one
     per spatial dimension for elasticity), and `problem` composes the equation's own
     operator, source, and the given constraints on it."""
-    from fem.boundary import BCType, BoundaryConditions
+    from fem.boundary import BoundaryConditions, Dirichlet
     from fem.elements import QuadraticTriangleElement
     from fem.regions import everywhere
 
     mesh = make_unit_square(4)
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = bc + Dirichlet(everywhere(), 0.0)
 
     assert Poisson().space(mesh).n_components == 1
     assert LinearElastic(E=1.0, nu=0.3).space(mesh).n_components == 2

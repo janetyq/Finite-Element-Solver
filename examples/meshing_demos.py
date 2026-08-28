@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet
 from fem.equations import Poisson
 from fem.geometry import calculate_triangle_min_angle
 from fem.plot.plotter import Plotter
@@ -145,7 +145,7 @@ def demo_outline_to_mesh(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0
         # The Poisson "dome": a unit source pinned to zero on every boundary, so the
         # field is a picture of the domain itself, tallest where it is widest.
         bc = BoundaryConditions()
-        bc.add(BCType.DIRICHLET, everywhere(), 0)
+        bc = bc + Dirichlet(everywhere(), 0)
         u = Solver(mesh, Poisson(source=1.0), bc).solve().u
         # A colour scale per cell (the domains differ in size by orders of magnitude) and
         # no colorbar: the shape matters, not the amplitude.

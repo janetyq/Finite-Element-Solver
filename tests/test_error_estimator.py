@@ -4,7 +4,7 @@ from math import e
 import numpy as np
 
 from fem.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.equations import LinearElastic, Poisson
 from fem.estimators import ResidualEstimator
 from fem.mesh.mesh import Mesh
@@ -26,7 +26,7 @@ def test_error_estimator_linear_solution_small_jumps(make_unit_square):
     """A problem with linear exact solution has near-zero gradient jumps."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), lambda p: p[0])
+    bc = bc + Dirichlet(everywhere(), lambda p: p[0])
     equation = Poisson(source=None)
     problem, solution = _solved(mesh, equation, bc)
 
@@ -47,7 +47,7 @@ def test_error_estimator_concentrates_near_peak(make_unit_square):
         return 4*a*a*(1-a*r2)*e**(-a*r2)
 
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = bc + Dirichlet(everywhere(), 0.0)
     equation = Poisson(source=peaked_source)
     problem, solution = _solved(mesh, equation, bc)
 
@@ -64,7 +64,7 @@ def test_adaptive_refinement_with_error_estimator(make_unit_square):
     """The full loop: estimator drives refinement, mesh grows near the source."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = bc + Dirichlet(everywhere(), 0.0)
     equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
 
     n_before = len(mesh.elements)
@@ -134,7 +134,7 @@ def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):
     jump terms are exercised."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), lambda p: [0.01 * p[0], -0.003 * p[1]])
+    bc = bc + Dirichlet(everywhere(), lambda p: [0.01 * p[0], -0.003 * p[1]])
     equation = LinearElastic(E=200, nu=0.3)
     problem, solution = _solved(mesh, equation, bc)
 
@@ -149,7 +149,7 @@ def test_elastic_error_estimator_boundary_term_matches_hand_derivation():
     residual is ||sigma.n||^2 for the injected stress."""
     mesh = _unit_square_two_triangles()
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])  # bottom edge only
+    bc = bc + Dirichlet(on_plane(1, 0.0), [0, 0])
     equation = LinearElastic(E=200, nu=0.3)
     problem = equation.problem(mesh, bc)
 
@@ -172,8 +172,8 @@ def test_elastic_error_estimator_neumann_matching_traction_is_quiet():
     through the shared corner; that is worked through by hand."""
     mesh = _unit_square_two_triangles()
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, 0])   # bottom: skip
-    bc.add(BCType.NEUMANN, on_plane(1, 1.0), [0.5, 1.0])  # top: matches sigma.n exactly
+    bc = bc + Dirichlet(on_plane(1, 0.0), [0, 0])
+    bc = bc + Neumann(on_plane(1, 1.0), [0.5, 1.0])
     equation = LinearElastic(E=200, nu=0.3)
     problem = equation.problem(mesh, bc)
 
@@ -199,7 +199,7 @@ def test_elastic_error_estimator_roller_edge_only_tests_its_free_component():
     pinned direction's reaction stress must not count as error."""
     mesh = _unit_square_two_triangles()
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(1, 0.0), [0, None])  # bottom: roller
+    bc = bc + Dirichlet(on_plane(1, 0.0), [0, None])
     equation = LinearElastic(E=200, nu=0.3)
     problem = equation.problem(mesh, bc)
 
@@ -225,8 +225,8 @@ def test_adaptive_refinement_elasticity_runs_end_to_end(make_unit_square):
     conditions still hold exactly on the refined mesh."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])
+    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
+    bc = bc + Neumann(on_plane(0, 1.0), [1.0, 0])
     equation = LinearElastic(E=200, nu=0.3)
 
     n_before = len(mesh.elements)

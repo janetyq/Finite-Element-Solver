@@ -5,7 +5,7 @@ nodal force, and Rayleigh damping decays a free vibration at the analytic rate.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
 from fem.energies import StVenantKirchhoff
 from fem.equations import LinearElastic, Poisson
 from fem.forms import (
@@ -80,7 +80,7 @@ def test_the_robin_term_is_a_term_of_the_operator(make_unit_square):
     from fem.solution import ScalarFieldSolution
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
-    bc.add_robin(everywhere(), kappa=2.0, g=1.0)
+    bc = bc + Robin(everywhere(), kappa=2.0, g=1.0)
     problem = Poisson(source=1.0).problem(mesh, bc)
 
     assert isinstance(problem.operator, SumForm) and len(problem.operator.terms) == 2
@@ -99,8 +99,8 @@ def test_the_robin_term_is_a_term_of_the_operator(make_unit_square):
 def test_the_load_is_the_sum_of_its_terms(make_unit_square):
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), 2.0)
-    bc.add_robin(on_plane(1, 1.0), kappa=1.0, g=3.0)
+    bc = bc + Neumann(on_plane(0, 1.0), 2.0)
+    bc = bc + Robin(on_plane(1, 1.0), kappa=1.0, g=3.0)
     problem = Poisson(source=1.0).problem(mesh, bc)
     kinds = [type(term) for term in problem.loads]
     assert kinds == [Source, Traction, Traction]
@@ -112,7 +112,7 @@ def test_a_point_load_is_a_nodal_force(make_unit_square):
     mesh = make_unit_square(8)
     tip = int(np.argmin(np.linalg.norm(mesh.vertices - [1.0, 1.0], axis=1)))
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
+    bc = bc + Dirichlet(on_plane(0, 0.0), [0.0, 0.0])
     equation = LinearElastic(E=100.0, nu=0.3, loads=(PointLoad(at_indices([tip]), [0.0, -1.0]),))
     problem = equation.problem(mesh, bc)
 
@@ -127,7 +127,7 @@ def test_a_point_load_is_a_nodal_force(make_unit_square):
 def test_a_neumann_condition_on_a_lone_node_is_refused(make_unit_square):
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
-    bc.add(BCType.NEUMANN, at_indices([0]), 1.0)
+    bc = bc + Neumann(at_indices([0]), 1.0)
     with pytest.raises(ValueError, match='PointLoad'):
         Poisson().problem(mesh, bc)
 
@@ -154,7 +154,7 @@ def test_time_dependent_terms_are_evaluated_per_time(make_unit_square):
 def test_a_traction_holds_its_boundary_mass_across_times(make_unit_square):
     mesh = make_unit_square(5)
     bc = BoundaryConditions()
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), TimeDependent(lambda p, t: t))
+    bc = bc + Neumann(on_plane(0, 1.0), TimeDependent(lambda p, t: t))
     problem = Poisson().problem(mesh, bc)
     traction = problem.loads[0]
     assert isinstance(traction, Traction)
@@ -171,7 +171,7 @@ def test_rayleigh_damping_decays_a_mode_at_the_analytic_rate(make_unit_square):
     Newmark is second order, so a fine step reproduces the modal coordinate closely."""
     mesh = make_unit_square(6)
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
+    bc = bc + Dirichlet(on_plane(0, 0.0), [0.0, 0.0])
     alpha = 0.8
     equation = LinearElastic(E=100.0, nu=0.3, density=1.0, damping=RayleighDamping(alpha=alpha))
     problem = equation.problem(mesh, bc)
@@ -196,7 +196,7 @@ def test_rayleigh_damping_decays_a_mode_at_the_analytic_rate(make_unit_square):
 def test_undamped_is_the_no_damping_path(make_unit_square):
     mesh = make_unit_square(4)
     bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
+    bc = bc + Dirichlet(on_plane(0, 0.0), [0.0, 0.0])
     plain = LinearElastic(E=10.0, nu=0.3).problem(mesh, bc)
     zero = LinearElastic(E=10.0, nu=0.3, damping=RayleighDamping()).problem(mesh, bc)
     assert plain.damping_matrix is None
