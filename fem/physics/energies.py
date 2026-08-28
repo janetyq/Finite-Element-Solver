@@ -28,7 +28,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.materials import Enu_to_Lame
+from fem.physics.materials import Enu_to_Lame
 from fem.typing import FloatArray
 
 

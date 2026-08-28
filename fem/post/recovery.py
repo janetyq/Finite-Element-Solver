@@ -13,12 +13,18 @@ recovery error estimator want it once per node instead. Two recoveries do that:
 Every function takes the `FunctionSpace` whose nodes the field is recovered onto; the
 space contributes its numbering, volumes, geometry, and `nodal_mass_matrix`.
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 from scipy.sparse.linalg import spsolve
 
-from fem.elements import ElementGeometry
-from fem.space import FunctionSpace
 from fem.typing import ElementField, FloatArray, VertexField
+
+if TYPE_CHECKING:
+    from fem.elements import ElementGeometry
+    from fem.space import FunctionSpace
 
 __all__ = ['average_to_nodal', 'nodal_gradient', 'project_to_nodal', 'recover_nodal']
 

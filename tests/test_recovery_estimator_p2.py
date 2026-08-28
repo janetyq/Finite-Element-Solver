@@ -5,17 +5,17 @@ stays bounded, and it drives adaptive refinement on a P2 space.
 import numpy as np
 import pytest
 
-from fem.adaptivity import AdaptiveRefinement
+from fem.analysis.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.convergence import (
+from mms import (
     exact_gradient,
     h1_seminorm_error,
 )
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
-from fem.equations import Poisson
-from fem.estimators import RecoveryEstimator
+from fem.physics.equations import Poisson
+from fem.analysis.estimators import RecoveryEstimator
 from fem.mesh.structured import box_mesh
-from fem.postprocess import GradientField
+from fem.physics.derived import GradientField
 from fem.regions import everywhere
 
 

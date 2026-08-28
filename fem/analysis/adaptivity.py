@@ -14,9 +14,9 @@ import numpy as np
 
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
-from fem.estimators import ErrorEstimator
-from fem.solve import SolveStrategy
-from fem.solution import FieldSolution
+from fem.analysis.estimators import ErrorEstimator
+from fem.algebra.solve import SolveStrategy
+from fem.post.solution import FieldSolution
 
 if TYPE_CHECKING:
     from collections.abc import Callable

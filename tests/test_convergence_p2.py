@@ -9,19 +9,19 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.convergence import (
+from mms import (
     ConvergenceStudy,
     elastic_p2_convergence,
     poisson_p2_convergence,
 )
 from fem.elements import QuadraticTriangleElement
-from fem.forms import LinearElasticForm
-from fem.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.physics.forms import LinearElasticForm
+from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.structured import box_mesh
 from fem.problem import LinearProblem
 from fem.regions import everywhere
-from fem.solution import ElasticSolution
-from fem.solve import LinearSolve
+from fem.post.solution import ElasticSolution
+from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
 
 
@@ -88,7 +88,7 @@ def test_p2_is_reachable_through_the_solver_facade():
     """P2 is a first-class option on the documented entry point, not only by
     hand-building a LinearProblem: `element_type` flows through Solver to the space,
     and the solve is the accurate quadratic one."""
-    from fem.equations import Poisson
+    from fem.physics.equations import Poisson
     from fem.solver import Solver
 
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))

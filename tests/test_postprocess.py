@@ -1,21 +1,21 @@
 """Nodal recovery of derived fields, the typed solutions that carry them, the form
-hook that names them, and their round trip through `fem.io`.
+hook that names them, and their round trip through `fem.post.io`.
 """
 import numpy as np
 import pytest
 
-from fem import invariants
+from fem.post import invariants
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
-from fem.energies import StVenantKirchhoff
-from fem.equations import LinearElastic, Poisson, Projection
-from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
-from fem.materials import LinearElasticMaterial
+from fem.physics.energies import StVenantKirchhoff
+from fem.physics.equations import LinearElastic, Poisson, Projection
+from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.structured import box_mesh
-from fem.postprocess import GradientField, StressField
+from fem.physics.derived import GradientField, StressField
 from fem.post.recovery import nodal_gradient, recover_nodal
 from fem.regions import everywhere, on_plane
-from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
+from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 from fem.solver import Solver
 from fem.space import FunctionSpace
 

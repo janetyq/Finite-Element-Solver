@@ -10,14 +10,14 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.energies import NeohookeanEnergyDensity
-from fem.equations import FiniteStrainElastic, LinearElastic
-from fem.forms import EnergyForm
+from fem.physics.energies import NeohookeanEnergyDensity
+from fem.physics.equations import FiniteStrainElastic, LinearElastic
+from fem.physics.forms import EnergyForm
 from fem.mesh.mesh import Mesh
 from fem.problem import Problem
 from fem.regions import on_plane
-from fem.solution import ElasticSolution
-from fem.solve import BacktrackingLineSearch, NewtonSolve
+from fem.post.solution import ElasticSolution
+from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
 from fem.solver import Solver
 
 E, NU = 200.0, 0.4

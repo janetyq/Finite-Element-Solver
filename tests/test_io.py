@@ -1,16 +1,16 @@
-"""Round-trip tests for fem.io: a save/load cycle preserves value arrays, mesh geometry,
+"""Round-trip tests for fem.post.io: a save/load cycle preserves value arrays, mesh geometry,
 mesh class, and n_components, and the load path never falls back to pickle.
 """
 import numpy as np
 import pytest
 
-from fem.integrators import ThetaMethod
-from fem.io import load_mesh, save_mesh, save_solution
+from fem.algebra.integrators import ThetaMethod
+from fem.post.io import load_mesh, save_mesh, save_solution
 from fem.mesh.mesh import Mesh
 from fem.space import FunctionSpace
 from fem.numerics import bump_function
-from fem.equations import Heat
-from fem.solution import (
+from fem.physics.equations import Heat
+from fem.post.solution import (
     BucklingSolution, ElasticSolution, FieldSolution, Solution, TransientSolution,
 )
 

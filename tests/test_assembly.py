@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_array
 
-from fem.forms import DiffusionForm, LinearElasticForm
-from fem.materials import LinearElasticMaterial
+from fem.physics.forms import DiffusionForm, LinearElasticForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.structured import box_mesh
 from fem.space import FunctionSpace, dof_indices
 

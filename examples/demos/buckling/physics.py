@@ -15,12 +15,12 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
-from fem.buckling import BucklingAnalysis
+from fem.analysis.buckling import BucklingAnalysis
 from fem.elements import QuadraticTriangleElement
-from fem.equations import LinearElastic
+from fem.physics.equations import LinearElastic
 from fem.mesh.mesh import Mesh
 from fem.regions import intersect, on_plane
-from fem.solution import BucklingSolution
+from fem.post.solution import BucklingSolution
 
 from domains import column
 

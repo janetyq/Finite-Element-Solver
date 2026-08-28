@@ -27,13 +27,13 @@ from typing import Protocol
 
 import numpy as np
 
-from fem.backends import Backend
-from fem.forms import LinearElasticForm
-from fem.materials import LinearElasticMaterial
+from fem.algebra.backends import Backend
+from fem.physics.forms import LinearElasticForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.problem import Problem
 from fem.space import FunctionSpace
-from fem.solve import backend_for
-from fem.system import DiscreteSystem
+from fem.algebra.solve import backend_for
+from fem.algebra.system import DiscreteSystem
 from fem.typing import BoolArray, DofVector, ElementField, FloatArray, IntArray
 
 
@@ -158,7 +158,7 @@ class _VonMisesStress:
         measures is the element mean (the centroid value on a straight P2 element),
         the same one `ElasticSolution.stress` reports.
         '''
-        from fem.forms import strain_displacement
+        from fem.physics.forms import strain_displacement
         geometry = self.space.geometry
         weights = geometry.weight_detJ / geometry.weight_detJ.sum(axis=1, keepdims=True)
         B = np.einsum('eq,eqsk->esk', weights, strain_displacement(geometry.grad_phi))

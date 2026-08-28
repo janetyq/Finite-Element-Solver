@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from fem.convergence import ANNULUS_INNER, ANNULUS_OUTER
+from mms import ANNULUS_INNER, ANNULUS_OUTER
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.mesh.structured import annulus_mesh, box_mesh
 from fem.plot.plotter import Plotter
@@ -444,7 +444,7 @@ def test_warp_tessellates_the_deformed_configuration():
 
 def _p2_scalar_solution(n=5):
     """A ScalarFieldSolution on a P2 space, so its per-node field needs the space to draw."""
-    from fem.solution import ScalarFieldSolution
+    from fem.post.solution import ScalarFieldSolution
     mesh, space = _p2_square(n)
     u = space.node_coords[:, 0] ** 2
     return ScalarFieldSolution(space, u, flux=np.zeros((len(mesh.elements), 2))), space
@@ -480,7 +480,7 @@ def test_warp_true_deforms_by_the_solutions_own_displacement():
     """`warp=True` with a solution draws the field on the shape deformed by that
     solution's displacement, so an elastic field lands on the warped body with no explicit
     displacement array."""
-    from fem.solution import ElasticSolution
+    from fem.post.solution import ElasticSolution
     mesh, space = _p2_square()
     vspace = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
     u = np.column_stack([0.1 * vspace.node_coords[:, 1],

@@ -8,7 +8,7 @@ value per element: exact for P1, the element mean for P2. Two consumers want mor
   and P2 plotting draw. It re-evaluates the field from `u` at the nodes or quadrature
   points (`FunctionSpace.nodal_gradient`, `ElasticSolution.nodal_stress`) rather than
   averaging the per-element values, so a P2 field's variation within the element, and
-  its boundary value, survive; `FunctionSpace.recover_nodal` is the per-element fallback.
+  its boundary value, survive; `fem.post.recovery.recover_nodal` is the per-element fallback.
 - **Error estimation** jumps the field across interior edges and checks its boundary
   residual against the applied traction, sampling it at quadrature points on P2.
 
@@ -16,6 +16,9 @@ value per element: exact for P1, the element mean for P2. Two consumers want mor
 is the recoverable flux for a given physics, and how that flux behaves on a boundary edge.
 Poisson's is the gradient; elasticity's is the stress. The operator names it
 (`Form.derived_field`), so an estimator reads it off `problem.operator`.
+
+`StressField.divergence` imports `fem.physics.forms` and `fem.physics.materials` lazily:
+`forms` imports this module at top level, so the reverse edge stays function-local.
 """
 from __future__ import annotations
 
@@ -23,10 +26,12 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
+from fem.post.solution import ElasticSolution, ScalarFieldSolution
+
 if TYPE_CHECKING:
     from fem.elements import ElementGeometry
-    from fem.forms import RecoversElasticFields
-    from fem.solution import FieldSolution
+    from fem.physics.forms import RecoversElasticFields
+    from fem.post.solution import FieldSolution
     from fem.typing import BoolArray, FloatArray
 
 
@@ -86,7 +91,6 @@ class GradientField:
     '''
 
     def evaluate(self, solution: FieldSolution) -> FloatArray:
-        from fem.solution import ScalarFieldSolution
         if not isinstance(solution, ScalarFieldSolution):
             raise TypeError(
                 'the diffusion flux needs a scalar solution carrying grad u; '
@@ -95,7 +99,6 @@ class GradientField:
         return solution.flux[:, None, :]            # (n_el, 1, d)
 
     def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:
-        from fem.solution import ScalarFieldSolution
         if not isinstance(solution, ScalarFieldSolution):
             raise TypeError(
                 'the diffusion flux needs a scalar solution carrying grad u; '
@@ -106,7 +109,6 @@ class GradientField:
         return grad[:, :, None, :]                             # (n_el, n_qp, 1, d)
 
     def divergence(self, solution: FieldSolution) -> FloatArray:
-        from fem.solution import ScalarFieldSolution
         if not isinstance(solution, ScalarFieldSolution):
             raise TypeError(
                 'the diffusion flux needs a scalar solution carrying grad u; '
@@ -142,7 +144,6 @@ class StressField:
         self.form = form
 
     def evaluate(self, solution: FieldSolution) -> FloatArray:
-        from fem.solution import ElasticSolution
         if not isinstance(solution, ElasticSolution):
             raise TypeError(
                 'the elastic flux needs recovered stress; got a bare FieldSolution'
@@ -150,7 +151,6 @@ class StressField:
         return solution.stress[:, :2, :2]           # (n_el, d, d)
 
     def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:
-        from fem.solution import ElasticSolution
         if not isinstance(solution, ElasticSolution):
             raise TypeError(
                 'the elastic flux needs a displacement solution; got a bare FieldSolution'
@@ -168,9 +168,8 @@ class StressField:
         return self.form.sample(geometry, u_elements).stress[:, :, :d, :d]
 
     def divergence(self, solution: FieldSolution) -> FloatArray:
-        from fem.forms import LinearElasticForm
-        from fem.materials import Enu_to_Lame
-        from fem.solution import ElasticSolution
+        from fem.physics.forms import LinearElasticForm
+        from fem.physics.materials import Enu_to_Lame
         if not isinstance(solution, ElasticSolution):
             raise TypeError(
                 'the elastic flux needs a displacement solution; got a bare FieldSolution'

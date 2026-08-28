@@ -13,10 +13,10 @@ The wave path uses Newmark rather than a 2N first-order block: its effective ope
 """
 import numpy as np
 
-from fem.backends import Backend
+from fem.algebra.backends import Backend
 from fem.problem import Problem
-from fem.solution import TransientSolution, WaveSolution
-from fem.system import DiscreteSystem
+from fem.post.solution import TransientSolution, WaveSolution
+from fem.algebra.system import DiscreteSystem
 from fem.typing import DofVector
 
 

@@ -24,7 +24,7 @@ from fem.typing import FloatArray, IntArray
 
 if TYPE_CHECKING:
     from fem.mesh.mesh import Mesh
-    from fem.solution import Solution
+    from fem.post.solution import Solution
     from fem.space import FunctionSpace
 
 __all__ = ['FieldView', 'PlotTessellation', 'boundary_polylines', 'field_view', 'tessellate']
@@ -236,7 +236,7 @@ def field_view(
       tessellating, so a field draws on the deformed shape; `True` deforms by the
       solution's own displacement field and needs a `Solution` as the target.
     '''
-    from fem.solution import FieldSolution, Solution
+    from fem.post.solution import FieldSolution, Solution
     from fem.space import FunctionSpace
 
     if isinstance(target, Solution):

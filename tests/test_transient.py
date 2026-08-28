@@ -9,10 +9,10 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
-from fem.equations import Heat, LinearElastic, Poisson, Wave
-from fem.integrators import NewmarkMethod, ThetaMethod
+from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
+from fem.algebra.integrators import NewmarkMethod, ThetaMethod
 from fem.regions import TimeDependent, everywhere, evaluate_field, field_at, on_plane
-from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution, TransientSolution
+from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution, TransientSolution
 
 
 def test_time_dependent_field_is_evaluated_at_a_time():
@@ -153,7 +153,7 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
 def test_snapshot_at_a_time_is_a_steady_problem(make_unit_square):
     """`problem.at(t)` fixes every time-dependent value; a steady solve needs a `t`, and
     an estimator takes the snapshot."""
-    from fem.estimators import RecoveryEstimator
+    from fem.analysis.estimators import RecoveryEstimator
     mesh = make_unit_square(5)
     bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: t)))
     problem = Poisson(source=TimeDependent(lambda p, t: 2.0 * t)).problem(mesh, bc)

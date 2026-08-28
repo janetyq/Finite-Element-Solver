@@ -2,21 +2,24 @@
 
 A `FieldSolution` carries the unknown `u`; `ElasticSolution` adds the recovered
 stress fields; `TransientSolution` is a time series and `WaveSolution` adds the
-velocity series. `save`/`load` round-trip any of them through `fem.io`, which
+velocity series. `save`/`load` round-trip any of them through `fem.post.io`, which
 reflects over the dataclass fields.
+
+`save` and `load` import `fem.post.io` lazily: I/O reads the solution types, so the edge
+points up and stays function-local.
 """
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from fem import invariants
+from fem.post import invariants
 from fem.post import recovery
 from fem.typing import DofVector, ElementField, FloatArray
 
 if TYPE_CHECKING:
     from fem.elements import Element
-    from fem.forms import RecoversElasticFields
+    from fem.physics.forms import RecoversElasticFields
     from fem.mesh.mesh import Mesh
     from fem.problem import Problem
     from fem.space import FunctionSpace
@@ -45,12 +48,12 @@ class Solution:
         return self.space.element_type
 
     def save(self, path: str) -> None:
-        from fem.io import save_solution
+        from fem.post.io import save_solution
         save_solution(self, path)
 
     @staticmethod
     def load(path: str) -> 'Solution':
-        from fem.io import load_solution
+        from fem.post.io import load_solution
         return load_solution(path)
 
 
@@ -116,7 +119,7 @@ class ElasticSolution(FieldSolution):
         default=None, kw_only=True, repr=False, metadata={'persist': False})
 
     def __post_init__(self) -> None:
-        # `fem.io` rebuilds this from stored arrays without checking their rank.
+        # `fem.post.io` rebuilds this from stored arrays without checking their rank.
         for name in ('strain', 'stress'):
             value = getattr(self, name)
             if np.ndim(value) != 3:

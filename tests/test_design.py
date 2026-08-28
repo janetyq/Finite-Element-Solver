@@ -4,17 +4,17 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
-from fem.design import (
+from fem.analysis.design import (
     DesignOptimizer, SIMPModel, TargetCompliance, calculate_smoothing_matrix,
     optimality_criteria_update,
 )
-from fem.equations import LinearElastic, Poisson
-from fem.forms import LinearElasticForm, PrecomputedForm
-from fem.materials import LinearElasticMaterial
+from fem.physics.equations import LinearElastic, Poisson
+from fem.physics.forms import LinearElasticForm, PrecomputedForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
 from fem.regions import on_plane
-from fem.sensitivity import Compliance
-from fem.solve import LinearSolve
+from fem.analysis.sensitivity import Compliance
+from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
 
 

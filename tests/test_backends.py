@@ -8,15 +8,16 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
-from fem.forms import LinearElasticForm
-from fem.backends import DirectBackend, IterativeBackend, MinresBackend, rigid_body_modes
-from fem.materials import LinearElasticMaterial
+from fem.physics.forms import LinearElasticForm
+from fem.algebra.backends import DirectBackend, IterativeBackend, MinresBackend
+from fem.physics.forms import rigid_body_modes
+from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere, on_plane
-from fem.equations import Heat, LinearElastic, Poisson
+from fem.physics.equations import Heat, LinearElastic, Poisson
 from fem.solver import Solver
 from fem.space import FunctionSpace
-from fem.system import DiscreteSystem
+from fem.algebra.system import DiscreteSystem
 
 
 def _spd(n, seed=0):
@@ -147,7 +148,7 @@ def _cantilever():
 def test_linear_solve_gives_elasticity_its_rigid_body_modes():
     """An elastic problem composed by hand hands its rigid-body modes, restricted to the
     free DOFs, to an iterative backend: the same near-kernel the facade path gets."""
-    from fem.solve import backend_for
+    from fem.algebra.solve import backend_for
 
     mesh, bc = _cantilever()
     elastic = LinearElastic(E=200, nu=0.3)
@@ -170,7 +171,7 @@ def test_linear_solve_gives_elasticity_its_rigid_body_modes():
 
 
 def test_iterative_elastic_solve_matches_direct_through_facade_and_composition():
-    from fem.solve import LinearSolve
+    from fem.algebra.solve import LinearSolve
 
     mesh, bc = _cantilever()
     eq = LinearElastic(E=200, nu=0.3)
@@ -186,7 +187,7 @@ def test_iterative_elastic_solve_matches_direct_through_facade_and_composition()
 
 def test_iterative_backend_matches_direct_through_a_time_step():
     """A heat step's effective operator M + θdtK is SPD, so AMG-CG matches direct."""
-    from fem.integrators import ThetaMethod
+    from fem.algebra.integrators import ThetaMethod
     from fem.numerics import bump_function
 
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(21, 21))

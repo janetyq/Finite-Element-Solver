@@ -9,11 +9,11 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
-from fem.design import DesignHistory, DesignOptimizer, SIMPModel, calculate_smoothing_matrix
-from fem.equations import LinearElastic
+from fem.analysis.design import DesignHistory, DesignOptimizer, SIMPModel, calculate_smoothing_matrix
+from fem.physics.equations import LinearElastic
 from fem.mesh.mesh import Mesh
 from fem.regions import in_box, intersect, on_plane
-from fem.solution import ElasticSolution
+from fem.post.solution import ElasticSolution
 from fem.solver import Solver
 
 E, NU = 200.0, 0.4

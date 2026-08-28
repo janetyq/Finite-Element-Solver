@@ -23,10 +23,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar
 
-from fem.energies import SmallStrain, StVenantKirchhoff
-from fem.fields import FieldShape, Scalar, Vector
-from fem.forms import DiffusionForm, EnergyDensity, EnergyForm, Form, LinearElasticForm, MassForm
-from fem.materials import LinearElasticMaterial
+from fem.physics.energies import SmallStrain, StVenantKirchhoff
+from fem.physics.fields import FieldShape, Scalar, Vector
+from fem.physics.forms import DiffusionForm, EnergyDensity, EnergyForm, Form, LinearElasticForm, MassForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.loads import Load, VolumeSource
 from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.space import FunctionSpace

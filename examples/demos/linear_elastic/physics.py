@@ -8,13 +8,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.backends import IterativeBackend
+from fem.algebra.backends import IterativeBackend
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
-from fem.equations import LinearElastic
+from fem.physics.equations import LinearElastic
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
 from fem.regions import in_box, intersect, on_plane
-from fem.solution import ElasticSolution
+from fem.post.solution import ElasticSolution
 from fem.solver import Solver
 
 E, NU = 200.0, 0.4

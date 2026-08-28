@@ -5,8 +5,8 @@ integrates a constant exactly and samples a callable.
 import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet
-from fem.equations import Poisson
-from fem.forms import DiffusionForm
+from fem.physics.equations import Poisson
+from fem.physics.forms import DiffusionForm
 from fem.loads import NodalSource, Source
 from fem.regions import everywhere
 from fem.space import FunctionSpace

@@ -3,13 +3,13 @@ from math import e
 
 import numpy as np
 
-from fem.adaptivity import AdaptiveRefinement
+from fem.analysis.adaptivity import AdaptiveRefinement
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
-from fem.equations import LinearElastic, Poisson
-from fem.estimators import ResidualEstimator
+from fem.physics.equations import LinearElastic, Poisson
+from fem.analysis.estimators import ResidualEstimator
 from fem.mesh.mesh import Mesh
 from fem.regions import everywhere, on_plane
-from fem.solution import ElasticSolution
+from fem.post.solution import ElasticSolution
 
 
 def _solved(mesh, equation, bc):

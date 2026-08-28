@@ -290,7 +290,7 @@ solution.principal_stress  # (n_elements, 3) principal values, ascending
 solution.compliance        # (n_elements,) strain energy per element
 ```
 
-`fem/invariants.py` holds those reductions; each is rotation-invariant.
+`fem/post/invariants.py` holds those reductions; each is rotation-invariant.
 
 ## Installation
 

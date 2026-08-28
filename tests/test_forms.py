@@ -1,7 +1,7 @@
 """The forms produce correct element matrices.
 
-The strain-displacement matrix B (`fem.forms`) and the constitutive matrix D
-(`fem.materials`) share one Voigt ordering; these pin that pairing against references,
+The strain-displacement matrix B (`fem.physics.forms`) and the constitutive matrix D
+(`fem.physics.materials`) share one Voigt ordering; these pin that pairing against references,
 so a change that desynchronizes them fails here rather than as a broken convergence
 rate. Forms are batched, so a single reference simplex is a batch of one.
 """
@@ -13,10 +13,10 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.energies import StVenantKirchhoff
-from fem.forms import DiffusionForm, EnergyForm, GeometricStiffnessForm, LinearElasticForm, BoundaryMassForm, MassForm, PrecomputedForm, ScaledForm, strain_displacement
+from fem.physics.energies import StVenantKirchhoff
+from fem.physics.forms import DiffusionForm, EnergyForm, GeometricStiffnessForm, LinearElasticForm, BoundaryMassForm, MassForm, PrecomputedForm, ScaledForm, strain_displacement
 from fem.loads import Source
-from fem.materials import LinearElasticMaterial
+from fem.physics.materials import LinearElasticMaterial
 
 
 def one(element_type, vertices):

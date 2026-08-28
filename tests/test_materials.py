@@ -1,7 +1,7 @@
 """The elastic constitutive law, and the plane-strain reduction it encodes."""
 import numpy as np
 
-from fem.materials import Enu_to_Lame, LinearElasticMaterial, hooke_matrix
+from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial, hooke_matrix
 
 E, NU = 210.0, 0.3
 

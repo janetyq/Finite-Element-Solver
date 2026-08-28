@@ -8,7 +8,7 @@ gradients and a measure. It holds no per-element data, so a program has exactly 
 The per-element data lives in `ElementGeometry`, which holds it for the whole mesh
 at once: an `(n_elements, n_qp, N, spatial_dim)` array of `grad_phi` (one shape
 gradient per element and quadrature point) with the matching `(n_elements, n_qp)`
-quadrature weights, so `fem.forms` computes every element matrix in one vectorized
+quadrature weights, so `fem.physics.forms` computes every element matrix in one vectorized
 pass. A linear element's gradient is constant across the points, so P1 is the
 single-point (`n_qp == 1`) special case.
 

@@ -9,9 +9,9 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.elements import QuadraticTriangleElement
-from fem.equations import Projection
+from fem.physics.equations import Projection
 from fem.mesh.mesh import Mesh
-from fem.solution import Solution
+from fem.post.solution import Solution
 from fem.solver import Solver
 
 

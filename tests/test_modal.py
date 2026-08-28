@@ -14,12 +14,12 @@ import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.elements import QuadraticTriangleElement
-from fem.equations import LinearElastic, FiniteStrainElastic
+from fem.physics.equations import LinearElastic, FiniteStrainElastic
 from fem.mesh.structured import box_mesh
 from fem.regions import on_plane
-from fem.solution import ModalSolution, Solution
+from fem.post.solution import ModalSolution, Solution
 from fem.space import FunctionSpace
-from fem.modal import ModalAnalysis
+from fem.analysis.modal import ModalAnalysis
 
 E, NU, DENSITY = 200.0, 0.3, 1.0
 E_STAR = E / (1 - NU**2)                                   # plane-strain modulus for bending

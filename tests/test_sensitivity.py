@@ -6,11 +6,11 @@ self-adjoint and a non-self-adjoint quantity of interest.
 import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
-from fem.forms import LinearElasticForm, PrecomputedForm
-from fem.materials import LinearElasticMaterial
+from fem.physics.forms import LinearElasticForm, PrecomputedForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
 from fem.regions import on_plane
-from fem.sensitivity import (
+from fem.analysis.sensitivity import (
     Compliance,
     DensityField,
     ModulusField,

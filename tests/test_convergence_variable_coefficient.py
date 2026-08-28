@@ -5,7 +5,7 @@ points, checked by recovering a known field at the O(h^2) rate P1 promises.
 """
 import pytest
 
-from fem.convergence import ConvergenceStudy, variable_coefficient_convergence
+from mms import ConvergenceStudy, variable_coefficient_convergence
 
 
 @pytest.fixture(scope="module")

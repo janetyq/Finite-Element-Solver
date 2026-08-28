@@ -15,11 +15,11 @@ from fem.elements import (
     QuadraticLineElement,
     QuadraticTriangleElement,
 )
-from fem.forms import LinearElasticForm
-from fem.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.physics.forms import LinearElasticForm
+from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.structured import box_mesh
 from fem.post.recovery import average_to_nodal, recover_nodal
-from fem.solution import ElasticSolution
+from fem.post.solution import ElasticSolution
 from fem.space import FunctionSpace
 
 
@@ -151,7 +151,7 @@ def test_average_to_nodal_agrees_with_recover_nodal_for_an_element_constant_fiel
 def _quadratic_scalar_solution(element_type):
     """A `ScalarFieldSolution` whose field is a known quadratic, so its gradient is
     exactly linear and a P2 space carries it exactly."""
-    from fem.solution import ScalarFieldSolution
+    from fem.post.solution import ScalarFieldSolution
     mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
     space = FunctionSpace(mesh, element_type)
     x, y = space.node_coords.T

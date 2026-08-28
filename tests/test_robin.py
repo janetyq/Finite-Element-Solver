@@ -6,7 +6,7 @@ import numpy as np
 
 from fem.boundary import BoundaryConditions, Dirichlet, Robin
 from fem.regions import everywhere, on_plane
-from fem.equations import Poisson
+from fem.physics.equations import Poisson
 from fem.solver import Solver
 
 

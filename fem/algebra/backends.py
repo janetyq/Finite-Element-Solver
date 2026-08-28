@@ -39,11 +39,10 @@ import pyamg
 from scipy.sparse import csc_array, csr_array
 from scipy.sparse.linalg import cg, minres, splu
 
-from fem.typing import DofVector, FloatArray, Operator, Vertices
+from fem.typing import DofVector, FloatArray, Operator
 
 __all__ = [
     'Backend', 'LinearSolver', 'DirectBackend', 'IterativeBackend', 'MinresBackend',
-    'rigid_body_modes',
 ]
 
 
@@ -134,41 +133,6 @@ class MinresBackend:
 
     def prepare(self, A: Operator) -> LinearSolver:
         return _MinresSolver(csr_array(A), self.preconditioner, self.rtol, self.maxiter)
-
-
-# -- near-kernel helper for the elastic AMG path -------------------------------
-
-def rigid_body_modes(vertices: Vertices, n_components: int) -> FloatArray:
-    '''The rigid-body modes of an elastic body: the AMG near-kernel for elasticity.
-
-    Rigid translations and (infinitesimal) rotations produce no strain, so they lie
-    in the kernel of the unconstrained stiffness: the low-energy modes a plain
-    smoother cannot damp and the coarse levels must represent. Feeding them to AMG
-    keeps CG's iteration count flat under mesh refinement for a lightly constrained
-    body; the constant vector pyamg assumes by default does not.
-
-    Returns `(n_dofs, n_modes)` in the interleaved DOF order (component `d` of node
-    `v` at `n_components*v + d`): 3 modes in 2D (two translations, one rotation), 6
-    in 3D (three of each). Restrict the rows to the free DOFs before use, so the
-    block matches the one `IterativeBackend` is handed.
-    '''
-    n = len(vertices)
-    if n_components == 2:
-        x, y = vertices[:, 0], vertices[:, 1]
-        B = np.zeros((2 * n, 3))
-        B[0::2, 0] = 1.0                      # translate x
-        B[1::2, 1] = 1.0                      # translate y
-        B[0::2, 2], B[1::2, 2] = -y, x        # rotate in-plane: (-y, x)
-        return B
-    if n_components == 3:
-        x, y, z = vertices[:, 0], vertices[:, 1], vertices[:, 2]
-        B = np.zeros((3 * n, 6))
-        B[0::3, 0] = B[1::3, 1] = B[2::3, 2] = 1.0   # three translations
-        B[1::3, 3], B[2::3, 3] = -z, y               # rotate about x: (0, -z, y)
-        B[0::3, 4], B[2::3, 4] = z, -x               # rotate about y: (z, 0, -x)
-        B[0::3, 5], B[1::3, 5] = -y, x               # rotate about z: (-y, x, 0)
-        return B
-    raise ValueError(f'rigid-body modes are defined for 2D or 3D elasticity, not n_components={n_components}')
 
 
 # -- internal plumbing: not part of the public surface -------------------------

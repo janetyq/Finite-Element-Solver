@@ -15,10 +15,10 @@ import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import QuadraticTriangleElement
-from fem.equations import LinearElastic, FiniteStrainElastic
+from fem.physics.equations import LinearElastic, FiniteStrainElastic
 from fem.mesh.structured import box_mesh
 from fem.regions import intersect, on_plane
-from fem.buckling import BucklingAnalysis
+from fem.analysis.buckling import BucklingAnalysis
 
 E, NU = 200.0, 0.3
 E_STAR = E / (1 - NU**2)   # plane-strain effective modulus for bending
@@ -165,7 +165,7 @@ def test_green_lagrange_equation_is_rejected():
 
 def test_scalar_problem_is_rejected():
     """Buckling reads a prestress, so a problem without recovered stress is refused."""
-    from fem.equations import Poisson
+    from fem.physics.equations import Poisson
 
     mesh = column(12.0, n_length=12, n_across=3)
     scalar = Poisson(source=1.0)

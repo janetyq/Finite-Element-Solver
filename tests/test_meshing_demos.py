@@ -2,12 +2,8 @@
 closing vertex (see tests/test_svg.py): `ax.plot` never connects a polyline's last
 point back to its first on its own, so a ring plotted as given looks open there.
 """
-import sys
-from pathlib import Path
 
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
 
 from demos.outline_to_mesh.physics import close_ring  # noqa: E402
 

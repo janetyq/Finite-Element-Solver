@@ -6,13 +6,13 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
-from fem.energies import StVenantKirchhoff
-from fem.equations import LinearElastic, Poisson
-from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm, BoundaryMassForm, MassForm, SumForm
-from fem.integrators import NewmarkMethod
+from fem.physics.energies import StVenantKirchhoff
+from fem.physics.equations import LinearElastic, Poisson
+from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, BoundaryMassForm, MassForm, SumForm
+from fem.algebra.integrators import NewmarkMethod
 from fem.loads import PointLoad, Source, BoundaryLoad
-from fem.materials import LinearElasticMaterial
-from fem.modal import ModalAnalysis
+from fem.physics.materials import LinearElasticMaterial
+from fem.analysis.modal import ModalAnalysis
 from fem.problem import LinearProblem, RayleighDamping
 from fem.regions import TimeDependent, at_indices, everywhere, on_plane
 from fem.space import FunctionSpace
@@ -74,7 +74,7 @@ def test_a_state_dependent_sum_has_consistent_energy_residual_and_tangent(make_u
 def test_the_robin_term_is_a_term_of_the_operator(make_unit_square):
     """A problem with a Robin condition has one boundary term in its operator, which the
     physics form, the packaging, and `with_operator` all see."""
-    from fem.solution import ScalarFieldSolution
+    from fem.post.solution import ScalarFieldSolution
     mesh = make_unit_square(6)
     bc = BoundaryConditions(Robin(everywhere(), kappa=2.0, g=1.0))
     problem = Poisson(source=1.0).problem(mesh, bc)

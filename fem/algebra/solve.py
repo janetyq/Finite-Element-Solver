@@ -18,9 +18,9 @@ import numpy as np
 from scipy.sparse import eye_array
 from scipy.sparse.linalg import ArpackNoConvergence, eigsh
 
-from fem.backends import Backend, IterativeBackend, MinresBackend
+from fem.algebra.backends import Backend, IterativeBackend, MinresBackend
 from fem.problem import Problem
-from fem.system import DiscreteSystem
+from fem.algebra.system import DiscreteSystem
 from fem.typing import Constraints, DofIndices, DofVector, FloatArray, Operator
 
 

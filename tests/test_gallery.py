@@ -7,13 +7,10 @@ dependency. `test_demos.py` runs the real demos.
 import json
 import re
 import shutil
-import sys
 from functools import partial
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples'))
 
 from demos import l2_projection, timing_benchmark, topology_optimization  # noqa: E402
 from demo_registry import Demo, DemoResult, Figure  # noqa: E402
@@ -42,7 +39,7 @@ def _text_only():
 def _poisson(mesh):
     """A cheap Poisson solve with one figure, standing in for a real demo."""
     from fem.boundary import BoundaryConditions, Dirichlet
-    from fem.equations import Poisson
+    from fem.physics.equations import Poisson
     from fem.regions import everywhere
     from fem.solver import Solver
 

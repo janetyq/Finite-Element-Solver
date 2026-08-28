@@ -7,7 +7,7 @@ import pytest
 from fem.solver import Solver
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.mesh.mesh import Mesh
-from fem.equations import FiniteStrainElastic
+from fem.physics.equations import FiniteStrainElastic
 from fem.regions import everywhere, on_plane, at_indices
 
 

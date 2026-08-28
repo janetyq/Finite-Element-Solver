@@ -13,7 +13,7 @@ from fem.typing import FloatArray
 if TYPE_CHECKING:
     from fem.boundary import BoundaryConditions
     from fem.mesh.mesh import Mesh
-    from fem.solution import Solution
+    from fem.post.solution import Solution
     from fem.space import FunctionSpace
 
 from fem.plot.helpers import (

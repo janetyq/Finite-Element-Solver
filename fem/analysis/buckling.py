@@ -16,10 +16,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.forms import GeometricStiffnessForm
+from fem.physics.forms import GeometricStiffnessForm
 from fem.problem import LinearProblem
-from fem.solution import BucklingSolution, ElasticSolution
-from fem.solve import EigenSolve, LinearSolve
+from fem.post.solution import BucklingSolution, ElasticSolution
+from fem.algebra.solve import EigenSolve, LinearSolve
 from fem.typing import FloatArray
 
 logger = logging.getLogger(__name__)

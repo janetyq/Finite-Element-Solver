@@ -19,6 +19,9 @@ An estimator has no physics of its own. The one physics-specific input, the
 `DerivedField` (which field to jump or recover, and what its boundary residual is),
 is read off the problem's operator (`Form.derived_field`), and the source off the
 problem, at `estimate` time. A custom estimate is any callable of `(problem, solution)`.
+
+`GoalOrientedEstimator` imports `fem.analysis.sensitivity` lazily to solve the dual;
+`sensitivity` sits above the estimators, so the edge stays function-local.
 """
 from __future__ import annotations
 
@@ -37,10 +40,10 @@ _REFERENCE_EDGE_MIDPOINTS = np.array([[0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
 if TYPE_CHECKING:
     from fem.boundary import ResolvedBC
-    from fem.postprocess import DerivedField
+    from fem.physics.derived import DerivedField
     from fem.problem import Problem
-    from fem.sensitivity import QuantityOfInterest
-    from fem.solution import FieldSolution
+    from fem.analysis.sensitivity import QuantityOfInterest
+    from fem.post.solution import FieldSolution
     from fem.space import FunctionSpace
     from fem.typing import BoolArray, ElementField, FieldValue, FloatArray, IntArray
 
@@ -317,7 +320,7 @@ class GoalOrientedEstimator:
     quantity_of_interest: 'QuantityOfInterest'
 
     def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
-        from fem.sensitivity import SensitivityAnalysis
+        from fem.analysis.sensitivity import SensitivityAnalysis
 
         base = RecoveryEstimator()
         eta_primal = base.estimate(problem, solution)
