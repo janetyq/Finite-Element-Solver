@@ -68,20 +68,28 @@ def _struck_figure(s: ForkStudy, shown_periods, frames_per_period) -> Figure:
     half_slot = float(np.abs(verts[verts[:, 1] > verts[:, 1].max() - 1e-9, 0]).min())
     scale = 0.8 * half_slot / np.abs(tip_x).max()
     n_v = len(verts)
-    sideways = [s.ringing.u[i].reshape(-1, 2)[:n_v, 0] for i in shown]
+    sideways = [1e9 * s.ringing.u[i].reshape(-1, 2)[:n_v, 0] for i in shown]   # nm
     frames = []
     for i in shown:
         mesh = s.mesh.copy()
         mesh.vertices = mesh.vertices + scale * s.ringing.u[i].reshape(-1, 2)[:n_v]
         frames.append(mesh)
     lim = float(np.abs(sideways).max())
-    struck = Plotter(1, 1, figsize=(4.6, 6.2), title='Pinched at the tips and released')
+    # The title counts two things that should agree: the periods elapsed at the voice's
+    # frequency, and the swings the tip has actually made (its upward zero crossings).
+    f_voice = float(s.freqs[s.voice])
+    upward = np.flatnonzero((tip_x[:-1] < 0) & (tip_x[1:] >= 0)) + 1
+    titles = [f't = {1e3 * t[i]:.2f} ms\n'
+              f'{t[i] * f_voice:.1f} periods at {f_voice:.0f} Hz\n'
+              f'{int(np.sum(upward <= i))} tip swings counted' for i in shown]
+    struck = Plotter(1, 1, figsize=(5.4, 6.4), title='Pinched at the tips and released')
     struck.plot_animation(s.mesh, sideways, mode='colored', meshes=frames, cmap='coolwarm',
-                          cbar_lims=(-lim, lim), label='sideways displacement (m)',
-                          titles=[f't = {1e3 * t[i]:.2f} ms' for i in shown])
+                          cbar_lims=(-lim, lim), label='sideways displacement (nm)',
+                          titles=titles)
     _hide_x_ticks(struck, (0, 0))
-    struck.fig.supxlabel(f'Displacement exaggerated {scale:.0f}x.\nThe colour is to scale.',
-                         fontsize='small')
+    struck.fig.supxlabel(f'Displacement exaggerated {scale:.0f}x; the colour is to scale.\n'
+                         f'Played at about one second per period; the real period is '
+                         f'{1e3 / f_voice:.2f} ms.', fontsize='small')
     return Figure(
         struck,
         f'The fork struck, the first {shown_periods} periods of the voice: an equal and '
