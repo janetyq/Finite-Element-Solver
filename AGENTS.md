@@ -12,14 +12,9 @@ Working guidelines for agents on this repo. `CLAUDE.md` imports this file. Do no
 
 ## Prose
 
-Style preferences for text checked into the repo: docstrings, comments, README, ARCHITECTURE.md, BACKLOG.md, demo text, PR titles and descriptions, commit messages. They do not apply to conversation with the user.
-
-- Write prose that is clear and easy to understand.
-- Keep it concise. A docstring says what a thing is and returns; a comment explains a mechanism the code cannot show. Design rationale belongs in the PR.
-- Write for someone reading the current code with no memory of earlier versions. Don't narrate what changed or contrast with how it used to be.
-- Plain, direct sentences. Avoid rhetorical devices that draw attention to the writing (em-dash asides, "X, not Y" framing, trailing qualifiers).
-- A test's name or docstring states the claim it checks.
-- A PR title or commit subject is a short imperative summary of the change, like "Unify problem construction and solve API".
+- Be clear and concise.
+- Do not include unnecessary justification, and do not reference old behaviour that is no longer relevant to the current code.
+- Avoid em dashes and excessive AI-speak.
 
 ## Git
 
