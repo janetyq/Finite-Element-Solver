@@ -111,15 +111,20 @@ why real parts round their inner corners.
 
 <p align="center"><img src="images/bracket.png" height="280" alt="L-bracket von Mises stress: sharp corner vs filleted"> <img src="images/bracket_singularity.png" height="280" alt="Corner stress peak vs mesh refinement: sharp climbs, fillet converges"></p>
 
-### Three ways to solve the same stretch
+### Two nonlinear materials, one stretch
 
-The same clamped block is stretched three ways. The first is `LinearElastic`, a linear
-solve of $Ku = f$. The second minimises that model's elastic energy with Newton's
-method, and arrives at the same system from the other direction. The third is
-`FiniteStrainElastic`, a Green-Lagrange solve. The first two agree in displacement to
-machine precision. The third stiffens as the stretch grows, which small strain cannot.
+The same clamped block is stretched four ways. The first two are small-strain linear
+elasticity solved two ways, a linear solve of $Ku = f$ (`LinearElastic`) and Newton on
+that model's elastic energy, which agree in displacement to machine precision. The last
+two swap in nonlinear, finite-strain material laws through the same `EnergyForm`:
+`StVenantKirchhoff` on the Green-Lagrange strain, which over-stiffens steeply in
+tension, and a compressible `NeohookeanEnergyDensity` written in the invariants of
+$C = F^{\top}F$, which stays physical at large strain. Any stored-energy density that
+returns its stress and tangent plugs into the same Newton solver, so a new hyperelastic
+material is a small class rather than a new solver. One shared log colour scale spans
+the panels, with the singular clamped corners saturated at the top.
 
-<p align="center"><img src="images/elasticity_models.png" width="780" alt="Linear, energy-minimisation, and finite-strain solves of one stretch"></p>
+<p align="center"><img src="images/elasticity_models.png" width="780" alt="One stretch, four models: linear and energy-minimisation small strain, St-Venant-Kirchhoff, and Neo-Hookean, on a shared log stress scale"></p>
 
 ### From an outline to a stress concentration
 
