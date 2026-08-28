@@ -307,7 +307,9 @@ pip install -e .
 
 ## Running demos and tests
 
-Runnable demos live in `examples/` (run from the repo root) behind a small CLI:
+Runnable demos live in `examples/demos/` (run from the repo root) behind a small CLI. Each
+demo is a package of two files: `physics.py` poses and solves the problem and is what the
+gallery shows as the demo's source, `figures.py` draws it.
 ```bash
 uv run python examples/cli.py list          # see every available demo
 uv run python examples/cli.py run poisson   # run one by name
@@ -370,7 +372,7 @@ fem/                 # the solver package
 │
 └── geometry.py, numerics.py, typing.py   # helpers and semantic array aliases
 tests/               # pytest suite
-examples/            # runnable demo scripts, the CLI, and the gallery builder
+examples/            # the CLI, the gallery builder, and demos/<name>/{physics,figures}.py
 files/               # example SVG outlines
 ```
 

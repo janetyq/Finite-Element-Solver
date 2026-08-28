@@ -1,4 +1,4 @@
-"""Shared descriptors used by each example file's `DEMOS` registry and by cli.py.
+"""Shared descriptors used by each demo package's `DEMO` and by cli.py.
 
 `Demo` is what the registry lists; `DemoResult` is what running one gives back. The
 split matters: a demo never shows, saves, or prints anything itself, it returns what it
@@ -6,6 +6,7 @@ produced and the caller decides, so `run`, the gallery, and `tests/test_demos.py
 treat every demo the same way.
 """
 import functools
+import importlib
 import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -78,6 +79,12 @@ class DemoResult:
         return [figure for figure in self.figures if not figure.animated]
 
 
+@dataclass(frozen=True)
+class _ModuleByName:
+    """A `show_source` module in transit through pickle; see `Demo.__getstate__`."""
+    name: str
+
+
 def _source_of(obj: Callable[..., Any] | ModuleType) -> str:
     try:
         return inspect.getsource(obj)
@@ -113,6 +120,19 @@ class Demo:
     # enough to read whole. A demo setting this also gets the module the demo function
     # lives in offered behind a fold, for a reader reproducing a figure.
     show_source: ModuleType | Sequence[Callable[..., Any]] | None = None
+
+    # A gallery build sends each demo to a worker process by pickling it, and a module
+    # does not pickle; it goes across by name and is imported again on arrival.
+    def __getstate__(self) -> dict[str, Any]:
+        state = dict(self.__dict__)
+        if isinstance(self.show_source, ModuleType):
+            state['show_source'] = _ModuleByName(self.show_source.__name__)
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        if isinstance(state['show_source'], _ModuleByName):
+            state['show_source'] = importlib.import_module(state['show_source'].name)
+        self.__dict__.update(state)
 
     def _unwrapped(self) -> Callable[..., DemoResult]:
         """The demo function itself, from behind any `functools.partial` around it.

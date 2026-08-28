@@ -110,7 +110,7 @@ Two approaches measured and rejected, so they are not proposed again:
   geometric two-grid V-cycle built on the adaptive-refinement mesh hierarchy would drop in behind
   the same `Backend` seam without touching a caller, removing the dependency and being a genuinely
   instructive build. Full AMG is thousands of lines and not worth reimplementing; a two-grid cycle
-  is small and teaches the same ideas. The yardstick to hold is `examples/benchmark_assembly.py`:
+  is small and teaches the same ideas. The yardstick to hold is the `timing_benchmark` demo (`examples/demos/timing_benchmark/`):
   on the 3D elastic benchmark AMG-CG overtakes `splu` at n≈13 and is ~10× faster by n=21.
 - 💡 **Globalize the Newton direction, so the nonlinear path can reach the CG backend.**
   CG is SPD-only, and a Newton tangent is the Hessian `∇²Π(u)` at the current iterate, which is
