@@ -36,13 +36,15 @@ from fem.typing import FloatArray
 class StrainEnergyDerivatives:
     """A strain energy and its first two derivatives in F, batched over elements.
 
-    Every array has a leading `(n_elements,)` axis. `EnergyForm` contracts `P` and
-    `A` against the shape-function-derived `dF_dx` to assemble the element energy,
-    residual, and tangent in one vectorised pass.
+    `W` is the stored energy, `P = dW/dF` the stress, and `A = d²W/dF²` the stiffness:
+    the three things a Newton solve needs from a material. Every array has a leading
+    `(n_elements,)` axis; `EnergyForm` contracts `P` and `A` against the
+    shape-function-derived `dF_dx` to assemble the element energy, residual, and tangent
+    in one vectorised pass.
     """
-    W: FloatArray    # (n_el,)
-    P: FloatArray    # (n_el, d, d), first Piola-Kirchhoff stress dW/dF
-    A: FloatArray    # (n_el, d, d, d, d), material tangent d²W/dF²
+    W: FloatArray    # (n_el,), stored strain energy
+    P: FloatArray    # (n_el, d, d), stress: first Piola-Kirchhoff, dW/dF
+    A: FloatArray    # (n_el, d, d, d, d), stiffness (material tangent): d²W/dF²
 
 
 class StVenantKirchhoff:

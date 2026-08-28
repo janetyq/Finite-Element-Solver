@@ -127,10 +127,7 @@ realistic out to large stretch.
 
 All four panels share one colour scale. The stresses span a wide range, so the scale is
 logarithmic: brighter means more stress, and a whole panel shifting brighter (as
-St-Venant-Kirchhoff's does) means that material is carrying more everywhere. The vivid
-corners are a mathematical singularity, where the clamp meets the pulled edge and the
-stress is formally infinite, so they saturate at the top of the scale and should be read
-as an artefact rather than a real value.
+St-Venant-Kirchhoff's does) means that material is carrying more everywhere.
 
 <p align="center"><img src="images/elasticity_models.png" width="780" alt="One stretch, four elasticity models coloured by stress on a shared log scale: two small-strain solves, St-Venant-Kirchhoff, and Neo-Hookean"></p>
 
