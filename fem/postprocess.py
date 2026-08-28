@@ -165,7 +165,7 @@ class StressField:
         # The in-plane block: the estimators jump and recover the in-plane stress and
         # have no use for the out-of-plane lift.
         d = geometry.reference_dim
-        return self.form.fields_at(geometry, u_elements).stress[:, :, :d, :d]
+        return self.form.sample(geometry, u_elements).stress[:, :, :d, :d]
 
     def divergence(self, solution: FieldSolution) -> FloatArray:
         from fem.forms import LinearElasticForm

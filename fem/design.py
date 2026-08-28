@@ -151,7 +151,7 @@ class SIMPModel:
     def __post_init__(self) -> None:
         operator = self.template.physics
         if not isinstance(operator, LinearElasticForm):
-            raise ValueError(
+            raise TypeError(
                 'SIMP rescales a small-strain elastic stiffness; the operator is '
                 f'{type(operator).__name__}'
             )

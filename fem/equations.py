@@ -19,6 +19,7 @@ for, and the solves check it: a steady solve needs order 0, `ThetaMethod` order 
 """
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar
 
@@ -38,7 +39,7 @@ if TYPE_CHECKING:
     from fem.elements import Element
 
 
-class Equation:
+class Equation(ABC):
     '''Base class for a PDE to solve.
 
     An Equation says what to solve and carries the physical parameters; a solver
@@ -111,9 +112,9 @@ class Equation:
         return cls(space, operator, self.source, bc, density=self.density,
                    loads=self.loads, damping=self.damping, time_orders=self.time_orders)
 
+    @abstractmethod
     def operator(self, space: FunctionSpace) -> Form:
         '''The form a solve assembles for this equation on `space`.'''
-        raise NotImplementedError(f'{type(self).__name__} names no operator')
 
 
 class Projection(Equation):

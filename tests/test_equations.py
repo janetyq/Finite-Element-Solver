@@ -26,8 +26,8 @@ def test_poisson_names_the_laplacian_and_the_base_equation_names_nothing(make_un
     """`Equation` is abstract: an operator comes from a named PDE."""
     space = FunctionSpace(make_unit_square(3))
     assert isinstance(Poisson().operator(space), DiffusionForm)
-    with pytest.raises(NotImplementedError, match='operator'):
-        Equation().operator(space)
+    with pytest.raises(TypeError, match='abstract'):
+        Equation()  # pyright: ignore[reportAbstractUsage]
 
 
 def test_linear_elastic_builds_its_form_from_its_own_constants(make_unit_square):

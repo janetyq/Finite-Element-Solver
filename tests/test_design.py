@@ -110,7 +110,7 @@ def test_model_rejects_a_per_element_modulus(make_unit_square):
 
 def test_model_rejects_an_operator_that_is_not_small_strain_elastic(make_unit_square):
     mesh = make_unit_square(4)
-    with pytest.raises(ValueError, match='small-strain'):
+    with pytest.raises(TypeError, match='small-strain'):
         SIMPModel(Poisson().problem(mesh))
 
 

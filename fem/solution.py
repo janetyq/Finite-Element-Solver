@@ -166,13 +166,13 @@ class ElasticSolution(FieldSolution):
         space = self.space
         u_elements = np.asarray(self.u).reshape(-1, self.n_components)[space.element_nodes]
         if method == 'average':
-            fields = self.form.fields_at(space.geometry_at_nodes, u_elements)
+            fields = self.form.sample(space.geometry_at_nodes, u_elements)
             return recovery.average_to_nodal(space, getattr(fields, name))
         if method == 'l2':
             # A degree-p field's gradient is degree p - 1; the rule that integrates its
             # product with a shape function exactly is 2p - 1, and 2p is the cached one.
             geometry = space.geometry_at(2 * space.element_type.SHAPE_DEGREE)
-            fields = self.form.fields_at(geometry, u_elements)
+            fields = self.form.sample(geometry, u_elements)
             return recovery.project_to_nodal(space, getattr(fields, name), geometry)
         raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
 

@@ -28,6 +28,7 @@ space assembles each term over its own domain.
 """
 from dataclasses import dataclass
 from numbers import Real
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
 import numpy as np
@@ -174,7 +175,7 @@ class RecoversElasticFields(Protocol):
     the attribute exists, not that its signature matches.
     '''
 
-    def fields_at(
+    def sample(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> ElasticPointFields:
         '''Strain and stress at every point of `geometry`'s rule.
@@ -195,7 +196,7 @@ class RecoversElasticFields(Protocol):
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> ElasticFields:
         '''One strain, stress, and compliance per element, from `(n_elements, N,
-        n_components)` nodal values: the element mean of `fields_at` over the rule.'''
+        n_components)` nodal values: the element mean of `sample` over the rule.'''
         ...
 
 
@@ -209,7 +210,7 @@ def _element_mean(values: FloatArray, weight_detJ: FloatArray) -> FloatArray:
     return np.einsum('eq,eq...->e...', weights, values)
 
 
-class Form:
+class Form(ABC):
     '''Element residual and tangent at a nodal state: what a `Problem` assembles.
 
     A subclass writes `element_residuals` and `element_tangents`. Everything else is
@@ -264,13 +265,13 @@ class Form:
         '''(n_elements, k, k) constant element matrices; defined when `constant_tangent`.'''
         raise TypeError(f'{type(self).__name__} has a state-dependent tangent and no constant matrices')
 
+    @abstractmethod
     def element_residuals(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, k) internal-force blocks at the state, k = N * n_components.'''
-        raise NotImplementedError
 
+    @abstractmethod
     def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, k, k) tangent blocks at the state.'''
-        raise NotImplementedError
 
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements,) stored energy per element at the state; defined when `has_energy`.'''
@@ -459,7 +460,7 @@ class LinearElasticForm(BilinearForm):
         # and AMG wants the modes at every DOF.
         return rigid_body_modes(space.node_coords, space.n_components)
 
-    def fields_at(
+    def sample(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> ElasticPointFields:
         '''Strain and stress at every point of `geometry`'s rule.
@@ -497,11 +498,11 @@ class LinearElasticForm(BilinearForm):
     ) -> ElasticFields:
         '''Element strain, stress, and compliance from nodal displacements.
 
-        Strain and stress are the element mean of `fields_at` over the rule: the
+        Strain and stress are the element mean of `sample` over the rule: the
         exact value for P1 and the centroid value for a straight P2 triangle.
         Compliance is `∫ sigma : eps` over the element.
         '''
-        fields = self.fields_at(geometry, u_elements)
+        fields = self.sample(geometry, u_elements)
         # The full double contraction. eps_zz is zero under plane strain, so the
         # lift above leaves this equal to the in-plane Voigt dot product it replaces.
         compliance = np.einsum('eqij,eqij,eq->e', fields.stress, fields.strain,
@@ -848,7 +849,7 @@ class EnergyForm(Form):
         from fem.solution import ElasticSolution
         return ElasticSolution.from_solve(space, u, self)
 
-    def fields_at(
+    def sample(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> ElasticPointFields:
         '''Strain and Cauchy stress at every point of `geometry`'s rule; see `_point_state`.'''
@@ -860,7 +861,7 @@ class EnergyForm(Form):
     ) -> ElasticFields:
         '''Element strain, Cauchy stress, and compliance at a solved displacement.
 
-        Strain and stress are the element mean of `fields_at` over the rule,
+        Strain and stress are the element mean of `sample` over the rule,
         matching the linear path. Compliance is twice the stored energy integrated
         over the element, which for a quadratic W is `∫ S : E`, the work-conjugate
         pair. Contracting the reported Cauchy stress with E instead mixes measures
