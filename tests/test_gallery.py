@@ -47,8 +47,7 @@ def _poisson(mesh):
     from fem.regions import everywhere
     from fem.solver import Solver
 
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(everywhere(), 0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0))
     solution = Solver(mesh, Poisson(source=1), bc).solve()
     plotter = Plotter()
     plotter.plot(mesh, solution.u, mode='colored')

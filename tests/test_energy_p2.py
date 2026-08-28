@@ -77,9 +77,10 @@ def test_a_p2_hyperelastic_solve_converges_and_carries_its_element_type():
     ElasticSolution, so it knows its space and its recovered stress reaches the edge
     nodes too."""
     mesh = create_rect_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
-    bc = bc + Dirichlet(on_plane(0, 2.0), [0.3, 0.15])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Dirichlet(on_plane(0, 2.0), [0.3, 0.15]),
+    )
     equation = FiniteStrainElastic(200.0, 0.3)
 
     solution = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement).solve()

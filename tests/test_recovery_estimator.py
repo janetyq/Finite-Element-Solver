@@ -51,8 +51,7 @@ def _elastic_true_stress_error(problem, solution):
 
 
 def _solved(equation, mesh, bc_value):
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(everywhere(), bc_value)
+    bc = BoundaryConditions(Dirichlet(everywhere(), bc_value))
     problem = equation.problem(mesh, bc)
     return problem, problem.solve()
 
@@ -113,8 +112,7 @@ def test_recovery_drives_adaptive_refinement(make_unit_square):
     """The full loop, mirroring the residual estimator's: recovery drives the
     refiner, and the mesh grows and concentrates near a localised source."""
     mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
 
     n_before = len(mesh.elements)

@@ -35,8 +35,9 @@ def cantilever(length, height=1.0, n_length=48, n_across=6):
 
 def clamped_bc():
     """Fixed-free: one end clamped, the rest free, no load."""
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+    )
     return bc
 
 

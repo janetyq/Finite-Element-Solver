@@ -50,9 +50,10 @@ def _stretched_square(make_unit_square, stretch=0.1, n=8):
     """Unit square, left edge pinned, right edge displaced by `stretch` in x. Displacement
     driven with no load, the only setup both solvers can be compared on."""
     mesh = make_unit_square(n)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
-    bc = bc + Dirichlet(on_plane(0, 1.0), [stretch, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Dirichlet(on_plane(0, 1.0), [stretch, 0]),
+    )
     return mesh, bc
 
 
@@ -77,9 +78,10 @@ def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_s
     tangent loses ellipticity and a full Newton step from the zero seed diverges;
     backtracking on the energy reaches equilibrium."""
     mesh = make_unit_square(8)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
-    bc = bc + Dirichlet(on_plane(0, 1.0), [-0.7, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Dirichlet(on_plane(0, 1.0), [-0.7, 0]),
+    )
     equation = FiniteStrainElastic(E=200, nu=0.4)
     problem = equation.problem(mesh, bc)
     free = problem.constraints[0]
@@ -220,9 +222,10 @@ def test_green_lagrange_is_frame_indifferent(make_unit_square):
 def _stretched_stvk(make_unit_square, n=8, stretch=0.1):
     """A well-constrained St-Venant-Kirchhoff pull: left edge fixed, right edge stretched."""
     mesh = make_unit_square(n)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
-    bc = bc + Dirichlet(on_plane(0, 1.0), [stretch, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Dirichlet(on_plane(0, 1.0), [stretch, 0]),
+    )
     equation = FiniteStrainElastic(E=200, nu=0.4)
     return mesh, equation, bc
 
@@ -253,9 +256,10 @@ def test_solver_uses_the_strategy_it_is_given(make_unit_square):
 def test_regularization_leaves_an_spd_tangent_unshifted(make_unit_square):
     """On a LinearProblem (SPD tangent), regularization changes nothing: tau stays 0."""
     mesh = make_unit_square(8)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
-    bc = bc + Dirichlet(on_plane(0, 1.0), [0.05, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Dirichlet(on_plane(0, 1.0), [0.05, 0]),
+    )
     equation = LinearElastic(E=200, nu=0.3)
     problem = equation.problem(mesh, bc)
 

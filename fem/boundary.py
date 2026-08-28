@@ -375,7 +375,9 @@ def _partition(
 @dataclass(frozen=True, init=False)
 class BoundaryConditions:
     '''A mesh-independent specification of the conditions on a domain boundary: a
-    frozen tuple of `Condition`s. `bc + condition` and `with_` derive a new one.'''
+    frozen tuple of `Condition`s built with the variadic constructor. Because it is
+    iterable, extend or merge specs by unpacking: `BoundaryConditions(*existing, extra)`
+    or `BoundaryConditions(*case_a, *case_b)`.'''
     conditions: tuple[Condition, ...]
 
     def __init__(self, *conditions: Condition) -> None:
@@ -385,17 +387,6 @@ class BoundaryConditions:
                     f'expected a Dirichlet, Neumann, or Robin condition, got {type(condition).__name__}'
                 )
         object.__setattr__(self, 'conditions', tuple(conditions))
-
-    def __add__(self, other: 'Condition | BoundaryConditions') -> 'BoundaryConditions':
-        if isinstance(other, BoundaryConditions):
-            return BoundaryConditions(*self.conditions, *other.conditions)
-        if isinstance(other, Condition):
-            return BoundaryConditions(*self.conditions, other)
-        return NotImplemented
-
-    def with_(self, *conditions: Condition) -> 'BoundaryConditions':
-        '''This specification plus `conditions`.'''
-        return BoundaryConditions(*self.conditions, *conditions)
 
     def __iter__(self):
         return iter(self.conditions)

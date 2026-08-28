@@ -16,8 +16,7 @@ def test_constant_solution_is_reproduced_exactly(make_unit_square):
     mesh = make_unit_square(10)
     c, kappa = 5.0, 2.0
 
-    bc = BoundaryConditions()
-    bc = bc + Robin(everywhere(), kappa=kappa, g=kappa * c)
+    bc = BoundaryConditions(Robin(everywhere(), kappa=kappa, g=kappa * c))
     u = Solver(mesh, Poisson(source=0.0), bc).solve().u
 
     assert np.allclose(u, c, atol=1e-10), f"constant not reproduced: range {u.min()}..{u.max()}"
@@ -28,14 +27,12 @@ def test_large_kappa_approaches_the_dirichlet_limit(make_unit_square):
     mesh = make_unit_square(12)
     source = 1.0
 
-    bc_d = BoundaryConditions()
-    bc_d = bc_d + Dirichlet(everywhere(), 0.0)
+    bc_d = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     u_dirichlet = Solver(mesh, Poisson(source=source), bc_d).solve().u
 
     gaps = []
     for kappa in (10.0, 100.0, 1000.0):
-        bc_r = BoundaryConditions()
-        bc_r = bc_r + Robin(everywhere(), kappa=kappa, g=0.0)
+        bc_r = BoundaryConditions(Robin(everywhere(), kappa=kappa, g=0.0))
         u_robin = Solver(mesh, Poisson(source=source), bc_r).solve().u
         gaps.append(float(np.linalg.norm(u_robin - u_dirichlet)))
 
@@ -50,8 +47,7 @@ def test_robin_on_one_edge_pins_only_that_edge(make_unit_square):
     """
     mesh = make_unit_square(12)
 
-    bc = BoundaryConditions()
-    bc = bc + Robin(on_plane(0, 0.0), kappa=1000.0, g=0.0)
+    bc = BoundaryConditions(Robin(on_plane(0, 0.0), kappa=1000.0, g=0.0))
     u = Solver(mesh, Poisson(source=1.0), bc).solve().u
 
     bidx = mesh.boundary_idxs

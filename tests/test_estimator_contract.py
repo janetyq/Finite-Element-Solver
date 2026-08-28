@@ -18,17 +18,17 @@ from fem.sensitivity import PointValue
 
 def _poisson(element_type):
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(8, 8))
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     equation = Poisson(source=1.0)
     return equation, equation.problem(mesh, bc, element_type=element_type)
 
 
 def _elastic(element_type):
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(8, 8))
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
-    bc = bc + Neumann(on_plane(0, 1.0), [1.0, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, 1.0), [1.0, 0]),
+    )
     equation = LinearElastic(E=200, nu=0.3)
     return equation, equation.problem(mesh, bc, element_type=element_type)
 

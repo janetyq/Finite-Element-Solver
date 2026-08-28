@@ -50,8 +50,7 @@ def _orders(mesh, bc, u0, T, theta, n_steps):
 @pytest.fixture(scope="module")
 def setup():
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(11, 11))
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     x, y = mesh.vertices[:, 0], mesh.vertices[:, 1]
     u0 = np.sin(np.pi * x) * np.sin(np.pi * y)  # an eigenmode; zero on the boundary
     return mesh, bc, u0

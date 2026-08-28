@@ -93,11 +93,12 @@ def demo_poisson(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0,
                              max_area=max_area_fraction * pslg.area()).refine()
 
     equation = Poisson(source=0)   # Laplace: no sources in the flow
-    bc = BoundaryConditions()
     # phi rises from inlet to outlet, so v = grad(phi) runs left to right. The wing and
     # the walls take no condition, so they are no-flux streamlines.
-    bc = bc + Dirichlet(on_plane(0, 0.0), 0.0)
-    bc = bc + Dirichlet(on_plane(0, length), 1.0)
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), 0.0),
+        Dirichlet(on_plane(0, length), 1.0),
+    )
 
     solver = Solver(mesh, equation, bc, element_type=QuadraticTriangleElement)
     solution = solver.solve()
@@ -302,10 +303,11 @@ def demo_stress_concentration(traction=1.0, length=6.0, height=3.0, radius=0.15,
     # that Poisson contraction and add its own stress concentration, which competes with
     # the hole for the estimator's attention. Pinning y along the edge would do the same,
     # so a second condition pins y at one corner only, removing the last rigid-body mode.
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, None])
-    bc = bc + Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0])
-    bc = bc + Neumann(on_plane(0, length), [traction, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, None]),
+        Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0]),
+        Neumann(on_plane(0, length), [traction, 0]),
+    )
 
     # Solved on the curved quadratic element and adaptively refined by the recovery
     # estimator, which reads the curved rim's stress correctly. Everything plotted and
@@ -431,9 +433,10 @@ def demo_bracket(arm=4.0, width=1.2, fillet_radius=0.25, traction=0.4, E=300.0, 
     corner = np.array([width, width])
 
     def make_bc():
-        bc = BoundaryConditions()
-        bc = bc + Dirichlet(on_plane(1, arm), [0, 0])
-        bc = bc + Neumann(on_plane(0, arm), [0, -traction])
+        bc = BoundaryConditions(
+            Dirichlet(on_plane(1, arm), [0, 0]),
+            Neumann(on_plane(0, arm), [0, -traction]),
+        )
         return bc
 
     def corner_peak(solution):
@@ -557,9 +560,10 @@ def demo_elasticity_models(mesh, stretch=0.5):
     # The stress peak sits at the clamped corners, where the imposed displacement is
     # singular, so the median is quoted beside it.
     w = np.max(mesh.vertices[:, 0])
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
-    bc = bc + Dirichlet(on_plane(0, w), [stretch*w, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Dirichlet(on_plane(0, w), [stretch*w, 0]),
+    )
 
     linear = LinearElastic(E=200, nu=0.4)
     finite = FiniteStrainElastic(E=200, nu=0.4)
@@ -717,9 +721,10 @@ def demo_heat_equation(dt=0.05, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     def base_temperature(p, t):
         return u_ambient + (u_hot - u_ambient) * min(t / ramp, 1.0)
 
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(1, 0.0), TimeDependent(base_temperature))
-    bc = bc + Robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient)
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(1, 0.0), TimeDependent(base_temperature)),
+        Robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient),
+    )
     heat = Poisson().problem(mesh, bc)
     u_initial = heat.space.interpolate(u_ambient)
     solution = ThetaMethod(dt=dt, steps=steps).solve(heat, u_initial)
@@ -955,11 +960,12 @@ def demo_linear_elastic(mesh, n_3d=14):
 
     # -- 2D: clamped on the left, pulled down over the middle of the right edge ---------
     w = np.max(mesh.vertices[:, 0])
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
-    # Transverse, so the beam bends. Sized for a tip deflection near 9% of the span,
-    # inside the small-strain regime.
-    bc = bc + Neumann(intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])), [0, -0.5])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        # Transverse, so the beam bends. Sized for a tip deflection near 9% of the span,
+        # inside the small-strain regime.
+        Neumann(intersect(on_plane(0, w), in_box([None, 0.2], [None, 0.8])), [0, -0.5]),
+    )
     solution = Solver(mesh, LinearElastic(E, nu), bc).solve()
     deformed = solution.deformed_mesh()
 
@@ -969,9 +975,10 @@ def demo_linear_elastic(mesh, n_3d=14):
     # surface is drawn.
     box = create_box_mesh(corners=[[0, 0, 0], [4, 1, 1]],
                           resolution=(4 * n_3d // 2, n_3d // 2, n_3d // 2))
-    bc_3d = BoundaryConditions()
-    bc_3d = bc_3d + Dirichlet(on_plane(0, 0.0), [0, 0, 0])
-    bc_3d = bc_3d + Neumann(on_plane(0, 4.0), [0, 0, -0.5])
+    bc_3d = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0, 0]),
+        Neumann(on_plane(0, 4.0), [0, 0, -0.5]),
+    )
     solution_3d = Solver(box, LinearElastic(E, nu), bc_3d, backend=IterativeBackend()).solve()
     tip_3d = float(np.abs(solution_3d.u.reshape(-1, 3)[:, 2]).max())
 
@@ -1028,13 +1035,14 @@ def demo_topology_optimization(mesh, iters=60):
 
     # A simply supported (MBB) beam, the classic topology-optimization test: pinned at one
     # bottom corner, a vertical roller at the other, a downward load at the top centre.
-    bc = BoundaryConditions()
     bottom, top = on_plane(1, 0.0), on_plane(1, h)
-    bc = bc + Dirichlet(intersect(bottom, in_box([None, None], [0.04 * w, None])), [0, 0])
-    bc = bc + Dirichlet(intersect(bottom, in_box([0.96 * w, None], [None, None])), [None, 0])
-    # A load over the central fifth of the top rather than a point, so it lands on a
-    # boundary edge on any mesh, including the tiny smoke-test one.
-    bc = bc + Neumann(intersect(top, in_box([0.4 * w, None], [0.6 * w, None])), [0, -0.5])
+    bc = BoundaryConditions(
+        Dirichlet(intersect(bottom, in_box([None, None], [0.04 * w, None])), [0, 0]),
+        Dirichlet(intersect(bottom, in_box([0.96 * w, None], [None, None])), [None, 0]),
+        # A load over the central fifth of the top rather than a point, so it lands on a
+        # boundary edge on any mesh, including the tiny smoke-test one.
+        Neumann(intersect(top, in_box([0.4 * w, None], [0.6 * w, None])), [0, -0.5]),
+    )
 
     equation = LinearElastic(E, nu)
 
@@ -1135,30 +1143,34 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     # along an edge holds it transversely without touching its rotation. The column
     # stands along y, so the ends are at y = 0 and y = span and the load pushes in -y.
     def cantilever(span):   # fixed-free, K = 2
-        bc = BoundaryConditions()
-        bc = bc + Dirichlet(on_plane(1, 0.0), [0, 0])
-        bc = bc + Neumann(on_plane(1, span), [0, -1.0])
+        bc = BoundaryConditions(
+            Dirichlet(on_plane(1, 0.0), [0, 0]),
+            Neumann(on_plane(1, span), [0, -1.0]),
+        )
         return bc
 
     def pinned(span):       # pinned-pinned, K = 1
-        bc = BoundaryConditions()
-        bc = bc + Dirichlet(on_plane(1, 0.0), [0, None])
-        bc = bc + Dirichlet(intersect(on_plane(1, 0.0), on_plane(0, height / 2)), [0, 0])
-        bc = bc + Dirichlet(on_plane(1, span), [0, None])
-        bc = bc + Neumann(on_plane(1, span), [0, -1.0])
+        bc = BoundaryConditions(
+            Dirichlet(on_plane(1, 0.0), [0, None]),
+            Dirichlet(intersect(on_plane(1, 0.0), on_plane(0, height / 2)), [0, 0]),
+            Dirichlet(on_plane(1, span), [0, None]),
+            Neumann(on_plane(1, span), [0, -1.0]),
+        )
         return bc
 
     def fixed(span):        # fixed-fixed, K = 1/2
-        bc = BoundaryConditions()
-        bc = bc + Dirichlet(on_plane(1, 0.0), [0, 0])
-        bc = bc + Dirichlet(on_plane(1, span), [0, -0.02 * span])
+        bc = BoundaryConditions(
+            Dirichlet(on_plane(1, 0.0), [0, 0]),
+            Dirichlet(on_plane(1, span), [0, -0.02 * span]),
+        )
         return bc
 
     def fixed_pinned(span):  # fixed-pinned, K ~ 0.7
-        bc = BoundaryConditions()
-        bc = bc + Dirichlet(on_plane(1, 0.0), [0, 0])
-        bc = bc + Dirichlet(on_plane(1, span), [0, None])
-        bc = bc + Neumann(on_plane(1, span), [0, -1.0])
+        bc = BoundaryConditions(
+            Dirichlet(on_plane(1, 0.0), [0, 0]),
+            Dirichlet(on_plane(1, span), [0, None]),
+            Neumann(on_plane(1, span), [0, -1.0]),
+        )
         return bc
 
     ends = [('Cantilever\n(fixed-free)', cantilever, 2.0),
@@ -1308,8 +1320,7 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
 
     def clamp():
         """Grounded at the stem base: the fork's node, held without damping the voice."""
-        bc = BoundaryConditions()
-        bc = bc + Dirichlet(on_plane(1, 0.0), [0, 0])
+        bc = BoundaryConditions(Dirichlet(on_plane(1, 0.0), [0, 0]))
         return bc
 
     def solve_fork(length, modes, across=n_across_tine):

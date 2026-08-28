@@ -144,8 +144,7 @@ def demo_outline_to_mesh(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0
                                  max_area=max_area_fraction * pslg.area()).refine()
         # The Poisson "dome": a unit source pinned to zero on every boundary, so the
         # field is a picture of the domain itself, tallest where it is widest.
-        bc = BoundaryConditions()
-        bc = bc + Dirichlet(everywhere(), 0)
+        bc = BoundaryConditions(Dirichlet(everywhere(), 0))
         u = Solver(mesh, Poisson(source=1.0), bc).solve().u
         # A colour scale per cell (the domains differ in size by orders of magnitude) and
         # no colorbar: the shape matters, not the amplitude.

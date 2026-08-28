@@ -107,10 +107,11 @@ def _kirsch_rim_sigma_xx(element_type, segments):
     mesh = RuppertsAlgorithm(pslg, min_angle=28, max_area=0.02 * pslg.area()).refine()
 
     space = FunctionSpace(mesh, element_type, n_components=2)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, None])
-    bc = bc + Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0])
-    bc = bc + Neumann(on_plane(0, length), [1.0, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, None]),
+        Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0]),
+        Neumann(on_plane(0, length), [1.0, 0]),
+    )
     operator = LinearElasticForm(LinearElasticMaterial(200.0, 0.3))
     u = LinearSolve().solve(LinearProblem(space, operator, None, bc))
     solution = ElasticSolution.from_solve(space, u, operator)

@@ -58,9 +58,10 @@ def euler_load(length, factor_K, height=1.0):
 
 def cantilever_bc(length):
     """Fixed-free: the one end condition needing no support on the loaded edge."""
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
-    bc = bc + Neumann(on_plane(0, length), [-1.0, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, length), [-1.0, 0]),
+    )
     return bc
 
 
@@ -118,21 +119,26 @@ def test_effective_length_factors_across_end_conditions():
 
     # Pinned-pinned (K=1): both edges held transversely (u_y=0) with the axial DOF free
     # so each end rotates; one point anchors the rigid axial slide; traction compresses.
-    pinned = BoundaryConditions()
-    pinned = pinned + Dirichlet(on_plane(0, 0.0), [None, 0])
-    pinned = pinned + Dirichlet(mid_left, [0, 0])
-    pinned = pinned + Dirichlet(on_plane(0, length), [None, 0])
-    pinned = pinned + Neumann(on_plane(0, length), [-1.0, 0])
+    pinned = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [None, 0]),
+        Dirichlet(mid_left, [0, 0]),
+        Dirichlet(on_plane(0, length), [None, 0]),
+        Neumann(on_plane(0, length), [-1.0, 0]),
+    )
 
     # Fixed-fixed (K=0.5): clamp one end; drive the other by an imposed uniform axial
     # displacement with u_y=0 -- rotation clamped at both ends.
-    fixed = BoundaryConditions(clamp_left)
-    fixed = fixed + Dirichlet(on_plane(0, length), [-delta, 0])
+    fixed = BoundaryConditions(
+        clamp_left,
+        Dirichlet(on_plane(0, length), [-delta, 0]),
+    )
 
     # Fixed-pinned (K≈0.7): clamp one end, pin (u_y=0 edge, u_x free) and compress the other.
-    fixed_pinned = BoundaryConditions(clamp_left)
-    fixed_pinned = fixed_pinned + Dirichlet(on_plane(0, length), [None, 0])
-    fixed_pinned = fixed_pinned + Neumann(on_plane(0, length), [-1.0, 0])
+    fixed_pinned = BoundaryConditions(
+        clamp_left,
+        Dirichlet(on_plane(0, length), [None, 0]),
+        Neumann(on_plane(0, length), [-1.0, 0]),
+    )
 
     def measured_K(bc):
         load = critical_load(mesh, bc, length)[0][0]
@@ -176,7 +182,6 @@ def test_no_compression_means_no_buckling():
     """With no load there is no prestress, K_g vanishes, and the analysis reports no
     buckling mode rather than handing the eigensolver an all-zero K_g."""
     mesh = column(12.0, n_length=12, n_across=4)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
+    bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), [0, 0]))
     with pytest.raises(ValueError, match='compressive prestress'):
         BucklingAnalysis().solve(_problem(mesh, bc))

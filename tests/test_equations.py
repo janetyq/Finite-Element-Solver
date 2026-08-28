@@ -84,8 +84,7 @@ def test_equation_resolves_its_space_and_problem(make_unit_square):
     from fem.regions import everywhere
 
     mesh = make_unit_square(4)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
     assert Poisson().space(mesh).n_components == 1
     assert LinearElastic(E=1.0, nu=0.3).space(mesh).n_components == 2

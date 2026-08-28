@@ -25,8 +25,7 @@ def test_named_interior_vertex_is_rejected(make_unit_square):
     mesh = make_unit_square(8)
     interior = (set(range(len(mesh.vertices))) - set(int(i) for i in mesh.boundary_idxs)).pop()
 
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(at_indices([interior]), 0)
+    bc = BoundaryConditions(Dirichlet(at_indices([interior]), 0))
     with pytest.raises(ValueError):
         bc.resolve(mesh, n_components=1)
 
@@ -35,8 +34,7 @@ def test_geometric_region_never_selects_interior_vertices(make_unit_square):
     """A plane cutting through the domain still yields only boundary DOFs: the
     old 'BC on a non-boundary vertex' error is now unrepresentable."""
     mesh = make_unit_square(9)  # odd, so x = 0.5 is a grid line
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.5), 0)
+    bc = BoundaryConditions(Dirichlet(on_plane(0, 0.5), 0))
 
     interior_on_plane = np.isclose(mesh.vertices[:, 0], 0.5).sum() - 2
     assert interior_on_plane > 0, "region does not actually cross the interior"
@@ -49,9 +47,10 @@ def test_geometric_region_never_selects_interior_vertices(make_unit_square):
 def test_dirichlet_neumann_same_component_is_rejected(make_unit_square):
     """Pinning and loading the same component is the ambiguity to flag."""
     mesh = make_unit_square(8)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
-    bc = bc + Neumann(on_plane(0, 0.0), [3.0, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, 0.0), [3.0, 0]),
+    )
     with pytest.raises(ValueError, match='same'):
         bc.resolve(mesh, n_components=2)
 
@@ -60,9 +59,10 @@ def test_dirichlet_neumann_different_components_is_allowed(make_unit_square):
     """Pinning one component while a traction drives another (a roller carrying a tangential
     load) is well-posed."""
     mesh = make_unit_square(8)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [None, 0])
-    bc = bc + Neumann(on_plane(0, 0.0), [3.0, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [None, 0]),
+        Neumann(on_plane(0, 0.0), [3.0, 0]),
+    )
     resolved = bc.resolve(mesh, n_components=2)
 
     # The y-DOFs are fixed; the x-DOFs stay free and carry the traction load.
@@ -74,20 +74,21 @@ def test_dirichlet_neumann_different_components_is_allowed(make_unit_square):
 
 def test_agreeing_overlapping_regions_are_fine(make_unit_square):
     mesh = make_unit_square(8)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), 0.0)
-    bc = bc + Dirichlet(on_plane(1, 0.0), 0.0)
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), 0.0),
+        Dirichlet(on_plane(1, 0.0), 0.0),
+    )
     resolved = bc.resolve(mesh, n_components=1)
     assert len(resolved.fixed_idxs) == len(set(resolved.fixed_idxs))
 
 
 def test_a_specification_is_a_frozen_tuple_of_conditions():
-    """Conditions are collected by construction or by `+`; anything else is refused,
-    and the collection cannot be mutated."""
+    """Conditions are collected by the constructor; anything else is refused, and the
+    collection cannot be mutated."""
     pinned = Dirichlet(everywhere(), 0)
-    bc = BoundaryConditions(pinned) + Neumann(everywhere(), 0)
+    bc = BoundaryConditions(pinned, Neumann(everywhere(), 0))
     assert [type(c) for c in bc] == [Dirichlet, Neumann]
-    assert (bc + BoundaryConditions(pinned)).conditions == (*bc.conditions, pinned)
+    assert BoundaryConditions(*bc, pinned).conditions == (*bc.conditions, pinned)
     with pytest.raises(TypeError, match='Dirichlet, Neumann, or Robin'):
         BoundaryConditions(('dirichlet', everywhere(), 0))  # type: ignore[arg-type]
     with pytest.raises(AttributeError):
@@ -96,9 +97,8 @@ def test_a_specification_is_a_frozen_tuple_of_conditions():
 
 def test_index_list_as_region_is_rejected():
     """A bare index list fails with a message pointing at regions."""
-    bc = BoundaryConditions()
     with pytest.raises(TypeError):
-        bc = bc + Dirichlet([0, 1, 2], 0)
+        BoundaryConditions(Dirichlet([0, 1, 2], 0))
 
 
 def test_finite_strain_accepts_a_3d_mesh():
@@ -108,8 +108,7 @@ def test_finite_strain_accepts_a_3d_mesh():
         elements=[[0, 1, 2, 3]],
         boundary=[[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
     )
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(2, 0.0), [0, 0, 0])
+    bc = BoundaryConditions(Dirichlet(on_plane(2, 0.0), [0, 0, 0]))
 
     equation = FiniteStrainElastic(E=200, nu=0.4)
     assert Solver(mesh, equation, bc).space.n_components == 3
@@ -120,8 +119,7 @@ def test_finite_strain_rejects_a_per_element_modulus(make_unit_square):
     array E broadcasts wrongly against the constant d2W/dS2 rather than giving
     per-element moduli. The small-strain path is the one that supports them."""
     mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0, 0])
+    bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), [0, 0]))
 
     E = np.full(len(mesh.elements), 200.0)
     equation = FiniteStrainElastic(E=E, nu=0.4)

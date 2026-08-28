@@ -30,9 +30,10 @@ def _geometry_and_nodal(A):
 
 def _cantilever_bc() -> BoundaryConditions:
     """Left edge pinned, right edge pulled down."""
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), [0.0, 0.0])
-    bc = bc + Neumann(on_plane(0, 1.0), [0.0, -1.0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
+        Neumann(on_plane(0, 1.0), [0.0, -1.0]),
+    )
     return bc
 
 

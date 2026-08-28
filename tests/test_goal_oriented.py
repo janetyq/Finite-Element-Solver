@@ -19,8 +19,7 @@ def _nearest_node(space, point):
 
 
 def _problem_for(mesh):
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     return EQUATION.problem(mesh, bc)
 
 

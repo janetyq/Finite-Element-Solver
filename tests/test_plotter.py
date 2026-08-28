@@ -217,8 +217,9 @@ def test_a_conditions_panel_keeps_its_aspect_but_not_the_x_y_labels(mesh):
     from fem.boundary import BoundaryConditions, Dirichlet
     from fem.regions import on_plane
 
-    bc = BoundaryConditions()
-    bc = bc + Dirichlet(on_plane(0, 0.0), 0.0)
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), 0.0),
+    )
 
     plotter = Plotter(1, 2)
     plotter.plot(mesh, mode='bc', bc=bc, idx=(0, 0))
