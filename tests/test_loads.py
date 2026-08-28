@@ -8,12 +8,9 @@ import pytest
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
 from fem.energies import StVenantKirchhoff
 from fem.equations import LinearElastic, Poisson
-from fem.forms import (
-    EnergyForm, LaplacianForm, LinearElasticForm, LinearForm, MaskedMassForm, MassForm,
-    SumForm,
-)
+from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm, BoundaryMassForm, MassForm, SumForm
 from fem.integrators import NewmarkMethod
-from fem.loads import PointLoad, Source, Traction
+from fem.loads import PointLoad, Source, BoundaryLoad
 from fem.materials import LinearElasticMaterial
 from fem.modal import ModalAnalysis
 from fem.problem import LinearProblem, RayleighDamping
@@ -27,10 +24,10 @@ from fem.space import FunctionSpace
 def test_a_sum_of_forms_assembles_to_the_sum_of_its_terms(make_unit_square):
     space = FunctionSpace(make_unit_square(6))
     mask = np.ones(len(space.boundary_nodes), dtype=bool)
-    operator = LaplacianForm() + 3.0 * MaskedMassForm(1, mask)
+    operator = DiffusionForm() + 3.0 * BoundaryMassForm(1, mask)
 
     assert isinstance(operator, SumForm) and len(operator.terms) == 2
-    expected = space.assemble(LaplacianForm()) + 3.0 * space.assemble(MassForm(), boundary=True)
+    expected = space.assemble(DiffusionForm()) + 3.0 * space.assemble(MassForm(), boundary=True)
     np.testing.assert_allclose(space.assemble(operator).toarray(), expected.toarray(), atol=1e-12)
 
 
@@ -38,7 +35,7 @@ def test_a_sum_answers_the_hooks_from_its_terms(make_unit_square):
     space = FunctionSpace(make_unit_square(4), n_components=2)
     mask = np.ones(len(space.boundary_nodes), dtype=bool)
     elastic = LinearElasticForm(LinearElasticMaterial(200.0, 0.3))
-    spring = 5.0 * MaskedMassForm(2, mask)
+    spring = 5.0 * BoundaryMassForm(2, mask)
 
     linear = elastic + spring
     assert linear.constant_tangent and linear.has_energy
@@ -59,7 +56,7 @@ def test_a_state_dependent_sum_has_consistent_energy_residual_and_tangent(make_u
     from fem.numerics import central_difference_order
     space = FunctionSpace(make_unit_square(4), n_components=2)
     mask = np.ones(len(space.boundary_nodes), dtype=bool)
-    operator = EnergyForm(StVenantKirchhoff(200.0, 0.3)) + 20.0 * MaskedMassForm(2, mask)
+    operator = EnergyForm(StVenantKirchhoff(200.0, 0.3)) + 20.0 * BoundaryMassForm(2, mask)
     rng = np.random.default_rng(0)
     u = 0.05 * rng.standard_normal(space.n_dofs)
 
@@ -83,11 +80,11 @@ def test_the_robin_term_is_a_term_of_the_operator(make_unit_square):
     problem = Poisson(source=1.0).problem(mesh, bc)
 
     assert isinstance(problem.operator, SumForm) and len(problem.operator.terms) == 2
-    assert isinstance(problem.physics, LaplacianForm)
+    assert isinstance(problem.physics, DiffusionForm)
     assert isinstance(problem.solve(), ScalarFieldSolution)
-    derived = problem.with_operator(2.0 * LaplacianForm())
+    derived = problem.with_operator(2.0 * DiffusionForm())
     assert len(derived.operator.terms) == 2
-    expected = 2.0 * problem.space.assemble(LaplacianForm()) + problem.space.assemble(
+    expected = 2.0 * problem.space.assemble(DiffusionForm()) + problem.space.assemble(
         problem.operator.terms[1])
     np.testing.assert_allclose(derived.tangent().toarray(), expected.toarray(), atol=1e-12)
 
@@ -103,7 +100,7 @@ def test_the_load_is_the_sum_of_its_terms(make_unit_square):
     )
     problem = Poisson(source=1.0).problem(mesh, bc)
     kinds = [type(term) for term in problem.loads]
-    assert kinds == [Source, Traction, Traction]
+    assert kinds == [Source, BoundaryLoad, BoundaryLoad]
     total = sum(term.vector(problem.space) for term in problem.loads)
     np.testing.assert_allclose(problem.load, total, atol=1e-14)
 
@@ -141,10 +138,10 @@ def test_time_dependent_terms_are_evaluated_per_time(make_unit_square):
     assert not snapshot.is_time_dependent
     assert snapshot.load.reshape(-1, 2)[tip, 1] == -2.0
 
-    time_form = LinearForm(TimeDependent(lambda p, t: t))
+    time_form = Source(TimeDependent(lambda p, t: t))
     assert time_form.is_time_dependent
     space = FunctionSpace(mesh)
-    np.testing.assert_allclose(time_form.vector(space, 2.0), 2.0 * LinearForm(1.0).vector(space))
+    np.testing.assert_allclose(time_form.vector(space, 2.0), 2.0 * Source(1.0).vector(space))
     with pytest.raises(TypeError, match='at\\(t\\)'):
         time_form.element_vectors(space.geometry)
 
@@ -154,7 +151,7 @@ def test_a_traction_holds_its_boundary_mass_across_times(make_unit_square):
     bc = BoundaryConditions(Neumann(on_plane(0, 1.0), TimeDependent(lambda p, t: t)))
     problem = Poisson().problem(mesh, bc)
     traction = problem.loads[0]
-    assert isinstance(traction, Traction)
+    assert isinstance(traction, BoundaryLoad)
     np.testing.assert_allclose(problem.load_at(2.0).sum(), 2.0, atol=1e-12)
     np.testing.assert_allclose(problem.load_at(0.5), 0.25 * problem.load_at(2.0), atol=1e-12)
 

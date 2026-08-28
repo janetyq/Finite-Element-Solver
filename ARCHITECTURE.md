@@ -10,7 +10,8 @@ parts (`FunctionSpace`, `Form`, `Material`, `DiscreteSystem`, `ResolvedBC`), the
 a composition (`Problem`), the strategies that consume one (`LinearSolve`, `NewtonSolve`, the time
 integrators), and the drivers that wrap a strategy to re-solve (`AdaptiveRefinement`,
 `DesignOptimizer`). A transient problem is a steady operator paired with a time integrator, not a
-PDE type, so `Equation` carries only the identity of a PDE and its physical constants. "What to
+PDE type at the `Problem` level. An `Equation` names the PDE, its physical constants, and the
+time-derivative orders it has a meaning for (`time_orders`), which the solves check. "What to
 solve" is the `Problem`; "how" is the strategy.
 
 ## Building a solve
@@ -32,7 +33,7 @@ Composed by hand:
 
 ```python
 space = FunctionSpace(mesh, n_components=1)
-problem = LinearProblem(space, LaplacianForm(), source=1.0, bc=bc)
+problem = LinearProblem(space, DiffusionForm(), source=1.0, bc=bc)
 solution = problem.solve(backend=IterativeBackend())
 ```
 
@@ -46,21 +47,21 @@ The two agree exactly: `Equation.problem` and `Problem.solve` hold no policy of 
 anything they can do can be composed, and anything composed (a different form, a hand-built load,
 a custom strategy) needs neither. `Solver(mesh, equation, bc)` is that second line held as an object.
 
-The load is a sum of `Load` terms (`fem/loads.py`), each answering `vector(space, t)`. A constant
-or a nodal array is integrated as its nodal interpolant through the mass matrix (`Source`); a
-callable is sampled at the quadrature points (`LinearForm`), which captures variation within an
-element; a Neumann traction or a Robin value is a `Traction` over its region's facets; a nodal force
-is a `PointLoad`, passed through `Equation(loads=...)` or `Problem(loads=...)`. A DOF vector built by
+The load is a sum of `Load` terms (`fem/loads.py`), each answering `vector(space, t)`. The volume
+source is a `Source`: a constant or a nodal array is integrated exactly through the mass matrix, a
+callable is sampled at the quadrature points, which captures variation within an element
+(`NodalSource` is the explicit interpolant path); a Neumann value or a Robin value is a
+`BoundaryLoad` over its region's facets; a nodal force is a `PointLoad`, passed through `Equation(loads=...)` or `Problem(loads=...)`. A DOF vector built by
 hand (an initial condition, a comparison field) is `space.interpolate(value)`, nodal on P2 as well.
 
-Boundary conditions are objects: `Dirichlet(region, value)`, `Neumann(region, traction)`, and
+Boundary conditions are objects: `Dirichlet(region, value)`, `Neumann(region, value)`, and
 `Robin(region, kappa, g)`, collected by `BoundaryConditions(*conditions)` or `bc + condition`,
 both frozen. Each condition resolves itself against a node set (`condition.resolve`), and a
 `Dirichlet` value may leave a component `None` (free) for a roller.
 
 Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
 names the `domain` it integrates over (the elements or the boundary facets), so a Robin condition
-is `kappa * MaskedMassForm(mask)` added to the physics form and assembled beside it.
+is `kappa * BoundaryMassForm(mask)` added to the physics form and assembled beside it.
 
 ## Layers
 
@@ -84,14 +85,14 @@ refined mesh (1) without re-resolving constraints by hand (5).
 
 | Tier | Role | Objects |
 |---|---|---|
-| 1. Primitives | the parts a composition is built from | `Form` (the `BilinearForm`s, `EnergyForm`; combinators `SumForm`, `ScaledForm`; `MaskedMassForm`, `PrecomputedForm`), `Load` (`Source`, `LinearForm`, `Traction`, `PointLoad`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
+| 1. Primitives | the parts a composition is built from | `Form` (the `BilinearForm`s, `EnergyForm`; combinators `SumForm`, `ScaledForm`; `BoundaryMassForm`, `PrecomputedForm`), `Load` (`Source`, `NodalSource`, `BoundaryLoad`, `PointLoad`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
 | 2. `Problem` | a composition: space + operator + load + constraints | `Problem`, and `LinearProblem` for a constant tangent; `Equation.problem` builds one from a named PDE |
 | 3. Solve strategy | consumes a `Problem`, returns the solution | `LinearSolve`, `NewtonSolve`, `EigenSolve`; integrators `ThetaMethod`, `NewmarkMethod` |
 | 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
 
 Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
 direct vs. iterative. Named PDEs are `Equation`s, not dispatch keys: `Poisson(f).problem(space, bc)`
-returns `LinearProblem(space, LaplacianForm(), f, bc)`, `FiniteStrainElastic(E, nu).problem(space,
+returns `LinearProblem(space, DiffusionForm(), f, bc)`, `FiniteStrainElastic(E, nu).problem(space,
 bc)` a `Problem` over an `EnergyForm`, and a PDE with no name is just a different composition.
 
 A choice is a parameter when it changes numbers inside one computation (a modulus, a density,
@@ -138,7 +139,7 @@ two elastic forms share with `ElasticSolution` and `StressField`.
 
 Constraints (5) have one owner, the `Problem`, whose constructor resolves the boundary conditions
 against the space and turns the Dirichlet partition into its `constraints`, each Neumann and Robin
-value into a `Traction` load term, and each Robin coefficient into a boundary term of the operator. Algebra (6) is split: `DiscreteSystem` owns the Dirichlet elimination
+value into a `BoundaryLoad` load term, and each Robin coefficient into a boundary term of the operator. Algebra (6) is split: `DiscreteSystem` owns the Dirichlet elimination
 and the `Backend` owns how the free-free block is solved. Physics (3) is owned by the physics
 layer alone: an `Equation` answers `operator` itself, so no facade holds a mapping from equation
 to material.
@@ -185,10 +186,9 @@ follows the true curve.
 
 ### `Form` / `Material`: the physics
 
-Every assembly path goes through a form. Bilinear forms (`MassForm`, `LaplacianForm`,
-`DiffusionForm`, `LinearElasticForm`, `GeometricStiffnessForm`) follow `Gᵀ C G` with the element
+Every assembly path goes through a form. Bilinear forms (`MassForm`, `DiffusionForm`, `LinearElasticForm`, `GeometricStiffnessForm`) follow `Gᵀ C G` with the element
 supplying `G` and the form `C`; `SumForm` and `ScaledForm` are the combinators (`a + b`, `c * a`:
-the wave operator's `c²K`, the Robin boundary term `kappa * MaskedMassForm(mask)`, which names the
+the wave operator's `T K`, the Robin boundary term `kappa * BoundaryMassForm(mask)`, which names the
 boundary as its `domain`); `PrecomputedForm` lets a driver reuse element
 matrices it can derive more cheaply (SIMP rescales one set by `rho^p`). Each is a `BilinearForm`,
 which supplies the residual `K u` and the energy `½ uᵀ K u` from its matrix. `EnergyForm` is the
@@ -213,8 +213,8 @@ reduces them to frame-independent scalars.
 
 A `Problem` is the assembly-ready composition for one mesh: space, operator, load terms,
 constraints. `physics` is the form it was stated with and `operator` that form plus one
-`kappa * MaskedMassForm` term per Robin condition; `loads` is the tuple of `Load` terms (the
-source, one `Traction` per Neumann condition and per Robin value, any `PointLoad`). Its residual
+`kappa * BoundaryMassForm` term per Robin condition; `loads` is the tuple of `Load` terms (the
+source, one `BoundaryLoad` per Neumann condition and per Robin value, any `PointLoad`). Its residual
 has two terms, each present in `energy`, `residual`, and `tangent` alike: the operator's (`Π`,
 `R`, `∂R/∂u`, summed over the operator's terms by the space) and the load's (`−fᵀu`, `−f`, `0`).
 `internal_residual` is the first, kept apart from `load` so a strategy can scale one against the
@@ -270,11 +270,16 @@ and `NewmarkMethod` (average acceleration, solving for the acceleration against 
 
 ### `Equation`
 
-`Equation` is typed data: `Projection`, `Poisson`, `Diffusion`, `Wave`, `LinearElastic`, and
+`Equation` is typed data: `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`, and
 `FiniteStrainElastic` (the last two over the `Elasticity` base), each carrying its physical
-constants, and a `density` for the time-derivative term. `operator(space)` returns the form for
-its physics: the small-strain stiffness, or the `EnergyForm` of a finite-strain law. It refuses
-rather than approximates when the physics does not apply.
+constants, a `density` for the time-derivative term where it has one, and `time_orders`, the
+time-derivative orders the PDE has a meaning for (`Poisson` {0}, `Heat` {1}, `Wave` {2}, the
+elastic equations {0, 2}). The three scalar equations share the `DiffusionForm` operator and
+differ in their orders and their constants' names; `Problem.solve`, the integrators, and
+`ModalAnalysis` refuse an order the equation lacks, naming the equation to use. `operator(space)`
+returns the form for its physics: the small-strain stiffness, or the `EnergyForm` of a
+finite-strain law. It refuses rather than approximates when the physics does not apply. The table
+in `fem/equations.py` maps each PDE to its class and the solve that steps it.
 Two more resolve it against a discretization: `space(mesh, element_type)` builds the
 `FunctionSpace` with the component count the field implies, and `problem(mesh_or_space, bc,
 element_type)` the `LinearProblem` for a constant tangent, else a `Problem`. Every facade and

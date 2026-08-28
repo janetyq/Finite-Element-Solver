@@ -1,6 +1,6 @@
 """Boundary conditions, specified against geometry and resolved against a mesh.
 
-A condition is a frozen object: `Dirichlet(region, value)`, `Neumann(region, traction)`,
+A condition is a frozen object: `Dirichlet(region, value)`, `Neumann(region, value)`,
 or `Robin(region, kappa, g)`, each a `Condition` that knows how to resolve itself. A
 `BoundaryConditions` is the frozen collection of them, a mesh-independent specification
 ("the left edge is pinned") that means the same thing on any mesh. A `ResolvedBC` is what
@@ -100,17 +100,17 @@ class DirichletContribution:
 
 @dataclass(frozen=True)
 class NeumannContribution:
-    '''One resolved Neumann condition: a traction ∫_Γ g·v over a region's facets.
+    '''One resolved Neumann condition: a flux ∫_Γ g·v over a region's facets.
 
-    `facet_mask` marks the boundary facets in the region; a `fem.loads.Traction` over
-    them integrates `value`, re-evaluated per time, across those facets alone.
-    `traction` is the value at the resolution time as a nodal field over every node,
+    `facet_mask` marks the boundary facets in the region; a `fem.loads.BoundaryLoad`
+    over them integrates `value`, re-evaluated per time, across those facets alone.
+    `nodal_values` is the value at the resolution time as a field over every node,
     which the residual estimator reads.
     '''
     facet_mask: BoolArray       # one entry per boundary facet
     node_idxs: VertexIndices    # the region's boundary nodes
-    value: FieldValue           # the spec's traction, possibly TimeDependent
-    traction: VertexField       # (n_nodes, n_components) at the resolution time
+    value: FieldValue           # the spec's value, possibly TimeDependent
+    nodal_values: VertexField   # (n_nodes, n_components) at the resolution time
 
 
 @dataclass(frozen=True)
@@ -118,8 +118,8 @@ class RobinContribution:
     '''One resolved Robin condition (∂u/∂n + κu = g on a region).
 
     It contributes to both sides of the system: the boundary term κ∫_Γ u·v to the
-    operator (`kappa * MaskedMassForm(facet_mask)`) and ∫_Γ g·v to the load (a
-    `fem.loads.Traction` over `value`). The assembly itself waits for a `FunctionSpace`,
+    operator (`kappa * BoundaryMassForm(facet_mask)`) and ∫_Γ g·v to the load (a
+    `fem.loads.BoundaryLoad` over `value`). The assembly itself waits for a `FunctionSpace`,
     so this carries only the data, keyed to the node set.
     '''
     facet_mask: BoolArray       # one entry per boundary facet
@@ -149,8 +149,8 @@ class Condition(ABC):
     @property
     @abstractmethod
     def prescribed(self) -> FieldValue:
-        '''The value the condition prescribes (the Dirichlet `value`, the Neumann
-        `traction`, the Robin `g`), for inspection and plotting.'''
+        '''The value the condition prescribes (the Dirichlet and Neumann `value`, the
+        Robin `g`), for inspection and plotting.'''
 
     @property
     def is_time_dependent(self) -> bool:
@@ -219,21 +219,21 @@ class Dirichlet(Condition):
 
 @dataclass(frozen=True)
 class Neumann(Condition):
-    '''∂u/∂n = `traction` on `region` (a traction on an elastic boundary): a natural
-    condition, integrated over the region's facets as a load. Every component must be
-    a number; a load has no free component.'''
+    '''κ ∂u/∂n = `value` on `region`: the normal flux, a traction on an elastic
+    boundary. A natural condition, integrated over the region's facets as a load.
+    Every component must be a number; a load has no free component.'''
     kind: ClassVar[str] = 'neumann'
     region: Region
-    traction: FieldValue
+    value: FieldValue
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        if _has_free_component(self.traction):
-            raise ValueError('a traction has no free component; every component must be a number (None given)')
+        if _has_free_component(self.value):
+            raise ValueError('a flux has no free component; every component must be a number (None given)')
 
     @property
     def prescribed(self) -> FieldValue:
-        return self.traction
+        return self.value
 
     def resolve(self, nodes: NodeGeometry, n_components: int, t: float = 0.0) -> NeumannContribution:
         idxs = self.select(nodes)
@@ -243,9 +243,9 @@ class Neumann(Condition):
                 'a Neumann condition selects nodes but no boundary facet, so it '
                 'integrates to nothing; a force at a node is a fem.loads.PointLoad'
             )
-        traction = np.zeros((len(nodes.vertices), n_components))
-        traction[idxs] = evaluate_field(field_at(self.traction, t), nodes.vertices[idxs], n_components)
-        return NeumannContribution(mask, idxs, self.traction, traction)
+        values = np.zeros((len(nodes.vertices), n_components))
+        values[idxs] = evaluate_field(field_at(self.value, t), nodes.vertices[idxs], n_components)
+        return NeumannContribution(mask, idxs, self.value, values)
 
 
 @dataclass(frozen=True)
@@ -291,7 +291,7 @@ class ResolvedBC:
     Frozen and built per (node set, n_components) so it cannot drift out of step with
     either. `at(t)` is the same resolution with every time-dependent Dirichlet value
     re-evaluated at `t`; the load-bearing contributions carry their own values and are
-    re-evaluated by the `Traction` terms a `Problem` builds from them.
+    re-evaluated by the `BoundaryLoad` terms a `Problem` builds from them.
     '''
     n_vertices: int
     n_components: int
@@ -304,11 +304,11 @@ class ResolvedBC:
 
     @property
     def neumann_load(self) -> VertexField:
-        '''`(n_nodes, n_components)` the tractions summed as one nodal field, at the
-        resolution time.'''
+        '''`(n_nodes, n_components)` the Neumann values summed as one nodal field, at
+        the resolution time.'''
         total = np.zeros((self.n_vertices, self.n_components))
         for neumann in self.neumann:
-            total += neumann.traction
+            total += neumann.nodal_values
         return total
 
     def at(self, t: float) -> 'ResolvedBC':
@@ -453,7 +453,7 @@ class BoundaryConditions:
         # by `DiscreteSystem`, dropping its traction, and the free ones keep theirs.
         loaded = np.zeros((n, n_components))
         for contribution in neumann:
-            loaded += contribution.traction
+            loaded += contribution.nodal_values
         conflicts = [
             v for v, values in merged.items()
             if np.any(~np.isnan(values) & (loaded[v] != 0.0))

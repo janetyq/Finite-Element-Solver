@@ -250,10 +250,10 @@ plotter.show()
 `Solver` is a convenience over the parts, which compose directly. The same solve, by hand:
 
 ```python
-from fem import FunctionSpace, LinearProblem, LaplacianForm
+from fem import FunctionSpace, LinearProblem, DiffusionForm
 
 space = FunctionSpace(mesh, n_components=1)
-problem = LinearProblem(space, LaplacianForm(), source=1, bc=bc)
+problem = LinearProblem(space, DiffusionForm(), source=1, bc=bc)
 solution = problem.solve()
 ```
 

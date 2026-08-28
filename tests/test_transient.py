@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
-from fem.equations import LinearElastic, Poisson, Wave
+from fem.equations import Heat, LinearElastic, Poisson, Wave
 from fem.integrators import NewmarkMethod, ThetaMethod
 from fem.regions import TimeDependent, everywhere, evaluate_field, field_at, on_plane
 from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution, TransientSolution
@@ -64,7 +64,7 @@ def test_theta_method_integrates_a_time_dependent_source_to_second_order(make_un
     """With natural boundaries and a uniform source sin(t), the mean of u is 1 - cos(t)
     exactly; Crank-Nicolson's trapezoid on the source converges at second order."""
     mesh = make_unit_square(6)
-    problem = Poisson(source=TimeDependent(lambda p, t: np.sin(t))).problem(mesh)
+    problem = Heat(source=TimeDependent(lambda p, t: np.sin(t))).problem(mesh)
     T = 1.0
     errors = []
     for steps in (5, 10, 20):
@@ -79,7 +79,7 @@ def test_theta_method_follows_time_dependent_dirichlet_data(make_unit_square):
     discrete solution for every theta, since K annihilates constants."""
     mesh = make_unit_square(5)
     bc = BoundaryConditions(Dirichlet(everywhere(), TimeDependent(lambda p, t: 1.0 + t)))
-    problem = Poisson(source=TimeDependent(lambda p, t: 1.0)).problem(mesh, bc)
+    problem = Heat(source=TimeDependent(lambda p, t: 1.0)).problem(mesh, bc)
     assert problem.is_time_dependent
     np.testing.assert_allclose(problem.constraints_at(2.0)[2], 3.0)
     u0 = problem.space.interpolate(1.0)
@@ -94,14 +94,14 @@ def test_newmark_integrates_a_time_dependent_source(make_unit_square):
     exactly; average acceleration is exact for a constant acceleration. A source
     sin(t) gives mean u = t - sin(t), converging at second order."""
     mesh = make_unit_square(6)
-    n = Wave(c=1.0).space(mesh).n_dofs
+    n = Wave(stiffness=1.0).space(mesh).n_dofs
     zero = np.zeros(n)
 
-    constant = Wave(c=1.0, source=TimeDependent(lambda p, t: 2.0 + 0.0 * t)).problem(mesh)
+    constant = Wave(stiffness=1.0, source=TimeDependent(lambda p, t: 2.0 + 0.0 * t)).problem(mesh)
     solution = NewmarkMethod(dt=0.05, steps=20).solve(constant, zero, zero)
     assert _mean(constant, solution.u[-1]) == pytest.approx(1.0, abs=1e-10)
 
-    forced = Wave(c=1.0, source=TimeDependent(lambda p, t: np.sin(t))).problem(mesh)
+    forced = Wave(stiffness=1.0, source=TimeDependent(lambda p, t: np.sin(t))).problem(mesh)
     T = 1.0
     errors = []
     for steps in (5, 10, 20):
@@ -114,7 +114,7 @@ def test_newmark_integrates_a_time_dependent_source(make_unit_square):
 def test_newmark_refuses_time_dependent_dirichlet_data(make_unit_square):
     mesh = make_unit_square(4)
     bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: t)))
-    problem = Wave(c=1.0).problem(mesh, bc)
+    problem = Wave(stiffness=1.0).problem(mesh, bc)
     n = problem.space.n_dofs
     with pytest.raises(NotImplementedError, match='Dirichlet'):
         NewmarkMethod(dt=0.01, steps=1).solve(problem, np.zeros(n), np.zeros(n))
@@ -124,7 +124,7 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
     """A heat step carries the flux, an elastic step the stress; a loaded series, which
     has no problem, packages a bare field."""
     mesh = make_unit_square(4)
-    heat = Poisson(source=1.0).problem(mesh)
+    heat = Heat(source=1.0).problem(mesh)
     u0 = heat.space.interpolate(0.0)
     history = ThetaMethod(dt=0.1, steps=3).solve(heat, u0)
     assert isinstance(history, TransientSolution)

@@ -19,13 +19,13 @@ from fem.convergence import (
 )
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.estimators import RecoveryEstimator
-from fem.forms import EnergyForm, MaskedMassForm
+from fem.forms import EnergyForm, BoundaryMassForm
 from fem.loads import PointLoad
 from fem.problem import Problem, RayleighDamping
 from fem.space import FunctionSpace
 from fem.regions import TimeDependent, at_indices, on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
-from fem.equations import Projection, Poisson, LinearElastic, FiniteStrainElastic, Wave
+from fem.equations import Heat, Projection, Poisson, LinearElastic, FiniteStrainElastic, Wave
 from fem.solve import BacktrackingLineSearch, NewtonSolve
 from fem.solver import Solver
 from fem.mesh.ruppert import RuppertsAlgorithm
@@ -633,7 +633,7 @@ def _steady_heatsink(mesh, bc, kappa, u_ambient):
     # condition assembles, so it is the exact discrete integral of (u - u_ambient).
     resolved = bc.resolve(solver.space.nodes, 1)
     film_mass = solver.space.assemble(
-        MaskedMassForm(1, resolved.robin[0].facet_mask), boundary=True)
+        BoundaryMassForm(1, resolved.robin[0].facet_mask), boundary=True)
     heat_shed = kappa * float(np.asarray(film_mass @ (u - u_ambient)).sum())
     return u, heat_shed
 
@@ -725,7 +725,7 @@ def demo_heat_equation(dt=0.05, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
         Dirichlet(on_plane(1, 0.0), TimeDependent(base_temperature)),
         Robin(_heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient),
     )
-    heat = Poisson().problem(mesh, bc)
+    heat = Heat().problem(mesh, bc)
     u_initial = heat.space.interpolate(u_ambient)
     solution = ThetaMethod(dt=dt, steps=steps).solve(heat, u_initial)
     u_values, t_values = solution.u, solution.t
@@ -735,7 +735,7 @@ def demo_heat_equation(dt=0.05, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.
     flux_values = [np.linalg.norm(solution.at(i).nodal_flux(), axis=1)
                    for i in range(len(u_values))]
     film_mass = heat.space.assemble(
-        MaskedMassForm(1, heat.resolved.robin[0].facet_mask), boundary=True)
+        BoundaryMassForm(1, heat.resolved.robin[0].facet_mask), boundary=True)
     shed_values = [kappa * float(np.asarray(film_mass @ (u - u_ambient)).sum()) for u in u_values]
 
     # -- effectiveness: block vs finned, posed two ways --------------------------------
@@ -895,7 +895,7 @@ def demo_wave_equation(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400,
     # No conditions, so every edge is a wall: the natural du/dn = 0 reflects a wave
     # the same way up.
     bc = BoundaryConditions()
-    wave = Wave(c).problem(mesh, bc)
+    wave = Wave(stiffness=c**2).problem(mesh, bc)
 
     # A straight front on the open side, travelling toward the wall. Given d'Alembert's
     # pairing u = g(x - ct), du/dt = -c g'(x), so it moves one way instead of splitting.

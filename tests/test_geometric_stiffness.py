@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from fem.elements import LinearTetrahedralElement, LinearTriangleElement
-from fem.forms import GeometricStiffnessForm, LaplacianForm
+from fem.forms import GeometricStiffnessForm, DiffusionForm
 
 
 def one(element_type, vertices):
@@ -60,7 +60,7 @@ def test_hydrostatic_prestress_is_a_scaled_laplacian(geometry):
     d = geometry.spatial_dim
     p = 3.0
     K_g = GeometricStiffnessForm(_prestress(geometry, p * np.eye(d))).element_matrices(geometry)[0]
-    laplacian = LaplacianForm().element_matrices(geometry)[0]
+    laplacian = DiffusionForm().element_matrices(geometry)[0]
     np.testing.assert_allclose(K_g, p * np.kron(laplacian, np.eye(d)), atol=1e-12)
 
 

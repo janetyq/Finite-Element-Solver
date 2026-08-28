@@ -9,7 +9,7 @@ from fem.io import load_mesh, save_mesh, save_solution
 from fem.mesh.mesh import Mesh
 from fem.space import FunctionSpace
 from fem.numerics import bump_function
-from fem.equations import Poisson
+from fem.equations import Heat
 from fem.solution import (
     BucklingSolution, ElasticSolution, FieldSolution, Solution, TransientSolution,
 )
@@ -116,7 +116,7 @@ def test_transient_solution_round_trip_after_solve(make_unit_square, tmp_path):
     """A time series (times + a list of per-step fields) reloads as a TransientSolution."""
     mesh = make_unit_square(8)
     u0 = bump_function(mesh.vertices, mesh.vertices.max(axis=0), mag=50, size=0.3) + 300
-    heat = Poisson().problem(mesh)
+    heat = Heat().problem(mesh)
     solution = ThetaMethod(dt=0.01, steps=3).solve(heat, u0.copy())
     path = tmp_path / "heat.npz"
 

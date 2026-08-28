@@ -14,19 +14,8 @@ from fem.elements import (
     LinearTriangleElement,
 )
 from fem.energies import StVenantKirchhoff
-from fem.forms import (
-    DiffusionForm,
-    EnergyForm,
-    GeometricStiffnessForm,
-    LaplacianForm,
-    LinearElasticForm,
-    LinearForm,
-    MaskedMassForm,
-    MassForm,
-    PrecomputedForm,
-    ScaledForm,
-    strain_displacement,
-)
+from fem.forms import DiffusionForm, EnergyForm, GeometricStiffnessForm, LinearElasticForm, BoundaryMassForm, MassForm, PrecomputedForm, ScaledForm, strain_displacement
+from fem.loads import Source
 from fem.materials import LinearElasticMaterial
 
 
@@ -44,12 +33,12 @@ LINE = one(LinearLineElement, [[0], [1]])
 def test_laplacian_matches_analytic_unit_triangle():
     """The P1 Laplacian on the unit right triangle is the textbook stiffness."""
     expected = np.array([[1.0, -0.5, -0.5], [-0.5, 0.5, 0.0], [-0.5, 0.0, 0.5]])
-    np.testing.assert_allclose(LaplacianForm().element_matrices(TRI)[0], expected)
+    np.testing.assert_allclose(DiffusionForm().element_matrices(TRI)[0], expected)
 
 
 def test_laplacian_matches_analytic_unit_line():
     expected = np.array([[1.0, -1.0], [-1.0, 1.0]])
-    np.testing.assert_allclose(LaplacianForm().element_matrices(LINE)[0], expected)
+    np.testing.assert_allclose(DiffusionForm().element_matrices(LINE)[0], expected)
 
 
 def test_mass_form_scalar_matches_consistent_mass():
@@ -75,7 +64,7 @@ def test_mass_form_replicates_scalar_per_component(geometry):
 def test_laplacian_is_symmetric_and_annihilates_constants(geometry):
     """A Laplacian stiffness is symmetric and has the constant vector in its
     null space (rows sum to zero), whatever the element."""
-    K = LaplacianForm().element_matrices(geometry)[0]
+    K = DiffusionForm().element_matrices(geometry)[0]
     np.testing.assert_allclose(K, K.T)
     np.testing.assert_allclose(K.sum(axis=1), 0, atol=1e-12)
 
@@ -158,7 +147,7 @@ def test_diffusion_form_with_unit_coefficient_is_the_laplacian():
     the variable-coefficient form's constant case is the form it generalizes."""
     np.testing.assert_allclose(
         DiffusionForm(1.0).element_matrices(TRI),
-        LaplacianForm().element_matrices(TRI),
+        DiffusionForm().element_matrices(TRI),
     )
 
 
@@ -166,19 +155,19 @@ def test_diffusion_form_scales_with_the_coefficient():
     """A constant kappa scales the stiffness by kappa, since it factors out of the integral."""
     np.testing.assert_allclose(
         DiffusionForm(5.0).element_matrices(TRI),
-        5.0 * LaplacianForm().element_matrices(TRI),
+        5.0 * DiffusionForm().element_matrices(TRI),
     )
 
 
 # Every form, with the components per node it is written for on the unit triangle.
 EVERY_FORM = [
     (MassForm(2), 2),
-    (MaskedMassForm(2, np.array([True])), 2),
-    (LaplacianForm(), 1),
+    (BoundaryMassForm(2, np.array([True])), 2),
+    (DiffusionForm(), 1),
     (DiffusionForm(2.0), 1),
     (LinearElasticForm(LinearElasticMaterial(200.0, 0.3)), 2),
     (GeometricStiffnessForm(np.zeros((1, 2, 2))), 2),
-    (ScaledForm(3.0, LaplacianForm()), 1),
+    (ScaledForm(3.0, DiffusionForm()), 1),
     (PrecomputedForm(np.eye(3)[None]), 1),
     (EnergyForm(StVenantKirchhoff(200.0, 0.3)), 2),
 ]
@@ -210,6 +199,6 @@ def test_linear_form_constant_source_integrates_the_hat_exactly():
     """For a constant source c, each node's load is c * volume / N and the loads sum to
     c * volume."""
     volume = float(TRI.volumes[0])
-    b = LinearForm(3.0, 1).element_vectors(TRI)[0]   # (N,)
+    b = Source(3.0, 1).element_vectors(TRI)[0]   # (N,)
     np.testing.assert_allclose(b, 3.0 * volume / 3)  # 3 nodes, integral of a P1 hat
     np.testing.assert_allclose(b.sum(), 3.0 * volume)

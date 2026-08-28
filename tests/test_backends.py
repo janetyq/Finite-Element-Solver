@@ -13,7 +13,7 @@ from fem.backends import DirectBackend, IterativeBackend, MinresBackend, rigid_b
 from fem.materials import LinearElasticMaterial
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
 from fem.regions import everywhere, on_plane
-from fem.equations import LinearElastic, Poisson
+from fem.equations import Heat, LinearElastic, Poisson
 from fem.solver import Solver
 from fem.space import FunctionSpace
 from fem.system import DiscreteSystem
@@ -191,7 +191,7 @@ def test_iterative_backend_matches_direct_through_a_time_step():
 
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(21, 21))
     u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=10, size=0.2) + 300
-    problem = Poisson().problem(mesh)
+    problem = Heat().problem(mesh)
 
     direct = ThetaMethod(dt=0.01, steps=5).solve(problem, u0.copy()).u[-1]
     iterative = ThetaMethod(dt=0.01, steps=5, backend=IterativeBackend()).solve(problem, u0.copy()).u[-1]

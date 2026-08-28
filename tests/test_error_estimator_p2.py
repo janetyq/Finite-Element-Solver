@@ -15,7 +15,7 @@ from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.energies import StVenantKirchhoff
 from fem.equations import LinearElastic, Poisson
 from fem.estimators import ResidualEstimator
-from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm
+from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.structured import create_rect_mesh
 from fem.postprocess import GradientField
@@ -90,7 +90,7 @@ def test_p2_poisson_divergence_is_the_laplacian():
     u = x**2 + 2 * y**2
     solution = ScalarFieldSolution(space, u, flux=np.zeros((len(mesh.elements), 2)))
 
-    div = LaplacianForm().derived_field().divergence(solution)
+    div = DiffusionForm().derived_field().divergence(solution)
     assert np.allclose(div, 6.0)
 
 

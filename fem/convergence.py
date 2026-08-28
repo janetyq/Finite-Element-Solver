@@ -29,15 +29,16 @@ from fem.elements import (
     IsoparametricTriangleElement,
     QuadraticTriangleElement,
 )
-from fem.equations import LinearElastic, Poisson
-from fem.forms import DiffusionForm, LaplacianForm, LinearElasticForm, LinearForm
+from fem.equations import Heat, LinearElastic, Poisson
+from fem.forms import DiffusionForm, LinearElasticForm
 from fem.geometry import get_boundary_from_vertices_elements
 from fem.integrators import ThetaMethod
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import create_rect_mesh
-from fem.problem import LinearProblem, Source
+from fem.loads import NodalSource, Source
+from fem.problem import LinearProblem
 from fem.regions import everywhere
 from fem.solution import FieldSolution, TransientSolution
 from fem.solve import LinearSolve
@@ -274,7 +275,7 @@ def elastic_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 #     f = -div(kappa grad u) = -(grad kappa . grad u) - kappa laplacian(u)
 #
 # The two varying fields feed opposite sides of the solve: kappa the operator
-# (DiffusionForm -> stiffness matrix), the whole of f the load (LinearForm -> load
+# (DiffusionForm -> stiffness matrix), the whole of f the load (Source -> load
 # vector). Neither is constant within an element, so both sides exercise the
 # quadrature layer that a constant-coefficient assembly lacks. Asserted in
 # tests/test_convergence_variable_coefficient.py.
@@ -301,15 +302,9 @@ def solve_variable_coefficient_mms(n: int) -> MMSSolve:
     space = FunctionSpace(mesh, n_components=1)
 
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    # f is fed as a LinearForm so it too is sampled at the quadrature points. A plain
-    # field source would instead integrate f's nodal interpolant (also convergent), but
-    # LinearForm is the load half of what the quadrature layer added.
-    problem = LinearProblem(
-        space,
-        DiffusionForm(variable_coefficient),
-        LinearForm(variable_source, n_components=1),
-        bc,
-    )
+    # The source is a callable, so it is sampled at the quadrature points like the
+    # coefficient; its nodal interpolant would also converge, at a larger constant.
+    problem = Poisson(coefficient=variable_coefficient, source=Source(variable_source)).problem(space, bc)
     u = LinearSolve().solve(problem)
 
     exact = exact_solution(mesh.vertices)
@@ -343,10 +338,10 @@ def solve_poisson_mms_p2(n: int) -> MMSSolve:
 
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     # The P2 stiffness integrand is degree 2, integrated exactly by the space's
-    # default rule; the load int f phi is degree-4-ish, so the LinearForm samples f
+    # default rule; the load int f phi is degree-4-ish, so the Source samples f
     # at a degree-4 rule to keep quadrature error below the O(h^3) discretization error.
     problem = LinearProblem(
-        space, LaplacianForm(), LinearForm(source_term, quadrature_degree=4), bc,
+        space, DiffusionForm(), Source(source_term, quadrature_degree=4), bc,
     )
     u = LinearSolve().solve(problem)
 
@@ -379,7 +374,7 @@ def solve_elastic_mms_p2(n: int) -> MMSSolve:
 
     bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
     operator = LinearElasticForm(LinearElasticMaterial(ELASTIC_E, ELASTIC_NU))
-    load = LinearForm(elastic_source, n_components=2, quadrature_degree=4)
+    load = Source(elastic_source, n_components=2, quadrature_degree=4)
     problem = LinearProblem(space, operator, load, bc)
     u = LinearSolve().solve(problem)
 
@@ -509,7 +504,7 @@ def annulus_convergence(
 # f = 2 (k pi)^2 u that oscillates on a length scale 1/k. On a mesh that only just
 # resolves it the two ways of building the load part company: a plain field source is
 # integrated as its P1 interpolant (mass_matrix @ f(nodes)), which reads f only at the
-# vertices and misses its swing between them, while a LinearForm samples f at the
+# vertices and misses its swing between them, while a Source samples f at the
 # interior quadrature points. Both loads give O(h^2); the sampled one has the smaller
 # constant. Drawn by the `quadrature_load` demo.
 
@@ -537,7 +532,7 @@ class LoadComparison:
     mesh: Mesh
     exact: VertexField
     nodal: VertexField        # source integrated as its P1 interpolant
-    sampled: VertexField      # source sampled at the quadrature points (LinearForm)
+    sampled: VertexField      # source sampled at the quadrature points (Source)
     nodal_error: float
     sampled_error: float
 
@@ -546,7 +541,7 @@ def solve_load_comparison(n: int, quadrature_degree: int = 4) -> LoadComparison:
     """Solve -laplacian(u) = f on an `n` x `n` grid two ways.
 
     The same P1 space and operator both times; only the load differs: a `Source`
-    (the source integrated as its P1 interpolant) against a LinearForm that samples
+    (the source integrated as its P1 interpolant) against a Source that samples
     the source at the quadrature points.
     """
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
@@ -554,10 +549,10 @@ def solve_load_comparison(n: int, quadrature_degree: int = 4) -> LoadComparison:
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
     nodal = LinearSolve().solve(
-        LinearProblem(space, LaplacianForm(), Source(oscillatory_source), bc))
+        LinearProblem(space, DiffusionForm(), NodalSource(oscillatory_source), bc))
     sampled = LinearSolve().solve(
-        LinearProblem(space, LaplacianForm(),
-                      LinearForm(oscillatory_source, quadrature_degree=quadrature_degree), bc))
+        LinearProblem(space, DiffusionForm(),
+                      Source(oscillatory_source, quadrature_degree=quadrature_degree), bc))
 
     exact = oscillatory_exact(mesh.vertices)
     return LoadComparison(
@@ -592,7 +587,7 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
     bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     u0 = exact_solution(mesh.vertices)   # an eigenmode, and zero on the boundary
 
-    problem = Poisson().problem(mesh, bc)
+    problem = Heat().problem(mesh, bc)
     free = problem.constraints[0]
     M = problem.space.mass_matrix.toarray()
     K = problem.tangent(None).toarray()

@@ -9,7 +9,7 @@ from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.energies import StVenantKirchhoff
 from fem.equations import LinearElastic, Poisson, Projection
-from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, MassForm
+from fem.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
 from fem.materials import LinearElasticMaterial
 from fem.mesh.structured import create_rect_mesh
 from fem.postprocess import GradientField, StressField
@@ -130,7 +130,7 @@ def test_scalar_solution_nodal_values_are_one_per_node():
 def test_forms_name_their_derived_field():
     """The seam: the Laplacian names a gradient, both elastic forms a stress, and the
     mass form (a projection) none."""
-    assert isinstance(LaplacianForm().derived_field(), GradientField)
+    assert isinstance(DiffusionForm().derived_field(), GradientField)
     assert isinstance(LinearElasticForm(LinearElasticMaterial(1.0, 0.3)).derived_field(), StressField)
     assert isinstance(EnergyForm(StVenantKirchhoff(1.0, 0.3)).derived_field(), StressField)
     assert MassForm().derived_field() is None
