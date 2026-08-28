@@ -2,6 +2,7 @@
 from fem.plot.plotter import Plotter
 
 from demo_registry import Demo, DemoResult, Figure
+from demos._charts import conditions_figure
 from demos.poisson import physics
 from demos.poisson.physics import FlowStudy, run
 
@@ -30,14 +31,12 @@ def _flow_figure(s: FlowStudy) -> Figure:
 
 
 def _conditions_figure(s: FlowStudy) -> Figure:
-    conditions = Plotter(panel_aspect=1.8)
-    conditions.plot(s.mesh, mode='bc', bc=s.bc)
-    return Figure(
-        conditions,
+    return conditions_figure(
+        s.mesh, s.bc,
         'A potential difference across the channel (phi = 0 at the inlet, 1 at the '
         'outlet) drives the flow left to right; the walls and the wing surface take no '
         'condition, so no flow crosses them.',
-        'conditions', setup=True)
+        panel_aspect=1.8)
 
 
 def demo(**kwargs) -> DemoResult:

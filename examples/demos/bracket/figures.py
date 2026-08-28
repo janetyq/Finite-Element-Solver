@@ -4,7 +4,7 @@ import numpy as np
 from fem.plot.plotter import Plotter
 
 from demo_registry import Demo, DemoResult, Figure
-from demos._charts import tidy_log_axis
+from demos._charts import conditions_figure, tidy_log_axis
 from demos.bracket import physics
 from demos.bracket.physics import BracketStudy, run
 
@@ -23,8 +23,7 @@ def _fields_figure(s: BracketStudy) -> Figure:
                     title=f'{name}\n{len(mesh.elements)} elements, '
                           f'corner peak {bracket.peak:.0f}')
         # Support glyphs at the deformed vertex positions, so the load follows the tip.
-        deformed_vertices = mesh.vertices + solution.u.reshape(-1, 2)[:len(mesh.vertices)]
-        fields.overlay_supports(mesh, s.bc, idx=(0, i), coords=deformed_vertices)
+        fields.overlay_supports(mesh, s.bc, idx=(0, i), coords=solution.deformed_mesh().vertices)
     return Figure(
         fields,
         'The same bracket, clamped at the top and pulled down at the horizontal '
@@ -63,14 +62,12 @@ def _singularity_figure(s: BracketStudy) -> Figure:
 
 
 def _conditions_figure(s: BracketStudy) -> Figure:
-    conditions = Plotter(panel_aspect=1.0)
-    conditions.plot(s.sharp.mesh, mode='bc', bc=s.bc)
-    return Figure(
-        conditions,
+    return conditions_figure(
+        s.sharp.mesh, s.bc,
         'The upright limb is clamped at the top; a downward traction pulls the '
         'horizontal tip. Everything else, the inner corner included, is '
         'traction-free.',
-        'conditions', setup=True)
+        panel_aspect=1.0)
 
 
 def _summary(s: BracketStudy) -> str:

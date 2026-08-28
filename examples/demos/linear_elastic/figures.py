@@ -4,6 +4,7 @@ from functools import partial
 from fem.plot.plotter import Plotter
 
 from demo_registry import Demo, DemoResult, Figure
+from demos._charts import conditions_figure
 from demos.linear_elastic import physics
 from demos.linear_elastic.physics import CantileverStudy, run
 from domains import beam
@@ -40,14 +41,12 @@ def _invariants_figure(s: CantileverStudy) -> Figure:
 
 
 def _conditions_figure(s: CantileverStudy) -> Figure:
-    conditions = Plotter(panel_aspect=4.0)
-    conditions.plot(s.mesh, mode='bc', bc=s.bc)
-    return Figure(
-        conditions,
+    return conditions_figure(
+        s.mesh, s.bc,
         'Clamped along the left edge, pulled down over the middle of the right one; '
         'everything between is traction-free. The 3D solve imposes the same clamp '
         'and tip load, one dimension up.',
-        'conditions', setup=True)
+        panel_aspect=4.0)
 
 
 def _summary(s: CantileverStudy) -> str:

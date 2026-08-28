@@ -7,6 +7,7 @@ import numpy as np
 from fem.plot.plotter import Plotter
 
 from demo_registry import Demo, DemoResult, Figure
+from demos._charts import conditions_figure
 from demos.topology_optimization import physics
 from demos.topology_optimization.physics import TopologyStudy, run
 from domains import beam
@@ -46,14 +47,12 @@ def _animation_figure(s: TopologyStudy) -> Figure:
 
 
 def _conditions_figure(s: TopologyStudy) -> Figure:
-    conditions = Plotter(panel_aspect=s.aspect)
-    conditions.plot(s.mesh, mode='bc', bc=s.bc)
-    return Figure(
-        conditions,
+    return conditions_figure(
+        s.mesh, s.bc,
         'Simply supported, pinned at one bottom corner (both directions held) with a '
         'vertical roller at the other (free to slide horizontally), and a downward '
         'load at the top centre.',
-        'conditions', setup=True)
+        panel_aspect=s.aspect)
 
 
 def _summary(s: TopologyStudy) -> str:

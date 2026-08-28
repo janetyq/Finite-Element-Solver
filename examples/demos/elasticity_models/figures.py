@@ -6,6 +6,7 @@ import numpy as np
 from fem.plot.plotter import Plotter
 
 from demo_registry import Demo, DemoResult, Figure
+from demos._charts import conditions_figure
 from demos.elasticity_models import physics
 from demos.elasticity_models.physics import StretchStudy, run
 from domains import square
@@ -75,14 +76,11 @@ def _stress_figure(s: StretchStudy) -> Figure:
 
 
 def _conditions_figure(s: StretchStudy) -> Figure:
-    conditions = Plotter()
-    conditions.plot(s.mesh, mode='bc', bc=s.bc)
-    return Figure(
-        conditions,
+    return conditions_figure(
+        s.mesh, s.bc,
         'Both ends are Dirichlet. The left is held at zero and the right is displaced '
         f'to {s.stretch:.0%} of the width. Nothing is loaded; the stress above is what '
-        'it costs to hold that shape.',
-        'conditions', setup=True)
+        'it costs to hold that shape.')
 
 
 def _summary(s: StretchStudy) -> str:
