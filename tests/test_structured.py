@@ -22,16 +22,39 @@ def test_box_mesh_in_2d_covers_the_rectangle():
     assert np.allclose(mesh.bounds[0], [0, 0]) and np.allclose(mesh.bounds[1], [2, 1])
 
 
-def test_box_mesh_in_3d_is_conforming_and_fills_the_box():
+def test_box_mesh_in_3d_is_conforming():
+    """Every face belongs to one element (boundary) or two (interior), never more."""
     mesh = box_mesh(corners=[[0, 0, 0], [1, 2, 1]], resolution=(3, 4, 3))
     assert mesh.element_dim == 3
-    assert mesh.n_elements == 6 * 2 * 3 * 2
-    assert mesh.measure == pytest.approx(2.0)
-    # Every face belongs to one element (boundary) or two (interior), never more.
     faces = np.sort(mesh.elements[:, [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]]]
                     .reshape(-1, 3), axis=1)
     _, counts = np.unique(faces, axis=0, return_counts=True)
     assert set(counts.tolist()) <= {1, 2}
+
+
+@pytest.mark.parametrize('n', [2, 3, 5])
+def test_box_mesh_tiles_the_cube_exactly(n):
+    """Kuhn's decomposition gives 6 tets per cell, and they must partition the
+    cube: element volumes summing to 1 catches a mis-numbered corner, which
+    would otherwise produce overlapping or inverted tets."""
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
+    assert mesh.n_vertices == n**3
+    assert mesh.n_elements == 6 * (n - 1)**3
+    assert mesh.measure == pytest.approx(1.0)
+
+
+def test_box_mesh_boundary_is_the_cube_surface():
+    """Every boundary vertex lies on a face of the cube and every interior one does not, so
+    the cells agree on their shared diagonals."""
+    n = 4
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
+    on_face = np.isclose(mesh.vertices, 0) | np.isclose(mesh.vertices, 1)
+
+    boundary_idxs = set(int(i) for i in mesh.boundary_idxs)
+    assert on_face[mesh.boundary_idxs].any(axis=1).all()
+    interior = set(range(len(mesh.vertices))) - boundary_idxs
+    assert len(interior) == (n - 2)**3
+    assert not on_face[sorted(interior)].any()
 
 
 def test_box_mesh_refuses_mismatched_dimensions():

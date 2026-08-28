@@ -18,7 +18,8 @@ _SIMPLEX_NODE_COUNTS = (2, 3, 4)
 _ELEMENT_NAMES = {1: 'line', 2: 'triangle', 3: 'tet'}
 
 
-def _frozen(array: np.ndarray) -> np.ndarray:
+def frozen_array(array: np.ndarray) -> np.ndarray:
+    '''`array`, made read-only in place: the arrays of an immutable object.'''
     array.setflags(write=False)
     return array
 
@@ -70,25 +71,19 @@ class Mesh:
         boundary: Elements | Sequence[Sequence[int]] | None = None,
         boundary_curves: Sequence[Curve | None] | None = None,
     ) -> None:
-        self._vertices: Vertices = _frozen(np.array(vertices, dtype=float))
-        self._elements: Elements = _frozen(np.array(elements, dtype=int))
+        self._vertices: Vertices = frozen_array(np.array(vertices, dtype=float))
+        self._elements: Elements = frozen_array(np.array(elements, dtype=int))
         self._validate_elements()
         if boundary is None:
             boundary = boundary_facets(self._elements)
-        self._boundary: Elements = _frozen(np.array(boundary, dtype=int))
+        self._boundary: Elements = frozen_array(np.array(boundary, dtype=int))
         self._validate_boundary()
         self._boundary_idxs: IntArray | None = None
         # Optional analytic curve each boundary facet lies on (or None), aligned with
         # `boundary` rows. None (the default) is a fully straight-sided mesh; a curved
         # (isoparametric) space reads these to put its boundary nodes on the true curve.
-        self.boundary_curves: tuple[Curve | None, ...] | None = (
-            tuple(boundary_curves) if boundary_curves is not None else None
-        )
-        if self.boundary_curves is not None and len(self.boundary_curves) != len(self._boundary):
-            raise ValueError(
-                f'boundary_curves has {len(self.boundary_curves)} entries but the mesh '
-                f'has {len(self._boundary)} boundary facets'
-            )
+        self.boundary_curves: tuple[Curve | None, ...] | None = self._per_facet(
+            'boundary_curves', tuple(boundary_curves) if boundary_curves is not None else None)
 
     # -- the arrays --------------------------------------------------------------------
 
@@ -150,6 +145,15 @@ class Mesh:
             )
         self._check_indices_in_range(self._boundary, self.n_vertices, 'boundary')
 
+    def _per_facet(self, name, values):
+        '''`values`, checked to have one entry per boundary facet (or be None).'''
+        if values is not None and len(values) != len(self._boundary):
+            raise ValueError(
+                f'{name} has {len(values)} entries but the mesh has '
+                f'{len(self._boundary)} boundary facets'
+            )
+        return values
+
     @staticmethod
     def _check_indices_in_range(indices: IntArray, n_vertices: int, name: str) -> None:
         if not indices.size:
@@ -196,7 +200,7 @@ class Mesh:
         # A plain property over a cached value, rather than `cached_property`, so it
         # satisfies the `NodeGeometry` protocol's read-only property as pyright sees it.
         if self._boundary_idxs is None:
-            self._boundary_idxs = _frozen(np.unique(self._boundary.ravel()))
+            self._boundary_idxs = frozen_array(np.unique(self._boundary.ravel()))
         return self._boundary_idxs
 
     # -- element geometry --------------------------------------------------------------
