@@ -76,30 +76,42 @@ def transverse_motion(fork: ModalSolution, i) -> np.ndarray:
 
 
 def strike(fork: ModalSolution, voice, ring_periods, steps_per_period,
-           ring_down_periods) -> tuple[TransientSolution, int, float, float]:
-    """Tap the right tine tip sideways, then let the fork ring down.
+           ring_down_periods) -> tuple[TransientSolution, int, float, RayleighDamping]:
+    """Pinch the tine tips together and release, then let the fork ring down.
 
-    A short half-sine impulse at the tip, then free vibration under mass-proportional
-    damping stepped by Newmark. Every mode decays as exp(-alpha t / 2); alpha is set
-    so the voice has died to 1/e after `ring_down_periods` of its own period.
-    Returns the series, the tip's vertex index, the tap length and alpha.
+    A short half-sine impulse at each tip, equal and opposite, then free vibration
+    stepped by Newmark. The opposite pair excites only the modes the tips swing
+    oppositely in, the voice and its overtones; a strike on one tine alone would also
+    excite the rocking mode (tips together, stem shaking), which is lower than the
+    voice and, with nothing here modelling the hand that damps it at the stem, would
+    outlast it. The damping is Rayleigh's, C = alpha M + beta K. Mode i then decays as exp(-sigma_i t) with
+    sigma_i = alpha/2 + beta omega_i^2/2: the stiffness term damps the high modes
+    fastest, so the tap's clatter dies and the voice is what is left ringing. The two
+    are set to contribute equally at the voice, which reaches 1/e after
+    `ring_down_periods` of its own period. Returns the series, the tip's vertex index,
+    the tap length, and the damping.
     """
-    period = 1.0 / float(fork.frequencies[voice])
-    alpha = 2.0 / (ring_down_periods * period)
+    omega = 2 * np.pi * float(fork.frequencies[voice])
+    period = 2 * np.pi / omega
+    sigma = 1.0 / (ring_down_periods * period)
+    damping = RayleighDamping(alpha=sigma, beta=sigma / omega**2)
     verts = fork.mesh.vertices
+    left_tip = int(np.argmax(np.where(verts[:, 0] < 0, verts[:, 1], -np.inf)))
     right_tip = int(np.argmax(np.where(verts[:, 0] > 0, verts[:, 1], -np.inf)))
     tap_length = 0.1 * period
 
-    def tap(p, t):
-        return [np.sin(np.pi * t / tap_length) if t < tap_length else 0.0, 0.0]
+    def pinch(p, t):
+        inward = -np.sign(p[0])      # each tip pushed toward the other
+        return [inward * np.sin(np.pi * t / tap_length) if t < tap_length else 0.0, 0.0]
 
-    equation = LinearElastic(E, NU, density=RHO, damping=RayleighDamping(alpha=alpha),
-                             loads=(PointLoad(at_indices([right_tip]), TimeDependent(tap)),))
+    equation = LinearElastic(E, NU, density=RHO, damping=damping,
+                             loads=(PointLoad(at_indices([left_tip, right_tip]),
+                                              TimeDependent(pinch)),))
     problem = equation.problem(fork.mesh, clamp, element_type=QuadraticTriangleElement)
     rest = np.zeros(problem.space.n_dofs)
     ringing = NewmarkMethod(dt=period / steps_per_period,
                             steps=int(ring_periods * steps_per_period)).solve(problem, rest, rest)
-    return ringing, right_tip, tap_length, alpha
+    return ringing, right_tip, tap_length, damping
 
 
 @dataclass
@@ -114,7 +126,7 @@ class ForkStudy:
     ringing: TransientSolution      # the struck fork
     tip: int                        # vertex index of the struck tip
     tap_length: float
-    alpha: float                    # mass-proportional damping
+    damping: RayleighDamping
     ring_down_periods: float
 
     @property
@@ -134,6 +146,11 @@ class ForkStudy:
     def tuning_slope(self) -> float:
         """The fitted exponent of f ~ L^slope over the sweep (beam theory: -2)."""
         return float(np.polyfit(np.log(self.sweep_lengths), np.log(self.sweep_freqs), 1)[0])
+
+    def decay_rate(self, i) -> float:
+        """sigma_i: mode `i` rings down as exp(-sigma_i t) under the Rayleigh damping."""
+        omega = 2 * np.pi * float(self.freqs[i])
+        return self.damping.alpha / 2 + self.damping.beta * omega**2 / 2
 
     @property
     def tip_trace(self) -> np.ndarray:
@@ -156,7 +173,8 @@ def run(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_angle=27, 
                            min_angle)
         sweep_freqs.append(swept.frequencies[voice_index(swept, length)])
 
-    ringing, tip, tap_length, alpha = strike(
+    ringing, tip, tap_length, damping = strike(
         fork, voice, ring_periods, steps_per_period, ring_down_periods)
     return ForkStudy(tine_length, tine_thickness, fork, voice, np.array(sweep_lengths),
-                     np.array(sweep_freqs), ringing, tip, tap_length, alpha, ring_down_periods)
+                     np.array(sweep_freqs), ringing, tip, tap_length, damping,
+                     ring_down_periods)

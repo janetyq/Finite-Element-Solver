@@ -51,33 +51,48 @@ def _modes_figure(s: ForkStudy, n_shown) -> Figure:
         'modes', thumbnail=True)
 
 
-def _swing_figure(s: ForkStudy, n_frames) -> Figure:
-    # Not a dynamics simulation: a standing-wave mode is a fixed shape times cos(omega t),
-    # evaluated frame by frame. The colour is fixed; only the geometry moves.
-    _, colour = _mode_shape(s, s.voice)
-    amp = 0.12 * s.tine_length / np.abs(transverse_motion(s.fork, s.voice)).max()
-    phases = np.cos(np.linspace(0, 2*np.pi, n_frames, endpoint=False))
-    frames = [s.fork.mode_mesh(s.voice, amp*c) for c in phases]
-    lim = float(np.abs(colour).max())
-    swing = Plotter(1, 1, figsize=(4.6, 6.2),
-                    title=f'The voice mode swinging: {s.freqs[s.voice]:.0f} Hz')
-    swing.plot_animation(s.mesh, [colour]*n_frames, mode='colored', meshes=frames,
-                         cmap='coolwarm', cbar_lims=(-lim, lim), label='sideways motion',
-                         titles=['']*n_frames)
-    swing.fig.supxlabel(
-        "Not a time-stepped simulation: this is the mode's exact\n"
-        'motion phi cos(omega t), one undamped, idealized mode\n'
-        'at exaggerated amplitude. Only the shape and frequency\n'
-        'are physical, not the size; a real fork mixes modes and\n'
-        'rings down.', fontsize='small')
+def _struck_figure(s: ForkStudy, shown_periods, frames_per_period) -> Figure:
+    """The struck fork in motion: the first `shown_periods` of the Newmark run, at
+    `frames_per_period` frames each, so the tines are seen mid-swing rather than at
+    one phase every frame."""
+    t, tip_x = s.ringing.t, s.tip_trace
+    steps_per_period = int(round(1.0 / (s.freqs[s.voice] * (t[1] - t[0]))))
+    last = min(len(t) - 1, shown_periods * steps_per_period)
+    stride = max(1, steps_per_period // frames_per_period)
+    shown = list(range(0, last + 1, stride))
+    # The real displacement is microns; one exaggeration scale for every frame, so the
+    # motion stays in proportion as it decays. It is set by the slot, not the tine
+    # length: the pinch drives the tips toward each other, and any more would draw
+    # them passing through one another.
+    verts = s.mesh.vertices
+    half_slot = float(np.abs(verts[verts[:, 1] > verts[:, 1].max() - 1e-9, 0]).min())
+    scale = 0.8 * half_slot / np.abs(tip_x).max()
+    n_v = len(verts)
+    sideways = [s.ringing.u[i].reshape(-1, 2)[:n_v, 0] for i in shown]
+    frames = []
+    for i in shown:
+        mesh = s.mesh.copy()
+        mesh.vertices = mesh.vertices + scale * s.ringing.u[i].reshape(-1, 2)[:n_v]
+        frames.append(mesh)
+    lim = float(np.abs(sideways).max())
+    struck = Plotter(1, 1, figsize=(4.6, 6.2), title='Pinched at the tips and released')
+    struck.plot_animation(s.mesh, sideways, mode='colored', meshes=frames, cmap='coolwarm',
+                          cbar_lims=(-lim, lim), label='sideways displacement (m)',
+                          titles=[f't = {1e3 * t[i]:.2f} ms' for i in shown])
+    _hide_x_ticks(struck, (0, 0))
+    struck.fig.supxlabel(f'Displacement exaggerated {scale:.0f}x; the colour is to scale.',
+                         fontsize='small')
     return Figure(
-        swing,
-        'The voice mode as motion rather than a frozen shape: phi cos(omega t), the '
-        'tines flexing apart and together at the natural frequency. Any free '
-        'vibration is a sum of the modes, each ringing at its own rate; struck, a '
-        'fork sheds the others and settles onto this one, so it sounds a single '
-        'clean tone.',
-        'swing')
+        struck,
+        f'The fork struck, the first {shown_periods} periods of the voice: an equal and '
+        'opposite impulse at the two tips, then free vibration by Newmark. The tines '
+        'start in a mix of modes, shivering with the high ones, and under Rayleigh '
+        'damping those die within a few periods, leaving the tines swinging apart and '
+        'together in the voice. The pinch is chosen so the rocking mode (tips swinging '
+        'the same way) is never excited: it is lower than the voice and would outlast '
+        'it here, where nothing models the hand at the stem that damps it in a real '
+        'fork.',
+        'struck', frames=len(shown))
 
 
 def _tuning_law_figure(s: ForkStudy, n_shown) -> Figure:
@@ -121,19 +136,20 @@ def _tuning_law_figure(s: ForkStudy, n_shown) -> Figure:
 def _ring_down_figure(s: ForkStudy) -> Figure:
     t, tip_x = s.ringing.t, s.tip_trace
     after_tap = t > s.tap_length
-    envelope = np.abs(tip_x[after_tap]).max() * np.exp(-s.alpha * (t - s.tap_length) / 2)
+    sigma = s.decay_rate(s.voice)
+    envelope = np.abs(tip_x[after_tap]).max() * np.exp(-sigma * (t - s.tap_length))
     # The tip's spectrum: the tap excites every mode, and the peaks sit on the computed
     # frequencies.
     spectrum = np.abs(np.fft.rfft(tip_x[after_tap]))
     spectrum_f = np.fft.rfftfreq(int(after_tap.sum()), d=float(t[1] - t[0]))
 
-    rung = Plotter(1, 2, title='Struck at the tip, ringing down')
+    rung = Plotter(1, 2, title='Pinched and released, ringing down')
     trace = rung.chart_ax(idx=(0, 0), xlabel='time (ms)', ylabel='tip sideways displacement (m)')
     trace.plot(1e3 * t, tip_x, color='tab:blue', lw=0.8, label='right tine tip')
     trace.plot(1e3 * t, envelope, '--', color='tab:red', alpha=0.7,
-               label=f'exp(-alpha t / 2), alpha = {s.alpha:.0f} /s')
+               label=f"the voice's decay, exp(-{sigma:.0f} t)")
     trace.plot(1e3 * t, -envelope, '--', color='tab:red', alpha=0.7)
-    trace.set_title(f'A {1e3 * s.tap_length:.2f} ms tap, then free vibration')
+    trace.set_title(f'A {1e3 * s.tap_length:.2f} ms pinch, then free vibration')
     trace.grid(True, alpha=0.3)
     trace.legend(fontsize='small')
 
@@ -146,13 +162,14 @@ def _ring_down_figure(s: ForkStudy) -> Figure:
     peaks.grid(True, alpha=0.3)
     return Figure(
         rung,
-        'The fork struck: a point impulse at one tine tip, then free vibration '
-        'stepped by Newmark under mass-proportional damping. Left, the tip trace '
-        'rings down inside the exp(-alpha t / 2) envelope every mode shares under '
-        'that damping. Right, its spectrum: the tap excites the modes together and '
-        'the peaks land on the frequencies the eigensolve found, the voice (red) '
-        'among them.',
-        'struck')
+        'The same pinch over the whole run. Left, the tip trace rings down inside '
+        "the voice's own decay envelope under the Rayleigh damping C = alpha M + "
+        'beta K, whose beta term damps each mode in proportion to its frequency '
+        'squared. Right, the spectrum of the trace: one peak, on the frequency the '
+        'eigensolve found for the voice (red). The overtones the pinch excited '
+        '(dotted, grey) have been damped out within the first few periods, and the '
+        'rocking mode below the voice is absent because the pinch never excites it.',
+        'ring-down')
 
 
 def _setup_figure(s: ForkStudy) -> Figure:
@@ -183,18 +200,21 @@ def _summary(s: ForkStudy, n_shown) -> str:
         f'first {n_shown} modes (Hz)             '
         + '  '.join(f'{f:.0f}' for f in s.freqs[:n_shown]) + '\n'
         f'tuning law   f ~ L^{s.tuning_slope:.2f}         (beam-theory exponent -2)\n'
-        f'struck: mass-proportional damping alpha = {s.alpha:.0f} /s, the voice at 1/e after '
-        f'{s.ring_down_periods:.0f} periods ({s.ring_down_periods * period_ms:.0f} ms)'
+        f'struck: Rayleigh damping alpha = {s.damping.alpha:.0f} /s, '
+        f'beta = {s.damping.beta:.2e} s; the voice at 1/e after '
+        f'{s.ring_down_periods:.0f} periods ({s.ring_down_periods * period_ms:.0f} ms); '
+        f'mode {n_shown} ({s.freqs[n_shown - 1]:.0f} Hz) after '
+        f'{1e3 / s.decay_rate(n_shown - 1):.1f} ms'
     )
 
 
-def demo(n_shown=4, n_frames=24, **kwargs) -> DemoResult:
+def demo(n_shown=4, shown_periods=6, frames_per_period=8, **kwargs) -> DemoResult:
     """Natural frequencies and modes of a steel tuning fork meshed from its outline,
     against beam theory; then the fork struck and ringing down."""
     s = run(**kwargs)
     return DemoResult([
         _modes_figure(s, n_shown),
-        _swing_figure(s, n_frames),
+        _struck_figure(s, shown_periods, frames_per_period),
         _tuning_law_figure(s, n_shown),
         _ring_down_figure(s),
         _setup_figure(s),
@@ -204,5 +224,5 @@ def demo(n_shown=4, n_frames=24, **kwargs) -> DemoResult:
 DEMO = Demo('modal', demo, section='Solids & structures',
             show_source=physics,
             smoke_kwargs={'n_across_tine': 3, 'min_angle': 25, 'n_modes': 4, 'n_shown': 3,
-                          'sweep_lengths': (0.088, 0.125), 'n_frames': 6,
+                          'sweep_lengths': (0.088, 0.125), 'shown_periods': 2,
                           'ring_periods': 3, 'steps_per_period': 12})
