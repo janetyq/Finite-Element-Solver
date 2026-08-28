@@ -20,9 +20,10 @@ from fem.convergence import (
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.estimators import RecoveryEstimator
 from fem.forms import EnergyForm, MaskedMassForm
-from fem.problem import Problem
+from fem.loads import PointLoad
+from fem.problem import Problem, RayleighDamping
 from fem.space import FunctionSpace
-from fem.regions import TimeDependent, on_plane, in_box, intersect, union
+from fem.regions import TimeDependent, at_indices, on_plane, in_box, intersect, union
 from fem.plot.plotter import Plotter
 from fem.equations import Projection, Poisson, LinearElastic, FiniteStrainElastic, Wave
 from fem.solve import BacktrackingLineSearch, NewtonSolve
@@ -1301,9 +1302,9 @@ def demo_buckling(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
 
 def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_angle=27,
                n_modes=6, n_shown=4, sweep_lengths=(0.075, 0.088, 0.105, 0.125),
-               n_frames=24):
+               n_frames=24, ring_periods=40, steps_per_period=40, ring_down_periods=15.0):
     """Natural frequencies and modes of a steel tuning fork meshed from its outline,
-    against beam theory."""
+    against beam theory; then the fork struck and ringing down."""
     # Real SI steel, so the frequencies come out in Hz a musician would recognise.
     # E* = E/(1-nu^2) is the plane-strain modulus a 2D solve sees.
     E, NU, RHO = 2.0e11, 0.3, 7850.0             # Young's (Pa), Poisson, density (kg/m^3)
@@ -1439,7 +1440,56 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
     bars.grid(True, axis='y', alpha=0.3)
     bars.legend(fontsize='small')
 
-    # -- 4. How the fork is posed: an outline, meshed, held at the stem -----------------
+    # -- 4. Struck: a point impulse at one tip, and the ring-down that follows ----------
+    # A short sideways tap on the right tine tip, then free vibration under mass-
+    # proportional damping. Every mode then decays as exp(-alpha t / 2), and alpha is set
+    # so the voice has died to 1/e after `ring_down_periods` of its own period.
+    f_voice = float(freqs[voice])
+    period = 1.0 / f_voice
+    alpha = 2.0 / (ring_down_periods * period)
+    verts = mesh.vertices
+    right_tip = int(np.argmax(np.where(verts[:, 0] > 0, verts[:, 1], -np.inf)))
+    tap_length = 0.1 * period
+
+    def tap(p, t):
+        return [np.sin(np.pi * t / tap_length) if t < tap_length else 0.0, 0.0]
+
+    struck_equation = LinearElastic(E, NU, density=RHO, damping=RayleighDamping(alpha=alpha),
+                                    loads=(PointLoad(at_indices([right_tip]), TimeDependent(tap)),))
+    struck = struck_equation.problem(mesh, clamp(), element_type=QuadraticTriangleElement)
+    dt = period / steps_per_period
+    n_steps = int(ring_periods * steps_per_period)
+    rest = np.zeros(struck.space.n_dofs)
+    ringing = NewmarkMethod(dt=dt, steps=n_steps).solve(struck, rest, rest)
+    t_ring = ringing.t
+    tip_x = np.array([u.reshape(-1, 2)[right_tip, 0] for u in ringing.u])
+    after_tap = t_ring > tap_length
+    envelope = np.abs(tip_x[after_tap]).max() * np.exp(-alpha * (t_ring - tap_length) / 2)
+
+    # The tip's spectrum: the tap excites every mode, and the peaks sit on the computed
+    # frequencies.
+    spectrum = np.abs(np.fft.rfft(tip_x[after_tap]))
+    spectrum_f = np.fft.rfftfreq(int(after_tap.sum()), d=dt)
+
+    rung = Plotter(1, 2, title='Struck at the tip, ringing down')
+    trace = rung.chart_ax(idx=(0, 0), xlabel='time (ms)', ylabel='tip sideways displacement (m)')
+    trace.plot(1e3 * t_ring, tip_x, color='tab:blue', lw=0.8, label='right tine tip')
+    trace.plot(1e3 * t_ring, envelope, '--', color='tab:red', alpha=0.7,
+               label=f'exp(-alpha t / 2), alpha = {alpha:.0f} /s')
+    trace.plot(1e3 * t_ring, -envelope, '--', color='tab:red', alpha=0.7)
+    trace.set_title(f'A {1e3 * tap_length:.2f} ms tap, then free vibration')
+    trace.grid(True, alpha=0.3)
+    trace.legend(fontsize='small')
+
+    peaks = rung.chart_ax(idx=(0, 1), xlabel='frequency (Hz)', ylabel='amplitude')
+    shown_f = spectrum_f <= 1.2 * freqs[-1]
+    peaks.plot(spectrum_f[shown_f], spectrum[shown_f], color='tab:blue', lw=1.0)
+    for i, f in enumerate(freqs):
+        peaks.axvline(f, color='tab:red' if i == voice else '0.6', ls=':', alpha=0.8)
+    peaks.set_title('Spectrum of the tip motion, computed modes dotted')
+    peaks.grid(True, alpha=0.3)
+
+    # -- 5. How the fork is posed: an outline, meshed, held at the stem -----------------
     built = Plotter(1, 2, figsize=(6.0, 7.0), title='From an outline to a meshed fork')
     built.plot(mesh, mode='mesh', idx=(0, 0), title=f'{len(mesh.elements)} triangles')
     hide_x_ticks(built, (0, 0))
@@ -1454,7 +1504,9 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
         f'fork voice (mode {voice+1}, computed)      {freqs[voice]:.0f} Hz   '
         f'({100*(freqs[voice]/ideal - 1):+.0f}%: the base is not a rigid clamp)\n'
         f'first {n_shown} modes (Hz)             ' + '  '.join(f'{f:.0f}' for f in freqs[:n_shown]) + '\n'
-        f'tuning law   f ~ L^{slope:.2f}         (beam-theory exponent -2)'
+        f'tuning law   f ~ L^{slope:.2f}         (beam-theory exponent -2)\n'
+        f'struck: mass-proportional damping alpha = {alpha:.0f} /s, the voice at 1/e after '
+        f'{ring_down_periods:.0f} periods ({1e3 * ring_down_periods * period:.0f} ms)'
     )
 
     return DemoResult([
@@ -1481,6 +1533,14 @@ def demo_modal(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_ang
                'first modes: the voice (red) lands near concert A, a few percent under '
                'the ideal tine for the same base-compliance reason.',
                'law'),
+        Figure(rung,
+               'The fork struck: a point impulse at one tine tip, then free vibration '
+               'stepped by Newmark under mass-proportional damping. Left, the tip trace '
+               'rings down inside the exp(-alpha t / 2) envelope every mode shares under '
+               'that damping. Right, its spectrum: the tap excites the modes together and '
+               'the peaks land on the frequencies the eigensolve found, the voice (red) '
+               'among them.',
+               'struck'),
         Figure(built,
                'The fork is one non-convex outline (stem, base, two tines with a slot) '
                'meshed by Ruppert\'s algorithm, with no structured grid. It is held only at '
@@ -1525,7 +1585,8 @@ DEMOS = [
     # Builds its own fork from an outline, so it takes no domain.
     Demo('modal', demo_modal, section=SOLIDS,
          smoke_kwargs={'n_across_tine': 3, 'min_angle': 25, 'n_modes': 4, 'n_shown': 3,
-                       'sweep_lengths': (0.088, 0.125), 'n_frames': 6}),
+                       'sweep_lengths': (0.088, 0.125), 'n_frames': 6,
+                       'ring_periods': 3, 'steps_per_period': 12}),
     # A 4:1 simply supported (MBB) beam, the aspect that optimizes into the classic arch.
     # `smoothing_radius` is a physical length, so a finer mesh resolves the same structure
     # rather than growing thinner members.

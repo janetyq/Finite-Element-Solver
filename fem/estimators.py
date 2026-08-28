@@ -91,16 +91,16 @@ def _flux(problem: Problem) -> DerivedField:
 
 
 def _source(problem: Problem) -> FieldValue:
-    '''The problem's volume source as a pointwise field.'''
+    '''The problem's volume source as a pointwise field; None for no source.'''
     from fem.forms import LinearForm
-    from fem.problem import Source
+    from fem.loads import Source
 
     source = problem.source
     # The interior residual reads the source pointwise at centroids; a LinearForm or
     # Source is that field wrapped for one of the two load paths.
     if isinstance(source, (LinearForm, Source)):
         return source.field
-    return source
+    return None
 
 
 # -- the outer seam every estimator satisfies ---------------------------------

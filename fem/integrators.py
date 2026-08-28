@@ -1,7 +1,7 @@
 """Time integrators: a scheme applied to a semi-discrete `Problem`.
 
-Heat is first order (M u' + K u = b(t)), wave is second (M u'' + K u = b(t)), so there is
-one integrator family per order. Each forms a constant effective operator from the
+Heat is first order (M u' + K u = b(t)), wave is second (M u'' + C u' + K u = b(t)), so
+there is one integrator family per order. Each forms a constant effective operator from the
 problem's mass and stiffness, factors it once through `DiscreteSystem`, and steps by
 updating only the right-hand side, re-evaluating a time-dependent load
 (`Problem.load_at`) each step. `dt` and the step count live here; initial conditions
@@ -69,11 +69,12 @@ class ThetaMethod:
 
 
 class NewmarkMethod:
-    '''Second-order integrator for M u'' + K u = b.
+    '''Second-order integrator for M u'' + C u' + K u = b, with C the problem's
+    `damping_matrix` (none by default).
 
     β = ¼, γ = ½ is the average-acceleration scheme: unconditionally stable and, for
     a linear undamped system, energy-conserving. It solves for the acceleration
-    against the SPD operator M + β dt² K, an N-sized system factored once. Constant
+    against the SPD operator M + γ dt C + β dt² K, an N-sized system factored once. Constant
     Dirichlet displacement means zero velocity and acceleration at the fixed nodes,
     so those DOFs are pinned to zero in the acceleration solve: the ordinary
     constraint, no lifting into a 2N block. A time-dependent load is re-evaluated at
@@ -112,9 +113,18 @@ class NewmarkMethod:
         dt, beta, gamma = self.dt, self.beta, self.gamma
         accel_constraints = (free, fixed, np.zeros(len(fixed)))
 
-        # Initial acceleration from M a0 = b − K u0, pinned to zero at fixed DOFs.
-        a = DiscreteSystem(M, accel_constraints, self.backend).solve(b - K @ u)
-        effective = DiscreteSystem(M + beta * dt**2 * K, accel_constraints, self.backend)
+        # Initial acceleration from M a0 = b − C v0 − K u0, pinned to zero at fixed DOFs.
+        C = problem.damping_matrix
+
+        def damping(velocity: DofVector) -> DofVector:
+            '''The damping force C v, zero without a damping matrix.'''
+            return np.zeros_like(velocity) if C is None else C @ velocity
+
+        a = DiscreteSystem(M, accel_constraints, self.backend).solve(b - damping(v) - K @ u)
+        effective_operator = M + beta * dt**2 * K
+        if C is not None:
+            effective_operator = effective_operator + gamma * dt * C
+        effective = DiscreteSystem(effective_operator, accel_constraints, self.backend)
 
         t_values: list[float] = [0.0]
         u_values: list[DofVector] = [u.copy()]
@@ -123,7 +133,7 @@ class NewmarkMethod:
             t_next = dt * (i + 1)
             u_pred = u + dt * v + dt**2 / 2 * (1 - 2 * beta) * a
             v_pred = v + dt * (1 - gamma) * a
-            a = effective.solve(problem.load_at(t_next) - K @ u_pred)
+            a = effective.solve(problem.load_at(t_next) - damping(v_pred) - K @ u_pred)
             u = u_pred + beta * dt**2 * a
             v = v_pred + gamma * dt * a
             t_values.append(t_next)

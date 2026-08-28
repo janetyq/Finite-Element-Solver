@@ -46,10 +46,16 @@ The two agree exactly: `Equation.problem` and `Problem.solve` hold no policy of 
 anything they can do can be composed, and anything composed (a different form, a hand-built load,
 a custom strategy) needs neither. `Solver(mesh, equation, bc)` is that second line held as an object.
 
-Loads come in two forms. A constant or a nodal array is integrated as its nodal interpolant through
-the mass matrix (`Source`); a callable is sampled at the quadrature points (`LinearForm`), which
-captures variation within an element. A DOF vector built by hand (an initial condition, a comparison
-field) is `space.interpolate(value)`, nodal on P2 as well.
+The load is a sum of `Load` terms (`fem/loads.py`), each answering `vector(space, t)`. A constant
+or a nodal array is integrated as its nodal interpolant through the mass matrix (`Source`); a
+callable is sampled at the quadrature points (`LinearForm`), which captures variation within an
+element; a Neumann traction or a Robin value is a `Traction` over its region's facets; a nodal force
+is a `PointLoad`, passed through `Equation(loads=...)` or `Problem(loads=...)`. A DOF vector built by
+hand (an initial condition, a comparison field) is `space.interpolate(value)`, nodal on P2 as well.
+
+Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
+names the `domain` it integrates over (the elements or the boundary facets), so a Robin condition
+is `kappa * MaskedMassForm(mask)` added to the physics form and assembled beside it.
 
 ## Layers
 
@@ -73,7 +79,7 @@ refined mesh (1) without re-resolving constraints by hand (5).
 
 | Tier | Role | Objects |
 |---|---|---|
-| 1. Primitives | the parts a composition is built from | `Form` (the `BilinearForm`s, `EnergyForm`; combinators `ScaledForm`, `MaskedMassForm`, `PrecomputedForm`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
+| 1. Primitives | the parts a composition is built from | `Form` (the `BilinearForm`s, `EnergyForm`; combinators `SumForm`, `ScaledForm`; `MaskedMassForm`, `PrecomputedForm`), `Load` (`Source`, `LinearForm`, `Traction`, `PointLoad`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
 | 2. `Problem` | a composition: space + operator + load + constraints | `Problem`, and `LinearProblem` for a constant tangent; `Equation.problem` builds one from a named PDE |
 | 3. Solve strategy | consumes a `Problem`, returns the solution | `LinearSolve`, `NewtonSolve`, `EigenSolve`; integrators `ThetaMethod`, `NewmarkMethod` |
 | 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
@@ -126,8 +132,8 @@ two elastic forms share with `ElasticSolution` and `StressField`.
 | `convergence` (MMS studies), `numerics` | | | | | | | | | ▒ |
 
 Constraints (5) have one owner, the `Problem`, whose constructor resolves the boundary conditions
-against the space and folds the Dirichlet partition, the Neumann load, and any Robin contribution
-into the operator and load. Algebra (6) is split: `DiscreteSystem` owns the Dirichlet elimination
+against the space and turns the Dirichlet partition into its `constraints`, each Neumann and Robin
+value into a `Traction` load term, and each Robin coefficient into a boundary term of the operator. Algebra (6) is split: `DiscreteSystem` owns the Dirichlet elimination
 and the `Backend` owns how the free-free block is solved. Physics (3) is owned by the physics
 layer alone: an `Equation` answers `operator` itself, so no facade holds a mapping from equation
 to material.
@@ -176,8 +182,9 @@ follows the true curve.
 
 Every assembly path goes through a form. Bilinear forms (`MassForm`, `LaplacianForm`,
 `DiffusionForm`, `LinearElasticForm`, `GeometricStiffnessForm`) follow `Gᵀ C G` with the element
-supplying `G` and the form `C`; `ScaledForm` and `MaskedMassForm` are combinators (the wave
-operator's `c²K`, the Robin boundary integral); `PrecomputedForm` lets a driver reuse element
+supplying `G` and the form `C`; `SumForm` and `ScaledForm` are the combinators (`a + b`, `c * a`:
+the wave operator's `c²K`, the Robin boundary term `kappa * MaskedMassForm(mask)`, which names the
+boundary as its `domain`); `PrecomputedForm` lets a driver reuse element
 matrices it can derive more cheaply (SIMP rescales one set by `rho^p`). Each is a `BilinearForm`,
 which supplies the residual `K u` and the energy `½ uᵀ K u` from its matrix. `EnergyForm` is the
 state-dependent form, mapping an element and a state to energy, residual, and tangent; both kinds
@@ -199,13 +206,16 @@ reduces them to frame-independent scalars.
 
 ### `Problem`: the narrow waist
 
-A `Problem` is the assembly-ready composition for one mesh: space, operator, load, constraints.
-Its residual has three terms, each present in `energy`, `residual`, and `tangent` alike: the
-form's own (`Π_form`, `R_form`, `∂R_form/∂u`), the Robin boundary term (`½κuᵀRu`, `κRu`, `κR`),
-and the load (`−fᵀu`, `−f`, `0`). `internal_residual` is the first two, kept apart from `load` so
-a strategy can scale one against the other. `mass` is the problem's mass side, the equation's
-`density` times the space's consistent mass matrix, assembled once for the integrators and the
-modal analysis. `LinearProblem` is the case whose operator has a
+A `Problem` is the assembly-ready composition for one mesh: space, operator, load terms,
+constraints. `physics` is the form it was stated with and `operator` that form plus one
+`kappa * MaskedMassForm` term per Robin condition; `loads` is the tuple of `Load` terms (the
+source, one `Traction` per Neumann condition and per Robin value, any `PointLoad`). Its residual
+has two terms, each present in `energy`, `residual`, and `tangent` alike: the operator's (`Π`,
+`R`, `∂R/∂u`, summed over the operator's terms by the space) and the load's (`−fᵀu`, `−f`, `0`).
+`internal_residual` is the first, kept apart from `load` so a strategy can scale one against the
+other. `mass` is the problem's mass side, the equation's `density` times the space's consistent
+mass matrix, and `damping_matrix` the `RayleighDamping` `αM + βK` when the equation carries one,
+both assembled once for the integrators and the modal analysis. `LinearProblem` is the case whose operator has a
 constant tangent: `tangent()` with no state is the matrix, assembled once and held, and
 `residual(u) = A·u − b`; it is the type every consumer that needs one fixed operator asks for. The
 `Problem` owns its constraints, so nothing index-keyed is carried across a mesh change: a driver
@@ -242,8 +252,8 @@ each eigenvector back to a full DOF vector. `BucklingAnalysis` and `ModalAnalysi
 ### Time integration
 
 Heat is first order and wave second, so there is one integrator family per order. Each forms a
-constant effective operator from `problem.mass` and `problem.tangent()`, factors it once, and
-steps by updating the right-hand side. A `TimeDependent` source or boundary value (a callable of
+constant effective operator from `problem.mass`, `problem.tangent()`, and (for `NewmarkMethod`)
+`problem.damping_matrix`, factors it once, and steps by updating the right-hand side. A `TimeDependent` source or boundary value (a callable of
 position and time) is re-evaluated each step through `problem.load_at(t)`; `ThetaMethod` also
 prescribes a time-dependent Dirichlet value per step through `problem.constraints_at(t)`, while
 `NewmarkMethod` refuses one (prescribed motion needs its velocity and acceleration too). Both

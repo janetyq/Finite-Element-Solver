@@ -17,7 +17,8 @@ from fem.forms import (
     MassForm, ScaledForm,
 )
 from fem.materials import LinearElasticMaterial
-from fem.problem import LinearProblem, Problem
+from fem.loads import Load
+from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.space import FunctionSpace
 from fem.typing import ElementField, FieldValue
 
@@ -42,14 +43,24 @@ class Equation:
     quadrature points. `density` is the coefficient on the time-derivative term (mass
     density for elasticity and the wave operator, volumetric heat capacity for
     diffusion), read by the integrators and modal analysis through `Problem.mass`.
+    `damping` is the `RayleighDamping` a second-order integrator applies, and `loads`
+    are load terms beyond the source (a `PointLoad`).
     '''
     field: FieldShape = Scalar()
 
-    def __init__(self, source: FieldValue | LinearForm = None, density: float = 1.0) -> None:
+    def __init__(
+        self,
+        source: FieldValue | LinearForm = None,
+        density: float = 1.0,
+        damping: RayleighDamping | None = None,
+        loads: tuple[Load, ...] = (),
+    ) -> None:
         if density <= 0:
             raise ValueError(f'density must be positive, got {density}')
         self.source = source
         self.density = density
+        self.damping = damping
+        self.loads = tuple(loads)
 
     def space(self, mesh: Mesh, element_type: type[Element] | None = None) -> FunctionSpace:
         '''The discretization of this equation's unknown on `mesh`.
@@ -81,8 +92,10 @@ class Equation:
             space = self.space(domain, element_type)
         operator = self.operator(space)
         if operator.constant_tangent:
-            return LinearProblem(space, operator, self.source, bc, density=self.density)
-        return Problem(space, operator, self.source, bc, density=self.density)
+            return LinearProblem(space, operator, self.source, bc, density=self.density,
+                                 loads=self.loads, damping=self.damping)
+        return Problem(space, operator, self.source, bc, density=self.density,
+                       loads=self.loads, damping=self.damping)
 
     def operator(self, space: FunctionSpace) -> Form:
         '''The form a solve assembles for this equation on `space`.'''
@@ -111,8 +124,9 @@ class Diffusion(Equation):
     '''
 
     def __init__(self, coefficient: FieldValue, source: FieldValue | LinearForm = None,
-                 density: float = 1.0) -> None:
-        super().__init__(source, density)
+                 density: float = 1.0, damping: RayleighDamping | None = None,
+                 loads: tuple[Load, ...] = ()) -> None:
+        super().__init__(source, density, damping, loads)
         self.coefficient = coefficient
 
     def operator(self, space: FunctionSpace) -> Form:
@@ -126,8 +140,9 @@ class Wave(Equation):
     '''
 
     def __init__(self, c: float, source: FieldValue | LinearForm = None,
-                 density: float = 1.0) -> None:
-        super().__init__(source, density)
+                 density: float = 1.0, damping: RayleighDamping | None = None,
+                 loads: tuple[Load, ...] = ()) -> None:
+        super().__init__(source, density, damping, loads)
         self.c = c
 
     def operator(self, space: FunctionSpace) -> Form:
@@ -146,8 +161,10 @@ class Elasticity(Equation):
         nu: float,
         source: FieldValue | LinearForm = None,
         density: float = 1.0,
+        damping: RayleighDamping | None = None,
+        loads: tuple[Load, ...] = (),
     ) -> None:
-        super().__init__(source, density)
+        super().__init__(source, density, damping, loads)
         self.E = E
         self.nu = nu
 
@@ -195,8 +212,10 @@ class FiniteStrainElastic(Elasticity):
         source: FieldValue | LinearForm = None,
         density: float = 1.0,
         law: Callable[[float, float], EnergyDensity] = StVenantKirchhoff,
+        damping: RayleighDamping | None = None,
+        loads: tuple[Load, ...] = (),
     ) -> None:
-        super().__init__(E, nu, source, density)
+        super().__init__(E, nu, source, density, damping, loads)
         self.law = law
 
     def operator(self, space: FunctionSpace) -> Form:
