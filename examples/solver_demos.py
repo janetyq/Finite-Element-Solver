@@ -602,18 +602,12 @@ def demo_elasticity_models(mesh, stretch=0.5):
     drift = np.linalg.norm(energy_u - linear_u) / np.linalg.norm(linear_u)
     return DemoResult(
         [Figure(plotter,
-                'Read it as two knobs. Panels 1 and 2 turn the method: the same small-strain '
-                'physics as a linear solve and as Newton on the energy it is the stationary '
-                'point of, so their displacements match to machine precision (below). Their '
-                'colour still differs because panel 1 reports the linear stress sigma = D:eps '
-                'while panel 2 reports the true Cauchy stress on the deformed shape, which '
-                'part once the stretch is large. Panels 2 to 4 hold the method and turn the '
-                'material: small strain is a rough linearisation, St-Venant-Kirchhoff has a '
-                'polynomial energy that over-stiffens sharply in tension (its median stress '
-                'runs several times the others), and Neo-Hookean carries log-J terms that '
-                'keep it physical at large strain. Colour is capped at the 99th percentile so '
-                'the singular clamped corners do not wash out the bulk; that same singularity '
-                'is why the median, not the peak, is the number to compare.',
+                'One clamped block, four ways to model a 50% stretch. Panels 1 and 2 are the '
+                'same small-strain physics through two stress measures; panels 2 to 4 hold '
+                'the method and change the material, from small strain to St-Venant-Kirchhoff '
+                'to Neo-Hookean. Colour is capped at the 99th percentile so the singular '
+                'clamped corners do not wash out the bulk, and the median is the number to '
+                'compare across panels.',
                 'stress'),
          Figure(conditions,
                 'Both ends are Dirichlet. The left is held at zero and the right is displaced '
