@@ -120,9 +120,10 @@ class Problem:
         self.source = as_load(source, space.n_components)
         boundary_loads: list[Load] = []
         for neumann in self._resolved.neumann:
-            boundary_loads.append(Traction(neumann.facet_mask, neumann.node_idxs, neumann.value))
+            boundary_loads.append(
+                Traction.over(space, neumann.facet_mask, neumann.node_idxs, neumann.value))
         for robin in self._resolved.robin:
-            boundary_loads.append(Traction(robin.facet_mask, robin.node_idxs, robin.value))
+            boundary_loads.append(Traction.over(space, robin.facet_mask, robin.node_idxs, robin.value))
         self.loads: tuple[Load, ...] = (
             (() if self.source is None else (self.source,)) + tuple(boundary_loads) + tuple(loads)
         )

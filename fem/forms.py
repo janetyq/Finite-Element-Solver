@@ -27,6 +27,7 @@ facets), so a sum may mix the two, as an operator with a Robin boundary term doe
 space assembles each term over its own domain.
 """
 from dataclasses import dataclass
+from numbers import Real
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
 import numpy as np
@@ -247,7 +248,7 @@ class Form:
         return SumForm(self.terms + other.terms)
 
     def __mul__(self, factor: float) -> 'Form':
-        if not isinstance(factor, (int, float)):
+        if not isinstance(factor, Real):
             return NotImplemented
         scaled = tuple(ScaledForm(float(factor), term) for term in self.terms)
         return scaled[0] if len(scaled) == 1 else SumForm(scaled)
@@ -616,18 +617,11 @@ class ScaledForm(Form):
     def __post_init__(self) -> None:
         if len(self.form.terms) > 1:
             raise TypeError('scale the terms of a sum, not the sum: write factor * form')
-
-    @property
-    def constant_tangent(self) -> bool:  # type: ignore[override]
-        return self.form.constant_tangent
-
-    @property
-    def has_energy(self) -> bool:  # type: ignore[override]
-        return self.form.has_energy
-
-    @property
-    def domain(self) -> Literal['volume', 'boundary']:  # type: ignore[override]
-        return self.form.domain
+        # The hooks are the wrapped form's, set once as instance attributes over the
+        # base's class-level defaults.
+        object.__setattr__(self, 'constant_tangent', self.form.constant_tangent)
+        object.__setattr__(self, 'has_energy', self.form.has_energy)
+        object.__setattr__(self, 'domain', self.form.domain)
 
     def quadrature_degree(self, shape_degree: int) -> int:
         return self.form.quadrature_degree(shape_degree)
@@ -672,17 +666,12 @@ class SumForm(Form):
         if any(len(form.terms) > 1 for form in self.forms):
             raise ValueError('a SumForm is flat; build it with a + b')
 
+        object.__setattr__(self, 'constant_tangent', all(f.constant_tangent for f in self.forms))
+        object.__setattr__(self, 'has_energy', all(f.has_energy for f in self.forms))
+
     @property
     def terms(self) -> tuple[Form, ...]:
         return self.forms
-
-    @property
-    def constant_tangent(self) -> bool:  # type: ignore[override]
-        return all(term.constant_tangent for term in self.terms)
-
-    @property
-    def has_energy(self) -> bool:  # type: ignore[override]
-        return all(term.has_energy for term in self.terms)
 
     def _physics_term(self) -> Form | None:
         '''The one term that names a derived field, or None.'''
@@ -706,20 +695,20 @@ class SumForm(Form):
         physics = self._physics_term()
         return super().solution(space, u) if physics is None else physics.solution(space, u)
 
-    def _no_blocks(self) -> TypeError:
-        return TypeError('a SumForm has no element blocks of its own; assemble its terms')
-
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
-        raise self._no_blocks()
+        raise TypeError(_NO_BLOCKS)
 
     def element_residuals(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
-        raise self._no_blocks()
+        raise TypeError(_NO_BLOCKS)
 
     def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
-        raise self._no_blocks()
+        raise TypeError(_NO_BLOCKS)
 
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
-        raise self._no_blocks()
+        raise TypeError(_NO_BLOCKS)
+
+
+_NO_BLOCKS = 'a SumForm has no element blocks of its own; assemble its terms'
 
 
 @dataclass(frozen=True, eq=False)

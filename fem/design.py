@@ -149,7 +149,7 @@ class SIMPModel:
     _density: DensityField = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        operator = self.template.operator
+        operator = self.template.physics
         if not isinstance(operator, LinearElasticForm):
             raise ValueError(
                 'SIMP rescales a small-strain elastic stiffness; the operator is '

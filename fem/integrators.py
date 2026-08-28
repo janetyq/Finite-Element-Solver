@@ -115,7 +115,11 @@ class NewmarkMethod:
 
         # Initial acceleration from M a0 = b − C v0 − K u0, pinned to zero at fixed DOFs.
         C = problem.damping_matrix
-        damping = (lambda w: 0.0) if C is None else (lambda w: C @ w)
+
+        def damping(velocity: DofVector) -> DofVector:
+            '''The damping force C v, zero without a damping matrix.'''
+            return np.zeros_like(velocity) if C is None else C @ velocity
+
         a = DiscreteSystem(M, accel_constraints, self.backend).solve(b - damping(v) - K @ u)
         effective_operator = M + beta * dt**2 * K
         if C is not None:

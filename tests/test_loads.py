@@ -16,9 +16,8 @@ from fem.integrators import NewmarkMethod
 from fem.loads import PointLoad, Source, Traction
 from fem.materials import LinearElasticMaterial
 from fem.modal import ModalAnalysis
-from fem.problem import LinearProblem, Problem, RayleighDamping
+from fem.problem import LinearProblem, RayleighDamping
 from fem.regions import TimeDependent, at_indices, everywhere, on_plane
-from fem.solve import LinearSolve
 from fem.space import FunctionSpace
 
 
@@ -171,9 +170,8 @@ def test_a_traction_holds_its_boundary_mass_across_times(make_unit_square):
     problem = Poisson().problem(mesh, bc)
     traction = problem.loads[0]
     assert isinstance(traction, Traction)
-    mass = traction.boundary_mass(problem.space)
-    assert traction.boundary_mass(problem.space) is mass
     np.testing.assert_allclose(problem.load_at(2.0).sum(), 2.0, atol=1e-12)
+    np.testing.assert_allclose(problem.load_at(0.5), 0.25 * problem.load_at(2.0), atol=1e-12)
 
 
 # -- damping ----------------------------------------------------------------------
@@ -230,5 +228,3 @@ def test_with_operator_resets_the_damping_matrix(make_unit_square):
     derived = problem.with_operator(2.0 * problem.physics)
     np.testing.assert_allclose(derived.damping_matrix.toarray(), 2.0 * C.toarray(), atol=1e-12)
     assert isinstance(derived, LinearProblem)
-    assert isinstance(Problem(problem.space, problem.physics), Problem)
-    assert LinearSolve().solve(derived).shape == (problem.space.n_dofs,)

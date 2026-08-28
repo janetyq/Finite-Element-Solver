@@ -15,14 +15,14 @@ than four branches in one function.
 
 A field may be `TimeDependent`; each term fixes it at `t` before evaluating.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
 from fem.forms import LinearForm, MaskedMassForm
 from fem.regions import TimeDependent, evaluate_field, field_at
-from fem.typing import BoolArray, DofVector, FieldValue, IntArray, Region
+from fem.typing import BoolArray, DofVector, FieldValue, IntArray, Operator, Region, VertexField
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace
@@ -56,30 +56,29 @@ class Source:
 
 @dataclass(frozen=True, eq=False)
 class Traction:
-    '''A boundary load ∫_Γ g·v over the facets in `facet_mask`, with `g` given by
-    `value` on the nodes in `node_idxs` and zero elsewhere.
+    '''A boundary load ∫_Γ g·v through a region-restricted boundary mass matrix, with
+    `g` given by `value` on the nodes in `node_idxs` and zero elsewhere.
 
-    The Neumann traction and the Robin `g` are both this term. The masked boundary mass
-    is assembled on first use and held, so a time-dependent value re-evaluates only
-    the nodal values, never the integral.
+    The Neumann traction and the Robin `g` are both this term. `boundary_mass` is the
+    assembled `MaskedMassForm` over the region's facets, so it belongs to one space; a
+    time-dependent value re-evaluates only the nodal values, never the integral.
     '''
-    facet_mask: BoolArray   # one entry per boundary facet of the space
-    node_idxs: IntArray     # the nodes the value is evaluated on
+    boundary_mass: Operator     # (n_dofs, n_dofs) masked boundary mass of the space
+    node_idxs: IntArray         # the nodes the value is evaluated on
     value: FieldValue
-    _mass: dict = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def over(cls, space: 'FunctionSpace', facet_mask: BoolArray, node_idxs: IntArray,
+             value: FieldValue) -> 'Traction':
+        '''The term over the facets `facet_mask` marks on `space`.'''
+        mass = space.assemble(MaskedMassForm(space.n_components, facet_mask))
+        return cls(mass, node_idxs, value)
 
     @property
     def is_time_dependent(self) -> bool:
         return isinstance(self.value, TimeDependent)
 
-    def boundary_mass(self, space: 'FunctionSpace'):
-        '''The region-restricted boundary mass matrix on `space`, held after the first call.'''
-        if self._mass.get('space') is not space:
-            self._mass['space'] = space
-            self._mass['matrix'] = space.assemble(MaskedMassForm(space.n_components, self.facet_mask))
-        return self._mass['matrix']
-
-    def nodal_values(self, space: 'FunctionSpace', t: float = 0.0) -> DofVector:
+    def nodal_values(self, space: 'FunctionSpace', t: float = 0.0) -> VertexField:
         '''`(n_nodes, n_components)` value of `g` at time `t`, zero off the region.'''
         g = np.zeros((space.n_nodes, space.n_components))
         if len(self.node_idxs):
@@ -89,7 +88,7 @@ class Traction:
 
     def vector(self, space: 'FunctionSpace', t: float = 0.0) -> DofVector:
         g = self.nodal_values(space, t).flatten()
-        return np.asarray(self.boundary_mass(space) @ g).flatten()
+        return np.asarray(self.boundary_mass @ g).flatten()
 
 
 @dataclass(frozen=True)
