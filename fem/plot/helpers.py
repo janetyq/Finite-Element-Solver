@@ -1,7 +1,11 @@
 """Low-level matplotlib drawing helpers used by the Plotter class: mesh, boundary,
-highlights, colored fields, surfaces, arrows, and colorbars. Boundary conditions are a
-picture with a vocabulary of their own and live in `fem.plot.bc`.
+highlights, colored fields, surfaces, arrows, and colorbars. Each draws a `FieldView`
+(`fem.plot.tessellation`), the triangulation and field a panel shows on the true
+geometry, so nothing here reads a `FunctionSpace` or an element type. Boundary
+conditions are a picture with a vocabulary of their own and live in `fem.plot.bc`.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -12,9 +16,12 @@ import matplotlib.cm as cm
 from matplotlib.colorbar import Colorbar
 from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.tri import Triangulation
+from mpl_toolkits.mplot3d import Axes3D
+
+from fem.plot.tessellation import FieldView, field_view
 
 if TYPE_CHECKING:
-    from fem.space import FunctionSpace
+    from fem.mesh.mesh import Mesh
 
 
 @dataclass(frozen=True)
@@ -31,31 +38,24 @@ class ColorbarInfo:
     bar: Colorbar | None
 
 
-def _tessellates_field(space):
-    """Whether `space`'s element carries a within-element field to sub-sample (P2+)."""
-    return space is not None and getattr(space.element_type, 'SHAPE_DEGREE', 1) > 1
+def _as_view(target: Mesh | FieldView) -> FieldView:
+    """A bare mesh drawn directly gets the plain P1 view."""
+    return target if isinstance(target, FieldView) else field_view(target)
 
 
-def _curved_boundary(space, mesh):
-    """Whether the boundary bends: a curved element over a mesh with curves."""
-    return (space is not None
-            and getattr(space.element_type, 'GEOMETRY_DEGREE', 1) > 1
-            and mesh.boundary_curves is not None)
+def _triangulation(view: FieldView) -> Triangulation:
+    return Triangulation(view.points[:, 0], view.points[:, 1], triangles=view.triangles)
 
 
-def plot_mesh(ax, mesh, color='black', linewidth=0.2,
-              space: 'FunctionSpace | None' = None, subdivisions=3):
-    """The mesh wireframe. With a curved `space`, interior edges stay straight while the
+def plot_mesh(ax, target: Mesh | FieldView, color='black', linewidth=0.2):
+    """The mesh wireframe. On a curved view, interior edges stay straight while the
     boundary edges bow to follow their true curve."""
-    if _curved_boundary(space, mesh):
-        assert space is not None
-        _plot_curved_wireframe(ax, mesh, space, subdivisions, color, linewidth)
-    else:
+    view = _as_view(target)
+    mesh = view.mesh
+    if not view.curved:
         ax.triplot(mesh.vertices[:, 0], mesh.vertices[:, 1], mesh.elements,
                    color=color, linewidth=linewidth)
-
-
-def _plot_curved_wireframe(ax, mesh, space: 'FunctionSpace', subdivisions, color, linewidth):
+        return
     from matplotlib.collections import LineCollection
     # Only boundary edges curve, so draw the straight interior edges directly and leave
     # the boundary to the curved polylines: a straight chord over the curve would double
@@ -65,33 +65,18 @@ def _plot_curved_wireframe(ax, mesh, space: 'FunctionSpace', subdivisions, color
         [e for e in mesh.edges if (int(e[0]), int(e[1])) not in boundary_keys])
     if len(interior):
         ax.add_collection(
-            LineCollection(mesh.vertices[interior], colors=color, linewidths=linewidth))
-    for line in space.boundary_polylines(subdivisions):
+            LineCollection(list(mesh.vertices[interior]), colors=color, linewidths=linewidth))
+    plot_boundary(ax, view, color=color, linewidth=linewidth)
+
+
+def plot_boundary(ax, target: Mesh | FieldView, color='black', linewidth=1.0):
+    """The domain outline, as the view's polylines: along the true curve where the
+    geometry has one, else the facet chords."""
+    view = _as_view(target)
+    if view.boundary is None:
+        return
+    for line in view.boundary:
         ax.plot(line[:, 0], line[:, 1], color=color, linewidth=linewidth)
-
-
-def plot_boundary(ax, mesh, color='black', linewidth=1.0,
-                  space: 'FunctionSpace | None' = None, subdivisions=3):
-    """The domain outline. On a mesh carrying analytic curves it follows them: through the
-    curved element map when a `space` is given, else by sampling the curve directly (the
-    most faithful outline available for a mesh-only figure)."""
-    if mesh.boundary_curves is None:
-        for seg in mesh.boundary:
-            ax.plot(mesh.vertices[seg, 0], mesh.vertices[seg, 1], color=color, linewidth=linewidth)
-        return
-    if _curved_boundary(space, mesh):
-        assert space is not None
-        for line in space.boundary_polylines(subdivisions):
-            ax.plot(line[:, 0], line[:, 1], color=color, linewidth=linewidth)
-        return
-    ts = np.linspace(0.0, 1.0, subdivisions + 1)[:, None]
-    for facet, curve in zip(mesh.boundary, mesh.boundary_curves):
-        a, b = mesh.vertices[facet[0]], mesh.vertices[facet[1]]
-        if curve is None:
-            ax.plot([a[0], b[0]], [a[1], b[1]], color=color, linewidth=linewidth)
-        else:
-            pts = np.asarray(curve.project(a + ts * (b - a)))
-            ax.plot(pts[:, 0], pts[:, 1], color=color, linewidth=linewidth)
 
 
 def plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode='vertices'):
@@ -127,83 +112,33 @@ def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False, c
     return ColorbarInfo(cmap, norm, cbar)
 
 
-def plot_colored(ax, mesh, values, cbar_info=None, label=None, cmap_name='viridis', log_scale=False,
-                 colorbar=True, contour=None, space: 'FunctionSpace | None' = None, subdivisions=3,
-                 warp=None):
+def plot_colored(ax, view: FieldView, cbar_info=None, label=None, cmap_name='viridis',
+                 log_scale=False, colorbar=True, contour=None):
+    """Colour the view's triangulation by its field, per point or per face.
+
+    Returns the collection so an animation can recolour it in place across frames
+    rather than clearing the axes and rebuilding it; its array is per-face, which
+    `FieldView.face_values` matches for either a per-point or a per-element field.
+    """
+    values = view._require_values()
     if cbar_info is None:
-        cbar_info = setup_colorbar(ax, (min(values), max(values)), label, cmap_name, log_scale, colorbar)
-
-    # With a P2 space and a per-node field, draw on a fine tessellation of each element,
-    # so a quadratic field shows its within-element curvature and a curved boundary its
-    # true shape, rather than one flat triangle per element. Otherwise the P1 path: the
-    # mesh's own triangles, coloured per-vertex or per-element.
-    tess = None
-    if _tessellates_field(space):
-        assert space is not None
-        if np.asarray(values).shape[0] == space.n_nodes:
-            # `warp` (a nodal displacement) tessellates the deformed configuration, so a
-            # P2 field draws on the warped shape rather than the reference one.
-            deformed = None if warp is None else space.node_coords + np.asarray(warp)
-            tess = space.tessellation(subdivisions, node_coords=deformed)
-    if tess is not None:
-        triangulation = Triangulation(tess.points[:, 0], tess.points[:, 1],
-                                      triangles=tess.triangles)
-        field = tess.interpolate(values)
-    else:
-        triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1],
-                                      triangles=mesh.elements)
-        field = values
-    # The collection is returned so an animation can recolour it in place across frames
-    # rather than clearing the axes and rebuilding it; its array is per-face, which
-    # `face_values` below matches for either a per-vertex or a per-element field.
-    collection = ax.tripcolor(triangulation, field, cmap=cbar_info.cmap, norm=cbar_info.norm)
-
+        cbar_info = setup_colorbar(ax, (values.min(), values.max()), label, cmap_name,
+                                   log_scale, colorbar)
+    collection = ax.tripcolor(_triangulation(view), values, cmap=cbar_info.cmap,
+                              norm=cbar_info.norm)
     if contour:
         # Isolines over the flat colouring: the level sets of the field (a potential's
-        # equipotentials, say). tricontour needs a continuous per-vertex field, so an
-        # element-constant one is projected to the vertices first. `levels=contour`
-        # lets matplotlib choose that many "nice" values, which stays legible on a
-        # skewed field where an even split would bunch them. On the tessellation the
-        # field is already per-point, so it is used as is.
-        nodal = np.asarray(field)
-        if tess is None and nodal.shape == (len(mesh.elements),):
-            from fem.space import FunctionSpace
-            nodal = FunctionSpace(mesh).recover_nodal(nodal)
-        ax.tricontour(triangulation, nodal, levels=contour, colors='black',
-                      linewidths=0.5, alpha=0.5)
+        # equipotentials, say). tricontour needs a continuous per-point field, so an
+        # element-constant one is projected to the points first. `levels=contour` lets
+        # matplotlib choose that many "nice" values, which stays legible on a skewed
+        # field where an even split would bunch them.
+        ax.tricontour(_triangulation(view), view.point_values, levels=contour,
+                      colors='black', linewidths=0.5, alpha=0.5)
     return cbar_info, collection
 
 
-def face_values(mesh, values):
-    """The per-face array a flat-shaded 2D `tripcolor` carries.
-
-    A per-element field is already one value per triangle; a per-vertex field is
-    averaged over each triangle's corners, as `tripcolor` does internally for flat
-    shading. This lets an animation update the collection's array
-    frame to frame instead of rebuilding it.
-    """
-    values = np.asarray(values)
-    if values.shape == (len(mesh.elements),):
-        return values
-    return values[np.asarray(mesh.elements)].mean(axis=1)
-
-
-def solid_face_values(mesh, values):
-    """The per-facet array the boundary-surface `Poly3DCollection` carries.
-
-    A 3D solid is drawn as its boundary facets, coloured by the field averaged over
-    each facet's vertices. An element-constant field is projected to the vertices
-    first, the same volume-weighted way `plot_surface` does.
-    """
-    values = np.asarray(values)
-    if values.shape == (len(mesh.elements),):
-        from fem.space import FunctionSpace
-        values = FunctionSpace(mesh).recover_nodal(values)
-    return values[np.asarray(mesh.boundary)].mean(axis=1)
-
-
 def change_ax_to_ax3d(ax, fig, ax_shape, ax_idx):
-    if hasattr(ax, 'get_zlim'):
+    if isinstance(ax, Axes3D):
         return ax
     ax.remove()
     n = ax_shape[0]*100 + ax_shape[1]*10 + ax_idx[0]*ax_shape[1] + ax_idx[1] + 1
@@ -211,69 +146,49 @@ def change_ax_to_ax3d(ax, fig, ax_shape, ax_idx):
     return ax
 
 
-def plot_surface(ax, mesh, values, clim=None, space: 'FunctionSpace | None' = None,
-                 subdivisions=3, warp=None):
-    """Lift `values` over a 2D mesh into the z direction.
+def plot_surface(ax, view: FieldView, clim=None):
+    """Lift the view's field over its 2D triangulation into the z direction.
 
     `clim` fixes both the colour mapping and the z axis, so a grid of surfaces can be
     compared: left to autoscale, each panel is drawn to its own height, and a wave
     losing amplitude looks exactly like one that is not.
 
-    With a P2 (or curved) `space` and a per-node field, the surface is lifted over the
-    element tessellation, so it shows the within-element curvature rather than one flat
-    facet per element. `warp` tessellates the deformed configuration (see `plot_colored`).
+    A surface interpolates between points, so a per-element field is projected to the
+    points first (`FieldView.point_values`); on a P2 or curved view the surface is lifted
+    over the element tessellation, so it shows the within-element curvature.
     """
-    if (space is not None and _tessellates_field(space)
-            and np.asarray(values).shape[0] == space.n_nodes):
-        deformed = None if warp is None else space.node_coords + np.asarray(warp)
-        tess = space.tessellation(subdivisions, node_coords=deformed)
-        triangulation = Triangulation(tess.points[:, 0], tess.points[:, 1],
-                                      triangles=tess.triangles)
-        values = tess.interpolate(values)
-    else:
-        if values.shape == (len(mesh.vertices),):
-            pass
-        elif values.shape == (len(mesh.elements),):
-            # A surface plot interpolates between nodes, so an element-constant field
-            # has to be projected first. The projection is volume-weighted and lives
-            # on the space, which is cheap to build; nothing assembles until asked.
-            from fem.space import FunctionSpace
-            values = FunctionSpace(mesh).recover_nodal(values)
-        else:
-            raise ValueError(f'Invalid values shape: {values.shape}')
-        triangulation = Triangulation(mesh.vertices[:, 0], mesh.vertices[:, 1],
-                                      triangles=mesh.elements)
     vmin, vmax = clim if clim is not None else (None, None)
-    ax.plot_trisurf(triangulation, values, cmap='viridis', vmin=vmin, vmax=vmax)
+    ax.plot_trisurf(_triangulation(view), view.point_values, cmap='viridis',
+                    vmin=vmin, vmax=vmax)
     if clim is not None:
         ax.set_zlim(*clim)
 
 
-def plot_solid(ax, mesh, values, cbar_info=None):
-    """Draw a 3D mesh as its boundary surface, coloured by `values`.
+def plot_solid(ax, view: FieldView, cbar_info=None):
+    """Draw a 3D mesh as its boundary surface, coloured by the view's field.
 
     Only the boundary facets are drawn: the interior of a solid is not visible, and
     a tet mesh has several times more elements than surface triangles.
 
-    `values=None` draws the surface plain, for showing a mesh rather than a field
-    on it; there is nothing for a colorbar to say in that case, so there is none.
+    A view with no field draws the surface plain, for showing a mesh rather than a
+    field on it; there is nothing for a colorbar to say in that case, so there is none.
     """
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    facets = np.asarray(mesh.boundary)
-    if values is None or cbar_info is None:
+    facets = view.points[view.triangles]
+    if view.values is None or cbar_info is None:
         ax.add_collection3d(Poly3DCollection(
-            mesh.vertices[facets], facecolor='#9fb8cd', edgecolor='black', linewidth=0.1))
-        _fit_3d_limits(ax, mesh)
+            facets, facecolor='#9fb8cd', edgecolor='black', linewidth=0.1))
+        _fit_3d_limits(ax, view.mesh)
         return None
 
     # Returned so an animation can recolour the boundary surface in place: the facets
     # are fixed across frames, only the field on them changes.
-    collection = Poly3DCollection(mesh.vertices[facets], cmap=cbar_info.cmap,
-                                  norm=cbar_info.norm, edgecolor='black', linewidth=0.1)
-    collection.set_array(solid_face_values(mesh, values))
+    collection = Poly3DCollection(facets, cmap=cbar_info.cmap, norm=cbar_info.norm,
+                                  edgecolor='black', linewidth=0.1)
+    collection.set_array(view.face_values)
     ax.add_collection3d(collection)
-    _fit_3d_limits(ax, mesh)
+    _fit_3d_limits(ax, view.mesh)
     return collection
 
 
@@ -313,16 +228,13 @@ def _spread_sample(points, target):
     return first
 
 
-def plot_arrows(ax, mesh, values, max_arrows=MAX_ARROWS,
-                space: 'FunctionSpace | None' = None, warp=None):
+def plot_arrows(ax, view: FieldView, values, max_arrows=MAX_ARROWS):
+    """A vector field as arrows: at the view's nodes for a per-node field (a recovered
+    flux, on the deformed configuration if the view is warped), else one arrow per
+    element at its centroid."""
     # TODO: colored arrows, hard to see scale currently
     values = np.asarray(values)
-    if space is not None and values.shape[0] == space.n_nodes:
-        # A per-node vector field (a recovered flux) drawn at the nodes, optionally on the
-        # deformed configuration, rather than one arrow per element at its centroid.
-        positions = space.node_coords if warp is None else space.node_coords + np.asarray(warp)
-    else:
-        positions = mesh.centroids                      # per-element
+    positions = view.nodes if values.shape[0] == len(view.nodes) else view.mesh.centroids
     keep = _spread_sample(positions, max_arrows)
     ax.quiver(positions[keep, 0], positions[keep, 1],
               values[keep, 0], values[keep, 1], alpha=0.5, scale=10)

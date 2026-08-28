@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
+from fem.post.recovery import project_to_nodal
 from fem.quadrature import QuadratureRule
 from fem.regions import evaluate_field
 
@@ -281,7 +282,7 @@ class RecoveryEstimator:
         degree = 2 * space.element_type.SHAPE_DEGREE
         geometry = space.geometry_at(degree)
         sigma_h = flux.sample(ctx.solution, geometry)           # (n_el, n_qp, k, d)
-        sigma_star = space.project_to_nodal(sigma_h, geometry)  # (n_nodes, k, d), continuous
+        sigma_star = project_to_nodal(space, sigma_h, geometry)  # (n_nodes, k, d), continuous
 
         # Integrate ||sigma* - sigma_h||^2 over each element, both fields at the same points.
         per_element = sigma_star[space.element_nodes]     # (n_el, N, k, d)

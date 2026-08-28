@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.animation import FuncAnimation
+from mpl_toolkits.mplot3d import Axes3D
 
 from fem.typing import FloatArray
 
@@ -22,14 +23,13 @@ from fem.plot.helpers import (
     plot_arrows,
     setup_colorbar,
     plot_colored,
-    face_values,
-    solid_face_values,
     change_ax_to_ax3d,
     plot_surface,
     plot_refinement,
     plot_solid,
 )
 from fem.plot.bc import overlay_supports, plot_bc
+from fem.plot.tessellation import field_view
 
 
 class PlotMode(Enum):
@@ -110,10 +110,9 @@ class Plotter:
         # placeholder engine in place, not `None`, so the figure cannot report it.
         self._layout_frozen = False
 
-    # function for plotting at a specific index
     def plot(
         self,
-        mesh: "Mesh | Solution",
+        target: "Mesh | Solution",
         values: FloatArray | Sequence[float] | None = None,
         mode: PlotMode | str = PlotMode.MESH,
         idx: tuple[int, int] = (0, 0),
@@ -131,13 +130,14 @@ class Plotter:
         subdivisions: int = 3,
         warp: 'FloatArray | bool | None' = None,
     ) -> Any:
-        """Draw `values` on `mesh` into the subplot at `idx`.
+        """Draw `values` on `target` into the subplot at `idx`.
 
-        `mesh` may be a `Solution` instead of a bare `Mesh`. It then supplies both its mesh
-        and its `space`, so a P2 or curved solve renders faithfully without passing `space=`
-        by hand (an explicit `space` still overrides it), and `warp=True` deforms the field
-        by the solution's own displacement. This is the ergonomic default; a raw mesh keeps
-        the low-level, field-agnostic path below.
+        `target` is a `Mesh` or a `Solution`. A solution supplies both its mesh and its
+        `space`, so a P2 or curved solve renders faithfully without passing `space=` by
+        hand (an explicit `space` still overrides it), and `warp=True` deforms the field
+        by the solution's own displacement. A raw mesh keeps the low-level,
+        field-agnostic path. Either way the panel draws the `FieldView` that
+        `fem.plot.tessellation.field_view` builds.
 
         `label` names the quantity on the colorbar (colored mode); a colorbar is built
         once per subplot, so it is read on the call that first draws there and ignored
@@ -156,63 +156,55 @@ class Plotter:
         surface, and arrow panels draw on a `subdivisions`-fine tessellation of each
         element, so a curved boundary follows its true curve and a quadratic field shows
         its within-element curvature instead of being flattened to one triangle. Omitted,
-        the P1 path draws the straight-sided mesh exactly as before. `values` for the
-        colored and surface modes must then be a per-node field (length `space.n_nodes`,
-        e.g. a solution vector); arrows take a per-node vector field.
+        the P1 path draws the straight-sided mesh. `values` for the colored and surface
+        modes must then be a per-node field (length `space.n_nodes`, e.g. a solution
+        vector); arrows take a per-node vector field.
 
-        `warp` is an optional nodal displacement `(n_nodes, spatial)` that tessellates the
-        deformed configuration, so a P2 stress field draws on the warped shape (the
-        higher-order counterpart of plotting on `deformed_mesh()`). Only meaningful with a
-        tessellating `space`. Pass `warp=True` (with a Solution as the first argument) to
-        deform by that solution's own displacement.
+        `warp` is an optional nodal displacement `(n_nodes, spatial)` that draws the
+        deformed configuration, so a stress field draws on the warped shape. Pass
+        `warp=True` (with a Solution as the target) to deform by that solution's own
+        displacement.
 
         Returns the recolourable collection for the colored and solid modes (the
         artist an animation updates in place across frames), and `None` otherwise.
         """
         mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
-        # The first argument may be a Solution, which carries its own mesh and space, so
-        # the common "plot my solve" call renders a P2 or curved field faithfully with no
-        # `space=` to remember. A raw mesh keeps the explicit, field-agnostic path.
-        mesh, space, warp = self._resolve_target(mesh, space, warp)
+        view = field_view(target, values, space=space, warp=warp, subdivisions=subdivisions)
+        mesh = view.mesh
         ax = self.axs[idx]
         if clear:
             ax.clear()
 
-        if values is not None:
-            values = np.array(values)
-
         artist = None
         # TODO: check that values/bc are provided for intended mode
         if mode is PlotMode.MESH:
-            plot_mesh(ax, mesh, space=space, subdivisions=subdivisions)
+            plot_mesh(ax, view)
         elif mode is PlotMode.BOUNDARY:
-            plot_boundary(ax, mesh, space=space, subdivisions=subdivisions)
+            plot_boundary(ax, view)
         elif mode is PlotMode.COLORED:
             cmap_name = cmap if cmap is not None else 'viridis'
             if clim is not None and idx not in self.cbar_infos:
                 self.cbar_infos[idx] = setup_colorbar(ax, clim, label, cmap_name, log_scale, colorbar)
-            cbar_info, artist = plot_colored(ax, mesh, values, cbar_info=self.cbar_infos.get(idx, None),
+            cbar_info, artist = plot_colored(ax, view, cbar_info=self.cbar_infos.get(idx, None),
                                              label=label, cmap_name=cmap_name, log_scale=log_scale,
-                                             colorbar=colorbar, contour=contour,
-                                             space=space, subdivisions=subdivisions, warp=warp)
+                                             colorbar=colorbar, contour=contour)
             self.cbar_infos[idx] = cbar_info
         elif mode is PlotMode.SURFACE:
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
-            plot_surface(ax, mesh, values, clim=clim, space=space,
-                         subdivisions=subdivisions, warp=warp)
+            plot_surface(ax, view, clim=clim)
         elif mode is PlotMode.SOLID:
             # The colorbar is set up on the 3D axes, after the swap.
             ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
             self.axs[idx] = ax
-            if values is not None and idx not in self.cbar_infos:
+            if view.values is not None and idx not in self.cbar_infos:
                 self.cbar_infos[idx] = setup_colorbar(
-                    ax, (float(np.min(values)), float(np.max(values))), label)
-            artist = plot_solid(ax, mesh, values, self.cbar_infos.get(idx))
+                    ax, (float(np.min(view.values)), float(np.max(view.values))), label)
+            artist = plot_solid(ax, view, self.cbar_infos.get(idx))
         elif mode is PlotMode.REFINEMENT:
             plot_refinement(ax, mesh, values)
         elif mode is PlotMode.ARROWS:
-            plot_arrows(ax, mesh, values, space=space, warp=warp)
+            plot_arrows(ax, view, values)
         elif mode is PlotMode.BC:
             plot_bc(ax, mesh, bc)
             self._bc_panels.add(idx)
@@ -221,30 +213,6 @@ class Plotter:
         if empty:
             ax.axis('off')
         return artist
-
-    def _resolve_target(
-        self, target: "Mesh | Solution",
-        space: 'FunctionSpace | None', warp: 'FloatArray | bool | None',
-    ) -> "tuple[Mesh, FunctionSpace | None, FloatArray | None]":
-        '''Let `plot`'s first argument be a Solution, not only a Mesh.
-
-        A Solution carries the mesh its field lives on and the space that numbers it, so
-        passing one draws a P2 or curved solve faithfully without the caller threading
-        `space=` through by hand; an explicit `space` still wins. `warp=True` deforms by
-        the solution's own displacement, the common case for an elastic field. A raw mesh
-        is returned unchanged, so the low-level field-agnostic path is untouched.
-        '''
-        from fem.solution import FieldSolution, Solution
-        if not isinstance(target, Solution):
-            if warp is True:
-                raise ValueError('warp=True needs a Solution as the first argument, not a mesh')
-            return target, space, (None if warp is False else warp)
-        resolved_space = space if space is not None else target.space
-        if warp is True:
-            if not isinstance(target, FieldSolution):
-                raise ValueError('warp=True needs a Solution carrying a displacement field u')
-            warp = np.asarray(target.u).reshape(-1, target.n_components)
-        return target.mesh, resolved_space, (None if warp is False else warp)
 
     def overlay_supports(
         self,
@@ -279,17 +247,23 @@ class Plotter:
     # Specialty plotting
     def plot_animation(
         self,
-        mesh: 'Mesh',
+        target: "Mesh | Solution",
         values: Sequence[FloatArray],
         mode: PlotMode | str = PlotMode.COLORED,
         idx: tuple[int, int] = (0, 0),
         titles: Sequence[str] | None = None,
-        cbar_lims: tuple[float, float] | None = None,
+        clim: tuple[float, float] | None = None,
         label: str | None = None,
         meshes: "Sequence['Mesh'] | None" = None,
         cmap: str | None = None,
+        space: 'FunctionSpace | None' = None,
+        subdivisions: int = 3,
     ) -> None:
         """Animate `values` over the panel at `idx`.
+
+        `target`, `space`, and `subdivisions` are as in `plot`, so a P2 or curved field
+        animates on the same tessellation it is drawn on. `clim` fixes the colour range
+        across the series (default: the extremes over every frame).
 
         `meshes` supplies one mesh per frame when the geometry moves (a vibration
         mode flexing, say) rather than a field changing over fixed geometry. The
@@ -310,8 +284,8 @@ class Plotter:
         # legend beside a plot that never used it.
         if mode in (PlotMode.COLORED, PlotMode.SOLID):
             # Fixed across frames so they stay comparable, spanning the whole series.
-            if cbar_lims is None:
-                cbar_lims = (min(np.min(v) for v in values), max(np.max(v) for v in values))
+            if clim is None:
+                clim = (min(np.min(v) for v in values), max(np.max(v) for v in values))
             ax = self.axs[idx]
             if mode is PlotMode.SOLID:
                 # Built up front, so the colorbar spans the whole series rather than
@@ -321,11 +295,11 @@ class Plotter:
                 # it out from under it.
                 ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
                 self.axs[idx] = ax
-            self.cbar_infos[idx] = setup_colorbar(ax, cbar_lims, label=label, cmap_name=cmap_name)
+            self.cbar_infos[idx] = setup_colorbar(ax, clim, label=label, cmap_name=cmap_name)
 
-        base_mesh = frame_meshes[0] if frame_meshes is not None else mesh
-        artist = self.plot(base_mesh, values[0], mode=mode, idx=idx, title=frame_titles[0],
-                           cmap=cmap)
+        base = frame_meshes[0] if frame_meshes is not None else target
+        artist = self.plot(base, values[0], mode=mode, idx=idx, title=frame_titles[0],
+                           cmap=cmap, space=space, subdivisions=subdivisions)
 
         if frame_meshes is not None:
             # Moving geometry: a fixed collection cannot be recoloured into a new shape,
@@ -352,15 +326,15 @@ class Plotter:
         # z, so its geometry changes frame to frame and it has to be redrawn.
         elif mode in (PlotMode.COLORED, PlotMode.SOLID) and artist is not None:
             ax = self.axs[idx]
-            to_array = solid_face_values if mode is PlotMode.SOLID else face_values
+            view = field_view(target, values[0], space=space, subdivisions=subdivisions)
 
             def update(frame: int) -> None:
-                artist.set_array(to_array(mesh, values[frame]))
+                artist.set_array(view.with_values(values[frame]).face_values)
                 ax.set_title(frame_titles[frame])
         else:
             def update(frame: int) -> None:
-                self.plot(mesh, values[frame], mode=mode, idx=idx, title=frame_titles[frame],
-                          clear=True)
+                self.plot(target, values[frame], mode=mode, idx=idx, title=frame_titles[frame],
+                          clear=True, space=space, subdivisions=subdivisions)
 
         self.anims[idx] = FuncAnimation(self.fig, update, frames=range(len(values)), blit=False, repeat=True)
         self._anim_updates[idx] = (update, len(values))
@@ -391,10 +365,10 @@ class Plotter:
                 if self.axis_labels and idx not in self._bc_panels:
                     ax.set_xlabel('x')
                     ax.set_ylabel('y')
-                if hasattr(ax, 'get_zlim'):
+                if isinstance(ax, Axes3D):
                     if self.axis_labels:
                         ax.set_zlabel('z')
-                    ax.set_aspect('equalxy')
+                    ax.set_aspect('equalxy')  # pyright: ignore[reportArgumentType]
                 else:
                     ax.set_aspect('equal')
 

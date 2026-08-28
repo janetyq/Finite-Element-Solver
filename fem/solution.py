@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from fem import invariants
+from fem.post import recovery
 from fem.typing import DofVector, ElementField, FloatArray
 
 if TYPE_CHECKING:
@@ -92,9 +93,9 @@ class ScalarFieldSolution(FieldSolution):
     def nodal_flux(self, method: str = 'average') -> FloatArray:
         '''(n_nodes, spatial_dim) continuous flux at the nodes.
 
-        `method` is the recovery (`'average'` or `'l2'`); see `FunctionSpace.nodal_gradient`.
+        `method` is the recovery (`'average'` or `'l2'`); see `fem.post.recovery`.
         '''
-        return self.space.nodal_gradient(self.u, method=method)
+        return recovery.nodal_gradient(self.space, self.u, method=method)
 
 
 @dataclass(frozen=True, eq=False)
@@ -161,18 +162,18 @@ class ElasticSolution(FieldSolution):
 
     def _nodal_field(self, name: str, method: str) -> FloatArray:
         if self.form is None:
-            return self.space.recover_nodal(getattr(self, name), method=method)
+            return recovery.recover_nodal(self.space, getattr(self, name), method=method)
         space = self.space
         u_elements = np.asarray(self.u).reshape(-1, self.n_components)[space.element_nodes]
         if method == 'average':
             fields = self.form.fields_at(space.geometry_at_nodes, u_elements)
-            return space.average_to_nodal(getattr(fields, name))
+            return recovery.average_to_nodal(space, getattr(fields, name))
         if method == 'l2':
             # A degree-p field's gradient is degree p - 1; the rule that integrates its
             # product with a shape function exactly is 2p - 1, and 2p is the cached one.
             geometry = space.geometry_at(2 * space.element_type.SHAPE_DEGREE)
             fields = self.form.fields_at(geometry, u_elements)
-            return space.project_to_nodal(getattr(fields, name), geometry)
+            return recovery.project_to_nodal(space, getattr(fields, name), geometry)
         raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
 
     def nodal_von_mises(self, method: str = 'average') -> FloatArray:

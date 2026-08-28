@@ -18,6 +18,7 @@ from fem.elements import (
 from fem.forms import LinearElasticForm
 from fem.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.structured import box_mesh
+from fem.post.recovery import average_to_nodal, recover_nodal
 from fem.solution import ElasticSolution
 from fem.space import FunctionSpace
 
@@ -77,7 +78,7 @@ def test_p2_nodal_stress_reaches_a_boundary_extreme_the_element_mean_misses():
     edge = np.flatnonzero(np.isclose(space.node_coords[:, 0], 2.0))
     exact = exact_stress(space.node_coords[edge])[:, 0, 0]
     from_nodes = solution.nodal_stress('average')[edge, 0, 0]
-    from_elements = space.recover_nodal(solution.stress, method='average')[edge, 0, 0]
+    from_elements = recover_nodal(space, solution.stress, method='average')[edge, 0, 0]
     np.testing.assert_allclose(from_nodes, exact, atol=1e-9)
     assert np.all(from_elements < exact - 1e-3)
 
@@ -88,9 +89,9 @@ def test_p1_nodal_stress_is_unchanged_by_the_form(method):
     recovering the per-element tensor are the same number."""
     solution, _ = _quadratic_displacement_solution(LinearTriangleElement)
     np.testing.assert_allclose(solution.nodal_stress(method=method),
-                               solution.space.recover_nodal(solution.stress, method=method))
+                               recover_nodal(solution.space, solution.stress, method=method))
     np.testing.assert_allclose(solution.nodal_strain(method=method),
-                               solution.space.recover_nodal(solution.strain, method=method))
+                               recover_nodal(solution.space, solution.strain, method=method))
 
 
 def test_a_loaded_solution_recovers_from_its_per_element_tensors(tmp_path):
@@ -103,7 +104,7 @@ def test_a_loaded_solution_recovers_from_its_per_element_tensors(tmp_path):
     assert isinstance(loaded, ElasticSolution)
     assert loaded.form is None
     np.testing.assert_allclose(loaded.nodal_stress(),
-                               loaded.space.recover_nodal(loaded.stress))
+                               recover_nodal(loaded.space, loaded.stress))
     assert not np.allclose(loaded.nodal_stress(), solution.nodal_stress())
 
 
@@ -140,9 +141,9 @@ def test_average_to_nodal_agrees_with_recover_nodal_for_an_element_constant_fiel
     space = FunctionSpace(mesh, QuadraticTriangleElement)
     values = np.random.default_rng(0).normal(size=(len(mesh.elements), 2, 2))
     per_node = np.repeat(values[:, None], QuadraticTriangleElement.N, axis=1)
-    np.testing.assert_allclose(space.average_to_nodal(per_node), space.recover_nodal(values))
+    np.testing.assert_allclose(average_to_nodal(space, per_node), recover_nodal(space, values))
     with pytest.raises(ValueError):
-        space.average_to_nodal(values)
+        average_to_nodal(space, values)
 
 
 # --- the scalar flux: same recipe for a Poisson gradient ---
@@ -184,4 +185,4 @@ def test_p2_per_element_flux_is_the_centroid_gradient():
 def test_p1_nodal_flux_is_unchanged(method):
     solution, _ = _quadratic_scalar_solution(LinearTriangleElement)
     np.testing.assert_allclose(solution.nodal_flux(method=method),
-                               solution.space.recover_nodal(solution.flux, method=method))
+                               recover_nodal(solution.space, solution.flux, method=method))

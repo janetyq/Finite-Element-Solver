@@ -24,7 +24,7 @@ def _colour_limits(s: HarborStudy, shown) -> tuple[float, float]:
 
 def _animation_figure(s: HarborStudy, clim) -> Figure:
     animation = Plotter(1, 1, figsize=(7.4, 4.8))
-    animation.plot_animation(s.mesh, s.u_values, mode='colored', cbar_lims=clim, label='height',
+    animation.plot_animation(s.mesh, s.u_values, mode='colored', clim=clim, label='height',
                              cmap='RdBu_r',
                              titles=[f'Harbor breakwater  t={t:.2f}' for t in s.t_values],
                              idx=(0, 0))

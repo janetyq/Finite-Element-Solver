@@ -76,7 +76,7 @@ def _struck_figure(s: ForkStudy, shown_periods, frames_per_period) -> Figure:
               f'{int(np.sum(upward <= i))} tip swings counted' for i in shown]
     struck = Plotter(1, 1, figsize=(5.4, 6.4), title='Pinched at the tips and released')
     struck.plot_animation(s.mesh, sideways, mode='colored', meshes=frames, cmap='coolwarm',
-                          cbar_lims=(-lim, lim), label='sideways displacement (nm)',
+                          clim=(-lim, lim), label='sideways displacement (nm)',
                           titles=titles)
     hide_x_ticks(struck, (0, 0))
     struck.fig.supxlabel(f'Displacement exaggerated {scale:.0f}x; the colour is to scale.\n'
