@@ -59,7 +59,7 @@ class Panel:
     frames: list[str] = field(default_factory=list)
     thumbnail: bool = False        # nominated as the card image; see `Figure.thumbnail`
     setup: bool = False            # how the problem was posed; see `Figure.setup`
-    body: str = ''                 # prose rendered under the figure; see `Figure.body`
+    body: list[str] = field(default_factory=list)   # prose paragraphs; see `Figure.body`
 
 
 @dataclass
@@ -254,9 +254,9 @@ def _page(title: str, body: str, script: str = '') -> str:
     )
 
 
-def _figure_note(body: str) -> str:
-    """Render a figure's longer explanation as prose paragraphs, split on blank lines."""
-    paragraphs = [p.strip() for p in body.split('\n\n') if p.strip()]
+def _figure_note(body: list[str]) -> str:
+    """Render a figure's longer explanation, one <p> per provided paragraph."""
+    paragraphs = [p.strip() for p in body if p.strip()]
     if not paragraphs:
         return ''
     inner = '\n'.join(f'<p>{html.escape(p)}</p>' for p in paragraphs)

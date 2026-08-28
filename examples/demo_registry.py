@@ -35,9 +35,10 @@ class Figure:
     `frames` is how many frames the gallery plays of an animation; None is the gallery's
     default budget. A short run whose every step matters asks for all of them.
 
-    `body` is a longer explanation that renders as prose paragraphs under the figure,
-    for a demo whose reading needs more than a caption. Split paragraphs with a blank
-    line; the caption stays the one-line summary beside the image.
+    `body` is a longer explanation, one string per paragraph, that renders as prose
+    under the figure for a demo whose reading needs more than a caption. The page
+    decides the paragraph breaks, so each string is just its own text; the caption
+    stays the one-line summary beside the image.
     """
     plotter: 'Plotter'
     caption: str
@@ -45,7 +46,7 @@ class Figure:
     thumbnail: bool = False
     setup: bool = False
     frames: int | None = None
-    body: str = ''
+    body: list[str] = field(default_factory=list)
 
     @property
     def animated(self) -> bool:
