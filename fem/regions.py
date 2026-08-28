@@ -259,6 +259,13 @@ class Field(ABC):
     def is_time_dependent(self) -> bool:
         return False
 
+    @property
+    def is_pointwise(self) -> bool:
+        '''Whether the value varies within an element, so it must be sampled at the
+        quadrature points rather than integrated exactly as a constant. True for every
+        field but a `Constant`.'''
+        return True
+
 
 @dataclass(frozen=True)
 class Constant(Field):
@@ -269,6 +276,10 @@ class Constant(Field):
 
     def sample(self, points: Vertices) -> FloatArray:
         return np.tile(self.values, (len(points), 1))
+
+    @property
+    def is_pointwise(self) -> bool:
+        return False
 
 
 @dataclass(frozen=True)
@@ -362,6 +373,16 @@ def field_at(value: FieldValue, t: float) -> FieldValue:
     return value.at(t) if isinstance(value, TimeDependent) else value
 
 
+def is_pointwise(value: FieldValue) -> bool:
+    '''Whether `value` varies within an element and must be sampled at the quadrature
+    points, rather than integrated exactly as a constant: a callable, a `TimeDependent`,
+    or a pointwise `Field` (`Spatial`, `Vectorized`), but not a constant or a nodal
+    array. The predicate the assembling forms and loads branch on.'''
+    if isinstance(value, Field):
+        return value.is_pointwise
+    return callable(value)
+
+
 def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
     '''Normalize `value` and sample it at `points`: an (N, n_components) array.
 
@@ -373,20 +394,21 @@ def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> Fl
     return as_field(value, n_components).sample(points)
 
 
-def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
-    '''Coerce `value` to its own natural width at every point, a `None` component left
-    as `NaN`. Unlike `evaluate_field`/`as_field`, the width is not checked against
-    `n_components` (which sizes only an all-`None` value): the inspection and plotting
-    path in `BoundaryConditions.entries` shows however many components the spec gives.'''
-    if value is None:
-        return np.zeros((len(points), n_components))
-    if isinstance(value, TimeDependent):
-        raise TypeError('a TimeDependent field has no value without a time; use field_at(value, t)')
+def sample_as_given(value: FieldValue, points: Vertices) -> FloatArray:
+    '''Sample `value` at the width it declares, a `None` component kept as `NaN`.
+
+    The inspection path: where the DOF count is not known (`BoundaryConditions.entries`,
+    which feeds the plot) the value's own width is the answer, so it is not checked
+    against a fixed `n_components` the way `evaluate_field` checks it. A `Field` samples
+    itself (a `TimeDependent` raises, as it has no value without a time); a constant or
+    a callable takes the width it gives. Pass `field_at(value, t)` for a time value.'''
     if isinstance(value, Field):
         return value.sample(points)
+    if value is None:
+        return np.zeros((len(points), 1))
     if callable(value):
         if len(points) == 0:
-            return np.zeros((0, n_components))
+            return np.zeros((0, 1))
         fn = cast(Callable[[Point], Any], value)
         return np.array([_coerce_value(fn(p)) for p in points])
     return np.tile(_coerce_value(value), (len(points), 1))

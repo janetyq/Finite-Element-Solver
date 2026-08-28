@@ -19,11 +19,11 @@ import numpy as np
 
 from fem.regions import (
     TimeDependent,
-    _coerce_components,
     as_field,
     evaluate_field,
     field_at,
     is_mesh_bound,
+    sample_as_given,
 )
 from fem.typing import (
     BoolArray,
@@ -425,8 +425,7 @@ class BoundaryConditions:
         out = []
         for condition in self.conditions:
             idxs = condition.select(nodes)
-            values = (_coerce_components(field_at(condition.prescribed, 0.0), nodes.vertices[idxs], 1)
-                      if len(idxs) else np.zeros((0, 1)))
+            values = sample_as_given(field_at(condition.prescribed, 0.0), nodes.vertices[idxs])
             out.append((condition, idxs, values))
         return out
 

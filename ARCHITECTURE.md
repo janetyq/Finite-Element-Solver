@@ -49,8 +49,9 @@ a custom strategy) needs neither. `Solver(mesh, equation, bc)` is that second li
 
 The load is a sum of `Load` terms (`fem/loads.py`), each answering `vector(space, t)`. The volume
 source is a `Source`: a constant or a nodal array is integrated exactly through the mass matrix, a
-callable is sampled at the quadrature points, which captures variation within an element
-(`NodalSource` is the explicit interpolant path); a Neumann value or a Robin value is a
+pointwise field (`is_pointwise`: a callable, or a `Vectorized` for one array call) is sampled at
+the quadrature points, which captures variation within an element (`NodalSource` is the explicit
+interpolant path); a Neumann value or a Robin value is a
 `BoundaryLoad` over its region's facets; a nodal force is a `PointLoad`, passed through `Equation(loads=...)` or `Problem(loads=...)`. A DOF vector built by
 hand (an initial condition, a comparison field) is `space.interpolate(value)`, nodal on P2 as well.
 

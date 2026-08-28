@@ -39,7 +39,7 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.structured import create_rect_mesh
 from fem.loads import NodalSource, Source
 from fem.problem import LinearProblem
-from fem.regions import everywhere
+from fem.regions import Vectorized, everywhere
 from fem.solution import FieldSolution, TransientSolution
 from fem.solve import LinearSolve
 from fem.solver import Solver
@@ -69,9 +69,15 @@ def exact_gradient(points: FloatArray) -> FloatArray:
     )
 
 
-def source_term(point: FloatArray) -> list[float]:
-    """`f = -laplacian(u)`, the forcing that makes `exact_solution` the answer."""
-    return [2 * np.pi**2 * np.sin(np.pi * point[0]) * np.sin(np.pi * point[1])]
+def _source_term(points: Vertices) -> FloatArray:
+    """`f = -laplacian(u)`, the forcing that makes `exact_solution` the answer,
+    sampled over the whole `(N, 2)` array of quadrature points at once."""
+    x, y = points[:, 0], points[:, 1]
+    return (2 * np.pi**2 * np.sin(np.pi * x) * np.sin(np.pi * y)).reshape(-1, 1)
+
+
+# Vectorized: the assembly samples it once per element batch, not once per point.
+source_term = Vectorized(_source_term, n_components=1)
 
 
 def l2_norm(space: FunctionSpace, values: VertexField) -> float:
@@ -220,14 +226,18 @@ def poisson_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 ELASTIC_E, ELASTIC_NU = 200.0, 0.3
 
 
-def elastic_source(point: FloatArray) -> list[float]:
-    """The body force that makes `elastic_exact` the answer, for a plane-strain solid."""
+def _elastic_source(points: Vertices) -> FloatArray:
+    """The body force that makes `elastic_exact` the answer, for a plane-strain solid,
+    sampled over the whole `(N, 2)` array of quadrature points at once."""
     mu, lamb = Enu_to_Lame(ELASTIC_E, ELASTIC_NU)
-    x, y = point
-    return [
+    x, y = points[:, 0], points[:, 1]
+    return np.stack([
         np.pi**2 * (3*mu + lamb) * np.sin(np.pi * x) * np.sin(np.pi * y),
         -(mu + lamb) * np.pi**2 * np.cos(np.pi * x) * np.cos(np.pi * y),
-    ]
+    ], axis=-1)
+
+
+elastic_source = Vectorized(_elastic_source, n_components=2)
 
 
 def elastic_exact(vertices: Vertices) -> FloatArray:
@@ -281,19 +291,28 @@ def elastic_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 # tests/test_convergence_variable_coefficient.py.
 
 
-def variable_coefficient(point: FloatArray) -> float:
-    """kappa(x, y) = 1 + x + y: smooth and positive on the unit square."""
-    return 1.0 + point[0] + point[1]
+def _variable_coefficient(points: Vertices) -> FloatArray:
+    """kappa(x, y) = 1 + x + y: smooth and positive on the unit square, sampled over
+    the whole `(N, 2)` array of quadrature points at once."""
+    return (1.0 + points[:, 0] + points[:, 1]).reshape(-1, 1)
 
 
-def variable_source(point: FloatArray) -> list[float]:
-    """f = -div(kappa grad u) for the kappa above and u = sin(pi x) sin(pi y)."""
-    x, y = point[0], point[1]
+# A pointwise Field coefficient: DiffusionForm samples it at the quadrature points.
+variable_coefficient = Vectorized(_variable_coefficient, n_components=1)
+
+
+def _variable_source(points: Vertices) -> FloatArray:
+    """f = -div(kappa grad u) for the kappa above and u = sin(pi x) sin(pi y),
+    sampled over the whole `(N, 2)` array of quadrature points at once."""
+    x, y = points[:, 0], points[:, 1]
     sx, sy = np.sin(np.pi * x), np.sin(np.pi * y)
     cx, cy = np.cos(np.pi * x), np.cos(np.pi * y)
     grad_kappa_dot_grad_u = np.pi * cx * sy + np.pi * sx * cy
     kappa_times_laplacian = (1.0 + x + y) * (-2 * np.pi**2 * sx * sy)
-    return [-(grad_kappa_dot_grad_u + kappa_times_laplacian)]
+    return (-(grad_kappa_dot_grad_u + kappa_times_laplacian)).reshape(-1, 1)
+
+
+variable_source = Vectorized(_variable_source, n_components=1)
 
 
 def solve_variable_coefficient_mms(n: int) -> MMSSolve:

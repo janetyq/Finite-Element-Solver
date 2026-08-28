@@ -23,7 +23,7 @@ import numpy as np
 
 from fem.elements import ElementGeometry
 from fem.forms import BoundaryMassForm, sample_field
-from fem.regions import TimeDependent, evaluate_field, field_at
+from fem.regions import TimeDependent, evaluate_field, field_at, is_pointwise
 from fem.typing import BoolArray, DofVector, FieldValue, FloatArray, IntArray, Operator, Region, VertexField
 
 if TYPE_CHECKING:
@@ -77,9 +77,9 @@ class Source:
 
     @property
     def is_sampled(self) -> bool:
-        '''Whether `field` is read at the quadrature points (a callable) rather than
-        integrated as its interpolant.'''
-        return callable(self.field) or self.is_time_dependent
+        '''Whether `field` is read at the quadrature points (a callable, or a pointwise
+        `Field` such as `Vectorized`) rather than integrated as its interpolant.'''
+        return is_pointwise(self.field)
 
     def at(self, t: float) -> 'Source':
         '''This source with a time-dependent field fixed at `t`; itself otherwise.'''

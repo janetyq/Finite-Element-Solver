@@ -37,7 +37,7 @@ from fem.elements import ElementGeometry
 from fem.energies import StrainEnergyDerivatives
 from fem.materials import LinearElasticMaterial
 from fem.postprocess import DerivedField, GradientField, StressField
-from fem.regions import evaluate_field
+from fem.regions import evaluate_field, is_pointwise
 from fem.typing import BoolArray, ElementField, FieldValue, FloatArray
 
 if TYPE_CHECKING:
@@ -409,7 +409,7 @@ class DiffusionForm(BilinearForm):
 
     @property
     def is_sampled(self) -> bool:
-        return callable(self.coefficient)
+        return is_pointwise(self.coefficient)
 
     def quadrature_degree(self, shape_degree: int) -> int:
         return self.rule_degree if self.is_sampled else 0

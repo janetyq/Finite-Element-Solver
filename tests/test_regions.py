@@ -14,6 +14,7 @@ from fem.regions import (
     union,
     at_indices,
     is_mesh_bound,
+    is_pointwise,
     evaluate_field,
 )
 
@@ -163,6 +164,16 @@ def test_vectorized_wrong_shape_raises_rather_than_being_reshaped():
 
 
 # --- as_field normalization ---
+
+def test_is_pointwise_separates_sampled_from_exactly_integrated():
+    """A constant integrates exactly; a callable or a pointwise Field is sampled at
+    the quadrature points. This is the predicate the forms and loads branch on."""
+    assert not is_pointwise(3.0)
+    assert not is_pointwise([1.0, 2.0])
+    assert not is_pointwise(as_field([1.0, 2.0], n_components=2))   # a Constant
+    assert is_pointwise(lambda p: [p[0]])
+    assert is_pointwise(Vectorized(lambda pts: pts[:, :1], n_components=1))
+
 
 def test_as_field_passes_a_field_through_unchanged():
     field = Vectorized(lambda pts: pts[:, :1], n_components=1)
