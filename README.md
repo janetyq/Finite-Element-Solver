@@ -111,18 +111,19 @@ why real parts round their inner corners.
 
 <p align="center"><img src="images/bracket.png" height="280" alt="L-bracket von Mises stress: sharp corner vs filleted"> <img src="images/bracket_singularity.png" height="280" alt="Corner stress peak vs mesh refinement: sharp climbs, fillet converges"></p>
 
-### Two nonlinear materials, one stretch
+### Linear and nonlinear materials, one stretch
 
 The same clamped block is stretched to the right in four ways, each panel coloured by
 how hard the material is working inside. The first two are ordinary small-strain
 elasticity, the familiar model where stress grows in proportion to strain, solved two
 different ways: directly, and by minimising the block's stored elastic energy. They
-produce the same shape to machine precision, a check that the two routes agree. The last
-two switch to nonlinear elasticity, which large deformations actually need.
-St-Venant-Kirchhoff is the simplest such model but stiffens far too aggressively in
-tension, while Neo-Hookean, a rubber-like law, stays realistic out to large stretch.
-Trying a different nonlinear material, or adding a new one, changes only the
-stored-energy formula, not the solver underneath.
+settle into the same shape to machine precision, but their colour differs because they
+report stress differently: the first uses engineering stress, force over the block's
+original cross-section, the second the true stress on the stretched, now-thinner
+cross-section, which reads higher. The last two switch to nonlinear elasticity, which
+large deformations actually need. St-Venant-Kirchhoff is the simplest such model but
+stiffens far too aggressively in tension, while Neo-Hookean, a rubber-like law, stays
+realistic out to large stretch.
 
 All four panels share one colour scale. The stresses span a wide range, so the scale is
 logarithmic: brighter means more stress, and a whole panel shifting brighter (as
