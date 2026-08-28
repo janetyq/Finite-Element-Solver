@@ -143,5 +143,6 @@ def test_a_shared_specification_is_unchanged_by_resolution(make_unit_square):
     assert bc.conditions is before
     assert len(p2.fixed_idxs) > len(p1.fixed_idxs)   # the P2 edge nodes are pinned too
     np.testing.assert_allclose(p2.fixed_values, 2.0)
-    np.testing.assert_allclose(p1.at(3.0).fixed_values, 3.0)
-    assert p1.at(3.0).fixed_idxs is p1.fixed_idxs or np.array_equal(p1.at(3.0).fixed_idxs, p1.fixed_idxs)
+    later = p1.at(3.0)
+    np.testing.assert_allclose(later.fixed_values, 3.0)
+    np.testing.assert_array_equal(later.fixed_idxs, p1.fixed_idxs)

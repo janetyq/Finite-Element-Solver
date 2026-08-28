@@ -197,6 +197,7 @@ class ResidualEstimator:
 
         # Boundary edges are comparatively few and the flux's boundary residual
         # is a per-edge physics hook, so these stay a Python loop.
+        neumann_load = ctx.resolved.neumann_load
         for edge_idx in np.nonzero(~is_interior)[0]:
             v0, v1 = int(edges[edge_idx, 0]), int(edges[edge_idx, 1])
             e_bnd = int(edge_elements[edge_idx, 0])
@@ -212,7 +213,7 @@ class ResidualEstimator:
             # A component is free where either endpoint carries a live test function;
             # fixed at both, its traction is a reaction, not a residual.
             free = ~(ctx.is_fixed[v0] & ctx.is_fixed[v1])
-            g = 0.5 * (ctx.resolved.neumann_load[v0] + ctx.resolved.neumann_load[v1])
+            g = 0.5 * (neumann_load[v0] + neumann_load[v1])
             residual2 = flux_field.boundary_residual(flux[e_bnd], normal, g, free)
             boundary_term[e_bnd] += h_K[e_bnd] * edge_len * residual2
 
