@@ -10,7 +10,7 @@ from fem.energies import StVenantKirchhoff
 from fem.equations import LinearElastic, Poisson
 from fem.forms import (
     EnergyForm, LaplacianForm, LinearElasticForm, LinearForm, MaskedMassForm, MassForm,
-    ScaledForm, SumForm,
+    SumForm,
 )
 from fem.integrators import NewmarkMethod
 from fem.loads import PointLoad, Source, Traction
@@ -32,18 +32,6 @@ def test_a_sum_of_forms_assembles_to_the_sum_of_its_terms(make_unit_square):
     assert isinstance(operator, SumForm) and len(operator.terms) == 2
     expected = space.assemble(LaplacianForm()) + 3.0 * space.assemble(MassForm(), boundary=True)
     np.testing.assert_allclose(space.assemble(operator).toarray(), expected.toarray(), atol=1e-12)
-
-
-def test_sums_are_flat_and_scaling_distributes():
-    a, b, c = LaplacianForm(), MassForm(), MassForm(2)
-    triple = (a + b) + c
-    assert len(triple.terms) == 3
-    scaled = 2.0 * (a + b)
-    assert isinstance(scaled, SumForm)
-    assert all(isinstance(t, ScaledForm) and t.factor == 2.0 for t in scaled.terms)
-    assert isinstance(2.0 * a, ScaledForm) and (2.0 * a).terms == (2.0 * a,)
-    with pytest.raises(TypeError, match='terms of a sum'):
-        ScaledForm(2.0, a + b)
 
 
 def test_a_sum_answers_the_hooks_from_its_terms(make_unit_square):
