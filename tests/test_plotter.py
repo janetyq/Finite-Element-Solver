@@ -214,11 +214,12 @@ def test_a_chart_panel_keeps_its_own_labels_and_scale(mesh):
 def test_a_conditions_panel_keeps_its_aspect_but_not_the_x_y_labels(mesh):
     """`plot_bc` puts a legend under the panel, which is where the words x and y sit.
     The panel is still a picture of the domain, so it keeps equal aspect."""
-    from fem.boundary import BCType, BoundaryConditions
+    from fem.boundary import BoundaryConditions, Dirichlet
     from fem.regions import on_plane
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), 0.0)
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), 0.0),
+    )
 
     plotter = Plotter(1, 2)
     plotter.plot(mesh, mode='bc', bc=bc, idx=(0, 0))

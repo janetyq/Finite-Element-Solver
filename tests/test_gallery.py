@@ -42,13 +42,12 @@ def _text_only():
 
 def _poisson(mesh):
     """A cheap Poisson solve with one figure, standing in for a real demo."""
-    from fem.boundary import BCType, BoundaryConditions
+    from fem.boundary import BoundaryConditions, Dirichlet
     from fem.equations import Poisson
     from fem.regions import everywhere
     from fem.solver import Solver
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0))
     solution = Solver(mesh, Poisson(source=1), bc).solve()
     plotter = Plotter()
     plotter.plot(mesh, solution.u, mode='colored')
@@ -214,7 +213,7 @@ def test_source_is_shown_on_the_page(gallery):
     out, entries = gallery
     page = (out / 'poisson.html').read_text(encoding='utf-8')
     assert 'def _poisson' in page
-    assert 'BCType.DIRICHLET' in page
+    assert 'Dirichlet(' in page
 
 
 def test_source_survives_a_partial(gallery):

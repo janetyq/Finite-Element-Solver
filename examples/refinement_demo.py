@@ -9,7 +9,7 @@ from math import e
 import numpy as np
 
 from fem.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet
 from fem.convergence import l2_norm
 from fem.equations import Poisson
 from fem.estimators import ResidualEstimator
@@ -41,8 +41,7 @@ def demo_refinement(_mesh, uniform_resolutions=(10, 20, 40, 80, 160), adaptive_r
         r2 = np.sum((points - np.array([w/2, h/2]))**2, axis=1)
         return a * np.exp(-a * r2)
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0))
     equation = Poisson(source=peaked_source)
 
     def problem_for(m):

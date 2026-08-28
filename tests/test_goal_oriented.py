@@ -4,7 +4,7 @@ concentrates near the quantity of interest, more strongly than the global estima
 import numpy as np
 
 from fem.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet
 from fem.equations import Poisson
 from fem.estimators import GoalOrientedEstimator, RecoveryEstimator
 from fem.mesh.structured import create_rect_mesh
@@ -19,8 +19,7 @@ def _nearest_node(space, point):
 
 
 def _problem_for(mesh):
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     return EQUATION.problem(mesh, bc)
 
 

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from fem.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.convergence import exact_gradient, h1_seminorm_error
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.energies import StVenantKirchhoff
@@ -39,8 +39,7 @@ def _solved(equation, mesh, bc, element_type=QuadraticTriangleElement):
 
 def _solve(equation, n, bc_value=0.0):
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), bc_value)
+    bc = BoundaryConditions(Dirichlet(everywhere(), bc_value))
     return _solved(equation, mesh, bc)
 
 
@@ -173,8 +172,7 @@ def test_p2_residual_reliability_is_bounded_and_stable():
 def test_p2_residual_concentrates_near_a_peaked_source():
     """The indicator is largest where the solution is hardest to resolve."""
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(10, 10))
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
     def peaked_source(point):
         a = 50
@@ -195,8 +193,7 @@ def test_p2_residual_drives_adaptive_refinement():
     """The full loop on a P2 space: the mesh grows, concentrates near a localised source,
     and the solve stays P2 across remeshes."""
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
 
     n_before = len(mesh.elements)
@@ -219,9 +216,10 @@ def test_p2_elastic_residual_runs_end_to_end():
     """A P2 elastic solve with a Neumann edge produces a finite, non-negative estimate,
     exercising the stress divergence and the masked boundary term together."""
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [1.0, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, 1.0), [1.0, 0]),
+    )
     equation = LinearElastic(E=200, nu=0.3)
     problem, solution = _solved(equation, mesh, bc)
 
@@ -234,8 +232,7 @@ def test_residual_estimator_refuses_curved_elements():
     """The interior term's divergence assumes a constant Jacobian, so a curved element
     is refused."""
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(4, 4))
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     equation = Poisson(source=1.0)
     problem, solution = _solved(equation, mesh, bc, IsoparametricTriangleElement)
     with pytest.raises(NotImplementedError, match='RecoveryEstimator'):

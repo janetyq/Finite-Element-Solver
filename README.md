@@ -231,15 +231,14 @@ starts from, and refining the mesh is what lowers it.
 ## Quick Start
 
 ```python
-from fem import create_rect_mesh, BoundaryConditions, BCType, Solver, Poisson, Plotter
+from fem import create_rect_mesh, BoundaryConditions, Dirichlet, Solver, Poisson, Plotter
 from fem.regions import everywhere
 
 mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))
 
 # Conditions are geometric, so the same `bc` is valid on any mesh of this domain.
 equation = Poisson(source=1)
-bc = BoundaryConditions()
-bc.add(BCType.DIRICHLET, everywhere(), 0)
+bc = BoundaryConditions(Dirichlet(everywhere(), 0))
 
 solution = Solver(mesh, equation, bc).solve()
 

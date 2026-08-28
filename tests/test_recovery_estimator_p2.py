@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from fem.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet
 from fem.convergence import (
     exact_gradient,
     h1_seminorm_error,
@@ -29,8 +29,7 @@ def _global(eta):
 
 def _solve(equation, n, element_type, bc_value=0.0):
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), bc_value)
+    bc = BoundaryConditions(Dirichlet(everywhere(), bc_value))
     problem = equation.problem(mesh, bc, element_type=element_type)
     return problem, problem.solve()
 
@@ -90,8 +89,7 @@ def test_p2_recovery_drives_adaptive_refinement():
     """The full loop on a P2 space: recovery drives the refiner, the mesh grows and
     concentrates near a localised source, and the solve stays P2 across remeshes."""
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
 
     n_before = len(mesh.elements)

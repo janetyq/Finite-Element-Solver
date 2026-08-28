@@ -6,16 +6,14 @@ optimization.
 
 Common entry points are re-exported here, so typical use is:
 
-    from fem import create_rect_mesh, BoundaryConditions, BCType, Solver, Poisson
+    from fem import create_rect_mesh, BoundaryConditions, Dirichlet, Poisson
     from fem.regions import everywhere
 
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))
-    equation = Poisson(source=lambda p: 1.0)
+    # Conditions are described geometrically, so one spec holds on any mesh.
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
-    bc = BoundaryConditions()                          # described geometrically,
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)        # so it holds on any mesh
-
-    solution = Solver(mesh, equation, bc).solve()
+    solution = Poisson(source=lambda p: 1.0).problem(mesh, bc).solve()
 """
 
 __version__ = "0.1.0"
@@ -35,7 +33,7 @@ from fem.elements import (
     IsoparametricLineElement,
     IsoparametricTriangleElement,
 )
-from fem.boundary import BoundaryConditions, BCType, ResolvedBC
+from fem.boundary import BoundaryConditions, Condition, Dirichlet, Neumann, ResolvedBC, Robin
 from fem.regions import (
     everywhere,
     on_plane,
@@ -152,7 +150,10 @@ __all__ = [
     "IsoparametricLineElement",
     "IsoparametricTriangleElement",
     "BoundaryConditions",
-    "BCType",
+    "Condition",
+    "Dirichlet",
+    "Neumann",
+    "Robin",
     "ResolvedBC",
     "everywhere",
     "on_plane",

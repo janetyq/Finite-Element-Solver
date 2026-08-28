@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from fem.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet
 from fem.energies import StVenantKirchhoff
 from fem.estimators import RecoveryEstimator
 from fem.forms import EnergyForm
@@ -74,8 +74,7 @@ def test_adaptive_refinement_carries_geometric_dirichlet_bcs(make_unit_square):
     """A Dirichlet condition described as a region is re-resolved on each refined mesh,
     so it keeps holding on nodes that did not exist when it was written."""
     mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     driver = AdaptiveRefinement(mesh, _for(Poisson(source=1.0), bc), refine_near_centre,
                                 max_triangles=400, max_iters=3)
 
@@ -94,8 +93,7 @@ def test_adaptive_refinement_rejects_index_based_bcs(make_unit_square):
     """at_indices names nodes of one specific mesh, so the loop must refuse it
     rather than quietly relocate the condition after renumbering."""
     mesh = make_unit_square(6)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, at_indices(mesh.boundary_idxs), 0.0)
+    bc = BoundaryConditions(Dirichlet(at_indices(mesh.boundary_idxs), 0.0))
 
     with pytest.raises(NotImplementedError):
         AdaptiveRefinement(mesh, _for(Projection(source=1.0), bc), refine_near_centre).run()
@@ -114,8 +112,7 @@ def test_adaptive_refinement_rejects_mismatched_estimator(make_unit_square):
 
 def test_bc_spec_is_reusable_across_meshes(make_unit_square):
     """The spec holds no mesh, so the same object resolves on any of them."""
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
     coarse, fine = make_unit_square(4), make_unit_square(9)
     assert len(bc.resolve(coarse, n_components=1).fixed_idxs) == len(coarse.boundary_idxs)
@@ -126,9 +123,10 @@ def test_adaptive_refinement_drives_a_finite_strain_problem(make_unit_square):
     """The driver takes any problem builder and picks the strategy its problem needs,
     so a Green-Lagrange equation is refined the same way as a linear one."""
     mesh = make_unit_square(5)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
-    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.02, 0.0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
+        Dirichlet(on_plane(0, 1.0), [0.02, 0.0]),
+    )
     equation = FiniteStrainElastic(E=200, nu=0.3)
 
     driver = AdaptiveRefinement(
@@ -147,9 +145,10 @@ def test_recovery_estimator_reads_the_flux_off_an_energy_problem(make_unit_squar
     """An EnergyForm names its stress as the recoverable flux, so the recovery estimator
     needs no physics argument to estimate a nonlinear solve."""
     mesh = make_unit_square(5)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
-    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.02, 0.0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
+        Dirichlet(on_plane(0, 1.0), [0.02, 0.0]),
+    )
     space = LinearElastic(E=200, nu=0.3).space(mesh)
     problem = Problem(space, EnergyForm(StVenantKirchhoff(200, 0.3)), bc=bc)
     solution = problem.solve()

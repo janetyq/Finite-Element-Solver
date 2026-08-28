@@ -162,8 +162,7 @@ class Problem:
             snapshot.source = self.source.at(t)
         elif isinstance(self.source, Source):
             snapshot.source = Source(field_at(self.source.field, t))
-        if self.bc.is_time_dependent:
-            snapshot._resolved = self.bc.resolve(self.space.nodes, self.space.n_components, t)
+        snapshot._resolved = self._resolved.at(t)
         snapshot._b = total_load(snapshot.loads, self.space, t)
         return snapshot
 
@@ -176,9 +175,9 @@ class Problem:
     def constraints_at(self, t: float) -> Constraints:
         '''The Dirichlet partition at time `t`: the same DOFs as `constraints`, with
         the prescribed values of a `TimeDependent` condition taken at `t`.'''
-        if self._frozen or not self.bc.is_time_dependent:
+        if self._frozen:
             return self.constraints
-        r = self.bc.resolve(self.space.nodes, self.space.n_components, t)
+        r = self._resolved.at(t)
         return (r.free_idxs, r.fixed_idxs, r.fixed_values)
 
     @property

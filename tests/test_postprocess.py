@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from fem import invariants
-from fem.boundary import BCType, BoundaryConditions
+from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.energies import StVenantKirchhoff
 from fem.equations import LinearElastic, Poisson, Projection
@@ -40,8 +40,9 @@ def test_a_poisson_solve_carries_its_flux_and_recovers_it_to_the_nodes():
     """Poisson comes back as a ScalarFieldSolution: a per-element flux plus its nodal
     recovery, aligned with the solution's own space (here P2, so edge nodes too)."""
     mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [7, 7])
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(
+        Dirichlet(everywhere(), 0.0),
+    )
 
     solution = Solver(mesh, Poisson(source=1.0), bc,
                       element_type=QuadraticTriangleElement).solve()
@@ -59,8 +60,9 @@ def test_nodal_flux_takes_a_recovery_method():
     """The `method` argument threads from the solution's nodal accessor to the space's
     recovery, so a caller can ask for the L2 projection instead of the average."""
     mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [8, 8])
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(
+        Dirichlet(everywhere(), 0.0),
+    )
     solution = Solver(mesh, Poisson(source=1.0), bc).solve()  # varying flux (curved u)
 
     average = solution.nodal_flux(method='average')
@@ -82,9 +84,10 @@ def test_nodal_von_mises_recovers_the_tensor_then_reduces():
     Reducing to von Mises per element and averaging that scalar is a different, less
     faithful number, because the reduction is nonlinear."""
     mesh = create_rect_mesh([[0.0, 0.0], [4.0, 1.0]], [12, 4])
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 4.0), [0, -0.3])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, 4.0), [0, -0.3]),
+    )
     solution = Solver(mesh, LinearElastic(200.0, 0.3), bc).solve()
 
     assert isinstance(solution, ElasticSolution)
@@ -101,9 +104,10 @@ def test_solution_carries_its_space_and_deformed_mesh_uses_only_vertex_dofs():
     warps by the vertex DOFs alone, dropping the edge-node displacements the mesh has no
     vertices for."""
     mesh = create_rect_mesh([[0.0, 0.0], [4.0, 1.0]], [10, 4])
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 4.0), [0, -0.2])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, 4.0), [0, -0.2]),
+    )
     solution = Solver(mesh, LinearElastic(200.0, 0.3), bc,
                       element_type=QuadraticTriangleElement).solve()
 
@@ -151,8 +155,9 @@ def test_element_type_round_trips_through_save_and_load(tmp_path):
     """A P2 solution reloads as P2, its flux intact, so nodal recovery works after load
     with no live space to lean on."""
     mesh = create_rect_mesh([[0.0, 0.0], [1.0, 1.0]], [5, 5])
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(
+        Dirichlet(everywhere(), 0.0),
+    )
     solution = Solver(mesh, Poisson(source=1.0), bc,
                       element_type=QuadraticTriangleElement).solve()
 

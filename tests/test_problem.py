@@ -5,7 +5,7 @@ reaches the LinearSolve answer in one step from any seed.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
 from fem.energies import StVenantKirchhoff
 from fem.forms import EnergyForm, LaplacianForm, LinearElasticForm, ScaledForm
 from fem.materials import LinearElasticMaterial
@@ -27,8 +27,7 @@ def _problem(equation, mesh, bc=None):
 
 
 def _poisson_problem(mesh):
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     return _problem(Poisson(source=_mms_source), mesh, bc)
 
 
@@ -65,8 +64,7 @@ def test_line_search_is_a_noop_on_a_linear_problem(make_unit_square):
 
 def test_composed_poisson_matches_the_solver_facade(make_unit_square):
     mesh = make_unit_square(15)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     equation = Poisson(source=_mms_source)
 
     u_composed = LinearSolve().solve(_problem(equation, mesh, bc))
@@ -76,9 +74,10 @@ def test_composed_poisson_matches_the_solver_facade(make_unit_square):
 
 def test_composed_linear_elastic_matches_the_solver_facade(make_unit_square):
     mesh = make_unit_square(12)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, 1.0), [50, 0]),
+    )
     equation = LinearElastic(E=200, nu=0.4)
 
     u_composed = LinearSolve().solve(_problem(equation, mesh, bc))
@@ -93,9 +92,10 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     from fem.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 
     mesh = make_unit_square(8)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, 1.0), [50, 0]),
+    )
     elastic = _problem(LinearElastic(E=200, nu=0.4), mesh, bc)
     solution = elastic.solve()
     assert isinstance(solution, ElasticSolution)
@@ -116,9 +116,10 @@ def test_finite_strain_problem_packages_an_elastic_solution(make_unit_square):
     from fem.solution import ElasticSolution
 
     space = FunctionSpace(make_unit_square(5), n_components=2)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.05, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Dirichlet(on_plane(0, 1.0), [0.05, 0]),
+    )
     problem = Problem(space, EnergyForm(StVenantKirchhoff(200, 0.4)), bc=bc)
     u = NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem)
     solution = problem.solution(u)
@@ -130,9 +131,10 @@ def test_with_operator_matches_a_problem_built_from_scratch(make_unit_square):
     """Deriving a problem under a new operator is indistinguishable from stating it directly."""
     mesh = make_unit_square(10)
     space = FunctionSpace(mesh, n_components=2)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, 1.0), [50, 0]),
+    )
     stiff = LinearElasticForm(LinearElasticMaterial(200.0, 0.4))
     soft = LinearElasticForm(LinearElasticMaterial(20.0, 0.4))
 
@@ -149,8 +151,7 @@ def test_with_operator_reapplies_the_robin_boundary_term(make_unit_square):
     problem has to carry it onto the new operator rather than lose it with the old."""
     mesh = make_unit_square(8)
     space = FunctionSpace(mesh, n_components=1)
-    bc = BoundaryConditions()
-    bc.add_robin(everywhere(), kappa=3.0, g=1.0)
+    bc = BoundaryConditions(Robin(everywhere(), kappa=3.0, g=1.0))
 
     laplacian = LaplacianForm()
     doubled = ScaledForm(2.0, laplacian)
@@ -169,8 +170,7 @@ def test_traction_load_has_the_exact_resultant(make_unit_square):
     Masking each Neumann region to its own facets is what makes this exact."""
     mesh = make_unit_square(10)
     space = FunctionSpace(mesh, n_components=1)
-    bc = BoundaryConditions()
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), 2.0)   # flux 2 on the right edge, length 1
+    bc = BoundaryConditions(Neumann(on_plane(0, 1.0), 2.0))
     load = LinearProblem(space, LaplacianForm(), None, bc).load
     np.testing.assert_allclose(load.sum(), 2.0, atol=1e-12)
 
@@ -180,8 +180,7 @@ def test_traction_stays_on_its_own_edge(make_unit_square):
     node off the loaded edge."""
     mesh = make_unit_square(10)
     space = FunctionSpace(mesh, n_components=1)
-    bc = BoundaryConditions()
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), 2.0)
+    bc = BoundaryConditions(Neumann(on_plane(0, 1.0), 2.0))
     load = LinearProblem(space, LaplacianForm(), None, bc).load
     off_edge = mesh.vertices[:, 0] < 1.0 - 1e-9
     np.testing.assert_allclose(load[off_edge], 0.0, atol=1e-12)
@@ -190,8 +189,7 @@ def test_traction_stays_on_its_own_edge(make_unit_square):
 def test_derived_problem_does_not_answer_with_the_parents_operator(make_unit_square):
     """A derived problem must not keep the parent's already-assembled tangent."""
     space = FunctionSpace(make_unit_square(6), n_components=1)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     parent = LinearProblem(space, LaplacianForm(), 1.0, bc)
     parent.tangent()   # populate the parent's cache *before* deriving
 
@@ -236,8 +234,7 @@ def test_with_operator_leaves_the_original_alone(make_unit_square):
     """The derived problem is a new one; the operator it was derived from still
     answers with its own tangent."""
     space = FunctionSpace(make_unit_square(6), n_components=1)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     original = LinearProblem(space, LaplacianForm(), 1.0, bc)
     before = original.tangent().toarray()
 
@@ -266,10 +263,11 @@ def test_callable_source_is_sampled_at_the_quadrature_points(make_unit_square):
 
 def _loaded_bc(scale=1.0):
     """Supports, a traction, and a Robin spring: every term the composition has."""
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [0, -2.0 * scale])
-    bc.add_robin(on_plane(1, 0.0), kappa=15.0, g=[0.0, 0.5 * scale])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, 1.0), [0, -2.0 * scale]),
+        Robin(on_plane(1, 0.0), kappa=15.0, g=[0.0, 0.5 * scale]),
+    )
     return bc
 
 
@@ -364,9 +362,10 @@ def test_problem_solve_picks_newton_for_a_state_dependent_operator(make_unit_squ
     """A Green-Lagrange problem solved through `Problem.solve()` matches a hand-run
     line-searched Newton solve."""
     mesh = make_unit_square(4)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
-    bc.add(BCType.DIRICHLET, on_plane(0, 1.0), [0.05, 0.0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
+        Dirichlet(on_plane(0, 1.0), [0.05, 0.0]),
+    )
     finite = FiniteStrainElastic(E=200, nu=0.3)
     problem = finite.problem(mesh, bc)
     assert type(problem) is Problem

@@ -15,7 +15,7 @@ component of f nonzero, so this exercises the coupled vector path. P1, so O(h^2)
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet
 from fem.backends import IterativeBackend
 from fem.materials import Enu_to_Lame
 from fem.mesh.structured import create_box_mesh, create_rect_mesh
@@ -58,8 +58,7 @@ def _solve_2d(n):
             -(MU + LAMB) * PI**2 * np.cos(PI * x) * np.cos(PI * y),
         ]
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0])
+    bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
     solver = Solver(mesh, LinearElastic(E=E, nu=NU, source=source), bc)
     solution = solver.solve()
 
@@ -98,8 +97,7 @@ def _solve_3d(n):
             -(MU + LAMB) * PI**2 * np.cos(PI * x) * np.sin(PI * y) * np.cos(PI * z),
         ]
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0, 0.0])
+    bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0, 0.0]))
     # AMG-preconditioned CG, not the direct factorization: it solves the same SPD
     # system (proven equivalent in test_linalg) but stays cheap on the fine meshes
     # this sequence needs, and it is what the convergence measures -- the assembly --

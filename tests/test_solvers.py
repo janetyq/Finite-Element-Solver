@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from fem.numerics import bump_function
-from fem.boundary import BoundaryConditions, BCType
+from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.regions import everywhere, on_plane
 from fem.equations import Projection, Poisson, LinearElastic, Wave
 from fem.solver import Solver
@@ -46,8 +46,7 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
 def _pinned_square(make_unit_square, n=12):
     """Unit square with every boundary node pinned at u = 0."""
     mesh = make_unit_square(n)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     return mesh, bc
 
 
@@ -115,9 +114,10 @@ def test_linear_elastic_stretches_under_tension(make_unit_square):
     """A bar fixed on the left and pulled right elongates in +x, with the left edge unmoved."""
     mesh = make_unit_square(20)
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0, 0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [50, 0])  # +x traction
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0, 0]),
+        Neumann(on_plane(0, 1.0), [50, 0]),
+    )
 
     eq = LinearElastic(E=200, nu=0.4)
     solution = Solver(mesh, eq, bc).solve()

@@ -3,7 +3,7 @@ update, and the optimizer over them."""
 import numpy as np
 import pytest
 
-from fem.boundary import BCType, BoundaryConditions
+from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.design import (
     DesignOptimizer, SIMPModel, TargetCompliance, calculate_smoothing_matrix,
     optimality_criteria_update,
@@ -19,9 +19,10 @@ from fem.space import FunctionSpace
 
 
 def _cantilever_bc():
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, on_plane(0, 0.0), [0.0, 0.0])
-    bc.add(BCType.NEUMANN, on_plane(0, 1.0), [0.0, -1.0])
+    bc = BoundaryConditions(
+        Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
+        Neumann(on_plane(0, 1.0), [0.0, -1.0]),
+    )
     return bc
 
 

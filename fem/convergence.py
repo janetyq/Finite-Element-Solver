@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.boundary import BCType, BoundaryConditions
+from fem.boundary import BoundaryConditions, Dirichlet
 from fem.elements import (
     Element,
     ElementGeometry,
@@ -182,8 +182,7 @@ def solve_poisson_mms(n: int) -> MMSSolve:
     """Solve the manufactured problem on an `n` x `n` unit-square grid."""
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     solver = Solver(mesh, Poisson(source=source_term), bc)
     # Poisson is a scalar field equation, so this is a FieldSolution; `solve` declares
     # the base Solution, which carries no `u`.
@@ -241,8 +240,7 @@ def solve_elastic_mms(n: int) -> MMSSolve:
     """Solve the manufactured elasticity problem on an `n` x `n` unit-square grid."""
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0])
+    bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
     equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
     solver = Solver(mesh, equation, bc)
     solution = solver.solve()
@@ -302,8 +300,7 @@ def solve_variable_coefficient_mms(n: int) -> MMSSolve:
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, n_components=1)
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     # f is fed as a LinearForm so it too is sampled at the quadrature points. A plain
     # field source would instead integrate f's nodal interpolant (also convergent), but
     # LinearForm is the load half of what the quadrature layer added.
@@ -344,8 +341,7 @@ def solve_poisson_mms_p2(n: int) -> MMSSolve:
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=1)
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     # The P2 stiffness integrand is degree 2, integrated exactly by the space's
     # default rule; the load int f phi is degree-4-ish, so the LinearForm samples f
     # at a degree-4 rule to keep quadrature error below the O(h^3) discretization error.
@@ -381,8 +377,7 @@ def solve_elastic_mms_p2(n: int) -> MMSSolve:
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), [0.0, 0.0])
+    bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
     operator = LinearElasticForm(LinearElasticMaterial(ELASTIC_E, ELASTIC_NU))
     load = LinearForm(elastic_source, n_components=2, quadrature_degree=4)
     problem = LinearProblem(space, operator, load, bc)
@@ -482,8 +477,7 @@ def solve_annulus_mms(
     """
     mesh = create_annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
 
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), lambda p: [float(annulus_exact(np.asarray(p)))])
+    bc = BoundaryConditions(Dirichlet(everywhere(), lambda p: [float(annulus_exact(np.asarray(p)))]))
     solver = Solver(mesh, Poisson(source=annulus_source), bc, element_type=element_type)
     solution = solver.solve()
     assert isinstance(solution, FieldSolution)
@@ -557,8 +551,7 @@ def solve_load_comparison(n: int, quadrature_degree: int = 4) -> LoadComparison:
     """
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, n_components=1)
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
 
     nodal = LinearSolve().solve(
         LinearProblem(space, LaplacianForm(), Source(oscillatory_source), bc))
@@ -596,8 +589,7 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
     from scipy.linalg import expm
 
     mesh = create_rect_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    bc = BoundaryConditions()
-    bc.add(BCType.DIRICHLET, everywhere(), 0.0)
+    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
     u0 = exact_solution(mesh.vertices)   # an eigenmode, and zero on the boundary
 
     problem = Poisson().problem(mesh, bc)
