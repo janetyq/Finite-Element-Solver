@@ -1,4 +1,4 @@
-"""The goal-oriented (dual-weighted-residual) error estimator: its refinement
+"""The goal-oriented (adjoint-weighted) error estimator: its refinement
 concentrates near the quantity of interest, more strongly than the global estimator.
 """
 import numpy as np
