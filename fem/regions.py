@@ -185,18 +185,22 @@ def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -
     return values
 
 
-def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
+def evaluate_field(value: FieldValue, points: Vertices, n_components: int, *,
+                   free_as_zero: bool = False) -> FloatArray:
     '''Normalize a constant or a callable-of-position into an (N, n_components) array.
 
     A single rule, "the value at a point", for both forms; a value's width is
     checked against `n_components`, never inferred from the point count.
 
-    Every component must be a real number: `None` has no meaning for a source,
-    a traction, or a Robin `g`: there is nothing "left free" about a load. Use
-    `Dirichlet`'s own resolver for a value that may leave a
-    component unconstrained.
+    Every component must be a real number: `None` has no meaning for a source or a
+    Robin `g`. A `Neumann` value is the exception, where `None` names a component
+    the traction does not drive; `free_as_zero` reads it as zero, its value in the
+    integral. `Dirichlet` has its own resolver, where `None` leaves a component
+    unconstrained.
     '''
     values = _coerce_components(value, points, n_components)
+    if free_as_zero:
+        values = np.nan_to_num(values, nan=0.0)
 
     if values.shape != (len(points), n_components):
         raise ValueError(

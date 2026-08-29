@@ -57,7 +57,7 @@ one `kappa * BoundaryMassForm` operator term per Robin condition, and the load t
 answering `vector(space, t)`: the source (a constant or a nodal array integrated exactly through the
 mass matrix, a callable sampled at the quadrature points, or with `nodal=True` its interpolant), one
 `BoundaryLoad` over its region's facets per Neumann or Robin value, and the point loads. A `Dirichlet`
-value may leave a component `None` (free) for a roller. A region is geometric (`on_plane`, `in_box`,
+value may leave a component `None` (free) for a roller, and a `Neumann` value one the traction does not drive. A region is geometric (`on_plane`, `in_box`,
 a callable of points) or, for a mesh with `boundary_tags`, `on_tag(k)`, which resolves from the
 facets rather than the coordinates. A field built by hand (an initial condition, a comparison
 field) is `space.interpolate(value)`, a `NodalField` on every node of the space, P2 edge nodes

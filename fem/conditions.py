@@ -176,17 +176,22 @@ class Conditions:
         # component while a traction drives a different one (a roller carrying a
         # tangential load) is well-posed and allowed; the fixed component is eliminated
         # by `DiscreteSystem`, dropping its traction, and the free ones keep theirs.
-        loaded = np.zeros((n, n_components))
+        # "Loaded" is the contribution's own reading of its specification: a constant
+        # or a callable of position loads where it is nonzero at the nodes, a
+        # `TimeDependent` every component it names, and a `None` component never.
+        loaded = np.zeros((n, n_components), dtype=bool)
         for contribution in neumann:
-            loaded += contribution.nodal_values
+            loaded |= contribution.loaded
         conflicts = [
             v for v, values in merged.items()
-            if np.any(~np.isnan(values) & (loaded[v] != 0.0))
+            if np.any(~np.isnan(values) & loaded[v])
         ]
         if conflicts:
             raise ValueError(
                 'vertices carry a Dirichlet and a Neumann condition on the same '
-                f'component: {sorted(conflicts)}'
+                f'component: {sorted(conflicts)}. A traction on a pinned component is '
+                'dropped by the elimination, so give None for the components the '
+                'traction does not drive.'
             )
         fixed_idxs, fixed_values, free_idxs = _partition(n, n_components, tuple(dirichlet))
 
@@ -291,7 +296,8 @@ class ResolvedConditions:
         value = field_at(c.value, t)
         nodal = np.zeros((self.n_nodes, self.n_components))
         if len(c.node_idxs):
-            nodal[c.node_idxs] = evaluate_field(value, self.space.node_coords[c.node_idxs], self.n_components)
+            nodal[c.node_idxs] = evaluate_field(value, self.space.node_coords[c.node_idxs],
+                                                self.n_components, free_as_zero=True)
         return replace(c, value=value, nodal_values=nodal)
 
     def _with_dirichlet_at(self, t: float) -> ResolvedConditions:

@@ -51,8 +51,7 @@ class NodeGeometry(Protocol):
 
 def _evaluate_dirichlet_value(value: FieldValue, points: Vertices, n_components: int) -> FloatArray:
     '''Like `evaluate_field`, but a component may be `None`, left as `NaN`, meaning
-    "this DOF stays free" rather than "pinned to this value". Dirichlet-specific: a
-    free component is only meaningful for an essential condition, never a load.
+    "this DOF stays free" rather than "pinned to this value".
     '''
     values = _coerce_components(value, points, n_components)
     if values.shape != (len(points), n_components):
@@ -108,6 +107,7 @@ class NeumannContribution:
     node_idxs: VertexIndices    # the region's boundary nodes
     value: FieldValue           # the spec's value, possibly TimeDependent
     nodal_values: NodalValues   # (n_nodes, n_components) at the resolution time
+    loaded: BoolArray           # (n_nodes, n_components) the components it drives
 
 
 @dataclass(frozen=True)
@@ -221,15 +221,16 @@ class Dirichlet(Condition):
 class Neumann(Condition):
     '''κ ∂u/∂n = `value` on `region`: the normal flux, a traction on an elastic
     boundary. A natural condition, integrated over the region's facets as a load.
-    Every component must be a number; a load has no free component.'''
+
+    On a vector field a component may be `None` to say the traction does not drive
+    it: `[g, None]` loads x and leaves y alone, integrating as zero there. That is
+    how a traction shares a roller's nodes with the pinned component (see
+    `Conditions.resolve`): a number on a pinned component conflicts unless it is
+    known to vanish, which no `TimeDependent` value is.
+    '''
     kind: ClassVar[str] = 'neumann'
     region: Region
     value: FieldValue
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        if _has_free_component(self.value):
-            raise ValueError('a flux has no free component; every component must be a number (None given)')
 
     @property
     def prescribed(self) -> FieldValue:
@@ -243,9 +244,29 @@ class Neumann(Condition):
                 'a Neumann condition selects nodes but no boundary facet, so it '
                 'integrates to nothing; a force at a node is a fem.loads.PointLoad'
             )
+        raw = _coerce_components(field_at(self.value, t), nodes.vertices[idxs], n_components)
+        if raw.shape != (len(idxs), n_components):
+            raise ValueError(
+                f'field must give {n_components} component(s) per point, got shape {raw.shape} '
+                f'for {len(idxs)} point(s)'
+            )
         values = np.zeros((len(nodes.vertices), n_components))
-        values[idxs] = evaluate_field(field_at(self.value, t), nodes.vertices[idxs], n_components)
-        return NeumannContribution(mask, idxs, self.value, values)
+        values[idxs] = np.nan_to_num(raw, nan=0.0)
+        return NeumannContribution(mask, idxs, self.value, values,
+                                   _loaded_components(self.value, raw, idxs, values.shape))
+
+
+def _loaded_components(value: FieldValue, raw: FloatArray, idxs: VertexIndices,
+                       shape: tuple[int, ...]) -> BoolArray:
+    '''(n_nodes, n_components): the components a Neumann value drives, read off the
+    specification. A `None` component (NaN in `raw`) is never loaded. A constant or a
+    callable of position loads where it is nonzero at the nodes, which is exact
+    there; a `TimeDependent` loads every component it names, since a value that
+    vanishes at one instant is no statement about the rest.'''
+    loaded = np.zeros(shape, dtype=bool)
+    named = ~np.isnan(raw)
+    loaded[idxs] = named if isinstance(value, TimeDependent) else named & (raw != 0.0)
+    return loaded
 
 
 @dataclass(frozen=True)
