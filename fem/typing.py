@@ -87,10 +87,9 @@ if TYPE_CHECKING:
 # A field value: a constant, a per-component constant, a function of position, or a
 # `TimeDependent` function of position and time (fixed at a time by
 # `fem.regions.field_at` before use). `fem.regions.evaluate_field` normalizes the
-# first three to (n_points, n_components). A component may itself be `None`,
-# meaningful only for a Dirichlet value (the Dirichlet resolver leaves it
-# free rather than pinned); `evaluate_field` rejects it for every other use (a load
-# has no free component).
+# first three to (n_points, n_components). A component may itself be `None`: a
+# Dirichlet value leaves it free rather than pinned, a Neumann value leaves it
+# undriven (zero in the integral); `evaluate_field` rejects it for every other use.
 FieldValue: TypeAlias = Union[
     float,
     Sequence[Union[float, None]],

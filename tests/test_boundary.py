@@ -1,7 +1,7 @@
 """Per-component Dirichlet conditions: `None` in a value marks a free component
 (`[0, None]` pins x, leaves y natural), the mechanism a roller needs. Two conditions on
-different components of one vertex merge, and `None` is rejected where it is
-meaningless (a load has no free component).
+different components of one vertex merge. A Neumann value may leave a component
+`None` too, one the traction does not drive; a Robin `g` may not.
 """
 import numpy as np
 import pytest
@@ -65,20 +65,19 @@ def test_conflicting_component_still_raises(make_unit_square):
         bc.resolve(FunctionSpace(mesh, n_components=2))
 
 
-@pytest.mark.parametrize('condition', [
-    lambda region: Neumann(region, [1.0, None]),
-    lambda region: Robin(region, kappa=1.0, g=[1.0, None]),
-], ids=['neumann', 'robin'])
-def test_a_load_rejects_a_free_component(condition):
-    """None has no meaning for a load; it is caught when the condition is built."""
+def test_a_robin_value_rejects_a_free_component():
+    """None has no meaning for a Robin g; it is caught when the condition is built."""
     with pytest.raises(ValueError, match='None'):
-        condition(on_plane(0, 1.0))
+        Robin(on_plane(0, 1.0), kappa=1.0, g=[1.0, None])
 
 
-def test_a_callable_load_with_a_free_component_is_caught_at_resolve(make_unit_square):
-    """A callable's components are only seen at the nodes, so a None among them is
-    caught at resolve()."""
+@pytest.mark.parametrize('value', [[1.0, None], lambda p: [1.0, None]], ids=['constant', 'callable'])
+def test_a_neumann_free_component_integrates_as_zero(make_unit_square, value):
+    """A None component of a traction drives nothing: the load it assembles is the
+    load of the same traction with a zero there."""
     mesh = make_unit_square(6)
-    bc = Conditions(Neumann(on_plane(0, 1.0), lambda p: [1.0, None]))
-    with pytest.raises(ValueError, match='None'):
-        bc.resolve(FunctionSpace(mesh, n_components=2))
+    space = FunctionSpace(mesh, n_components=2)
+    with_none = Conditions(Neumann(on_plane(0, 1.0), value)).resolve(space)
+    with_zero = Conditions(Neumann(on_plane(0, 1.0), [1.0, 0.0])).resolve(space)
+    np.testing.assert_allclose(with_none.load_at(0.0), with_zero.load_at(0.0))
+    assert not with_none.neumann[0].loaded[:, 1].any()

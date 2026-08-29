@@ -121,7 +121,8 @@ class BoundaryLoad:
         g = np.zeros((space.n_nodes, space.n_components))
         if len(self.node_idxs):
             g[self.node_idxs] = evaluate_field(
-                field_at(self.value, t), space.node_coords[self.node_idxs], space.n_components)
+                field_at(self.value, t), space.node_coords[self.node_idxs], space.n_components,
+                free_as_zero=True)
         return g
 
     def vector(self, space: 'FunctionSpace', t: float = 0.0) -> DofVector:

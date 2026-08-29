@@ -37,7 +37,7 @@ from fem.boundary import (
 from fem.loads import BoundaryLoad, Load, PointLoad, Source, _EvaluatedLoad, total_load
 from fem.physics.forms import BoundaryMassForm, Form
 from fem.regions import TimeDependent, evaluate_field
-from fem.typing import BoolArray, Constraints, DofIndices, DofVector, FloatArray, NodalValues, VertexIndices
+from fem.typing import Constraints, DofIndices, DofVector, FloatArray, NodalValues, VertexIndices
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace
@@ -176,14 +176,12 @@ class Conditions:
         # component while a traction drives a different one (a roller carrying a
         # tangential load) is well-posed and allowed; the fixed component is eliminated
         # by `DiscreteSystem`, dropping its traction, and the free ones keep theirs.
-        # "Loaded" is read off the specification, not the value at t = 0: a constant
-        # loads the components it writes nonzero, a callable of position those nonzero
-        # at the region's nodes, and a `TimeDependent` those nonzero at any of a few
-        # log-spaced sample times (`_SAMPLE_TIMES`). The last is a sampled check: a
-        # value nonzero only at times outside the sample is not caught.
+        # "Loaded" is the contribution's own reading of its specification: a constant
+        # or a callable of position loads where it is nonzero at the nodes, a
+        # `TimeDependent` every component it names, and a `None` component never.
         loaded = np.zeros((n, n_components), dtype=bool)
         for contribution in neumann:
-            loaded |= _loaded_components(contribution, nodes)
+            loaded |= contribution.loaded
         conflicts = [
             v for v, values in merged.items()
             if np.any(~np.isnan(values) & loaded[v])
@@ -192,8 +190,8 @@ class Conditions:
             raise ValueError(
                 'vertices carry a Dirichlet and a Neumann condition on the same '
                 f'component: {sorted(conflicts)}. A traction on a pinned component is '
-                'dropped by the elimination, so name only the free components in the '
-                'traction.'
+                'dropped by the elimination, so give None for the components the '
+                'traction does not drive.'
             )
         fixed_idxs, fixed_values, free_idxs = _partition(n, n_components, tuple(dirichlet))
 
@@ -298,7 +296,8 @@ class ResolvedConditions:
         value = field_at(c.value, t)
         nodal = np.zeros((self.n_nodes, self.n_components))
         if len(c.node_idxs):
-            nodal[c.node_idxs] = evaluate_field(value, self.space.node_coords[c.node_idxs], self.n_components)
+            nodal[c.node_idxs] = evaluate_field(value, self.space.node_coords[c.node_idxs],
+                                                self.n_components, free_as_zero=True)
         return replace(c, value=value, nodal_values=nodal)
 
     def _with_dirichlet_at(self, t: float) -> ResolvedConditions:
@@ -308,24 +307,6 @@ class ResolvedConditions:
         fixed_idxs, fixed_values, free_idxs = _partition(self.n_nodes, self.n_components, dirichlet)
         return replace(self, fixed_idxs=fixed_idxs, free_idxs=free_idxs,
                        fixed_values=fixed_values, dirichlet=dirichlet)
-
-
-# Times a `TimeDependent` value is sampled at to decide which components it loads.
-_SAMPLE_TIMES = (0.0, 1e-3, 1e-1, 1.0, 10.0, 1e3)
-
-
-def _loaded_components(contribution: NeumannContribution, nodes: NodeGeometry) -> BoolArray:
-    '''(n_nodes, n_components): which components a Neumann condition loads, read off
-    its specification rather than its value at one time (see `Conditions.resolve`).'''
-    loaded = np.zeros(contribution.nodal_values.shape, dtype=bool)
-    idxs = contribution.node_idxs
-    if isinstance(contribution.value, TimeDependent):
-        points, n_components = nodes.vertices[idxs], contribution.nodal_values.shape[1]
-        for t in _SAMPLE_TIMES:
-            loaded[idxs] |= evaluate_field(contribution.value.at(t), points, n_components) != 0.0
-    else:
-        loaded[idxs] = contribution.nodal_values[idxs] != 0.0
-    return loaded
 
 
 def _merge_dirichlet(
