@@ -21,7 +21,7 @@ from fem.physics.materials import LinearElasticMaterial
 from fem.problem import Problem
 from fem.regions import on_plane
 from fem.physics.equations import LinearElastic, FiniteStrainElastic
-from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve, TangentRegularization
+from fem.algebra.solve import BacktrackingLineSearch, NewtonDivergence, NewtonSolve, TangentRegularization
 from fem.algebra.system import DiscreteSystem
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.forms import EnergyForm
@@ -86,8 +86,18 @@ def test_newton_refuses_to_return_an_unconverged_state(make_unit_square):
     mesh, bc = _stretched_square(make_unit_square)
     problem = FiniteStrainElastic(E=200, nu=0.4).problem(mesh, bc)
 
-    with pytest.raises(RuntimeError, match="did not converge in 1 iteration"):
+    with pytest.raises(NewtonDivergence, match="did not converge in 1 iteration") as info:
         NewtonSolve(max_iters=1).solve(problem)
+
+    # The exception carries the attempt: one applied step, with the Dirichlet values
+    # in place, and a seed from which the solve completes.
+    attempt = info.value
+    assert attempt.iterations == 1 and np.isfinite(attempt.step_norm)
+    free, fixed, fixed_values = problem.constraints
+    np.testing.assert_allclose(attempt.u[fixed], fixed_values)
+    assert np.any(attempt.u[free] != 0.0)
+    u = NewtonSolve().solve(problem, u0=attempt.u)
+    np.testing.assert_allclose(problem.residual(u)[free], 0.0, atol=1e-8)
 
 
 def test_stress_recovery_refuses_an_inverted_state(make_unit_square):
