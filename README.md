@@ -22,10 +22,10 @@ below are a subset of it, with the full captions in the gallery.
 
 ## Meshing a domain
 
-The library includes its own meshing. An outline, traced from an SVG or generated, is
-simplified with Douglas-Peucker, triangulated with Ruppert's algorithm
-(`pslg.mesh(min_angle=..., max_area_fraction=...)`) to a minimum-angle and maximum-area
-bound, and can then be adaptively refined where the solution needs it (shown in later
+The library includes its own meshing. An `Outline` of lines, arcs, circles, and Bezier
+curves, drawn by hand or traced from an SVG, is simplified with Douglas-Peucker and
+triangulated with Ruppert's algorithm (`outline.mesh(min_angle=..., max_area_fraction=...)`)
+to a minimum-angle and maximum-area bound, and can then be adaptively refined where the solution needs it (shown in later
 demos). Each boundary facet of the result is tagged with the outline it came from, so a
 hole can take a condition by `on_tag(1)` rather than by coordinates. Below, the same Poisson problem
 ($-\nabla^2 u = 1$ with $u = 0$ on the boundary) is solved on four outlines. Each asks
@@ -281,7 +281,7 @@ Every step of a solve is one choice among a few named objects, all importable fr
 
 | Step | Options | Default |
 |---|---|---|
-| Mesh | `box_mesh`, `annulus_mesh`, `PSLG.from_loops(...).mesh()`, `PSLG.circle`, `read_svg_to_pslg`, `Mesh(vertices, elements)`; refine with `RedGreenRefiner` | |
+| Mesh | `box_mesh`, `annulus_mesh`; an `Outline` of `Line`, `Arc`, `Circle`, `CubicBezier` pieces (`Outline.from_polygons`, `Outline.from_svg`, then `Outline.simplified` and `Outline.mesh`); `Mesh(vertices, elements)`; refine with `RedGreenRefiner` | |
 | Element | `LinearTriangleElement`, `LinearTetrahedralElement`, `QuadraticTriangleElement`, `IsoparametricTriangleElement`, via `element_type=` | linear, read off the mesh |
 | Equation | `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`, `FiniteStrainElastic` (with `law=` `StVenantKirchhoff` or `NeohookeanEnergyDensity`) | |
 | Where | `everywhere`, `on_plane`, `in_box`, `on_tag`, `at_indices`, `union`, `intersect` | |
@@ -350,7 +350,7 @@ this is the map.
 
 ```
 fem/                 # the solver package; grouped by layer, everything re-exported from `fem`
-├── mesh/            # Mesh geometry, PSLG outlines, Ruppert meshing, red-green refinement, SVG
+├── mesh/            # Mesh geometry, Outline pieces sampled to a PSLG, Ruppert meshing, red-green refinement, SVG
 │
 │   # discretization and constraints
 ├── elements.py      # stateless element types (P1/P2/curved) + batched ElementGeometry

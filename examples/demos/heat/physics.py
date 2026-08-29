@@ -17,11 +17,34 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
 from fem.regions import TimeDependent, in_box, on_plane, union
 from fem.post.solution import TransientSolution
+from fem.mesh.outline import Outline
 
-from domains import heatsink_pslg
 
-FIN_THICKNESS = 0.22    # matches the sink's own fins (heatsink_pslg's fin_width default)
-FIN_LENGTH = 1.4        # the length of this sink's fins (heatsink_pslg's fin_height default)
+def heatsink_outline(width: float = 3.0, base_height: float = 0.5, fin_height: float = 1.4,
+                     fin_width: float = 0.22, n_fins: int = 7, margin: float = 0.18) -> Outline:
+    """A finned heatsink cross-section (a comb) as a single loop.
+
+    A `width` x `base_height` base slab carries `n_fins` fins of `fin_width` x
+    `fin_height` standing on top, evenly spaced and kept `margin` clear of the ends. The
+    bottom edge is the heated face (a chip beneath it); every other edge is a surface
+    that sheds heat, so a solver reads the whole top and sides as a convective film.
+    """
+    span = width - 2 * margin
+    pitch = (span - fin_width) / (n_fins - 1) if n_fins > 1 else 0.0
+    lefts = margin + pitch * np.arange(n_fins)
+
+    # Traced counter-clockwise: the bottom edge, up the right side, then the top from
+    # right to left, going up and over each fin, and finally down the left side.
+    outline = [(0.0, 0.0), (width, 0.0), (width, base_height)]
+    for x_l in lefts[::-1]:
+        x_r = x_l + fin_width
+        outline += [(x_r, base_height), (x_r, base_height + fin_height),
+                    (x_l, base_height + fin_height), (x_l, base_height)]
+    outline.append((0.0, base_height))
+    return Outline.from_polygons([np.array(outline)])
+
+FIN_THICKNESS = 0.22    # matches the sink's own fins (heatsink_outline's fin_width default)
+FIN_LENGTH = 1.4        # the length of this sink's fins (heatsink_outline's fin_height default)
 
 
 def heatsink_film(mesh):
@@ -235,9 +258,9 @@ def run(dt=0.05, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0, ramp=0.6, fl
     """Mesh the sink, warm it up, compare it with a block, and validate its fins."""
     # A heatsink conducts heat up its fins and sheds it, so the shape is worth measuring;
     # the mesh is built here because it is part of what the demo says.
-    pslg = heatsink_pslg()
-    target_area = max_area_fraction * pslg.area()
-    mesh = pslg.mesh(min_angle=min_angle, max_area=target_area)
+    outline = heatsink_outline()
+    target_area = max_area_fraction * outline.area()
+    mesh = outline.mesh(min_angle=min_angle, max_area=target_area)
     width = float(np.max(mesh.vertices[:, 0]))
     height = float(np.max(mesh.vertices[:, 1]))
     # The naive baseline: a solid block of the same bounding box. The fins carve channels

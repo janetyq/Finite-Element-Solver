@@ -19,8 +19,51 @@ from fem.analysis.modal import ModalAnalysis
 from fem.problem import RayleighDamping
 from fem.regions import TimeDependent, at_indices, on_plane
 from fem.post.solution import ModalSolution, TransientSolution
+from fem.mesh.outline import Outline
 
-from domains import tuning_fork_pslg
+
+def tuning_fork_outline(tine_length: float = 0.088, tine_thickness: float = 0.004,
+                     gap: float = 0.006, base_height: float = 0.012,
+                     stem_length: float = 0.030, stem_width: float = 0.008,
+                        n_fillet: int = 12) -> Outline:
+    """A two-tined tuning fork, upright with its tines pointing up.
+
+    One non-convex outline: a stem rises into a base that forks into two tines with a
+    slot between them. Traced counter-clockwise from the bottom-left of the stem, with
+    a rounded valley (radius `gap/2`, `n_fillet` points) at the slot root in place of
+    two sharp reentrant corners.
+
+    Dimensions are in metres; the defaults size a steel fork near concert A (see
+    `demo_modal`). Centred on x = 0, with the stem base on y = 0, the line a modal solve
+    clamps.
+    """
+    half_outer = gap / 2 + tine_thickness       # tine outer edge, |x| at the tips
+    y_base_top = stem_length + base_height       # where the tines and the slot begin
+    y_tip = y_base_top + tine_length
+
+    # The slot root as a rounded valley joining the two reentrant corners at
+    # (+-gap/2, y_base_top): an ellipse, x-radius gap/2 so its ends land exactly on the
+    # corners, y-depth capped to stay inside the base. theta pi -> 2pi runs left corner
+    # -> bottom -> right corner, so the valley's endpoints replace the corners rather
+    # than duplicating them (which validation would reject).
+    depth = min(gap / 2, 0.8 * base_height)
+    theta = np.linspace(np.pi, 2 * np.pi, n_fillet)
+    valley = np.column_stack([(gap / 2) * np.cos(theta), y_base_top + depth * np.sin(theta)])
+
+    outline = np.array([
+        [-stem_width / 2, 0.0],                  # stem base, left
+        [-stem_width / 2, stem_length],          # up the stem
+        [-half_outer, stem_length],              # out to the base's left edge
+        [-half_outer, y_tip],                    # up the left tine's outer edge
+        [-gap / 2, y_tip],                       # across the left tip, then down the
+        *valley.tolist(),                        # inner edge into the valley and up again
+        [gap / 2, y_tip],                        # to the right tip
+        [half_outer, y_tip],                     # across the right tip
+        [half_outer, stem_length],               # down the right tine's outer edge
+        [stem_width / 2, stem_length],           # in to the stem
+        [stem_width / 2, 0.0],                   # down the stem to the base
+    ])
+    return Outline.from_polygons([outline])
 
 # Real SI steel, so the frequencies come out in Hz a musician would recognise.
 E, NU, RHO = 2.0e11, 0.3, 7850.0             # Young's (Pa), Poisson, density (kg/m^3)
@@ -43,8 +86,8 @@ def fork_modes(tine_length, tine_thickness, n_modes, across, min_angle=27) -> Mo
     The element size is set by resolving the thin tine, `across` elements through its
     thickness, since bending curves across it.
     """
-    pslg = tuning_fork_pslg(tine_length=tine_length, tine_thickness=tine_thickness)
-    mesh = pslg.mesh(min_angle=min_angle, max_area=0.5*(tine_thickness/across)**2)
+    outline = tuning_fork_outline(tine_length=tine_length, tine_thickness=tine_thickness)
+    mesh = outline.mesh(min_angle=min_angle, max_area=0.5*(tine_thickness/across)**2)
     problem = LinearElastic(E, NU, density=RHO).problem(
         mesh, clamp, element_type=QuadraticTriangleElement)
     return ModalAnalysis(n_modes=n_modes).solve(problem)

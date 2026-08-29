@@ -1,11 +1,13 @@
-"""`PSLG` construction and meshing, and the boundary tags a PSLG mesh carries."""
+"""`PSLG`, the sampled graph: its checks, its area, the crossing search, and the
+boundary tags a mesh of it carries."""
 import numpy as np
 import pytest
 
 from fem.boundary import BoundaryConditions, Dirichlet, Neumann
-from fem.mesh.curves import Arc, Circle
+from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
-from fem.mesh.pslg import PSLG
+from fem.mesh.outline import Outline
+from fem.mesh.pslg import PSLG, _find_crossing_segments
 from fem.mesh.structured import box_mesh
 from fem.regions import on_tag
 from fem.space import FunctionSpace
@@ -15,65 +17,93 @@ SQUARE = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]])
 
 
 def _plate_with_hole() -> PSLG:
-    hole = Circle([2.0, 2.0], 0.8)
-    return PSLG.from_loops([SQUARE, hole.polygon(12)], curves=[None, hole])
+    return Outline([Outline.from_polygons([SQUARE]).loops[0],
+                    (Circle([2.0, 2.0], 0.8),)]).sample(resolution=0.1)
 
 
-# --- building ---
+# --- the graph ---
 
-def test_circle_polygon_samples_the_circle_without_the_closing_repeat():
-    points = Circle([1.0, -1.0], 2.0).polygon(8)
-    assert points.shape == (8, 2)
-    assert np.allclose(np.hypot(points[:, 0] - 1.0, points[:, 1] + 1.0), 2.0)
-    assert not np.allclose(points[0], points[-1])
-
-
-def test_arc_polygon_includes_both_endpoints():
-    points = Arc([0.0, 0.0], 1.0, 0.0, np.pi / 2).polygon(5)
-    assert np.allclose(points[0], [1.0, 0.0]) and np.allclose(points[-1], [0.0, 1.0])
-
-
-def test_circle_pslg_is_one_curved_loop():
-    pslg = PSLG.circle([0.0, 0.0], 1.0, 16)
-    assert len(pslg.segments) == 16
-    assert all(isinstance(curve, Circle) for curve in pslg.segment_curves)
-    assert pslg.area() == pytest.approx(0.5 * 16 * np.sin(2 * np.pi / 16))
+def test_a_bare_vertex_list_is_one_closed_loop():
+    graph = PSLG(SQUARE)
+    np.testing.assert_array_equal(graph.segments, [[0, 1], [1, 2], [2, 3], [3, 0]])
+    assert graph.loop_ids.tolist() == [0, 0, 0, 0]
+    assert all(c is None for c in graph.segment_curves)
+    assert repr(graph) == 'PSLG(4 vertices, 4 segments, 1 loops)'
 
 
 def test_pslg_is_immutable():
-    pslg = PSLG.from_loops([SQUARE])
+    graph = PSLG(SQUARE)
     with pytest.raises(ValueError):
-        pslg.vertices[0] = [9.0, 9.0]
+        graph.vertices[0] = [9.0, 9.0]
     with pytest.raises(AttributeError):
-        pslg.vertices = SQUARE  # type: ignore[misc]
+        graph.vertices = SQUARE  # type: ignore[misc]
 
 
-def test_with_bounding_box_returns_a_new_graph_with_the_box_as_its_own_loop():
-    inner = PSLG.from_loops([SQUARE])
-    boxed = inner.with_bounding_box(buffer=0.5)
-    assert len(inner.segments) == 4, 'the source is untouched'
-    assert len(boxed.segments) == 8
-    assert set(np.unique(boxed.loop_ids)) == {0, 1}
-    # The box encloses the square, which the even-odd rule then reads as a hole.
-    assert boxed.area() == pytest.approx(8.0 * 8.0 - 16.0)
+def test_per_segment_data_must_match_the_segments():
+    with pytest.raises(ValueError, match='one entry per segment'):
+        PSLG(SQUARE, loop_ids=[0, 0])
 
 
 # --- meshing ---
 
 def test_mesh_accepts_an_area_fraction_and_refuses_both_caps():
-    pslg = PSLG.from_loops([SQUARE])
-    coarse = pslg.mesh(min_angle=25)
-    fine = pslg.mesh(min_angle=25, max_area_fraction=0.01)
+    graph = PSLG(SQUARE)
+    coarse = graph.mesh(min_angle=25)
+    fine = graph.mesh(min_angle=25, max_area_fraction=0.01)
     assert fine.n_elements > coarse.n_elements
-    assert fine.element_measures.max() <= 0.01 * pslg.area() + 1e-12
+    assert fine.element_measures.max() <= 0.01 * graph.area() + 1e-12
     with pytest.raises(ValueError):
-        pslg.mesh(max_area=1.0, max_area_fraction=0.1)
+        graph.mesh(max_area=1.0, max_area_fraction=0.1)
 
 
 def test_mesh_validates_first():
     bowtie = PSLG(np.array([[0.0, 0.0], [1.0, 1.0], [1.0, 0.0], [0.0, 1.0]]))
     with pytest.raises(ValueError, match='cross'):
         bowtie.mesh()
+
+
+# --- crossing search ---
+
+def _crossing_by_all_pairs(vertices, segments):
+    '''The quadratic all-pairs reference the grid must match.'''
+    vertices, segments = np.asarray(vertices, float), np.asarray(segments)
+
+    def side(a, b, p):
+        return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+
+    for i in range(len(segments)):
+        for j in range(i + 1, len(segments)):
+            if set(segments[i]) & set(segments[j]):
+                continue
+            ai, bi = vertices[segments[i]]
+            aj, bj = vertices[segments[j]]
+            if ((side(ai, bi, aj) > 0) != (side(ai, bi, bj) > 0)
+                    and (side(aj, bj, ai) > 0) != (side(aj, bj, bi) > 0)):
+                return (i, j)
+    return None
+
+
+def test_grid_crossing_detection_matches_the_all_pairs_reference():
+    """The spatial-grid crossing search returns the pair the all-pairs scan does."""
+    rng = np.random.default_rng(7)
+    for _ in range(200):
+        n = int(rng.integers(2, 25))
+        vertices = rng.uniform(0, 10, size=(2 * n, 2))
+        segments = np.arange(2 * n).reshape(n, 2)
+        assert _find_crossing_segments(vertices, segments) == _crossing_by_all_pairs(vertices, segments)
+
+
+def test_grid_crossing_finds_a_crossing_among_far_apart_clusters():
+    """A long spanning segment plus a distant crossing pair: the grid must still find
+    the crossing even though the two clusters share no small cell."""
+    vertices = np.array([
+        [-100.0, 0.0], [100.0, 0.001],   # a long, near-horizontal spanning segment
+        [0.0, -1.0], [0.0, 1.0],         # a short vertical segment that it crosses
+        [50.0, 50.0], [51.0, 50.0],      # a far-off pair of parallel, non-crossing segments
+        [50.0, 51.0], [51.0, 51.0],
+    ])
+    segments = np.array([[0, 1], [2, 3], [4, 5], [6, 7]])
+    assert _find_crossing_segments(vertices, segments) == (0, 1)
 
 
 # --- boundary tags ---

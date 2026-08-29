@@ -1,21 +1,21 @@
-"""A planar straight-line graph: the outline a 2D mesh is built to respect.
+"""A planar straight-line graph: the chords a 2D mesh is built to respect.
 
-A `PSLG` is drawn by hand from loops (`PSLG.from_loops`, `PSLG.circle`), or read from an
-SVG (`fem.mesh.svg.read_svg_to_pslg`), and meshed with `pslg.mesh(...)`, which runs
-Ruppert's Delaunay refinement. The polygon helpers it needs (area, point-in-polygon,
-segment crossing) live here beside it.
+A `PSLG` is what `Outline.sample` produces and `RuppertsAlgorithm` consumes: vertices,
+the segments between them, which loop each came from, and the `Curve` (if any) each
+segment is a chord of. Describe a domain as an `Outline` rather than building one of
+these; `pslg.mesh(...)` runs Ruppert's Delaunay refinement on it. The polygon helpers
+meshing needs (area, point-in-polygon, segment crossing) live here beside it.
 
 `PSLG.mesh` imports `fem.mesh.ruppert` lazily: the mesher consumes a `PSLG`, so the edge
 points up and stays function-local.
 """
 from collections import defaultdict
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from fem.mesh.curves import Circle, Curve
+from fem.mesh.curves import Curve
 from fem.mesh.mesh import frozen_array
 from fem.typing import FloatArray, IntArray
 
@@ -136,38 +136,21 @@ def _find_crossing_segments(vertices, segments):
     return int(i[first]), int(j[first])
 
 
-def _loop_point_curves(spec, n_points):
-    '''Normalize a loop's curve spec to one entry per point.
-
-    `None` is a straight loop; a single `Curve` puts the whole loop on it (a circular
-    hole); a sequence gives one curve, or `None`, per point, for an outline that is part
-    straight and part arc (a filleted corner).
-    '''
-    if spec is None:
-        return [None] * n_points
-    if isinstance(spec, (list, tuple, np.ndarray)):
-        if len(spec) != n_points:
-            raise ValueError(f'per-point curves must have {n_points} entries, got {len(spec)}')
-        return list(spec)
-    return [spec] * n_points
-
-
 @dataclass(frozen=True, eq=False)
 class PSLG:
     '''A planar straight-line graph: vertices, plus the segments a mesh must respect.
 
     `loop_ids` says which closed outline each segment came from, so a caller can
     tell an obstacle's boundary from an enclosing box's after meshing: the mesh's
-    `boundary_tags` carry them. All zeros unless the graph was built by `from_loops`.
+    `boundary_tags` carry them. All zeros unless given.
 
-    `segment_curves` is the analytic `Curve` (or `None`) each segment samples, aligned
-    with `segments`. A segment on a curve has its split points projected onto it during
-    meshing, and the curve is carried onto the output mesh's matching boundary facet, so
-    refinement rounds the outline instead of only subdividing its chords. All `None` for
-    a straight-line outline, the default. Per segment rather than per loop, so an outline
-    that is part straight and part arc (a filleted corner) can curve only its arc.
+    `segment_curves` is the analytic `Curve` (or `None`) each segment is a chord of,
+    aligned with `segments`. A segment on a curve has its split points projected onto it
+    during meshing, and the curve is carried onto the output mesh's matching boundary
+    facet, so refinement rounds the outline instead of only subdividing its chords. All
+    `None` for a straight-line outline, the default.
 
-    Immutable: `with_bounding_box` returns a new graph.
+    Immutable.
     '''
     vertices: FloatArray
     segments: IntArray
@@ -191,93 +174,9 @@ class PSLG:
         object.__setattr__(self, 'loop_ids', frozen_array(loop_ids))
         object.__setattr__(self, 'segment_curves', curves)
 
-    # -- building ----------------------------------------------------------------------
-
-    @classmethod
-    def from_loops(cls, loops, curves=None, segment_curves=None) -> 'PSLG':
-        '''A PSLG spanning several closed outlines.
-
-        What each loop means is decided when meshing, by the even-odd rule: a
-        loop inside another is a hole, a loop beside it is a separate piece. So
-        the caller draws the outlines and does not also have to label them.
-
-        Curves may be given one of two ways, at most one of them:
-
-        `curves` is a per-loop entry, each either `None` (a straight outline), a single
-        `Curve` (the whole loop samples it, as a circular hole does), or a per-point
-        sequence tagging which `Curve` each point came from (for an outline that is part
-        straight, part arc). A segment lies on a curve only when both its endpoints came
-        from that same curve, so the chord joining a straight run to an arc stays straight.
-
-        `segment_curves` is a per-loop sequence giving the `Curve` (or `None`) of each
-        segment directly, one entry per point (segment `i` is point `i -> i+1`, wrapping).
-        Used where the curve is known per segment rather than per point, as a traced SVG
-        path is: a cubic's own first segment stays on its curve at a joint, which the
-        per-point rule above would read as straight. A per-point and a per-segment sequence
-        are both length `n`, so they cannot be told apart; hence the separate parameter.
-        '''
-        vertices, segments, loop_ids, out_curves = [], [], [], []
-        for loop_id, loop in enumerate(loops):
-            points = np.asarray(loop, dtype=float)
-            n = len(points)
-            offset = len(vertices)
-            vertices.extend(points.tolist())
-            if segment_curves is not None:
-                loop_curves = list(segment_curves[loop_id])
-                if len(loop_curves) != n:
-                    raise ValueError(
-                        f'per-segment curves must have {n} entries, got {len(loop_curves)}')
-                for i in range(n):
-                    segments.append([offset + i, offset + (i + 1) % n])
-                    loop_ids.append(loop_id)
-                    out_curves.append(loop_curves[i])
-            else:
-                point_curves = _loop_point_curves(
-                    curves[loop_id] if curves is not None else None, n)
-                for i in range(n):
-                    segments.append([offset + i, offset + (i + 1) % n])
-                    loop_ids.append(loop_id)
-                    a, b = point_curves[i], point_curves[(i + 1) % n]
-                    # A segment curves only where both endpoints came from the same curve.
-                    out_curves.append(a if (a is not None and a is b) else None)
-        return cls(np.array(vertices), np.array(segments), np.array(loop_ids), out_curves)
-
-    @classmethod
-    def circle(cls, center: Sequence[float], radius: float, segments: int) -> 'PSLG':
-        '''A disk: one loop polygonising the circle, carrying it as its `Curve`, so
-        meshing and refinement round it however coarse `segments` is.'''
-        circle = Circle(list(center), radius)
-        return cls.from_loops([circle.polygon(segments)], curves=[circle])
-
-    def with_bounding_box(self, buffer: float = 0.2) -> 'PSLG':
-        '''This graph enclosed in a box, as a new loop.
-
-        Under the even-odd rule this makes whatever was already here a hole, so
-        an outline plus a box is a plate with that outline cut out of it. `buffer` is
-        the margin on each side as a fraction of the graph's extent.
-        '''
-        x_min, y_min = np.min(self.vertices, axis=0)
-        x_max, y_max = np.max(self.vertices, axis=0)
-        width, height = x_max - x_min, y_max - y_min
-        corners = [
-            [x_min - buffer*width, y_min - buffer*height],
-            [x_min - buffer*width, y_max + buffer*height],
-            [x_max + buffer*width, y_max + buffer*height],
-            [x_max + buffer*width, y_min - buffer*height],
-        ]
-        n = len(self.vertices)
-        box_loop = int(self.loop_ids.max()) + 1 if len(self.loop_ids) else 0
-        box_segments = [[n + i, n + (i + 1) % 4] for i in range(4)]
-        return PSLG(
-            np.append(self.vertices, corners, axis=0),
-            np.append(self.segments, box_segments, axis=0),
-            np.append(self.loop_ids, [box_loop] * 4),
-            self.segment_curves + (None,) * 4,     # the box edges are straight
-        )
-
     # -- queries -----------------------------------------------------------------------
 
-    def loops(self) -> list[FloatArray]:
+    def _loops(self) -> list[FloatArray]:
         '''The vertices of each closed outline, in order.'''
         return [self.vertices[self.segments[self.loop_ids == loop_id, 0]]
                 for loop_id in np.unique(self.loop_ids)]
@@ -290,7 +189,7 @@ class PSLG:
         would count a hole twice over: once as the plate it is cut from, once as
         itself.
         '''
-        loops = self.loops()
+        loops = self._loops()
         total = 0.0
         for i, loop in enumerate(loops):
             depth = sum(point_in_polygon(loop[0], other)

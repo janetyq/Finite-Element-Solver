@@ -15,11 +15,52 @@ import numpy as np
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.physics.equations import Poisson
 from fem.mesh.mesh import Mesh
-from fem.mesh.svg import (
-    PSLG, read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker)
+from fem.mesh.outline import Outline, douglas_peucker
 from fem.regions import everywhere
+from fem.mesh.curves import Circle
 
-from domains import gear_pslg, star_pslg
+
+def star_outline(points: int = 5, outer_radius: float = 1.0, inner_radius: float = 0.42,
+                 center: tuple[float, float] = (0.0, 0.0)) -> Outline:
+    """A `points`-pointed star as a single straight-line loop.
+
+    Radii alternate between `outer_radius` at the tips and `inner_radius` at the notches,
+    so the reentrant notches are the sharp corners Ruppert's meets at the input angle
+    rather than refining away.
+    """
+    angles = np.pi / 2 + np.linspace(0, 2 * np.pi, 2 * points, endpoint=False)
+    radii = np.where(np.arange(2 * points) % 2 == 0, outer_radius, inner_radius)
+    outline = np.column_stack([center[0] + radii * np.cos(angles),
+                               center[1] + radii * np.sin(angles)])
+    return Outline.from_polygons([outline])
+
+
+def gear_outline(teeth: int = 12, root_radius: float = 0.7, tooth_height: float = 0.22,
+                 tooth_fraction: float = 0.5, bore_radius: float = 0.28,
+                 center: tuple[float, float] = (0.0, 0.0)) -> Outline:
+    """A spur gear with a circular bore, as two loops (rim and hole).
+
+    Each of `teeth` sectors carries one tooth: the radius steps from `root_radius` out to
+    `root_radius + tooth_height` over the middle `tooth_fraction` of the sector and back,
+    with radial flanks. The bore is a `Circle`, so an isoparametric solve reads
+    a true round hole and refinement rounds it; under the even-odd rule it is a hole in
+    the gear rather than a second part.
+    """
+    tip_radius = root_radius + tooth_height
+    pitch = 2 * np.pi / teeth
+    gap = 0.5 * (1 - tooth_fraction) * pitch     # root arc either side of each tooth
+    outline = []
+    for i in range(teeth):
+        base = i * pitch
+        # (root, base) -> (root, base+gap): the valley; then radial flank up, the tip
+        # land, and the next flank down is the following sector's opening edge.
+        for radius, angle in ((root_radius, base), (root_radius, base + gap),
+                              (tip_radius, base + gap), (tip_radius, base + pitch - gap)):
+            outline.append((center[0] + radius * np.cos(angle),
+                            center[1] + radius * np.sin(angle)))
+
+    return Outline([Outline.from_polygons([np.array(outline)]).loops[0],
+                    Circle(list(center), bore_radius)])
 
 # Resolved against the repo, so a demo does not depend on where it was launched from.
 DEFAULT_SVG_FILE = str(Path(__file__).resolve().parents[3] / 'files' / 'california.svg')
@@ -36,16 +77,16 @@ dome_equation = Poisson(source=1.0)
 
 
 def get_curve_from_svg(svg_file):
-    output = read_svg_to_list_of_path_points(svg_file)
-    curve = max(output, key=lambda x: len(x)) # get the longest path
-    return np.array(curve)
+    """The longest loop of the SVG, as the ring of points its pieces sample to."""
+    longest = max(Outline.from_svg(svg_file).loops, key=len)
+    return Outline([longest]).sample().vertices
 
 
 def close_ring(points):
     """`points` with its first vertex repeated at the end, for plotting.
 
-    A closed SVG path comes back as a ring whose closing edge is implied, as
-    `PSLG.from_loops` assumes; `ax.plot` needs it spelled out.
+    A closed SVG path comes back as a ring whose closing edge is implied;
+    `ax.plot` needs it spelled out.
     """
     return np.vstack([points, points[:1]])
 
@@ -66,19 +107,19 @@ def save_curve(curve, save_file='douglas_peucker_output.json'):
         json.dump(np.asarray(curve).tolist(), f)
 
 
-def zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE) -> list[tuple[str, PSLG]]:
-    """The outlines the zoo meshes, as (name, PSLG) pairs.
+def zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE) -> list[tuple[str, Outline]]:
+    """The outlines the zoo meshes, as (name, Outline) pairs.
 
     California and the cloud are traced from `files/*.svg` and simplified on the way in;
-    the star and gear are generated (`domains.py`). Each puts a different demand on the
+    the star and gear are generated (below). Each puts a different demand on the
     mesher: disconnected islands, a curved boundary, sharp reentrant corners, and
     repeated teeth around a circular bore.
     """
     return [
-        ('California', read_svg_to_pslg(DEFAULT_SVG_FILE, tolerance=svg_tolerance)),
-        ('Cloud', read_svg_to_pslg(CLOUD_SVG_FILE, tolerance=svg_tolerance)),
-        ('Gear', gear_pslg()),
-        ('Star', star_pslg()),
+        ('California', Outline.from_svg(DEFAULT_SVG_FILE).simplified(svg_tolerance)),
+        ('Cloud', Outline.from_svg(CLOUD_SVG_FILE).simplified(svg_tolerance)),
+        ('Gear', gear_outline()),
+        ('Star', star_outline()),
     ]
 
 
@@ -119,7 +160,8 @@ def run(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0.001) -> OutlineS
     raw trace has ~1700 points).
     """
     shapes = []
-    for name, pslg in zoo_shapes(svg_tolerance):
-        mesh = pslg.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
-        shapes.append(MeshedOutline(name, len(pslg.vertices), mesh, dome(mesh)))
+    for name, outline in zoo_shapes(svg_tolerance):
+        graph = outline.sample()
+        mesh = graph.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
+        shapes.append(MeshedOutline(name, len(graph.vertices), mesh, dome(mesh)))
     return OutlineStudy(shapes, min_angle)

@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from fem.mesh.curves import Arc, Circle, CubicBezier
+from fem.mesh.curves import Arc, Circle, CubicBezier, Line
 
 
 def test_circle_projects_radially_onto_the_rim():
@@ -55,7 +55,7 @@ def _hump():
 
 def test_cubic_projection_fixes_points_already_on_the_curve():
     bezier = _hump()
-    on_curve = bezier.sample(9)
+    on_curve = bezier.sample(8)
     np.testing.assert_allclose(bezier.project(on_curve), on_curve, atol=1e-10)
 
 
@@ -90,3 +90,43 @@ def test_cubic_projection_preserves_batch_shape():
 def test_cubic_rejects_non_2d_control_points():
     with pytest.raises(ValueError):
         CubicBezier([0, 0, 0], [1, 1, 1], [2, 0, 0], [3, 3, 3])   # 3D points
+
+
+# --- pieces ---
+
+def test_circle_sample_omits_the_closing_repeat_and_arc_sample_includes_both_ends():
+    ring = Circle([1.0, -1.0], 2.0).sample(8)
+    assert ring.shape == (8, 2)
+    assert np.allclose(np.hypot(ring[:, 0] - 1.0, ring[:, 1] + 1.0), 2.0)
+    assert not np.allclose(ring[0], ring[-1])
+    arc = Arc([0.0, 0.0], 1.0, 0.0, np.pi / 2)
+    points = arc.sample(4)
+    assert points.shape == (5, 2)
+    assert np.allclose(points[0], arc.start) and np.allclose(points[-1], arc.end)
+    assert np.allclose(arc.start, [1.0, 0.0]) and np.allclose(arc.end, [0.0, 1.0])
+
+
+def test_a_reversed_arc_runs_the_other_way_and_projects_the_same():
+    arc = Arc([0.0, 0.0], 1.0, 0.0, np.pi / 2)
+    back = arc.reversed()
+    assert np.allclose(back.start, arc.end) and np.allclose(back.end, arc.start)
+    np.testing.assert_allclose(back.sample(4), arc.sample(4)[::-1])
+    q = np.array([[3.0, 3.0], [-1.0, -1.0]])
+    np.testing.assert_allclose(back.project(q), arc.project(q))
+    assert back.reversed().start.tolist() == arc.start.tolist()
+
+
+def test_line_projects_onto_the_segment_and_clamps_to_its_ends():
+    line = Line([0.0, 0.0], [2.0, 0.0])
+    np.testing.assert_allclose(line.project(np.array([[1.0, 3.0], [5.0, 1.0], [-2.0, -2.0]])),
+                               [[1.0, 0.0], [2.0, 0.0], [0.0, 0.0]])
+    assert line.length() == 2.0
+    np.testing.assert_allclose(line.sample(2), [[0, 0], [1, 0], [2, 0]])
+    with pytest.raises(ValueError, match='distinct'):
+        Line([1.0, 1.0], [1.0, 1.0])
+
+
+def test_bezier_ends_and_length():
+    bezier = CubicBezier([0, 0], [0, 0], [3, 0], [3, 0])   # a straight cubic
+    assert np.allclose(bezier.start, [0, 0]) and np.allclose(bezier.end, [3, 0])
+    assert bezier.length() == pytest.approx(3.0, rel=1e-6)

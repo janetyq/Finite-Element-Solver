@@ -71,7 +71,8 @@ is `kappa * BoundaryMassForm(mask)` added to the physics form and assembled besi
 `fem/` keeps the core objects at the top level (`typing`, `numerics`, `quadrature`, `regions`,
 `elements`, `boundary`, `loads`, `space`, `problem`) and groups the rest by layer:
 
-- `fem/mesh`: geometry and meshing (`Mesh`, curves, `PSLG`, Ruppert, red-green refinement, SVG).
+- `fem/mesh`: geometry and meshing (`Mesh`, the pieces and `Outline`, its sampled `PSLG`, Ruppert,
+  red-green refinement, the SVG reader).
 - `fem/physics`: `forms`, `energies`, `materials`, `fields`, the named `equations`, and `derived`
   (the `DerivedField`s a form recovers).
 - `fem/algebra`: `system`, `backends`, `solve` strategies, `integrators`.
@@ -135,7 +136,7 @@ two elastic forms share with `ElasticSolution` and `StressField`.
 
 | Class | 1 Geom | 2 Space | 3 Phys | 4 Asm | 5 Cons | 6 Alg | 7 Time | 8 Drive | 9 Post |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `Mesh`, `Curve` | █ | | | | | | | | |
+| `Mesh`, `Outline` and its pieces (`Curve`), `PSLG` | █ | | | | | | | | |
 | `RuppertsAlgorithm`, `RedGreenRefiner` | █ | | | | | | | | |
 | `Element` / `ElementGeometry`, `QuadratureRule` | | ▒ | | ▒ | | | | | |
 | `FunctionSpace` | | ▒ | | █ | | | | | |
@@ -188,13 +189,21 @@ cached operators. Two spaces (P1 and P2, scalar and vector) can share one mesh. 
 imports no plot code.
 
 Meshes come from `box_mesh` (an axis-aligned line, rectangle, or box), `annulus_mesh`,
-`pslg.mesh(min_angle, max_area_fraction)` over a `PSLG` (`fem/mesh/pslg.py`, frozen; drawn by
-hand with `PSLG.from_loops` / `PSLG.circle`, or read from an SVG), or `Mesh(vertices, elements)`
-directly. `RuppertsAlgorithm` is what `PSLG.mesh` runs, kept public for a caller that wants
-the refinement state. A PSLG mesh carries `boundary_tags`, one per boundary facet, naming the
-loop it came from; red-green refinement carries a tag onto a facet's halves, as it does the
-facet's curve. `on_tag(k)` is the region that names a tagged outline, so a condition on the
-hole in a plate is written without coordinates and survives refinement.
+an `Outline` (`fem/mesh/outline.py`), or `Mesh(vertices, elements)` directly. An `Outline` is
+closed loops of pieces (`Line`, `Arc`, `CubicBezier`, or a lone `Circle`; `fem/mesh/curves.py`)
+joined end to end, drawn by hand, from polygons (`Outline.from_polygons`), or from an SVG
+(`Outline.from_svg`), and holding no sampling of its own. `outline.mesh(min_angle,
+max_area_fraction, resolution)` samples it into a `PSLG` (the straight-line graph of chords,
+`outline.sample(resolution)`) and runs Ruppert's refinement on that; `simplified(tolerance)` is
+Douglas-Peucker over a loop's straight runs. This is the spec / resolution split again:
+`Outline` is the description and `PSLG` its resolution at one chord length, the way
+`BoundaryConditions` resolves to `ResolvedBC`. `RuppertsAlgorithm` takes the `PSLG`, kept public
+for a caller that wants the refinement state. Every chord of a curved piece carries the piece as
+its `Curve`, so Ruppert's split points, red-green midpoints, and an isoparametric element's edge
+nodes all project onto the true shape; the mesh's `boundary_curves` carry it and `boundary_tags`
+name the loop each facet came from, both through refinement. `on_tag(k)` is the region that
+names a tagged outline, so a condition on the hole in a plate is written without coordinates and
+survives refinement.
 
 ### Elements, quadrature, and assembly
 
@@ -387,12 +396,13 @@ documented back-edges, each named in the importing module's docstring:
 - `mesh.mesh -> mesh.refinement, post.io` and `post.solution -> post.io`: `refined`, `save`, `load`
   as methods on the object they act on.
 - `mesh.pslg -> mesh.ruppert`: `PSLG.mesh` runs the mesher.
+- `mesh.outline -> mesh.svg`: `Outline.from_svg` runs the reader.
 - `fem -> fem.plot`: served through `__getattr__`, so matplotlib loads on first use.
 
 ## Vocabulary
 
 Construction: `from_*` builds from another representation (`ElasticSolution.from_solve`,
-`PSLG.from_loops`); `with_*` returns a copy with one thing changed (`LinearProblem.with_operator`,
+`Outline.from_polygons`); `with_*` returns a copy with one thing changed (`LinearProblem.with_operator`,
 `Mesh.with_topology`); `at(t)` / `at(i)` fixes a time-dependent object at one instant or step;
 `sample(geometry)` evaluates a field at a rule's points; `*_for(x)` resolves a choice against `x`
 (`element_type_for`, `backend_for`, `problem_for`).

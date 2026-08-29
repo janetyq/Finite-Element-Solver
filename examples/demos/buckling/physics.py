@@ -21,8 +21,24 @@ from fem.physics.equations import LinearElastic
 from fem.mesh.mesh import Mesh
 from fem.regions import intersect, on_plane
 from fem.post.solution import BucklingSolution
+from fem.mesh.structured import box_mesh
 
-from domains import column
+
+def column(length: float = 24.0, height: float = 1.0,
+           n_length: int = 48, n_across: int = 6) -> Mesh:
+    """A slender column standing upright, meshed for a buckling solve.
+
+    Length runs along y (ends at y = 0 and y = length) so the mode shapes draw as columns
+    stand, with `height` the thin cross-dimension along x.
+
+    The through-thickness count is set independently of the aspect
+    ratio: a buckling mode is bending, which needs several elements across the thin
+    dimension. `n_across` is forced odd so a vertex lands on the neutral axis for a
+    pinned end to anchor.
+    """
+    n_across += 1 - n_across % 2
+    return box_mesh(corners=[[0.0, 0.0], [height, length]],
+                            resolution=(n_across, n_length))
 
 E, NU = 200.0, 0.3
 E_STAR = E / (1 - NU**2)     # plane-strain effective modulus, the one bending sees
