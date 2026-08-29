@@ -207,6 +207,17 @@ class Problem(Generic[S]):
         return self._resolved.constraints
 
     @property
+    def initial(self) -> NodalField:
+        '''The state a solve starts from: the conditions' `Initial`, else the Dirichlet
+        lift. An integrator steps from it and `NewtonSolve` iterates from it.'''
+        return self._resolved.initial
+
+    @property
+    def initial_rate(self) -> NodalField:
+        '''The time derivative of the state at `t = 0`, zero unless the `Initial` gave one.'''
+        return self._resolved.initial_rate
+
+    @property
     def load(self) -> DofVector:
         return self._b
 
@@ -299,7 +310,7 @@ class Problem(Generic[S]):
         `default_strategy`, `LinearSolve` for a constant tangent and line-searched
         `NewtonSolve` otherwise. `backend` is how each linear system on the way is solved
         (direct by default); the two are independent choices. `u0` seeds an iterative
-        strategy. A time-dependent problem is solved as its snapshot `at(t)`, so `t` is
+        strategy in place of the conditions' `initial`. A time-dependent problem is solved as its snapshot `at(t)`, so `t` is
         required for one; an integrator steps it instead.
         '''
         if 0 not in self.time_orders:

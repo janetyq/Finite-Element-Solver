@@ -26,7 +26,7 @@ The README's "What you choose at each step" table is the menu of options; this i
 | Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) |
 | Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for finite strain |
 | Statement | `Problem(space, form)`, or `Equation.problem(mesh, bc)` (which takes the Discretization step too) | `source` (none), `bc` (none), `element_type`; a `LinearProblem` when the form has a constant tangent |
-| Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator or analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`, initial data from `space.interpolate` |
+| Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator or analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`; `u0` (and `v0`) to continue from a state other than the conditions' `Initial` |
 | Result | a typed `Solution`, returned by every `solve`; a steady one is a `NodalField` | |
 | Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` |
 
@@ -50,17 +50,22 @@ a custom strategy) needs neither. There is no third way: the equation builds, th
 
 Everything applied to the domain is a `Conditions` (`fem/conditions.py`): the boundary conditions
 `Dirichlet(region, value)`, `Neumann(region, value)`, `Robin(region, kappa, g)` (`fem/boundary.py`),
-the volume `Source`, and any `PointLoad` (`fem/loads.py`), collected by `Conditions(*items)` or
-`conditions + item`, both frozen. The equation carries only the law and its material; the forcing is
-the conditions'. `conditions.resolve(space)` is a `ResolvedConditions`: the Dirichlet DOF partition,
-one `kappa * BoundaryMassForm` operator term per Robin condition, and the load terms, each a `Load`
+the volume `Source`, any `PointLoad` (`fem/loads.py`), and the `Initial(value, rate)` state,
+collected by `Conditions(*items)` or `conditions + item`, both frozen. The equation carries only the
+law and its material; the forcing and the starting state are the conditions'.
+`conditions.resolve(space)` is a `ResolvedConditions`: the Dirichlet DOF partition,
+one `kappa * BoundaryMassForm` operator term per Robin condition, the load terms, each a `Load`
 answering `vector(space, t)`: the source (a constant or a nodal array integrated exactly through the
 mass matrix, a callable sampled at the quadrature points, or with `nodal=True` its interpolant), one
-`BoundaryLoad` over its region's facets per Neumann or Robin value, and the point loads. A `Dirichlet`
+`BoundaryLoad` over its region's facets per Neumann or Robin value, and the point loads; and the
+`initial` state and `initial_rate` as `NodalField`s, the `Initial` interpolated at the nodes, or the
+Dirichlet lift at rest when none is given. An `Initial` is checked against the Dirichlet data at
+`t = 0` on resolution, and is what an integrator steps from and `NewtonSolve` iterates from; the
+`u0` (and `v0`) a solve takes overrides it, to continue a series. A `Dirichlet`
 value may leave a component `None` (free) for a roller, and a `Neumann` value one the traction does not drive. A region is geometric (`on_plane`, `in_box`,
 a callable of points) or, for a mesh with `boundary_tags`, `on_tag(k)`, which resolves from the
-facets rather than the coordinates. A field built by hand (an initial condition, a comparison
-field) is `space.interpolate(value)`, a `NodalField` on every node of the space, P2 edge nodes
+facets rather than the coordinates. A field built by hand (a comparison field, a state to continue
+from) is `space.interpolate(value)`, a `NodalField` on every node of the space, P2 edge nodes
 included.
 
 Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
@@ -328,7 +333,8 @@ constant effective operator from `problem.mass`, `problem.tangent()`, and (for `
 position and time) is re-evaluated each step through `problem.load_at(t)`; `ThetaMethod` also
 prescribes a time-dependent Dirichlet value per step through `problem.constraints_at(t)`, while
 `NewmarkMethod` refuses one (prescribed motion needs its velocity and acceleration too). Both
-return a `TransientSolution`, a series whose `history[i]` is a step as the typed steady solution. A
+step from `problem.initial` (and `initial_rate`), the conditions' `Initial` resolved on the
+space, unless handed a `u0` (and `v0`) to continue from, and return a `TransientSolution`, a series whose `history[i]` is a step as the typed steady solution. A
 steady solve or an estimator works on the snapshot `problem.at(t)`; `problem.solve(t=...)`
 takes that step itself. `ThetaMethod` (Crank-Nicolson by default, backward Euler at θ=1)
 and `NewmarkMethod` (average acceleration, solving for the acceleration against the SPD
@@ -423,7 +429,7 @@ Construction: `from_*` builds from another representation (`ElasticSolution.from
 
 Algorithm objects: a `SolveStrategy` (`LinearSolve`, `NewtonSolve`), an integrator
 (`ThetaMethod`, `NewmarkMethod`), and `EigenSolve` are frozen dataclasses of their parameters with
-one `solve`. What varies per call (the problem, a seed, initial conditions, the `backend`) is an
+one `solve`. What varies per call (the problem, a state to continue from, the `backend`) is an
 argument, never a field, so one configured object serves many solves. Only the drivers
 (`AdaptiveRefinement`, `DesignOptimizer`) hold state.
 

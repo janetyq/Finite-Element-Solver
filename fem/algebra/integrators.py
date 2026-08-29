@@ -4,10 +4,11 @@ Heat is first order (M u' + K u = b(t)), wave is second (M u'' + C u' + K u = b(
 there is one integrator family per order. Each forms a constant effective operator from the
 problem's mass and stiffness, factors it once through `DiscreteSystem`, and steps by
 updating only the right-hand side, re-evaluating a time-dependent load
-(`Problem.load_at`) each step. `dt` and the step count live here; initial conditions
-come in through `solve`, as DOF vectors (`FunctionSpace.interpolate`). The result is a
-`TransientSolution` that packages any step as the typed steady solution (`history[i]`).
-An initial state is a `NodalField` (`space.interpolate`) or its DOF vector.
+(`Problem.load_at`) each step. `dt` and the step count live here; the initial state
+is the problem's (`Problem.initial` and `initial_rate`, from the conditions' `Initial`),
+unless `solve` is handed a `u0` (and `v0`) to continue from, a `NodalField` or its DOF
+vector. The result is a `TransientSolution` that packages any step as the typed steady
+solution (`history[i]`).
 
 The wave path uses Newmark rather than a 2N first-order block: its effective operator
 `M + β dt² K` is SPD and N-sized, so it stays inside the CG/preconditioning path.
@@ -35,6 +36,16 @@ def _require_order(problem: Problem, order: int, what: str, use: str) -> None:
         )
 
 
+def _initial_state(problem: Problem, u0: DofVector | NodalField | None,
+                   v0: DofVector | NodalField | None = None) -> tuple[DofVector, DofVector]:
+    '''`(u, du/dt)` at `t = 0`: the problem's own unless overridden, checked against
+    the Dirichlet data either way.'''
+    u = problem.initial.dofs if u0 is None else np.asarray(u0, dtype=float)
+    v = problem.initial_rate.dofs if v0 is None else np.asarray(v0, dtype=float)
+    problem.resolved.check_initial(u, v)
+    return u.copy(), v.copy()
+
+
 def _history(problem: Problem[S], t_values: list[float], u_values: list[DofVector],
              dudt_values: list[DofVector] | None = None) -> TransientSolution[S]:
     '''Package a time series into the matching transient solution type.'''
@@ -58,11 +69,13 @@ class ThetaMethod:
     steps: int
     theta: float = 0.5
 
-    def solve(self, problem: Problem[S], u0: DofVector | NodalField, *,
+    def solve(self, problem: Problem[S], u0: DofVector | NodalField | None = None, *,
               backend: Backend | None = None) -> TransientSolution[S]:
-        '''Step from `u0` (a `NodalField` or its DOF vector); `backend` solves the
-        factored-once step operator.'''
+        '''Step from the problem's initial state, or from `u0` (a `NodalField` or its
+        DOF vector) to continue a series; `backend` solves the factored-once step
+        operator.'''
         _require_order(problem, 1, 'ThetaMethod integrates a first-order system', 'Heat')
+        u, _ = _initial_state(problem, u0)
         M = problem.mass
         K = problem.tangent(None)
         dt, theta = self.dt, self.theta
@@ -70,7 +83,6 @@ class ThetaMethod:
         system = DiscreteSystem(M + theta * dt * K, problem.constraints, backend)
         rhs_operator = M - (1 - theta) * dt * K
 
-        u = np.asarray(u0, dtype=float)
         b = problem.load_at(0.0)
         t_values: list[float] = [0.0]
         u_values: list[DofVector] = [u.copy()]
@@ -105,11 +117,12 @@ class NewmarkMethod:
     beta: float = 0.25
     gamma: float = 0.5
 
-    def solve(self, problem: Problem[S], u0: DofVector | NodalField,
-              v0: DofVector | NodalField, *,
+    def solve(self, problem: Problem[S], u0: DofVector | NodalField | None = None,
+              v0: DofVector | NodalField | None = None, *,
               backend: Backend | None = None) -> WaveSolution[S]:
-        '''Step from `(u0, v0)`, fields or DOF vectors; `backend` solves the
-        factored-once effective operator.'''
+        '''Step from the problem's initial state and rate, or from `(u0, v0)` (fields
+        or DOF vectors) to continue a series; `backend` solves the factored-once
+        effective operator.'''
         _require_order(problem, 2, 'NewmarkMethod integrates a second-order system',
                        'Wave or an elastic equation')
         if problem.conditions.has_time_dependent_dirichlet:
@@ -120,16 +133,8 @@ class NewmarkMethod:
         M = problem.mass
         K = problem.tangent(None)
         b = problem.load_at(0.0)
-        free, fixed, fixed_values = problem.constraints
-
-        u = np.asarray(u0, dtype=float)
-        v = np.asarray(v0, dtype=float)
-        # An initial state that disagrees with the constraints is a modelling error:
-        # the solve would otherwise jump to satisfy them at the first step.
-        if not np.allclose(u[fixed], fixed_values):
-            raise ValueError('u0 disagrees with the Dirichlet values at fixed nodes')
-        if not np.allclose(v[fixed], 0):
-            raise ValueError('v0 must be zero at Dirichlet-fixed nodes')
+        free, fixed, _ = problem.constraints
+        u, v = _initial_state(problem, u0, v0)
 
         dt, beta, gamma = self.dt, self.beta, self.gamma
         accel_constraints = (free, fixed, np.zeros(len(fixed)))

@@ -14,7 +14,7 @@ from fem.plot.plotter import PlotMode
 
 README = Path(__file__).resolve().parents[1] / 'README.md'
 HEADING = '### What you choose at each step'
-KEYWORDS = {'element_type=', 'source=', 'law=', 'mode=', 'strategy=', 'backend='}
+KEYWORDS = {'element_type=', 'source=', 'law=', 'mode=', 'strategy=', 'backend=', 'rate='}
 
 
 def _section() -> str:

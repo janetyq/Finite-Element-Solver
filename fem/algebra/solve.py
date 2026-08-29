@@ -206,7 +206,7 @@ class NewtonSolve:
     def solve(self, problem: Problem, u0: DofVector | NodalField | None = None, *,
               backend: Backend | None = None) -> DofVector:
         free, fixed, fixed_values = problem.constraints
-        u = np.zeros(problem.space.n_dofs) if u0 is None else np.asarray(u0, dtype=float).copy()
+        u = np.array(problem.initial.dofs if u0 is None else u0, dtype=float)
         u[fixed] = fixed_values
 
         regularization = self.regularization_for(backend)

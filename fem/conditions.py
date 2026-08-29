@@ -2,14 +2,16 @@
 
 A `Conditions` is the frozen, mesh-independent collection of what acts on a problem:
 the boundary conditions (`Dirichlet`, `Neumann`, `Robin`, each on a region), the volume
-`Source`, and any `PointLoad`. It means the same thing on any mesh ("the left edge is
-pinned, gravity acts, a force at the tip"), so a driver can restate it on a refined
-mesh, and it is what `equation.problem(mesh, conditions)` takes.
+`Source`, any `PointLoad`, and the `Initial` state. It means the same thing on any mesh
+("the left edge is pinned, gravity acts, a force at the tip, it starts at ambient"), so
+a driver can restate it on a refined mesh, and it is what
+`equation.problem(mesh, conditions)` takes.
 
 `resolve(space)` reduces it to a `ResolvedConditions`, what a solver indexes into on
-one space: the Dirichlet DOF partition, the operator terms a Robin condition adds, and
-the load terms (the source, one boundary integral per Neumann or Robin value, the point
-loads). Resolution has two steps: the geometry (which nodes and facets a region selects)
+one space: the Dirichlet DOF partition, the operator terms a Robin condition adds, the
+load terms (the source, one boundary integral per Neumann or Robin value, the point
+loads), and the initial state and rate as fields on the space, the Dirichlet lift and
+zero when none is given. Resolution has two steps: the geometry (which nodes and facets a region selects)
 is done once, and the values are evaluated at a time. `load_at(t)` and
 `constraints_at(t)` re-evaluate the `TimeDependent` values without selecting again,
 which an integrator calls per step; `at(t)` is the whole resolution fixed at `t`, the
@@ -34,15 +36,42 @@ from fem.boundary import (
     _coerce_components,
     field_at,
 )
+from fem.field import NodalField
 from fem.loads import BoundaryLoad, Load, PointLoad, Source, _EvaluatedLoad, total_load
 from fem.physics.forms import BoundaryMassForm, Form
 from fem.regions import TimeDependent, evaluate_field
-from fem.typing import Constraints, DofIndices, DofVector, FloatArray, NodalValues, VertexIndices
+from fem.typing import (
+    Constraints, DofIndices, DofVector, FieldValue, FloatArray, NodalValues, VertexIndices,
+)
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace
 
-__all__ = ['Conditions', 'ResolvedConditions']
+__all__ = ['Conditions', 'Initial', 'ResolvedConditions']
+
+
+@dataclass(frozen=True)
+class Initial:
+    '''The state a solve starts from: `value` is the field at `t = 0` and `rate` its
+    time derivative there, each a constant, a per-component constant, or a callable
+    of position, interpolated at the nodes on resolution.
+
+    An integrator steps from it, `NewtonSolve` iterates from it, and a steady linear
+    solve ignores it. `rate` has a meaning only at second order (the wave equation,
+    elastic dynamics) and is zero when omitted. Neither may be `TimeDependent`: the
+    state at one instant does not vary in time.
+    '''
+    value: FieldValue
+    rate: FieldValue | None = None
+
+    def __post_init__(self) -> None:
+        for name in ('value', 'rate'):
+            if isinstance(getattr(self, name), TimeDependent):
+                raise TypeError(f'Initial.{name} is the state at t = 0 and cannot be TimeDependent')
+
+    @property
+    def is_time_dependent(self) -> bool:
+        return False
 
 
 @dataclass(frozen=True, init=False)
@@ -51,28 +80,30 @@ class Conditions:
     built with the variadic constructor, or by `conditions + item`.
 
     At most one volume `Source`, since the residual estimator reads *the* pointwise
-    source; a second one is refused rather than summed.
+    source, and at most one `Initial`, since a solve starts from one state; a second
+    of either is refused rather than summed.
     '''
-    items: tuple[Condition | Load, ...]
+    items: tuple[Condition | Load | Initial, ...]
 
-    def __init__(self, *items: Condition | Load | Conditions) -> None:
-        flat: list[Condition | Load] = []
+    def __init__(self, *items: Condition | Load | Initial | Conditions) -> None:
+        flat: list[Condition | Load | Initial] = []
         for item in items:
             if isinstance(item, Conditions):
                 flat.extend(item.items)
-            elif isinstance(item, (Condition, Source, PointLoad)):
+            elif isinstance(item, (Condition, Source, PointLoad, Initial)):
                 flat.append(item)
             else:
                 raise TypeError(
-                    'expected a Dirichlet, Neumann, or Robin condition, a Source, or a '
-                    f'PointLoad, got {type(item).__name__}'
+                    'expected a Dirichlet, Neumann, or Robin condition, a Source, a '
+                    f'PointLoad, or an Initial, got {type(item).__name__}'
                 )
-        sources = [item for item in flat if isinstance(item, Source)]
-        if len(sources) > 1:
-            raise ValueError(f'one volume source at most; got {sources[0]} and {sources[1]}')
+        for kind, what in ((Source, 'volume source'), (Initial, 'initial state')):
+            found = [item for item in flat if isinstance(item, kind)]
+            if len(found) > 1:
+                raise ValueError(f'one {what} at most; got {found[0]} and {found[1]}')
         object.__setattr__(self, 'items', tuple(flat))
 
-    def __add__(self, other: Condition | Load | Conditions) -> Conditions:
+    def __add__(self, other: Condition | Load | Initial | Conditions) -> Conditions:
         return Conditions(*self.items, other)
 
     def __iter__(self):
@@ -107,6 +138,11 @@ class Conditions:
     @property
     def point_loads(self) -> tuple[PointLoad, ...]:
         return tuple(item for item in self.items if isinstance(item, PointLoad))
+
+    @property
+    def initial(self) -> Initial | None:
+        '''The initial state, or None for the Dirichlet lift at rest.'''
+        return next((item for item in self.items if isinstance(item, Initial)), None)
 
     @property
     def is_time_dependent(self) -> bool:
@@ -205,11 +241,27 @@ class Conditions:
         loads += [BoundaryLoad.over(space, c.facet_mask, c.node_idxs, c.value) for c in neumann]
         loads += [BoundaryLoad.over(space, c.facet_mask, c.node_idxs, c.value) for c in robin]
         loads += list(self.point_loads)
-        return ResolvedConditions(
+
+        # The initial state defaults to the Dirichlet lift (the prescribed values at the
+        # fixed DOFs, zero elsewhere) at rest, which every solve can start from. A given
+        # one must agree with the constraints at t = 0: a solve would otherwise jump to
+        # satisfy them at its first step, which is a modelling error, not a transient.
+        lift = np.zeros(space.n_dofs)
+        lift[fixed_idxs] = fixed_values
+        initial = NodalField(space, lift)
+        initial_rate = NodalField(space, np.zeros(space.n_dofs))
+        if self.initial is not None:
+            initial = space.interpolate(self.initial.value)
+            if self.initial.rate is not None:
+                initial_rate = space.interpolate(self.initial.rate)
+        resolved = ResolvedConditions(
             space=space, fixed_idxs=fixed_idxs, free_idxs=free_idxs, fixed_values=fixed_values,
+            initial=initial, initial_rate=initial_rate,
             dirichlet=tuple(dirichlet), neumann=tuple(neumann), robin=tuple(robin),
             operator_terms=operator_terms, source=self.source, loads=tuple(loads),
         )
+        resolved.check_initial(initial, initial_rate)
+        return resolved
 
 
 @dataclass(frozen=True)
@@ -227,6 +279,8 @@ class ResolvedConditions:
     fixed_idxs: DofIndices      # DOF indices held by Dirichlet conditions
     free_idxs: DofIndices       # the complement
     fixed_values: FloatArray    # values at fixed_idxs, same order
+    initial: NodalField         # the state at t = 0; the Dirichlet lift when none was given
+    initial_rate: NodalField    # its time derivative at t = 0; zero when none was given
     dirichlet: tuple[DirichletContribution, ...] = ()
     neumann: tuple[NeumannContribution, ...] = ()
     robin: tuple[RobinContribution, ...] = ()
@@ -268,6 +322,20 @@ class ResolvedConditions:
     def load_at(self, t: float) -> DofVector:
         '''The sum of the load terms at time `t`.'''
         return total_load(self.loads, self.space, t)
+
+    def check_initial(self, u: DofVector | NodalField,
+                      rate: DofVector | NodalField | None = None) -> None:
+        '''Refuse a starting state that disagrees with the Dirichlet data at `t = 0`:
+        `u` must take the prescribed values at the fixed DOFs and `rate` must be zero
+        there, since a fixed value does not move.'''
+        u = np.asarray(u, dtype=float)
+        if u.shape != (self.space.n_dofs,):
+            raise ValueError(
+                f'the initial state has {u.shape} entries; the space has {self.space.n_dofs} DOFs')
+        if not np.allclose(u[self.fixed_idxs], self.fixed_values):
+            raise ValueError('the initial state disagrees with the Dirichlet values at fixed nodes')
+        if rate is not None and not np.allclose(np.asarray(rate, dtype=float)[self.fixed_idxs], 0):
+            raise ValueError('the initial rate must be zero at Dirichlet-fixed nodes')
 
     def constraints_at(self, t: float) -> Constraints:
         '''The Dirichlet partition at time `t`: the same DOFs as `constraints`, with

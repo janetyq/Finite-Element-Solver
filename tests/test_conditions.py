@@ -2,11 +2,11 @@
 import numpy as np
 import pytest
 
-from fem.algebra.integrators import NewmarkMethod
+from fem.algebra.integrators import NewmarkMethod, ThetaMethod
 from fem.boundary import Dirichlet, Neumann, Robin
-from fem.conditions import Conditions, ResolvedConditions
+from fem.conditions import Conditions, Initial, ResolvedConditions
 from fem.loads import BoundaryLoad, PointLoad, Source
-from fem.physics.equations import LinearElastic, Poisson
+from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
 from fem.physics.forms import ScaledForm
 from fem.regions import TimeDependent, at_indices, everywhere, on_plane
 from fem.space import FunctionSpace
@@ -138,3 +138,73 @@ def test_a_traction_on_a_pinned_component_conflicts_whatever_its_value(make_unit
     resolved = rolling.resolve(space)
     assert len(resolved.neumann) == 1
     np.testing.assert_allclose(resolved.at(1.0).neumann[0].nodal_values[:, 1], 0.0)
+
+
+# -- the initial state -------------------------------------------------------------------
+
+
+def test_initial_is_one_item_at_most_and_never_time_dependent():
+    with pytest.raises(ValueError, match='one initial state'):
+        Conditions(Initial(0.0), Initial(1.0))
+    with pytest.raises(TypeError, match='TimeDependent'):
+        Initial(TimeDependent(lambda p, t: t))
+    with pytest.raises(TypeError, match='TimeDependent'):
+        Initial(0.0, rate=TimeDependent(lambda p, t: t))
+    conditions = Conditions(Dirichlet(everywhere(), 0.0), Initial(1.0))
+    assert conditions.initial == Initial(1.0) and not conditions.is_time_dependent
+
+
+def test_no_initial_resolves_to_the_dirichlet_lift_at_rest(make_unit_square):
+    space = FunctionSpace(make_unit_square(4), n_components=1)
+    resolved = Conditions(Dirichlet(on_plane(0, 0.0), 3.0)).resolve(space)
+    lift = resolved.initial.dofs
+    assert np.allclose(lift[resolved.fixed_idxs], 3.0) and np.allclose(lift[resolved.free_idxs], 0.0)
+    assert np.allclose(resolved.initial_rate.dofs, 0.0)
+
+
+def test_initial_is_interpolated_at_the_nodes_and_checked_against_dirichlet(make_unit_square):
+    space = FunctionSpace(make_unit_square(4), n_components=1)
+    profile = Initial(lambda p: 1.0 + p[0], rate=lambda p: p[0])
+    resolved = Conditions(Dirichlet(on_plane(0, 0.0), 1.0), profile).resolve(space)
+    np.testing.assert_allclose(resolved.initial.dofs, 1.0 + space.node_coords[:, 0])
+    np.testing.assert_allclose(resolved.initial_rate.dofs, space.interpolate(profile.rate).dofs)
+    with pytest.raises(ValueError, match='disagrees with the Dirichlet'):
+        Conditions(Dirichlet(on_plane(0, 0.0), 0.0), profile).resolve(space)
+    with pytest.raises(ValueError, match='rate must be zero'):
+        Conditions(Dirichlet(on_plane(0, 1.0), 2.0), profile).resolve(space)
+
+
+def test_integrators_step_from_the_initial_state_unless_overridden(make_unit_square):
+    mesh = make_unit_square(5)
+    hot = Conditions(Dirichlet(on_plane(0, 0.0), 1.0), Initial(lambda p: 1.0 - p[0]))
+    heat = Heat().problem(mesh, hot)
+    stepped = ThetaMethod(dt=0.05, steps=4).solve(heat)
+    by_hand = ThetaMethod(dt=0.05, steps=4).solve(heat, heat.space.interpolate(lambda p: 1.0 - p[0]))
+    np.testing.assert_allclose(stepped.dofs, by_hand.dofs)
+    continued = ThetaMethod(dt=0.05, steps=2).solve(heat, stepped[2])
+    np.testing.assert_allclose(continued.dofs[-1], stepped.dofs[-1])
+    with pytest.raises(ValueError, match='disagrees with the Dirichlet'):
+        ThetaMethod(dt=0.05, steps=1).solve(heat, np.zeros(heat.space.n_dofs))
+
+    def bump(p):
+        return np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])
+
+    wave = Wave().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0), Initial(0.0, rate=bump)))
+    rest = Wave().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0)))
+    rung = NewmarkMethod(dt=0.02, steps=5).solve(wave)
+    np.testing.assert_allclose(rung.dofs[0], 0.0)
+    assert np.abs(rung.dofs[-1]).max() > 1e-3
+    np.testing.assert_allclose(NewmarkMethod(dt=0.02, steps=5).solve(rest).dofs, 0.0)
+
+
+def test_newton_iterates_from_the_initial_state(make_unit_square):
+    """A linear problem is solved in one Newton step from any seed, so the answer is the
+    same; the seed shows in the iterate count `NewtonSolve` reports through its tolerance."""
+    from fem.algebra.solve import NewtonSolve
+    mesh = make_unit_square(4)
+    bc = Conditions(Dirichlet(on_plane(0, 0.0), 0.0), Source(1.0))
+    cold = Poisson().problem(mesh, bc)
+    warm = Poisson().problem(mesh, bc + Initial(lambda p: p[0]))
+    reference = cold.solve().dofs
+    np.testing.assert_allclose(NewtonSolve().solve(warm), reference, atol=1e-10)
+    np.testing.assert_allclose(NewtonSolve().solve(cold, u0=warm.initial), reference, atol=1e-10)
