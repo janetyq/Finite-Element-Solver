@@ -21,7 +21,8 @@ from fem.physics.materials import LinearElasticMaterial
 from fem.problem import Problem
 from fem.regions import on_plane
 from fem.physics.equations import LinearElastic, FiniteStrainElastic
-from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve, TangentRegularization
+from fem.algebra.solve import BacktrackingLineSearch, NewtonDivergence, NewtonSolve, TangentRegularization
+from fem.algebra.system import DiscreteSystem
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.forms import EnergyForm
 from fem.numerics import central_difference_order
@@ -69,8 +70,45 @@ def _minimise(problem):
 
 
 def _one_newton_step(problem):
-    """Displacement after a single Newton step from the zero initial guess."""
-    return NewtonSolve(max_iters=1).solve(problem)
+    """Displacement after a single Newton step from the zero initial guess: the
+    iterate itself, which `NewtonSolve` never hands out unconverged."""
+    free, fixed, fixed_values = problem.constraints
+    u = np.zeros(problem.space.n_dofs)
+    u[fixed] = fixed_values
+    step = DiscreteSystem(problem.tangent(u), (free, fixed, np.zeros(len(fixed)))).solve(
+        -problem.residual(u))
+    return u + step
+
+
+def test_newton_refuses_to_return_an_unconverged_state(make_unit_square):
+    """St-VK needs several steps; capping the count below that raises rather than
+    returning the iterate as if it were the answer."""
+    mesh, bc = _stretched_square(make_unit_square)
+    problem = FiniteStrainElastic(E=200, nu=0.4).problem(mesh, bc)
+
+    with pytest.raises(NewtonDivergence, match="did not converge in 1 iteration") as info:
+        NewtonSolve(max_iters=1).solve(problem)
+
+    # The exception carries the attempt: one applied step, with the Dirichlet values
+    # in place, and a seed from which the solve completes.
+    attempt = info.value
+    assert attempt.iterations == 1 and np.isfinite(attempt.step_norm)
+    free, fixed, fixed_values = problem.constraints
+    np.testing.assert_allclose(attempt.u[fixed], fixed_values)
+    assert np.any(attempt.u[free] != 0.0)
+    u = NewtonSolve().solve(problem, u0=attempt.u)
+    np.testing.assert_allclose(problem.residual(u)[free], 0.0, atol=1e-8)
+
+
+def test_stress_recovery_refuses_an_inverted_state(make_unit_square):
+    """A state that turns an element inside out (det F <= 0) has no physical stress;
+    asking for one raises instead of reporting NaN or infinity."""
+    mesh, bc = _stretched_square(make_unit_square)
+    problem = FiniteStrainElastic(E=200, nu=0.4).problem(mesh, bc)
+    folded = problem.space.interpolate(lambda p: [-2.0 * p[0], 0.0])   # F_xx = -1
+
+    with pytest.raises(RuntimeError, match="inverted"):
+        problem.solution(folded.dofs)
 
 
 def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_square):
@@ -86,21 +124,17 @@ def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_s
     problem = equation.problem(mesh, bc)
     free = problem.constraints[0]
 
-    def free_residual(line_search):
-        u = NewtonSolve(max_iters=50, line_search=line_search).solve(problem)
-        return float(np.linalg.norm(problem.residual(u)[free]))
+    with pytest.raises(RuntimeError, match="did not converge"):
+        NewtonSolve(max_iters=50, line_search=None).solve(problem)
 
-    r_full = free_residual(None)
-    r_searched = free_residual(BacktrackingLineSearch())
+    u = NewtonSolve(max_iters=50, line_search=BacktrackingLineSearch()).solve(problem)
+    r_searched = float(np.linalg.norm(problem.residual(u)[free]))
 
     # The point is that the line search reaches equilibrium at all where the full step
-    # blows up (below versus O(10)). The residual bound is deliberately loose: the tangent
-    # is near-singular here, so the residual at the minimum amplifies floating-point noise
-    # in the displacement and is not a stable polish target.
+    # blows up. The residual bound is deliberately loose: the tangent is near-singular
+    # here, so the residual at the minimum amplifies floating-point noise in the
+    # displacement and is not a stable polish target.
     assert r_searched < 1e-3, f"line search should converge, got residual {r_searched:.2e}"
-    assert not np.isfinite(r_full) or r_full > 1e-2, (
-        f"the full step should fail to converge here, got residual {r_full:.2e}"
-    )
 
 
 def test_each_elastic_model_names_its_energy_density():

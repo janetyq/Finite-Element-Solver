@@ -81,6 +81,7 @@ from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.algebra.solve import (
     BacktrackingLineSearch,
     LinearSolve,
+    NewtonDivergence,
     NewtonSolve,
     EigenSolve,
     SolveStrategy,
@@ -222,6 +223,7 @@ __all__ = [
     "SolveStrategy",
     "LinearSolve",
     "NewtonSolve",
+    "NewtonDivergence",
     "default_strategy",
     "BacktrackingLineSearch",
     "TangentRegularization",

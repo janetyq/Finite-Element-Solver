@@ -431,7 +431,8 @@ Exceptions: `NotImplementedError` for a capability an object does not have, nami
 alternative (`'Use NewtonSolve.'`); `TypeError` for the wrong kind of object (a state-dependent
 form handed to `LinearSolve` or `SIMPModel`, an abstract base instantiated); `ValueError` for bad
 data (a field of the wrong length, a negative volume fraction); `RuntimeError` for a solve that
-ran and failed (a singular factorization, a backend that rejected every shift).
+ran and failed (a singular factorization, a backend that rejected every shift). A failure with a
+usable partial result carries it on the exception: `NewtonDivergence.u` is the last iterate.
 
 ## The recurring pattern
 

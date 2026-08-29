@@ -147,6 +147,19 @@ class TangentRegularization:
             tau *= self.growth
 
 
+class NewtonDivergence(RuntimeError):
+    '''`NewtonSolve` ran out of iterations. The last iterate is `u`, with `iterations`
+    taken and the `step_norm` of the increment it would have applied next, for a
+    caller that wants the best attempt (a seed for a closer solve, a plot of where the
+    iteration went) rather than an answer.'''
+
+    def __init__(self, message: str, u: DofVector, iterations: int, step_norm: float) -> None:
+        super().__init__(message)
+        self.u = u
+        self.iterations = iterations
+        self.step_norm = step_norm
+
+
 @dataclass(frozen=True)
 class NewtonSolve:
     '''Newton's method on r(u) = 0, re-factoring the tangent each iteration.
@@ -156,6 +169,10 @@ class NewtonSolve:
     needs no special-casing. Convergence is checked before the step is applied, so a
     sub-tolerance increment is never added: on a `LinearProblem` the first step is
     exact and the second is zero, so the exact answer is reached in one applied step.
+    The test is relative, `‖Δu‖ < tol · max(1, ‖u‖)`, so `tol` means the same on a
+    metre-scale field as on a millimetre one. Exhausting `max_iters` without meeting
+    it raises `NewtonDivergence`, which carries the last iterate; an unconverged state
+    is never returned as an answer.
 
     `line_search=None` takes the full step every iteration (the plain method). Passing
     a `BacktrackingLineSearch` globalizes it: each step is scaled to decrease a merit,
@@ -194,14 +211,22 @@ class NewtonSolve:
 
         regularization = self.regularization_for(backend)
         step_constraints = (free, fixed, np.zeros(len(fixed)))
+        step_norm = np.inf
         for _ in range(self.max_iters):
             residual = problem.residual(u)
             step = self._compute_step(problem, u, residual, free, step_constraints,
                                       backend, regularization)
-            if np.linalg.norm(step) < self.tol:
-                break
+            step_norm = float(np.linalg.norm(step))
+            if step_norm < self.tol * max(1.0, float(np.linalg.norm(u))):
+                return u
             u = self._advance(problem, free, u, step, residual)
-        return u
+        raise NewtonDivergence(
+            f'Newton did not converge in {self.max_iters} iterations: the last step had '
+            f'norm {step_norm:.3e} against a tolerance of {self.tol:.1e} relative to the '
+            f'state. Raise max_iters, add a line search, or start from a closer seed; '
+            f'the last iterate is on the exception as `u`.',
+            u, self.max_iters, step_norm,
+        )
 
     def _compute_step(
         self, problem: Problem, u: DofVector, residual: DofVector,
