@@ -115,7 +115,7 @@ def test_a_point_load_is_a_nodal_force(make_unit_square):
 
     load = problem.load.reshape(-1, 2)
     assert load[tip, 1] == -1.0 and np.count_nonzero(load) == 1
-    assert problem.solve().dofs.reshape(-1, 2)[tip, 1] < 0
+    assert problem.solve().component(1)[tip] < 0
 
     with pytest.raises(ValueError, match='selects no node'):
         PointLoad(at_indices([]), [0.0, -1.0]).vector(problem.space)

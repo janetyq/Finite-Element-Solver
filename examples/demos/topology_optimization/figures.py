@@ -14,7 +14,7 @@ from fem.mesh.structured import box_mesh
 
 
 def _comparison_figure(s: TopologyStudy) -> Figure:
-    solid_disp = np.linalg.norm(s.solid.dofs.reshape(-1, 2), axis=1)
+    solid_disp = np.linalg.norm(s.solid.nodal_values, axis=1)
     # Explicit figsize: two 4:1 panels stacked, each filling its row.
     comparison = Plotter(2, 1, figsize=(6.5, 4.6),
                          title='Half the material, comparable stiffness')

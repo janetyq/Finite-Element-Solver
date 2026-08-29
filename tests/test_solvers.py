@@ -130,7 +130,7 @@ def test_linear_elastic_stretches_under_tension(make_unit_square):
     bx = mesh.vertices[bidx, 0]
     left, right = bidx[np.isclose(bx, 0.0)], bidx[np.isclose(bx, 1.0)]
 
-    u = solution.dofs.reshape(-1, 2)
+    u = solution.nodal_values
     assert np.all(np.isfinite(u)), "displacement field has non-finite entries"
     assert np.allclose(u[left], 0.0, atol=1e-10), "fixed edge moved"
     assert u[right, 0].mean() > 0, "right edge did not elongate in +x"

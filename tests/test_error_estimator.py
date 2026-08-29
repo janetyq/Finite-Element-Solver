@@ -222,7 +222,7 @@ def _constant_stress(problem, sigma_xx, sigma_yy, sigma_xy):
     stress[:, 1, 1] = sigma_yy
     stress[:, 0, 1] = stress[:, 1, 0] = sigma_xy
     return ElasticSolution(
-        space, u=np.zeros(space.n_dofs),
+        space, dofs=np.zeros(space.n_dofs),
         strain=np.zeros((n, 3, 3)), stress=stress, compliance=np.zeros(n),
     )
 
@@ -347,4 +347,4 @@ def test_adaptive_refinement_elasticity_runs_end_to_end(make_unit_square):
     assert np.all(np.isfinite(solution.dofs))
 
     left = np.flatnonzero(np.abs(final.vertices[:, 0]) < 1e-12)
-    assert np.allclose(solution.dofs.reshape(-1, 2)[left], 0.0, atol=1e-12)
+    assert np.allclose(solution.nodal_values[left], 0.0, atol=1e-12)

@@ -45,8 +45,7 @@ def _element_dof_vectors(space: FunctionSpace, vector: DofVector) -> FloatArray:
     reshape `ElasticSolution.from_solve` uses, so the local vector lines up with the
     columns of a `LinearElasticForm` element matrix.
     '''
-    per_node = np.asarray(vector, dtype=float).reshape(-1, space.n_components)
-    return per_node[space.element_nodes].reshape(len(space.element_nodes), -1)
+    return NodalField(space, vector).element_values.reshape(len(space.element_nodes), -1)
 
 
 # -- quantities of interest ----------------------------------------------------
