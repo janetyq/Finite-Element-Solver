@@ -206,8 +206,8 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   (the corner treatment in `RuppertsAlgorithm._split_point` / `_spans_a_sharp_corner` keeps output
   size monotonic in input size), so a sweep over `Outline.simplified(tolerance)` should report it.
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI; the prose
-  half is still open, but narrowly: `mesh/mesh.py`, `mesh/ruppert.py`, `mesh/svg.py` and
-  `plot/plotter.py` are the modules left with no module docstring. The rest of the core has one.
+  half is still open, but narrowly: `mesh/ruppert.py` and `plot/plotter.py` are the modules left
+  with no module docstring. The rest of the core has one.
 - 💡 **Tighten pyright to `standard`.** It runs in `basic`, which infers types for the unannotated
   internals rather than demanding annotations. Annotating the internals (`refinement`, `ruppert`,
   `energies`, `plot`) would let the mode step up.

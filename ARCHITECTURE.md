@@ -136,7 +136,7 @@ two elastic forms share with `ElasticSolution` and `StressField`.
 
 | Class | 1 Geom | 2 Space | 3 Phys | 4 Asm | 5 Cons | 6 Alg | 7 Time | 8 Drive | 9 Post |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `Mesh`, `Curve` | █ | | | | | | | | |
+| `Mesh`, `Outline` and its pieces (`Curve`), `PSLG` | █ | | | | | | | | |
 | `RuppertsAlgorithm`, `RedGreenRefiner` | █ | | | | | | | | |
 | `Element` / `ElementGeometry`, `QuadratureRule` | | ▒ | | ▒ | | | | | |
 | `FunctionSpace` | | ▒ | | █ | | | | | |

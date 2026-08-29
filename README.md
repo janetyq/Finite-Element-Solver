@@ -22,10 +22,10 @@ below are a subset of it, with the full captions in the gallery.
 
 ## Meshing a domain
 
-The library includes its own meshing. An outline, traced from an SVG or generated, is
-simplified with Douglas-Peucker, triangulated with Ruppert's algorithm
-(`pslg.mesh(min_angle=..., max_area_fraction=...)`) to a minimum-angle and maximum-area
-bound, and can then be adaptively refined where the solution needs it (shown in later
+The library includes its own meshing. An `Outline` of lines, arcs, circles, and Bezier
+curves, drawn by hand or traced from an SVG, is simplified with Douglas-Peucker and
+triangulated with Ruppert's algorithm (`outline.mesh(min_angle=..., max_area_fraction=...)`)
+to a minimum-angle and maximum-area bound, and can then be adaptively refined where the solution needs it (shown in later
 demos). Each boundary facet of the result is tagged with the outline it came from, so a
 hole can take a condition by `on_tag(1)` rather than by coordinates. Below, the same Poisson problem
 ($-\nabla^2 u = 1$ with $u = 0$ on the boundary) is solved on four outlines. Each asks
@@ -276,22 +276,8 @@ result is typed by the physics: `Poisson(...).problem(mesh, bc).solve()` is a
 
 ### What you choose at each step
 
-Every solve is the same chain. The equation builds a `Problem` from the geometry and the
-conditions; the problem is solved, stepped in time, or analysed; the result is a typed solution
-that the plotter draws:
-
-```
-Mesh ──► Equation.problem(mesh, bc, element_type=) ──► Problem ──► .solve(strategy=, backend=) ──► Solution
-           ▲ regions, conditions, loads                    │                                          │
-                                                           ├─ ThetaMethod / NewmarkMethod .solve(problem, u0)
-                                                           ├─ BucklingAnalysis / ModalAnalysis .solve(problem)
-                                                           └─ AdaptiveRefinement / DesignOptimizer (re-solve in a loop)
-                                                                                        Plotter.plot(solution, values)
-```
-
-The first six rows below are the inputs to `Equation.problem`; strategy and backend are the two
-arguments of `.solve`; the rest are the other consumers of a `Problem` and what they return.
-Every name is importable from `fem`; `ARCHITECTURE.md` explains how they fit.
+Every step of a solve is one choice among a few named objects, all importable from `fem`.
+`ARCHITECTURE.md` explains how they fit; this is the menu.
 
 | Step | Options | Default |
 |---|---|---|
