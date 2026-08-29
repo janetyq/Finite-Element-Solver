@@ -21,7 +21,7 @@ from fem.mesh.pslg import PSLG
 from fem.regions import intersect, on_plane
 from fem.post.solution import ElasticSolution
 
-from domains import plate_with_hole_pslg
+from domains import plate_with_hole_outline
 
 equation = LinearElastic(E=200, nu=0.3)
 
@@ -37,25 +37,26 @@ def finite_plate_kt(hole_over_width: float) -> float:
 
 
 def rim_facets(mesh: Mesh) -> int:
-    """How many boundary facets lie on the hole: `plate_with_hole_pslg` draws the hole
+    """How many boundary facets lie on the hole: `plate_with_hole_outline` draws the hole
     as loop 1, and Ruppert's tags every facet with the loop it came from."""
     assert mesh.boundary_tags is not None
     return int(np.sum(mesh.boundary_tags == 1))
 
 
-def mesh_plate(length, height, radius, circle_segments, min_angle,
+def mesh_plate(length, height, radius, rim_chords, min_angle,
                max_area_fraction) -> tuple[PSLG, Mesh]:
-    """The outline and its coarse Ruppert's triangulation.
+    """The sampled outline and its coarse Ruppert's triangulation.
 
-    The hole is a coarse 16-gon, which is enough: `plate_with_hole_pslg` tags the hole
-    loop with a `Circle`, so Ruppert's split points, red-green refinement, and the
-    isoparametric element's edge nodes all land on the true rim. The mesh's
-    `boundary_tags` name the rim (loop 1) on every mesh refinement builds from it.
+    The hole is sampled as a coarse `rim_chords`-gon, which is enough: the hole is a
+    `Circle`, so Ruppert's split points, red-green refinement, and the isoparametric
+    element's edge nodes all land on the true rim. The mesh's `boundary_tags` name the
+    rim (loop 1) on every mesh refinement builds from it.
     """
-    pslg = plate_with_hole_pslg(length, height, radius, segments=circle_segments)
+    outline = plate_with_hole_outline(length, height, radius)
+    graph = outline.sample(resolution=2 * np.pi * radius / rim_chords / outline.extent)
     # Coarse: resolving the rim is adaptive refinement's job. The rim still grades
     # finer than the interior, since Ruppert's honours its short segments.
-    return pslg, pslg.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
+    return graph, graph.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
 
 
 def plate_bc(length, traction) -> BoundaryConditions:
@@ -139,10 +140,10 @@ class PlateStudy:
 
 
 def run(traction=1.0, length=6.0, height=3.0, radius=0.15, min_angle=25,
-        max_area_fraction=0.01, circle_segments=16, refinement_iters=36,
+        max_area_fraction=0.01, rim_chords=16, refinement_iters=36,
         refinement_budget=40000) -> PlateStudy:
     """Mesh the plate, refine into the rim, and read the concentration off it."""
-    pslg, mesh = mesh_plate(length, height, radius, circle_segments, min_angle,
+    pslg, mesh = mesh_plate(length, height, radius, rim_chords, min_angle,
                             max_area_fraction)
     n_initial, initial_worst_angle = len(mesh.elements), mesh.min_angle
     initial_rim_facets = rim_facets(mesh)

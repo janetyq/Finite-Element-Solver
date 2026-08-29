@@ -18,10 +18,10 @@ from fem.mesh.structured import box_mesh
 from fem.regions import TimeDependent, in_box, on_plane, union
 from fem.post.solution import TransientSolution
 
-from domains import heatsink_pslg
+from domains import heatsink_outline
 
-FIN_THICKNESS = 0.22    # matches the sink's own fins (heatsink_pslg's fin_width default)
-FIN_LENGTH = 1.4        # the length of this sink's fins (heatsink_pslg's fin_height default)
+FIN_THICKNESS = 0.22    # matches the sink's own fins (heatsink_outline's fin_width default)
+FIN_LENGTH = 1.4        # the length of this sink's fins (heatsink_outline's fin_height default)
 
 
 def heatsink_film(mesh):
@@ -235,9 +235,9 @@ def run(dt=0.05, steps=30, kappa=0.3, u_ambient=300.0, u_hot=400.0, ramp=0.6, fl
     """Mesh the sink, warm it up, compare it with a block, and validate its fins."""
     # A heatsink conducts heat up its fins and sheds it, so the shape is worth measuring;
     # the mesh is built here because it is part of what the demo says.
-    pslg = heatsink_pslg()
-    target_area = max_area_fraction * pslg.area()
-    mesh = pslg.mesh(min_angle=min_angle, max_area=target_area)
+    outline = heatsink_outline()
+    target_area = max_area_fraction * outline.area()
+    mesh = outline.mesh(min_angle=min_angle, max_area=target_area)
     width = float(np.max(mesh.vertices[:, 0]))
     height = float(np.max(mesh.vertices[:, 1]))
     # The naive baseline: a solid block of the same bounding box. The fins carve channels

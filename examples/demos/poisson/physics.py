@@ -15,7 +15,7 @@ from fem.mesh.mesh import Mesh
 from fem.regions import on_plane
 from fem.post.solution import ScalarFieldSolution
 
-from domains import airfoil_channel_pslg
+from domains import airfoil_channel_outline
 
 
 @dataclass
@@ -46,8 +46,8 @@ def run(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0, n_points=80, mi
     # source. The wing carries no
     # flow through it, the natural (zero-flux) condition of the weak form: say nothing
     # on its surface and it becomes a streamline the flow parts around.
-    pslg = airfoil_channel_pslg(length, height, chord, angle_of_attack, n_points=n_points)
-    mesh = pslg.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
+    outline = airfoil_channel_outline(length, height, chord, angle_of_attack, n_points=n_points)
+    mesh = outline.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
 
     equation = Poisson(source=0)   # Laplace: no sources in the flow
     # phi rises from inlet to outlet, so v = grad(phi) runs left to right. The wing and

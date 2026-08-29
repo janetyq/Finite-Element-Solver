@@ -20,7 +20,7 @@ from fem.problem import RayleighDamping
 from fem.regions import TimeDependent, at_indices, on_plane
 from fem.post.solution import ModalSolution, TransientSolution
 
-from domains import tuning_fork_pslg
+from domains import tuning_fork_outline
 
 # Real SI steel, so the frequencies come out in Hz a musician would recognise.
 E, NU, RHO = 2.0e11, 0.3, 7850.0             # Young's (Pa), Poisson, density (kg/m^3)
@@ -43,8 +43,8 @@ def fork_modes(tine_length, tine_thickness, n_modes, across, min_angle=27) -> Mo
     The element size is set by resolving the thin tine, `across` elements through its
     thickness, since bending curves across it.
     """
-    pslg = tuning_fork_pslg(tine_length=tine_length, tine_thickness=tine_thickness)
-    mesh = pslg.mesh(min_angle=min_angle, max_area=0.5*(tine_thickness/across)**2)
+    outline = tuning_fork_outline(tine_length=tine_length, tine_thickness=tine_thickness)
+    mesh = outline.mesh(min_angle=min_angle, max_area=0.5*(tine_thickness/across)**2)
     problem = LinearElastic(E, NU, density=RHO).problem(
         mesh, clamp, element_type=QuadraticTriangleElement)
     return ModalAnalysis(n_modes=n_modes).solve(problem)

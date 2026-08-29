@@ -22,13 +22,13 @@ import logging
 from typing import TYPE_CHECKING
 
 from fem.mesh.mesh import Mesh
-from fem.mesh.curves import Arc, Circle, Curve
+from fem.mesh.curves import Arc, Circle, CubicBezier, Curve, Line, Piece
 from fem.space import FunctionSpace
 from fem.mesh.structured import annulus_mesh, box_mesh
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.pslg import PSLG
-from fem.mesh.svg import read_svg_to_pslg
+from fem.mesh.outline import Outline, douglas_peucker
 from fem.elements import (
     LinearLineElement,
     LinearTriangleElement,
@@ -156,14 +156,18 @@ __all__ = [
     "Mesh",
     "Arc",
     "Circle",
+    "CubicBezier",
     "Curve",
+    "Line",
+    "Piece",
     "FunctionSpace",
     "box_mesh",
     "annulus_mesh",
     "RuppertsAlgorithm",
     "RedGreenRefiner",
     "PSLG",
-    "read_svg_to_pslg",
+    "Outline",
+    "douglas_peucker",
     "LinearLineElement",
     "LinearTriangleElement",
     "LinearTetrahedralElement",

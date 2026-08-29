@@ -5,7 +5,7 @@ from matplotlib.widgets import Button, Slider
 
 from fem.plot.plotter import Plotter
 from fem.plot.helpers import plot_mesh
-from fem.mesh.svg import douglas_peucker
+from fem.mesh.outline import douglas_peucker
 
 from demo_registry import Demo, DemoResult, Figure
 from demos.outline_to_mesh import physics

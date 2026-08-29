@@ -1,6 +1,6 @@
-"""Curved outlines through the meshing pipeline: PSLG -> Ruppert -> refinement.
+"""Curved outlines through the meshing pipeline: Outline -> PSLG -> Ruppert -> refinement.
 
-A PSLG loop that carries a `Circle` produces a mesh whose rim facets carry that circle,
+An outline loop that is a `Circle` produces a mesh whose rim facets carry that circle,
 so Ruppert's split points and the red-green midpoints land on the true curve and an
 isoparametric solve reads a round boundary. The Kirsch test is the physical payoff.
 """
@@ -11,10 +11,10 @@ from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.physics.forms import LinearElasticForm
 from fem.physics.materials import LinearElasticMaterial
-from fem.mesh.curves import Arc, Circle
+from fem.mesh.curves import Arc, Circle, Line
+from fem.mesh.outline import Outline
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.ruppert import RuppertsAlgorithm
-from fem.mesh.pslg import PSLG
 from fem.problem import LinearProblem
 from fem.regions import intersect, on_plane
 from fem.post.solution import ElasticSolution
@@ -23,17 +23,16 @@ from fem.space import FunctionSpace
 
 
 def _disk_pslg(radius, segments):
-    angles = np.linspace(0, 2 * np.pi, segments, endpoint=False)
-    rim = radius * np.column_stack([np.cos(angles), np.sin(angles)])
-    return PSLG.from_loops([rim], curves=[Circle([0.0, 0.0], radius)])
+    # `segments` chords around the rim: the resolution that gives that count.
+    outline = Outline([Circle([0.0, 0.0], radius)])
+    return outline.sample(resolution=2 * np.pi * radius / segments / outline.extent)
 
 
 def _plate_with_hole_pslg(length, height, radius, segments):
-    outline = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
-    cx, cy = length / 2, height / 2
-    angles = np.linspace(0, 2 * np.pi, segments, endpoint=False)
-    hole = np.column_stack([cx + radius * np.cos(angles), cy + radius * np.sin(angles)])
-    return PSLG.from_loops([outline, hole], curves=[None, Circle([cx, cy], radius)])
+    plate = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
+    outline = Outline([Outline.from_polygons([plate]).loops[0],
+                       (Circle([length / 2, height / 2], radius),)])
+    return outline.sample(resolution=2 * np.pi * radius / segments / outline.extent)
 
 
 def _disk_mesh(radius=1.0, segments=12, max_area=0.03):
@@ -76,16 +75,13 @@ def test_per_segment_curve_tags_only_the_arc_of_a_mixed_outline():
     segments: the projection follows the arc but leaves the straight edges alone."""
     radius = 0.2
     cx, cy = 1 - radius, 1 - radius
-    theta = np.linspace(0.0, np.pi / 2, 6)   # rounds the top-right corner of a unit square
-    arc_points = np.column_stack([cx + radius * np.cos(theta), cy + radius * np.sin(theta)])
-    points = np.array([[0.0, 0.0], [1.0, 0.0], *arc_points.tolist(), [0.0, 1.0]])
+    arc = Arc([cx, cy], radius, 0.0, np.pi / 2)   # rounds the top-right corner of a unit square
+    outline = Outline([(Line([0.0, 0.0], [1.0, 0.0]), Line([1.0, 0.0], arc.start), arc,
+                        Line(arc.end, [0.0, 1.0]), Line([0.0, 1.0], [0.0, 0.0]))])
+    pslg = outline.sample(resolution=0.05)
 
-    arc = Arc([cx, cy], radius, 0.0, np.pi / 2)
-    point_curves = [None, None, *([arc] * len(arc_points)), None]
-    pslg = PSLG.from_loops([points], curves=[point_curves])
-
-    # Only the segments between consecutive arc points carry the curve.
-    assert sum(c is not None for c in pslg.segment_curves) == len(arc_points) - 1
+    # Only the chords of the arc carry the curve; the straight edges are single chords.
+    assert sum(c is not None for c in pslg.segment_curves) == len(pslg.segments) - 4
 
     mesh = RuppertsAlgorithm(pslg, min_angle=30, max_area=0.02).refine()
     curved = [facet for facet, curve in zip(mesh.boundary, mesh.boundary_curves)

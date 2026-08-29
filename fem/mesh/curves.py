@@ -1,13 +1,14 @@
-"""Analytic boundary curves a mesh follows, and the projection onto them.
+"""The pieces an `Outline` is drawn from, and the projection onto them.
 
 A `Mesh` is straight-line: its boundary is a chain of chords. A `Curve` records the
 true curve a chain of boundary facets was sampled from, so a curved (isoparametric)
 element can place its boundary nodes on the curve instead of the chord, and refinement
-can drop a new boundary vertex onto it rather than at the chord midpoint.
+can drop a new boundary vertex onto it rather than at the chord midpoint. The one
+operation that needs is `project`: the nearest point on the curve to a given point.
 
-The one operation everything needs is `project`: the nearest point on the curve to a
-given point. Placing a P2 edge-midpoint node and splitting a boundary segment during
-refinement are both a projection of the straight midpoint onto the curve.
+A `Piece` is a `Curve` with two ends and a sampler: one stretch of an outline, straight
+(`Line`) or curved (`Arc`, `CubicBezier`), or a whole closed loop (`Circle`). An
+`Outline` joins pieces end to end and samples them into chords only when it is meshed.
 """
 from typing import Protocol, runtime_checkable
 
@@ -26,14 +27,97 @@ class Curve(Protocol):
         ...
 
 
+@runtime_checkable
+class Piece(Curve, Protocol):
+    '''One stretch of an outline: a curve with a start, an end, and a sampler.
+
+    `sample(n)` is `n + 1` points from `start` to `end` inclusive, the chords an
+    `Outline` meshes it by; `length` sizes `n`. A `Circle` is the one closed piece: its
+    start and end coincide and `sample(n)` returns `n` points without the repeat.
+    '''
+    closed: bool
+
+    @property
+    def start(self) -> FloatArray: ...
+
+    @property
+    def end(self) -> FloatArray: ...
+
+    def length(self) -> float: ...
+
+    def sample(self, n: int) -> FloatArray: ...
+
+
+def _coincide(a: FloatArray, b: FloatArray) -> bool:
+    '''Whether two points are the same to floating-point precision, relative to their
+    magnitude: a traced outline can hold edges a million times shorter than its extent,
+    which are still edges.'''
+    scale = max(1.0, float(np.max(np.abs(a))), float(np.max(np.abs(b))))
+    return bool(np.linalg.norm(a - b) <= 1e-12 * scale)
+
+
+class Line:
+    '''The straight piece from `start` to `end`.
+
+    An `Outline` samples a line as its two ends and gives the chord no curve: a straight
+    boundary facet carries `None`, so nothing downstream distinguishes a drawn line from
+    a chord of a polygon.
+    '''
+    closed = False
+
+    def __init__(self, start: FloatArray | list[float], end: FloatArray | list[float]) -> None:
+        self._start = np.asarray(start, dtype=float)
+        self._end = np.asarray(end, dtype=float)
+        if self._start.shape != (2,) or self._end.shape != (2,):
+            raise ValueError('a line needs two 2D endpoints')
+        if _coincide(self._start, self._end):
+            raise ValueError(f'a line needs distinct endpoints, got {self._start.tolist()} twice')
+
+    @property
+    def start(self) -> FloatArray:
+        return self._start
+
+    @property
+    def end(self) -> FloatArray:
+        return self._end
+
+    def length(self) -> float:
+        return float(np.linalg.norm(self._end - self._start))
+
+    def sample(self, n: int) -> FloatArray:
+        t = np.linspace(0.0, 1.0, n + 1)[:, None]
+        return self._start + t * (self._end - self._start)
+
+    def project(self, points: FloatArray) -> FloatArray:
+        p = np.asarray(points, dtype=float)
+        d = self._end - self._start
+        t = ((p - self._start) @ d) / float(d @ d)
+        t = np.clip(t, 0.0, 1.0)[..., None]
+        return self._start + t * d
+
+    def __repr__(self) -> str:
+        return f'Line({self._start.tolist()}, {self._end.tolist()})'
+
+
 class Circle:
-    '''A full circle of radius `radius` about `center`.'''
+    '''A full circle of radius `radius` about `center`: the one closed piece, a loop
+    of its own in an `Outline`.'''
+    closed = True
 
     def __init__(self, center: FloatArray | list[float], radius: float) -> None:
         self.center = np.asarray(center, dtype=float)
         self.radius = float(radius)
         if self.radius <= 0:
             raise ValueError(f'circle radius must be positive, got {self.radius}')
+
+    @property
+    def start(self) -> FloatArray:
+        return self.center + [self.radius, 0.0]
+
+    end = start
+
+    def length(self) -> float:
+        return 2.0 * np.pi * self.radius
 
     def project(self, points: FloatArray) -> FloatArray:
         p = np.asarray(points, dtype=float)
@@ -45,9 +129,9 @@ class Circle:
         safe = np.where(distance == 0, 1.0, distance)
         return self.center + self.radius * offset / safe
 
-    def polygon(self, n: int) -> FloatArray:
+    def sample(self, n: int) -> FloatArray:
         '''`n` points around the circle, `(n, 2)`, starting at angle 0, without the
-        closing repeat: the loop a `PSLG` samples the circle by.'''
+        closing repeat: the chords an `Outline` meshes the circle by.'''
         angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
         return self.center + self.radius * np.column_stack([np.cos(angles), np.sin(angles)])
 
@@ -60,8 +144,10 @@ class Arc:
 
     A point is projected onto the circle, then clamped to the arc's angular span: a
     point past an endpoint snaps to the nearer endpoint rather than to the far side of
-    the circle.
+    the circle. As a piece it runs counter-clockwise from `start_angle`; `reversed()`
+    is the same arc traversed the other way, for an outline drawn clockwise through it.
     '''
+    closed = False
 
     def __init__(
         self, center: FloatArray | list[float], radius: float,
@@ -77,6 +163,27 @@ class Arc:
             )
         self.start_angle = float(start_angle)
         self.end_angle = float(end_angle)
+        self._reversed = False
+
+    def reversed(self) -> 'Arc':
+        '''This arc traversed from `end_angle` back to `start_angle`.'''
+        arc = Arc(self.center, self.radius, self.start_angle, self.end_angle)
+        arc._reversed = not self._reversed
+        return arc
+
+    def _point(self, angle: float) -> FloatArray:
+        return self.center + self.radius * np.array([np.cos(angle), np.sin(angle)])
+
+    @property
+    def start(self) -> FloatArray:
+        return self._point(self.end_angle if self._reversed else self.start_angle)
+
+    @property
+    def end(self) -> FloatArray:
+        return self._point(self.start_angle if self._reversed else self.end_angle)
+
+    def length(self) -> float:
+        return self.radius * (self.end_angle - self.start_angle)
 
     def project(self, points: FloatArray) -> FloatArray:
         p = np.asarray(points, dtype=float)
@@ -93,23 +200,26 @@ class Arc:
         return self.center + self.radius * np.stack(
             [np.cos(clamped), np.sin(clamped)], axis=-1)
 
-    def polygon(self, n: int) -> FloatArray:
-        '''`n` points along the arc, `(n, 2)`, both endpoints included.'''
-        angles = np.linspace(self.start_angle, self.end_angle, n)
+    def sample(self, n: int) -> FloatArray:
+        '''`n + 1` points from `start` to `end`, `(n + 1, 2)`, both endpoints included.'''
+        angles = np.linspace(self.start_angle, self.end_angle, n + 1)
+        if self._reversed:
+            angles = angles[::-1]
         return self.center + self.radius * np.column_stack([np.cos(angles), np.sin(angles)])
 
     def __repr__(self) -> str:
         return (f'Arc(center={self.center.tolist()}, radius={self.radius}, '
-                f'start_angle={self.start_angle}, end_angle={self.end_angle})')
+                f'start_angle={self.start_angle}, end_angle={self.end_angle})'
+                + ('.reversed()' if self._reversed else ''))
 
 
 class CubicBezier:
     '''A cubic Bezier curve through control points P0..P3, `B(t)` for `t` in [0, 1].
 
-    The boundary curve a traced SVG path carries: `read_svg_to_pslg` keeps a path's
-    cubic control points and tags the segments sampled from it with one of these, so
-    meshing rounds the outline to the true curve instead of the sampled chords.
+    The piece a traced SVG path's `C` command becomes (`Outline.from_svg`): the outline
+    keeps the control points, and meshing rounds the chords it samples to the true curve.
     '''
+    closed = False
 
     def __init__(
         self, p0: FloatArray | list[float], p1: FloatArray | list[float],
@@ -133,9 +243,23 @@ class CubicBezier:
         powers = np.stack([np.ones_like(t), t, t**2, t**3], axis=-1)   # (..., 4)
         return powers @ self._a
 
+    @property
+    def start(self) -> FloatArray:
+        return self.controls[0]
+
+    @property
+    def end(self) -> FloatArray:
+        return self.controls[3]
+
+    def length(self) -> float:
+        '''The arc length, to the accuracy of a 64-chord sample: enough to size the
+        chords an outline meshes the curve by.'''
+        pts = self.sample(64)
+        return float(np.sum(np.linalg.norm(np.diff(pts, axis=0), axis=1)))
+
     def sample(self, n: int) -> FloatArray:
-        '''`n` points along the curve at evenly spaced parameters, endpoints included.'''
-        return self._eval(np.linspace(0.0, 1.0, n))
+        '''`n + 1` points along the curve at evenly spaced parameters, ends included.'''
+        return self._eval(np.linspace(0.0, 1.0, n + 1))
 
     def project(self, points: FloatArray) -> FloatArray:
         '''Nearest point on the curve to each of `points`: `(..., 2) -> (..., 2)`.

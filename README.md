@@ -276,12 +276,26 @@ result is typed by the physics: `Poisson(...).problem(mesh, bc).solve()` is a
 
 ### What you choose at each step
 
-Every step of a solve is one choice among a few named objects, all importable from `fem`.
-`ARCHITECTURE.md` explains how they fit; this is the menu.
+Every solve is the same chain. The equation builds a `Problem` from the geometry and the
+conditions; the problem is solved, stepped in time, or analysed; the result is a typed solution
+that the plotter draws:
+
+```
+Mesh ──► Equation.problem(mesh, bc, element_type=) ──► Problem ──► .solve(strategy=, backend=) ──► Solution
+           ▲ regions, conditions, loads                    │                                          │
+                                                           ├─ ThetaMethod / NewmarkMethod .solve(problem, u0)
+                                                           ├─ BucklingAnalysis / ModalAnalysis .solve(problem)
+                                                           └─ AdaptiveRefinement / DesignOptimizer (re-solve in a loop)
+                                                                                        Plotter.plot(solution, values)
+```
+
+The first six rows below are the inputs to `Equation.problem`; strategy and backend are the two
+arguments of `.solve`; the rest are the other consumers of a `Problem` and what they return.
+Every name is importable from `fem`; `ARCHITECTURE.md` explains how they fit.
 
 | Step | Options | Default |
 |---|---|---|
-| Mesh | `box_mesh`, `annulus_mesh`, `PSLG.from_loops(...).mesh()`, `PSLG.circle`, `read_svg_to_pslg`, `Mesh(vertices, elements)`; refine with `RedGreenRefiner` | |
+| Mesh | `box_mesh`, `annulus_mesh`; an `Outline` of `Line`, `Arc`, `Circle`, `CubicBezier` pieces (`Outline.from_polygons`, `Outline.from_svg`, then `Outline.simplified` and `Outline.mesh`); `Mesh(vertices, elements)`; refine with `RedGreenRefiner` | |
 | Element | `LinearTriangleElement`, `LinearTetrahedralElement`, `QuadraticTriangleElement`, `IsoparametricTriangleElement`, via `element_type=` | linear, read off the mesh |
 | Equation | `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`, `FiniteStrainElastic` (with `law=` `StVenantKirchhoff` or `NeohookeanEnergyDensity`) | |
 | Where | `everywhere`, `on_plane`, `in_box`, `on_tag`, `at_indices`, `union`, `intersect` | |
@@ -350,7 +364,7 @@ this is the map.
 
 ```
 fem/                 # the solver package; grouped by layer, everything re-exported from `fem`
-├── mesh/            # Mesh geometry, PSLG outlines, Ruppert meshing, red-green refinement, SVG
+├── mesh/            # Mesh geometry, Outline pieces sampled to a PSLG, Ruppert meshing, red-green refinement, SVG
 │
 │   # discretization and constraints
 ├── elements.py      # stateless element types (P1/P2/curved) + batched ElementGeometry

@@ -24,7 +24,7 @@ ORDER = [
     'physics.fields', 'physics.materials', 'post.invariants',
     # geometry
     'mesh.curves', 'mesh.mesh', 'mesh.refinement', 'mesh.ruppert', 'mesh.structured',
-    'mesh.pslg', 'mesh.svg', 'mesh',
+    'mesh.pslg', 'mesh.outline', 'mesh.svg', 'mesh',
     # discretization and constraints
     'elements', 'boundary', 'physics.energies',
     # the typed solutions, which everything above the physics packages

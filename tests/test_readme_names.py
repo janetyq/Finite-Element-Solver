@@ -1,7 +1,7 @@
 """The README's "What you choose at each step" table names real things.
 
 Every backticked name in that section must resolve: an attribute chain from `fem`
-(`PSLG.circle`, `Plotter.plot`), a `PlotMode` value, or a keyword argument the table
+(`Outline.from_svg`, `Plotter.plot`), a `PlotMode` value, or a keyword argument the table
 quotes. A rename that forgets the table fails here.
 """
 import re
@@ -33,7 +33,7 @@ def _names() -> list[str]:
 def _resolves(name: str) -> bool:
     if name in {m.value for m in PlotMode}:
         return True
-    # `Mesh(vertices, elements)` or `PSLG.from_loops(...).mesh()`: check the leading path
+    # `Mesh(vertices, elements)` or `Outline.from_polygons`: check the leading path
     head = re.match(r'[A-Za-z_][\w.]*', name)
     if not head:
         return False

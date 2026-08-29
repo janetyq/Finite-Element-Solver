@@ -14,6 +14,7 @@ from fem.mesh.mesh import triangle_min_angle
 from fem.mesh.pslg import point_in_polygon, polygon_area
 from fem.mesh.ruppert import circumcenter
 from fem.mesh.ruppert import ENCROACHMENT_TOLERANCE, RuppertsAlgorithm
+from fem.mesh.outline import Outline
 from fem.mesh.pslg import PSLG
 
 L_SHAPE_OUTLINE = np.array([
@@ -360,7 +361,7 @@ def test_a_loop_inside_another_is_a_hole():
     """The even-odd rule at work, and the shape a flow-around-an-obstacle problem
     needs: a box around an outline meshes the material between them and leaves
     the outline itself empty."""
-    pslg = _l_shape().with_bounding_box(buffer=0.2)
+    pslg = Outline.from_polygons([L_SHAPE_OUTLINE]).with_bounding_box(buffer=0.2).sample()
     mesh = RuppertsAlgorithm(pslg, min_angle=20).refine()
 
     centroids = np.asarray(mesh.vertices)[np.asarray(mesh.elements)].mean(axis=1)
@@ -378,7 +379,7 @@ def test_disjoint_loops_are_both_meshed():
     """Two outlines side by side are two pieces of one domain, not a hole."""
     left = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
     right = left + np.array([3.0, 0.0])
-    mesh = RuppertsAlgorithm(PSLG.from_loops([left, right]), min_angle=20).refine()
+    mesh = RuppertsAlgorithm(Outline.from_polygons([left, right]).sample(), min_angle=20).refine()
 
     centroids = np.asarray(mesh.vertices)[np.asarray(mesh.elements)].mean(axis=1)
     assert any(point_in_polygon(c, left) for c in centroids)
@@ -393,15 +394,15 @@ def test_pslg_area_subtracts_holes():
     plate = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 3.0], [0.0, 3.0]])
     hole = np.array([[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]])
 
-    assert PSLG.from_loops([plate]).area() == pytest.approx(12.0)
-    assert PSLG.from_loops([plate, hole]).area() == pytest.approx(11.0)
+    assert Outline.from_polygons([plate]).sample().area() == pytest.approx(12.0)
+    assert Outline.from_polygons([plate, hole]).sample().area() == pytest.approx(11.0)
     # Which loop was drawn first is not part of the answer.
-    assert PSLG.from_loops([hole, plate]).area() == pytest.approx(11.0)
+    assert Outline.from_polygons([hole, plate]).sample().area() == pytest.approx(11.0)
     # Side by side, neither encloses the other, so both are material.
-    assert PSLG.from_loops([plate, plate + [5.0, 0.0]]).area() == pytest.approx(24.0)
+    assert Outline.from_polygons([plate, plate + [5.0, 0.0]]).sample().area() == pytest.approx(24.0)
     # An island in the hole is enclosed twice over, so it is material again.
     island = np.array([[1.4, 1.4], [1.6, 1.4], [1.6, 1.6], [1.4, 1.6]])
-    assert PSLG.from_loops([plate, hole, island]).area() == pytest.approx(11.04)
+    assert Outline.from_polygons([plate, hole, island]).sample().area() == pytest.approx(11.04)
 
 
 def test_pslg_area_matches_what_refinement_fills():
@@ -409,7 +410,7 @@ def test_pslg_area_matches_what_refinement_fills():
     survive refinement, so the two readings of the same loops have to agree."""
     plate = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 3.0], [0.0, 3.0]])
     hole = np.array([[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]])
-    pslg = PSLG.from_loops([plate, hole])
+    pslg = Outline.from_polygons([plate, hole]).sample()
     expected = pslg.area()
 
     mesh = RuppertsAlgorithm(pslg, min_angle=20).refine()
@@ -422,7 +423,7 @@ def test_boundary_facets_name_the_loop_they_came_from():
     """A plate with a hole: the outer wall and the hole rim are both boundary,
     and a solver has to tell them apart to put different conditions on them.
     That is unrecoverable from the finished mesh, so meshing has to record it."""
-    pslg = PSLG.from_loops([PLATE_OUTLINE, L_SHAPE_OUTLINE])
+    pslg = Outline.from_polygons([PLATE_OUTLINE, L_SHAPE_OUTLINE]).sample()
     algo = RuppertsAlgorithm(pslg, min_angle=20)
     mesh = algo.refine()
 
@@ -445,7 +446,7 @@ def test_boundary_facets_name_the_loop_they_came_from():
 def test_split_segments_keep_their_loop():
     """Refinement splits a segment many times over; the halves have to carry the
     attribution or long boundaries lose it."""
-    pslg = PSLG.from_loops([PLATE_OUTLINE, L_SHAPE_OUTLINE])
+    pslg = Outline.from_polygons([PLATE_OUTLINE, L_SHAPE_OUTLINE]).sample()
     algo = RuppertsAlgorithm(pslg, min_angle=20, max_area=1.0)
     algo.refine()
 
@@ -538,7 +539,7 @@ def test_crossing_segments_are_refused():
 
 def test_a_valid_outline_passes_validation():
     PSLG(L_SHAPE_OUTLINE.copy()).validate()
-    PSLG.from_loops([PLATE_OUTLINE, L_SHAPE_OUTLINE]).validate()
+    Outline.from_polygons([PLATE_OUTLINE, L_SHAPE_OUTLINE]).sample().validate()
 
 
 def test_repeated_vertices_are_refused():
@@ -661,7 +662,7 @@ def test_a_finely_sampled_feature_far_from_the_origin_terminates():
     center, half = np.array([4.72, 1.735]), 1.5e-3
     hole = center + half * np.array([[-1, -1], [1, -1], [1, 1], [-1, 1]])
     box = np.array([[0.0, 0.0], [7.0, 0.0], [7.0, 4.0], [0.0, 4.0]])
-    pslg = PSLG.from_loops([box, hole])
+    pslg = Outline.from_polygons([box, hole]).sample()
 
     mesh = RuppertsAlgorithm(pslg, min_angle=20, max_area=0.5).refine()
 

@@ -14,7 +14,7 @@ from fem.algebra.integrators import NewmarkMethod
 from fem.mesh.mesh import Mesh
 from fem.post.solution import TransientSolution
 
-from domains import harbor_pslg
+from domains import harbor_outline
 
 WALL_X, WALL_THICKNESS = 2.5, 0.15
 
@@ -44,7 +44,7 @@ class HarborStudy:
 def run(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400, min_angle=28, max_area=0.04,
         uniform_rounds=2) -> HarborStudy:
     """Mesh the basin, launch a front at the breakwater, and step it by Newmark."""
-    pslg = harbor_pslg(wall_x=WALL_X, wall_thickness=WALL_THICKNESS)
+    pslg = harbor_outline(wall_x=WALL_X, wall_thickness=WALL_THICKNESS)
     # Ruppert's meshes the outline coarsely; uniform red refinement then supplies the
     # resolution the front needs, keeping the angle bound at a fraction of the cost.
     mesh = pslg.mesh(min_angle=min_angle, max_area=max_area)

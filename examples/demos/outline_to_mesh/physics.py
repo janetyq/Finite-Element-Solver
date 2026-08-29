@@ -15,11 +15,10 @@ import numpy as np
 from fem.boundary import BoundaryConditions, Dirichlet
 from fem.physics.equations import Poisson
 from fem.mesh.mesh import Mesh
-from fem.mesh.svg import (
-    PSLG, read_svg_to_list_of_path_points, read_svg_to_pslg, douglas_peucker)
+from fem.mesh.outline import Outline, douglas_peucker
 from fem.regions import everywhere
 
-from domains import gear_pslg, star_pslg
+from domains import gear_outline, star_outline
 
 # Resolved against the repo, so a demo does not depend on where it was launched from.
 DEFAULT_SVG_FILE = str(Path(__file__).resolve().parents[3] / 'files' / 'california.svg')
@@ -36,16 +35,16 @@ dome_equation = Poisson(source=1.0)
 
 
 def get_curve_from_svg(svg_file):
-    output = read_svg_to_list_of_path_points(svg_file)
-    curve = max(output, key=lambda x: len(x)) # get the longest path
-    return np.array(curve)
+    """The longest loop of the SVG, as the ring of points its pieces sample to."""
+    longest = max(Outline.from_svg(svg_file).loops, key=len)
+    return Outline([longest]).sample().vertices
 
 
 def close_ring(points):
     """`points` with its first vertex repeated at the end, for plotting.
 
-    A closed SVG path comes back as a ring whose closing edge is implied, as
-    `PSLG.from_loops` assumes; `ax.plot` needs it spelled out.
+    A closed SVG path comes back as a ring whose closing edge is implied;
+    `ax.plot` needs it spelled out.
     """
     return np.vstack([points, points[:1]])
 
@@ -66,8 +65,8 @@ def save_curve(curve, save_file='douglas_peucker_output.json'):
         json.dump(np.asarray(curve).tolist(), f)
 
 
-def zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE) -> list[tuple[str, PSLG]]:
-    """The outlines the zoo meshes, as (name, PSLG) pairs.
+def zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE) -> list[tuple[str, Outline]]:
+    """The outlines the zoo meshes, as (name, Outline) pairs.
 
     California and the cloud are traced from `files/*.svg` and simplified on the way in;
     the star and gear are generated (`domains.py`). Each puts a different demand on the
@@ -75,10 +74,10 @@ def zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE) -> list[tuple[str
     repeated teeth around a circular bore.
     """
     return [
-        ('California', read_svg_to_pslg(DEFAULT_SVG_FILE, tolerance=svg_tolerance)),
-        ('Cloud', read_svg_to_pslg(CLOUD_SVG_FILE, tolerance=svg_tolerance)),
-        ('Gear', gear_pslg()),
-        ('Star', star_pslg()),
+        ('California', Outline.from_svg(DEFAULT_SVG_FILE).simplified(svg_tolerance)),
+        ('Cloud', Outline.from_svg(CLOUD_SVG_FILE).simplified(svg_tolerance)),
+        ('Gear', gear_outline()),
+        ('Star', star_outline()),
     ]
 
 
@@ -119,7 +118,8 @@ def run(min_angle=28, max_area_fraction=0.0008, svg_tolerance=0.001) -> OutlineS
     raw trace has ~1700 points).
     """
     shapes = []
-    for name, pslg in zoo_shapes(svg_tolerance):
-        mesh = pslg.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
-        shapes.append(MeshedOutline(name, len(pslg.vertices), mesh, dome(mesh)))
+    for name, outline in zoo_shapes(svg_tolerance):
+        graph = outline.sample()
+        mesh = graph.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
+        shapes.append(MeshedOutline(name, len(graph.vertices), mesh, dome(mesh)))
     return OutlineStudy(shapes, min_angle)

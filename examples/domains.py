@@ -7,10 +7,10 @@ substitutes a tiny mesh for every domain.
 """
 import numpy as np
 
-from fem.mesh.curves import Arc, Circle, Curve
+from fem.mesh.curves import Arc, Circle, Line
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
-from fem.mesh.pslg import PSLG
+from fem.mesh.outline import Outline
 
 
 def square(n: int = 40) -> Mesh:
@@ -45,45 +45,32 @@ def column(length: float = 24.0, height: float = 1.0,
                             resolution=(n_across, n_length))
 
 
-def plate_with_hole_pslg(length: float = 6.0, height: float = 3.0, radius: float = 0.3,
-                         segments: int = 48) -> PSLG:
-    """A `length` x `height` plate with a circular hole at its centre, as a PSLG.
+def plate_with_hole_outline(length: float = 6.0, height: float = 3.0,
+                            radius: float = 0.3) -> Outline:
+    """A `length` x `height` plate with a circular hole at its centre.
 
     Two loops: the outline and the hole, which under the even-odd rule is a hole rather
-    than a second region. The hole loop carries a `Circle`, so refinement rounds it and
-    an isoparametric solve places its boundary nodes on the true rim; `segments` sets
-    only the initial polygonisation.
+    than a second region. The hole is a `Circle`, so refinement rounds it and an
+    isoparametric solve places its boundary nodes on the true rim.
     """
-    outline = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
-    hole = Circle([length / 2, height / 2], radius)
-    return PSLG.from_loops([outline, hole.polygon(segments)], curves=[None, hole])
+    plate = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
+    return Outline([Outline.from_polygons([plate]).loops[0],
+                    Circle([length / 2, height / 2], radius)])
 
 
-def disk_pslg(radius: float = 1.0, center: tuple[float, float] = (0.0, 0.0),
-              segments: int = 24) -> PSLG:
-    """A disk of `radius` about `center`, its rim carrying a `Circle`.
-
-    A single curved loop: with isoparametric elements the rim follows the true circle,
-    so `segments` only sets the coarsest sampling refinement starts from.
-    """
-    return PSLG.circle(center, radius, segments)
-
-
-def annulus_pslg(inner_radius: float = 0.5, outer_radius: float = 1.0,
-                 center: tuple[float, float] = (0.0, 0.0), segments: int = 24) -> PSLG:
-    """An annulus between two concentric circles, each rim carrying a `Circle`.
+def annulus_outline(inner_radius: float = 0.5, outer_radius: float = 1.0,
+                    center: tuple[float, float] = (0.0, 0.0)) -> Outline:
+    """An annulus between two concentric circles.
 
     The outer loop is the material's outer edge and the inner loop the hole; under the
     even-odd rule the mesh covers the ring between them, and both rims are curved.
     """
-    outer, inner = Circle(list(center), outer_radius), Circle(list(center), inner_radius)
-    return PSLG.from_loops([outer.polygon(segments), inner.polygon(segments)],
-                           curves=[outer, inner])
+    return Outline([Circle(list(center), outer_radius), Circle(list(center), inner_radius)])
 
 
-def heatsink_pslg(width: float = 3.0, base_height: float = 0.5, fin_height: float = 1.4,
-                  fin_width: float = 0.22, n_fins: int = 7, margin: float = 0.18) -> PSLG:
-    """A finned heatsink cross-section (a comb) as a single-outline PSLG.
+def heatsink_outline(width: float = 3.0, base_height: float = 0.5, fin_height: float = 1.4,
+                     fin_width: float = 0.22, n_fins: int = 7, margin: float = 0.18) -> Outline:
+    """A finned heatsink cross-section (a comb) as a single loop.
 
     A `width` x `base_height` base slab carries `n_fins` fins of `fin_width` x
     `fin_height` standing on top, evenly spaced and kept `margin` clear of the ends. The
@@ -102,7 +89,7 @@ def heatsink_pslg(width: float = 3.0, base_height: float = 0.5, fin_height: floa
         outline += [(x_r, base_height), (x_r, base_height + fin_height),
                     (x_l, base_height + fin_height), (x_l, base_height)]
     outline.append((0.0, base_height))
-    return PSLG.from_loops([np.array(outline)])
+    return Outline.from_polygons([np.array(outline)])
 
 
 def _naca4_outline(camber: float, camber_pos: float, thickness: float, n: int,
@@ -136,11 +123,11 @@ def _naca4_outline(camber: float, camber_pos: float, thickness: float, n: int,
     return np.vstack([upper[::-1], lower[1:]])
 
 
-def airfoil_channel_pslg(length: float = 7.0, height: float = 4.0, chord: float = 3.0,
+def airfoil_channel_outline(length: float = 7.0, height: float = 4.0, chord: float = 3.0,
                          angle_of_attack: float = 6.0, camber: float = 0.02,
                          camber_pos: float = 0.4, thickness: float = 0.12,
-                         n_points: int = 100) -> PSLG:
-    """A rectangular channel with a NACA 4-digit airfoil obstacle in it, as a PSLG.
+                            n_points: int = 100) -> Outline:
+    """A rectangular channel with a NACA 4-digit airfoil obstacle in it.
 
     The airfoil is generated analytically (no data file needed), scaled to `chord`,
     pitched `angle_of_attack` degrees nose-up into a left-to-right flow, and placed in
@@ -154,47 +141,48 @@ def airfoil_channel_pslg(length: float = 7.0, height: float = 4.0, chord: float 
     c, s = np.cos(a), np.sin(a)
     foil = foil @ np.array([[c, -s], [s, c]])       # nose up into the +x flow
     foil = foil + [0.42 * length, 0.5 * height]
-    outline = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
-    return PSLG.from_loops([outline, foil])
+    channel = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
+    return Outline.from_polygons([channel, foil])
 
 
-def l_bracket_pslg(arm: float = 4.0, width: float = 1.2, fillet_radius: float = 0.0,
-                   n_fillet: int = 16) -> PSLG:
-    """An L-shaped bracket as a PSLG, with an optional fillet at the inner corner.
+def l_bracket_outline(arm: float = 4.0, width: float = 1.2,
+                      fillet_radius: float = 0.0) -> Outline:
+    """An L-shaped bracket, with an optional fillet at the inner corner.
 
     Two limbs of thickness `width` and length `arm`: the vertical one up the left edge,
     the horizontal one along the bottom, meeting at a re-entrant (inner) corner at
     `(width, width)`. A sharp corner there is a stress singularity; `fillet_radius > 0`
-    rounds it with a concave arc of `n_fillet` points carrying an `Arc` curve, so an
-    isoparametric solve reads a true circular fillet.
+    rounds it with a concave `Arc`, so an isoparametric solve reads a true circular
+    fillet.
 
     Clamp the top of the vertical limb (`on_plane(1, arm)`) and load the tip of the
     horizontal one (`on_plane(0, arm)`); the concentration then sits at the inner corner.
     """
-    outline = [(0.0, 0.0), (arm, 0.0), (arm, width)]
-    point_curves: list[Curve | None] = [None, None, None]
+    corners = [np.array(p) for p in [(0.0, 0.0), (arm, 0.0), (arm, width)]]
+    pieces = [Line(corners[0], corners[1]), Line(corners[1], corners[2])]
     if fillet_radius > 0:
         # Round the re-entrant corner: an arc of radius r centred at (width+r, width+r),
         # bulging into the notch to add material. It runs from A = (width+r, width) on the
         # bottom limb's top edge (theta = 3pi/2) to B = (width, width+r) on the vertical
-        # limb's right edge (theta = pi), replacing the sharp point between them.
+        # limb's right edge (theta = pi), replacing the sharp point between them: the
+        # arc reversed, since the outline is traced clockwise through it.
         r = fillet_radius
-        fillet = Arc([width + r, width + r], r, np.pi, 1.5 * np.pi)
-        outline.extend(map(tuple, fillet.polygon(n_fillet)[::-1]))    # from A round to B
-        point_curves.extend([fillet] * n_fillet)
+        fillet = Arc([width + r, width + r], r, np.pi, 1.5 * np.pi).reversed()
+        pieces += [Line(corners[2], fillet.start), fillet]
+        inner_end = fillet.end
     else:
-        outline.append((width, width))
-        point_curves.append(None)
-    outline.extend([(width, arm), (0.0, arm)])
-    point_curves.extend([None, None])
-    return PSLG.from_loops([np.array(outline)], curves=[point_curves])
+        pieces.append(Line(corners[2], [width, width]))
+        inner_end = np.array([width, width])
+    top = [np.array(p) for p in [(width, arm), (0.0, arm)]]
+    pieces += [Line(inner_end, top[0]), Line(top[0], top[1]), Line(top[1], corners[0])]
+    return Outline([pieces])
 
 
-def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,
+def tuning_fork_outline(tine_length: float = 0.088, tine_thickness: float = 0.004,
                      gap: float = 0.006, base_height: float = 0.012,
                      stem_length: float = 0.030, stem_width: float = 0.008,
-                     n_fillet: int = 12) -> PSLG:
-    """A two-tined tuning fork, upright with its tines pointing up, as a PSLG.
+                        n_fillet: int = 12) -> Outline:
+    """A two-tined tuning fork, upright with its tines pointing up.
 
     One non-convex outline: a stem rises into a base that forks into two tines with a
     slot between them. Traced counter-clockwise from the bottom-left of the stem, with
@@ -213,7 +201,7 @@ def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,
     # (+-gap/2, y_base_top): an ellipse, x-radius gap/2 so its ends land exactly on the
     # corners, y-depth capped to stay inside the base. theta pi -> 2pi runs left corner
     # -> bottom -> right corner, so the valley's endpoints replace the corners rather
-    # than duplicating them (which PSLG.validate would reject).
+    # than duplicating them (which validation would reject).
     depth = min(gap / 2, 0.8 * base_height)
     theta = np.linspace(np.pi, 2 * np.pi, n_fillet)
     valley = np.column_stack([(gap / 2) * np.cos(theta), y_base_top + depth * np.sin(theta)])
@@ -231,15 +219,15 @@ def tuning_fork_pslg(tine_length: float = 0.088, tine_thickness: float = 0.004,
         [stem_width / 2, stem_length],           # in to the stem
         [stem_width / 2, 0.0],                   # down the stem to the base
     ])
-    return PSLG.from_loops([outline])
+    return Outline.from_polygons([outline])
 
 
 # The generated shapes the outline demo meshes alongside the traced `files/*.svg`
 # outlines: a star for sharp reentrant corners, a gear for teeth around a circular bore.
 
 
-def star_pslg(points: int = 5, outer_radius: float = 1.0, inner_radius: float = 0.42,
-              center: tuple[float, float] = (0.0, 0.0)) -> PSLG:
+def star_outline(points: int = 5, outer_radius: float = 1.0, inner_radius: float = 0.42,
+                 center: tuple[float, float] = (0.0, 0.0)) -> Outline:
     """A `points`-pointed star as a single straight-line loop.
 
     Radii alternate between `outer_radius` at the tips and `inner_radius` at the notches,
@@ -250,17 +238,17 @@ def star_pslg(points: int = 5, outer_radius: float = 1.0, inner_radius: float = 
     radii = np.where(np.arange(2 * points) % 2 == 0, outer_radius, inner_radius)
     outline = np.column_stack([center[0] + radii * np.cos(angles),
                                center[1] + radii * np.sin(angles)])
-    return PSLG.from_loops([outline])
+    return Outline.from_polygons([outline])
 
 
-def gear_pslg(teeth: int = 12, root_radius: float = 0.7, tooth_height: float = 0.22,
-              tooth_fraction: float = 0.5, bore_radius: float = 0.28,
-              bore_segments: int = 32, center: tuple[float, float] = (0.0, 0.0)) -> PSLG:
+def gear_outline(teeth: int = 12, root_radius: float = 0.7, tooth_height: float = 0.22,
+                 tooth_fraction: float = 0.5, bore_radius: float = 0.28,
+                 center: tuple[float, float] = (0.0, 0.0)) -> Outline:
     """A spur gear with a circular bore, as two loops (rim and hole).
 
     Each of `teeth` sectors carries one tooth: the radius steps from `root_radius` out to
     `root_radius + tooth_height` over the middle `tooth_fraction` of the sector and back,
-    with radial flanks. The bore loop carries a `Circle`, so an isoparametric solve reads
+    with radial flanks. The bore is a `Circle`, so an isoparametric solve reads
     a true round hole and refinement rounds it; under the even-odd rule it is a hole in
     the gear rather than a second part.
     """
@@ -277,13 +265,12 @@ def gear_pslg(teeth: int = 12, root_radius: float = 0.7, tooth_height: float = 0
             outline.append((center[0] + radius * np.cos(angle),
                             center[1] + radius * np.sin(angle)))
 
-    bore = Circle(list(center), bore_radius)
-    return PSLG.from_loops([np.array(outline), bore.polygon(bore_segments)],
-                           curves=[None, bore])
+    return Outline([Outline.from_polygons([np.array(outline)]).loops[0],
+                    Circle(list(center), bore_radius)])
 
 
-def harbor_pslg(length: float = 6.0, width: float = 4.0, wall_x: float = 2.5,
-                wall_thickness: float = 0.15, gap: float = 1.2) -> PSLG:
+def harbor_outline(length: float = 6.0, width: float = 4.0, wall_x: float = 2.5,
+                   wall_thickness: float = 0.15, gap: float = 1.2) -> Outline:
     """A rectangular basin crossed by a breakwater with one gap, as a single loop.
 
     Open water lies left of the wall at `wall_x`, the sheltered harbor to its right. The
@@ -296,4 +283,4 @@ def harbor_pslg(length: float = 6.0, width: float = 4.0, wall_x: float = 2.5,
         [0.0, 0.0], [x0, 0.0], [x0, y0], [x1, y0], [x1, 0.0], [length, 0.0],
         [length, width], [x1, width], [x1, y1], [x0, y1], [x0, width], [0.0, width],
     ])
-    return PSLG.from_loops([outline])
+    return Outline.from_polygons([outline])

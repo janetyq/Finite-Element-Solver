@@ -21,7 +21,7 @@ from fem.mesh.refinement import RedGreenRefiner
 from fem.regions import on_plane
 from fem.post.solution import ElasticSolution
 
-from domains import l_bracket_pslg
+from domains import l_bracket_outline
 
 
 def make_bc(arm, traction) -> BoundaryConditions:
@@ -64,8 +64,8 @@ def refine_and_track(fillet, element_type, equation, bc, arm, width, min_angle,
     rather than a polygon. The recovery estimator drives refinement (it reads the
     curved fillet's flux correctly).
     """
-    pslg = l_bracket_pslg(arm, width, fillet_radius=fillet, n_fillet=20)
-    mesh = pslg.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
+    outline = l_bracket_outline(arm, width, fillet_radius=fillet)
+    mesh = outline.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
 
     def solve(m):
         problem = equation.problem(m, bc, element_type=element_type)
