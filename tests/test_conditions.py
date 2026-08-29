@@ -105,12 +105,11 @@ def test_newmark_accepts_a_time_dependent_traction_but_not_a_moving_support(make
     ramp = TimeDependent(lambda p, t: [t, 0.0])
     loaded = equation.problem(mesh, Conditions(Dirichlet(on_plane(0, 0.0), [0, 0]),
                                                 Neumann(on_plane(0, 1.0), ramp)))
-    rest = np.zeros(loaded.space.n_dofs)
-    series = NewmarkMethod(dt=0.05, steps=4).solve(loaded, rest, rest)
+    series = NewmarkMethod(dt=0.05, steps=4).solve(loaded)
     assert np.abs(series.dofs[-1]).max() > 0
     moving = equation.problem(mesh, Conditions(Dirichlet(on_plane(0, 0.0), ramp)))
     with pytest.raises(NotImplementedError, match='Dirichlet'):
-        NewmarkMethod(dt=0.05, steps=4).solve(moving, rest, rest)
+        NewmarkMethod(dt=0.05, steps=4).solve(moving)
 
 
 def test_a_traction_on_a_pinned_component_conflicts_whatever_its_value(make_unit_square):
@@ -149,7 +148,7 @@ def test_initial_is_one_item_at_most_and_never_time_dependent():
     with pytest.raises(TypeError, match='TimeDependent'):
         Initial(TimeDependent(lambda p, t: t))
     with pytest.raises(TypeError, match='TimeDependent'):
-        Initial(0.0, rate=TimeDependent(lambda p, t: t))
+        Initial(0.0, v0=TimeDependent(lambda p, t: t))
     conditions = Conditions(Dirichlet(everywhere(), 0.0), Initial(1.0))
     assert conditions.initial == Initial(1.0) and not conditions.is_time_dependent
 
@@ -157,21 +156,31 @@ def test_initial_is_one_item_at_most_and_never_time_dependent():
 def test_no_initial_resolves_to_the_dirichlet_lift_at_rest(make_unit_square):
     space = FunctionSpace(make_unit_square(4), n_components=1)
     resolved = Conditions(Dirichlet(on_plane(0, 0.0), 3.0)).resolve(space)
-    lift = resolved.initial.dofs
+    lift = resolved.u0.dofs
     assert np.allclose(lift[resolved.fixed_idxs], 3.0) and np.allclose(lift[resolved.free_idxs], 0.0)
-    assert np.allclose(resolved.initial_rate.dofs, 0.0)
+    assert np.allclose(resolved.v0.dofs, 0.0)
 
 
 def test_initial_is_interpolated_at_the_nodes_and_checked_against_dirichlet(make_unit_square):
     space = FunctionSpace(make_unit_square(4), n_components=1)
-    profile = Initial(lambda p: 1.0 + p[0], rate=lambda p: p[0])
+    profile = Initial(lambda p: 1.0 + p[0], v0=lambda p: p[0])
     resolved = Conditions(Dirichlet(on_plane(0, 0.0), 1.0), profile).resolve(space)
-    np.testing.assert_allclose(resolved.initial.dofs, 1.0 + space.node_coords[:, 0])
-    np.testing.assert_allclose(resolved.initial_rate.dofs, space.interpolate(profile.rate).dofs)
-    with pytest.raises(ValueError, match='disagrees with the Dirichlet'):
+    np.testing.assert_allclose(resolved.u0.dofs, 1.0 + space.node_coords[:, 0])
+    np.testing.assert_allclose(resolved.v0.dofs, space.interpolate(profile.v0).dofs)
+    with pytest.raises(ValueError, match='u0 disagrees with the Dirichlet'):
         Conditions(Dirichlet(on_plane(0, 0.0), 0.0), profile).resolve(space)
-    with pytest.raises(ValueError, match='rate must be zero'):
+    with pytest.raises(ValueError, match='v0 must be zero'):
         Conditions(Dirichlet(on_plane(0, 1.0), 2.0), profile).resolve(space)
+
+
+def test_a_field_is_taken_as_is_on_its_space_and_evaluated_on_another(make_unit_square):
+    coarse = FunctionSpace(make_unit_square(3), n_components=1)
+    fine = FunctionSpace(make_unit_square(6), n_components=1)
+    ramp = coarse.interpolate(lambda p: p[0] + 2 * p[1])
+    on_coarse, _ = Conditions().resolve(coarse).resolve_initial(Initial(ramp))
+    assert on_coarse is ramp
+    on_fine, _ = Conditions().resolve(fine).resolve_initial(Initial(ramp))
+    np.testing.assert_allclose(on_fine.dofs, fine.interpolate(lambda p: p[0] + 2 * p[1]).dofs, atol=1e-12)
 
 
 def test_integrators_step_from_the_initial_state_unless_overridden(make_unit_square):
@@ -179,17 +188,17 @@ def test_integrators_step_from_the_initial_state_unless_overridden(make_unit_squ
     hot = Conditions(Dirichlet(on_plane(0, 0.0), 1.0), Initial(lambda p: 1.0 - p[0]))
     heat = Heat().problem(mesh, hot)
     stepped = ThetaMethod(dt=0.05, steps=4).solve(heat)
-    by_hand = ThetaMethod(dt=0.05, steps=4).solve(heat, heat.space.interpolate(lambda p: 1.0 - p[0]))
+    by_hand = ThetaMethod(dt=0.05, steps=4).solve(heat, initial=Initial(lambda p: 1.0 - p[0]))
     np.testing.assert_allclose(stepped.dofs, by_hand.dofs)
-    continued = ThetaMethod(dt=0.05, steps=2).solve(heat, stepped[2])
+    continued = ThetaMethod(dt=0.05, steps=2).solve(heat, initial=Initial(stepped[2]))
     np.testing.assert_allclose(continued.dofs[-1], stepped.dofs[-1])
-    with pytest.raises(ValueError, match='disagrees with the Dirichlet'):
-        ThetaMethod(dt=0.05, steps=1).solve(heat, np.zeros(heat.space.n_dofs))
+    with pytest.raises(ValueError, match='u0 disagrees with the Dirichlet'):
+        ThetaMethod(dt=0.05, steps=1).solve(heat, initial=Initial(0.0))
 
     def bump(p):
         return np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])
 
-    wave = Wave().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0), Initial(0.0, rate=bump)))
+    wave = Wave().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0), Initial(0.0, v0=bump)))
     rest = Wave().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0)))
     rung = NewmarkMethod(dt=0.02, steps=5).solve(wave)
     np.testing.assert_allclose(rung.dofs[0], 0.0)
@@ -199,7 +208,8 @@ def test_integrators_step_from_the_initial_state_unless_overridden(make_unit_squ
 
 def test_newton_iterates_from_the_initial_state(make_unit_square):
     """A linear problem is solved in one Newton step from any seed, so the answer is the
-    same; the seed shows in the iterate count `NewtonSolve` reports through its tolerance."""
+    same from the conditions' state, from an `initial=`, and from the default lift; a
+    seed is a guess, so unlike an integrator's start it is not held to the Dirichlet data."""
     from fem.algebra.solve import NewtonSolve
     mesh = make_unit_square(4)
     bc = Conditions(Dirichlet(on_plane(0, 0.0), 0.0), Source(1.0))
@@ -207,4 +217,5 @@ def test_newton_iterates_from_the_initial_state(make_unit_square):
     warm = Poisson().problem(mesh, bc + Initial(lambda p: p[0]))
     reference = cold.solve().dofs
     np.testing.assert_allclose(NewtonSolve().solve(warm), reference, atol=1e-10)
-    np.testing.assert_allclose(NewtonSolve().solve(cold, u0=warm.initial), reference, atol=1e-10)
+    np.testing.assert_allclose(NewtonSolve().solve(cold, initial=Initial(warm.u0)), reference, atol=1e-10)
+    np.testing.assert_allclose(NewtonSolve().solve(cold, initial=Initial(5.0)), reference, atol=1e-10)

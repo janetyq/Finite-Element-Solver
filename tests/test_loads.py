@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from fem.boundary import Dirichlet, Neumann, Robin
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
 from fem.physics.energies import StVenantKirchhoff
 from fem.physics.equations import LinearElastic, Poisson
 from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, BoundaryMassForm, MassForm, SumForm
@@ -178,7 +178,7 @@ def test_rayleigh_damping_decays_a_mode_at_the_analytic_rate(make_unit_square):
     period = 2 * np.pi / omega
     steps = 400
     dt = 2 * period / steps
-    solution = NewmarkMethod(dt=dt, steps=steps).solve(problem, phi.copy(), np.zeros_like(phi))
+    solution = NewmarkMethod(dt=dt, steps=steps).solve(problem, initial=Initial(modal.mode(0)))
 
     q = np.array([phi @ (M @ u) / (phi @ (M @ phi)) for u in solution.dofs])
     t = solution.t
@@ -193,10 +193,9 @@ def test_undamped_is_the_no_damping_path(make_unit_square):
     plain = LinearElastic(E=10.0, nu=0.3).problem(mesh, bc)
     zero = LinearElastic(E=10.0, nu=0.3, damping=RayleighDamping()).problem(mesh, bc)
     assert plain.damping_matrix is None
-    u0 = plain.space.interpolate(lambda p: [0.0, 0.01 * p[0]])
-    v0 = np.zeros_like(u0)
-    a = NewmarkMethod(dt=0.01, steps=5).solve(plain, u0, v0)
-    b = NewmarkMethod(dt=0.01, steps=5).solve(zero, u0, v0)
+    start = Initial(lambda p: [0.0, 0.01 * p[0]])
+    a = NewmarkMethod(dt=0.01, steps=5).solve(plain, initial=start)
+    b = NewmarkMethod(dt=0.01, steps=5).solve(zero, initial=start)
     np.testing.assert_allclose(a.dofs[-1], b.dofs[-1], atol=1e-12)
     with pytest.raises(ValueError, match='non-negative'):
         RayleighDamping(alpha=-1.0)

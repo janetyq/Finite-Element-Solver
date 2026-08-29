@@ -23,7 +23,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import Dirichlet
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
+from fem.field import NodalField
 from fem.elements import (
     Element,
     ElementGeometry,
@@ -549,7 +550,8 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
 
     errors = []
     for steps in sorted(step_counts):
-        run = ThetaMethod(dt=T / steps, steps=steps, theta=theta).solve(problem, u0)
+        run = ThetaMethod(dt=T / steps, steps=steps, theta=theta).solve(
+            problem, initial=Initial(NodalField(problem.space, u0)))
         u_h = run.dofs[-1]
         errors.append(l2_norm(problem.space, u_h - reference))
 

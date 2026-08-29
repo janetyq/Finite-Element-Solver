@@ -285,7 +285,7 @@ Every step of a solve is one choice among a few named objects, all importable fr
 | Element | `LinearTriangleElement`, `LinearTetrahedralElement`, `QuadraticTriangleElement`, `IsoparametricTriangleElement`, via `element_type=` | linear, read off the mesh |
 | Equation | `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`, `FiniteStrainElastic` (with `law=` `StVenantKirchhoff` or `NeohookeanEnergyDensity`) | |
 | Where | `everywhere`, `on_plane`, `in_box`, `on_tag`, `at_indices`, `union`, `intersect` | |
-| Conditions | a `Conditions` of `Dirichlet`, `Neumann`, `Robin` (on regions), a volume `Source`, `PointLoad`s, and the `Initial` state (with a `rate=` at second order); a value is a constant, a callable of position, or `TimeDependent` | none |
+| Conditions | a `Conditions` of `Dirichlet`, `Neumann`, `Robin` (on regions), a volume `Source`, `PointLoad`s, and the `Initial(u0, v0=)` state; a value is a constant, a callable of position, or `TimeDependent` | none |
 | Strategy | `LinearSolve`, `NewtonSolve` (with `BacktrackingLineSearch`, `TangentRegularization`), via `strategy=` | `default_strategy`: by the tangent |
 | Backend | `DirectBackend`, `IterativeBackend`, `MinresBackend`, via `backend=` | direct |
 | In time | `ThetaMethod`, `NewmarkMethod` (with `RayleighDamping`) | |

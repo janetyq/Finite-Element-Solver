@@ -10,8 +10,8 @@ a driver can restate it on a refined mesh, and it is what
 `resolve(space)` reduces it to a `ResolvedConditions`, what a solver indexes into on
 one space: the Dirichlet DOF partition, the operator terms a Robin condition adds, the
 load terms (the source, one boundary integral per Neumann or Robin value, the point
-loads), and the initial state and rate as fields on the space, the Dirichlet lift and
-zero when none is given. Resolution has two steps: the geometry (which nodes and facets a region selects)
+loads), and the initial state `u0` and its rate `v0` as fields on the space, the Dirichlet
+lift and zero when none is given. Resolution has two steps: the geometry (which nodes and facets a region selects)
 is done once, and the values are evaluated at a time. `load_at(t)` and
 `constraints_at(t)` re-evaluate the `TimeDependent` values without selecting again,
 which an integrator calls per step; `at(t)` is the whole resolution fixed at `t`, the
@@ -52,20 +52,23 @@ __all__ = ['Conditions', 'Initial', 'ResolvedConditions']
 
 @dataclass(frozen=True)
 class Initial:
-    '''The state a solve starts from: `value` is the field at `t = 0` and `rate` its
-    time derivative there, each a constant, a per-component constant, or a callable
-    of position, interpolated at the nodes on resolution.
+    '''The state a solve starts from: `u0` is the field at `t = 0` and `v0` its time
+    derivative there. Each is a constant, a per-component constant, or a callable of
+    position, interpolated at the nodes on resolution, or a `NodalField` (a previous
+    solution, say), taken as is on its own space and evaluated at the nodes of any
+    other, so a series continues across a remesh.
 
     An integrator steps from it, `NewtonSolve` iterates from it, and a steady linear
-    solve ignores it. `rate` has a meaning only at second order (the wave equation,
+    solve ignores it. `v0` has a meaning only at second order (the wave equation,
     elastic dynamics) and is zero when omitted. Neither may be `TimeDependent`: the
-    state at one instant does not vary in time.
+    state at one instant does not vary in time. In a `Conditions` it is the problem's
+    own starting state; passed as `initial=` to a solve it overrides that.
     '''
-    value: FieldValue
-    rate: FieldValue | None = None
+    u0: FieldValue | NodalField
+    v0: FieldValue | NodalField | None = None
 
     def __post_init__(self) -> None:
-        for name in ('value', 'rate'):
+        for name in ('u0', 'v0'):
             if isinstance(getattr(self, name), TimeDependent):
                 raise TypeError(f'Initial.{name} is the state at t = 0 and cannot be TimeDependent')
 
@@ -248,19 +251,15 @@ class Conditions:
         # satisfy them at its first step, which is a modelling error, not a transient.
         lift = np.zeros(space.n_dofs)
         lift[fixed_idxs] = fixed_values
-        initial = NodalField(space, lift)
-        initial_rate = NodalField(space, np.zeros(space.n_dofs))
-        if self.initial is not None:
-            initial = space.interpolate(self.initial.value)
-            if self.initial.rate is not None:
-                initial_rate = space.interpolate(self.initial.rate)
         resolved = ResolvedConditions(
             space=space, fixed_idxs=fixed_idxs, free_idxs=free_idxs, fixed_values=fixed_values,
-            initial=initial, initial_rate=initial_rate,
+            u0=NodalField(space, lift), v0=NodalField(space, np.zeros(space.n_dofs)),
             dirichlet=tuple(dirichlet), neumann=tuple(neumann), robin=tuple(robin),
             operator_terms=operator_terms, source=self.source, loads=tuple(loads),
         )
-        resolved.check_initial(initial, initial_rate)
+        if self.initial is not None:
+            u0, v0 = resolved.resolve_initial(self.initial)
+            resolved = replace(resolved, u0=u0, v0=v0)
         return resolved
 
 
@@ -279,8 +278,8 @@ class ResolvedConditions:
     fixed_idxs: DofIndices      # DOF indices held by Dirichlet conditions
     free_idxs: DofIndices       # the complement
     fixed_values: FloatArray    # values at fixed_idxs, same order
-    initial: NodalField         # the state at t = 0; the Dirichlet lift when none was given
-    initial_rate: NodalField    # its time derivative at t = 0; zero when none was given
+    u0: NodalField              # the state at t = 0; the Dirichlet lift when none was given
+    v0: NodalField              # its time derivative at t = 0; zero when none was given
     dirichlet: tuple[DirichletContribution, ...] = ()
     neumann: tuple[NeumannContribution, ...] = ()
     robin: tuple[RobinContribution, ...] = ()
@@ -323,19 +322,31 @@ class ResolvedConditions:
         '''The sum of the load terms at time `t`.'''
         return total_load(self.loads, self.space, t)
 
-    def check_initial(self, u: DofVector | NodalField,
-                      rate: DofVector | NodalField | None = None) -> None:
-        '''Refuse a starting state that disagrees with the Dirichlet data at `t = 0`:
-        `u` must take the prescribed values at the fixed DOFs and `rate` must be zero
-        there, since a fixed value does not move.'''
-        u = np.asarray(u, dtype=float)
-        if u.shape != (self.space.n_dofs,):
-            raise ValueError(
-                f'the initial state has {u.shape} entries; the space has {self.space.n_dofs} DOFs')
-        if not np.allclose(u[self.fixed_idxs], self.fixed_values):
-            raise ValueError('the initial state disagrees with the Dirichlet values at fixed nodes')
-        if rate is not None and not np.allclose(np.asarray(rate, dtype=float)[self.fixed_idxs], 0):
-            raise ValueError('the initial rate must be zero at Dirichlet-fixed nodes')
+    def resolve_initial(self, initial: Initial, *, check: bool = True
+                        ) -> tuple[NodalField, NodalField]:
+        '''`(u0, v0)` of an `Initial` as fields on this space, `v0` zero when it gave
+        none. With `check`, a state that disagrees with the Dirichlet data at `t = 0`
+        is refused: `u0` must take the prescribed values at the fixed DOFs and `v0`
+        must be zero there, since a fixed value does not move. A solve would otherwise
+        jump to satisfy them at its first step, a modelling error, not a transient.'''
+        u0 = self._state(initial.u0)
+        v0 = (NodalField(self.space, np.zeros(self.space.n_dofs)) if initial.v0 is None
+              else self._state(initial.v0))
+        if check:
+            if not np.allclose(u0.dofs[self.fixed_idxs], self.fixed_values):
+                raise ValueError('u0 disagrees with the Dirichlet values at fixed nodes')
+            if not np.allclose(v0.dofs[self.fixed_idxs], 0):
+                raise ValueError('v0 must be zero at Dirichlet-fixed nodes')
+        return u0, v0
+
+    def _state(self, value: FieldValue | NodalField) -> NodalField:
+        '''A field on this space: a `NodalField` as is, or evaluated at the nodes when
+        it lives on another space; anything else interpolated.'''
+        if isinstance(value, NodalField):
+            if value.space is self.space:
+                return value
+            return NodalField(self.space, value.evaluate(self.space.node_coords).reshape(-1))
+        return self.space.interpolate(value)
 
     def constraints_at(self, t: float) -> Constraints:
         '''The Dirichlet partition at time `t`: the same DOFs as `constraints`, with

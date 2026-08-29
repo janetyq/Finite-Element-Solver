@@ -9,7 +9,8 @@ import pytest
 from scipy.linalg import expm
 
 from fem.boundary import Dirichlet
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
+from fem.field import NodalField
 from fem.algebra.integrators import ThetaMethod
 from fem.mesh.structured import box_mesh
 from fem.physics.equations import Heat
@@ -32,7 +33,7 @@ def _temporal_error(mesh, bc, u0, T, n_steps, theta):
     """M-weighted L2 error of a theta-method against the semi-discrete exact at T."""
     problem = Heat().problem(mesh, bc)
     integrator = ThetaMethod(dt=T / n_steps, steps=n_steps, theta=theta)
-    u_h = integrator.solve(problem, u0).dofs[-1]
+    u_h = integrator.solve(problem, initial=Initial(NodalField(problem.space, u0))).dofs[-1]
     error = u_h - _semidiscrete_exact(problem, u0, T)
     return float(np.sqrt(error @ problem.space.mass_matrix @ error))
 
