@@ -2,8 +2,10 @@
 
 A `FieldSolution` is a `NodalField` (the unknown on its space) with the provenance a
 solve adds: `DiffusionSolution` its recovered gradient, `ElasticSolution` the stress
-state. `TransientSolution` is a time series and `WaveSolution` adds the velocity
-series; `BucklingSolution` and `ModalSolution` hold eigenpairs. `save`/`load`
+state. The other shapes are collections of fields on one space and hand them out as
+such: `TransientSolution` is a time series indexed by step (`history[i]` is the typed
+steady solution, `WaveSolution` adds `velocity(i)`), `BucklingSolution` and
+`ModalSolution` hold eigenpairs (`mode(i)` is a `NodalField`). `save`/`load`
 round-trip any of them through `fem.post.io`, which reflects over the dataclass
 fields.
 
@@ -11,6 +13,7 @@ fields.
 points up and stays function-local.
 """
 from dataclasses import dataclass, field
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 import numpy as np
@@ -25,9 +28,8 @@ T = TypeVar('T', bound='Solution')
 
 if TYPE_CHECKING:
     from fem.elements import Element
-    from fem.physics.forms import RecoversElasticState
+    from fem.physics.forms import Form, RecoversElasticState
     from fem.mesh.mesh import Mesh
-    from fem.problem import Problem
     from fem.space import FunctionSpace
 
 
@@ -209,18 +211,35 @@ class ElasticSolution(FieldSolution):
         return invariants.max_shear(self.stress)
 
 
+class ModeShapes:
+    '''What an eigen-solution shares: `modes (n_modes, n_dofs)` on `space`, handed out
+    as fields.
+
+    A mode is a shape, not a displacement: its amplitude is arbitrary (the eigenproblem
+    is homogeneous), so only its form is physical and the scale of a drawing is a
+    display choice: `mode(i).deformed_mesh(scale)`.
+    '''
+    space: 'FunctionSpace'
+    modes: FloatArray
+
+    @property
+    def n_modes(self) -> int:
+        return len(self.modes)
+
+    def mode(self, i: int) -> NodalField:
+        '''Mode `i` as a field on the space.'''
+        return NodalField(self.space, self.modes[i])
+
+
 @dataclass(frozen=True, eq=False)
-class BucklingSolution(Solution):
+class BucklingSolution(ModeShapes, Solution):
     '''Linearised buckling result: critical load factors and their mode shapes.
 
     `load_factors[i]` is λ_i, the multiplier on the reference load at which the
-    structure buckles into `modes[i]`, the eigenvalues of `K φ = -λ K_g φ`, in
+    structure buckles into `mode(i)`, the eigenvalues of `K φ = -λ K_g φ`, in
     ascending order, so `load_factors[0]` is the critical (lowest) one and its mode
-    is the shape the structure buckles into first. A mode is a shape, not a
-    displacement: its amplitude is arbitrary (the eigenproblem is homogeneous), so
-    only its form and the factor scaling the reference load are physical. `reference`
-    is the pre-buckling solve the modes were computed about (its stress is the
-    prestress); it is not saved.
+    is the shape the structure buckles into first. `reference` is the pre-buckling
+    solve the modes were computed about (its stress is the prestress); it is not saved.
     '''
     space: 'FunctionSpace'
     load_factors: FloatArray   # (n_modes,) ascending λ
@@ -233,25 +252,16 @@ class BucklingSolution(Solution):
         '''The lowest buckling factor λ_1: the one a real structure reaches first.'''
         return float(self.load_factors[0])
 
-    def mode_mesh(self, i: int, scale: float = 1.0) -> 'Mesh':
-        '''The mesh displaced by `scale` times buckling mode `i`, for drawing it.
-
-        The amplitude is arbitrary, so `scale` is a display choice. Only the leading
-        vertex DOFs move the geometry (a P2 mode draws as its P1 restriction).
-        '''
-        return NodalField(self.space, self.modes[i]).deformed_mesh(scale)
-
 
 @dataclass(frozen=True, eq=False)
-class ModalSolution(Solution):
+class ModalSolution(ModeShapes, Solution):
     '''Free-vibration result: natural frequencies and their mode shapes.
 
-    `angular_frequencies[i]` is omega_i (rad/s), ascending, and `modes[i]` the shape the
+    `angular_frequencies[i]` is omega_i (rad/s), ascending, and `mode(i)` the shape the
     structure oscillates in at that frequency: the eigenpairs of `K phi = omega^2 M phi`.
-    Like a buckling mode, a mode shape has arbitrary amplitude (the eigenproblem is
-    homogeneous): only its form and its frequency are physical, and any real free
-    vibration is a superposition of the modes, weighted by how the structure was set
-    moving. `frequencies` (Hz) and `periods` (s) are the same data in engineering units.
+    Any real free vibration is a superposition of the modes, weighted by how the
+    structure was set moving. `frequencies` (Hz) and `periods` (s) are the same data in
+    engineering units.
     '''
     space: 'FunctionSpace'
     angular_frequencies: FloatArray   # (n_modes,) ascending omega, rad/s
@@ -268,43 +278,64 @@ class ModalSolution(Solution):
         with np.errstate(divide='ignore'):
             return 1.0 / self.frequencies
 
-    def mode_mesh(self, i: int, scale: float = 1.0) -> 'Mesh':
-        '''The mesh displaced by `scale` times mode `i`, for drawing it.
-
-        The amplitude is arbitrary, so `scale` is a display choice. Only the leading
-        vertex DOFs move the geometry (a P2 mode draws as its P1 restriction).
-        '''
-        return NodalField(self.space, self.modes[i]).deformed_mesh(scale)
-
 
 @dataclass(frozen=True, eq=False)
 class TransientSolution(Solution, Generic[S]):
-    '''A time series: the times t and the DOF vector at each step.
+    '''A time series: the times `t (n_steps,)` and the DOF vectors `dofs (n_steps,
+    n_dofs)`, one row per step, step 0 the initial state.
 
-    `problem` is the problem it was stepped from, kept so `at(i)` can package a step
-    as the typed steady solution its physics recovers (gradient for heat, stress for
-    elasticity). It is not saved; a loaded series packages a bare `FieldSolution`.
+    A sequence of steady solutions: `history[i]` (negative indices count from the end)
+    packages step `i` as the typed solution the operator recovers (gradient for heat,
+    stress for elasticity), `len` is the step count, and iterating yields every step.
+    `operator` is the `Form` that packages; it is not saved, so a loaded series
+    packages a bare `FieldSolution`.
     '''
     space: 'FunctionSpace'
     t: FloatArray
-    dofs: list[DofVector]
-    problem: 'Problem[S] | None' = field(
+    dofs: FloatArray
+    operator: 'Form[S] | None' = field(
         default=None, kw_only=True, repr=False, metadata={'persist': False})
 
-    def at(self, i: int) -> S:
-        '''Step `i` as a steady solution, with the derived field the problem recovers.
-        A loaded series (no problem) packages a bare `FieldSolution`.'''
-        if self.problem is None:
-            return cast(S, FieldSolution(self.space, self.dofs[i]))
-        return self.problem.solution(self.dofs[i])
+    def __post_init__(self) -> None:
+        t = np.asarray(self.t, dtype=float)
+        dofs = np.asarray(self.dofs, dtype=float)
+        if dofs.ndim != 2 or dofs.shape[1] != self.space.n_dofs or len(t) != len(dofs):
+            raise ValueError(
+                f'a series on {self.space!r} needs dofs of shape (n_steps, '
+                f'{self.space.n_dofs}) and one time per step; got dofs {dofs.shape} '
+                f'and {len(t)} times'
+            )
+        object.__setattr__(self, 't', t)
+        object.__setattr__(self, 'dofs', dofs)
 
-    @property
-    def final(self) -> S:
-        '''The last step, packaged; see `at`.'''
-        return self.at(-1)
+    def __len__(self) -> int:
+        return len(self.t)
+
+    def __getitem__(self, i: int) -> S:
+        '''Step `i` as a steady solution, with the derived field the operator recovers.'''
+        if not isinstance(i, (int, np.integer)):
+            raise TypeError(f'a series is indexed by step, got {type(i).__name__}')
+        dofs = self.dofs[i]
+        if self.operator is None:
+            return cast(S, FieldSolution(self.space, dofs))
+        return self.operator.solution(self.space, dofs)
+
+    def __iter__(self) -> Iterator[S]:
+        return (self[i] for i in range(len(self)))
 
 
 @dataclass(frozen=True, eq=False)
 class WaveSolution(TransientSolution[S]):
-    '''A time series that also carries the velocity du/dt at each step.'''
-    dudt: list[DofVector]
+    '''A time series that also carries the velocity `dudt (n_steps, n_dofs)`.'''
+    dudt: FloatArray
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        dudt = np.asarray(self.dudt, dtype=float)
+        if dudt.shape != self.dofs.shape:
+            raise ValueError(f'dudt {dudt.shape} must match dofs {self.dofs.shape}')
+        object.__setattr__(self, 'dudt', dudt)
+
+    def velocity(self, i: int) -> NodalField:
+        '''The velocity at step `i` as a field on the space.'''
+        return NodalField(self.space, self.dudt[i])

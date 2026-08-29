@@ -6,7 +6,7 @@ problem's mass and stiffness, factors it once through `DiscreteSystem`, and step
 updating only the right-hand side, re-evaluating a time-dependent load
 (`Problem.load_at`) each step. `dt` and the step count live here; initial conditions
 come in through `solve`, as DOF vectors (`FunctionSpace.interpolate`). The result is a
-`TransientSolution` that packages any step as the typed steady solution (`at(i)`).
+`TransientSolution` that packages any step as the typed steady solution (`history[i]`).
 An initial state is a `NodalField` (`space.interpolate`) or its DOF vector.
 
 The wave path uses Newmark rather than a 2N first-order block: its effective operator
@@ -38,10 +38,10 @@ def _require_order(problem: Problem, order: int, what: str, use: str) -> None:
 def _history(problem: Problem[S], t_values: list[float], u_values: list[DofVector],
              dudt_values: list[DofVector] | None = None) -> TransientSolution[S]:
     '''Package a time series into the matching transient solution type.'''
-    t = np.asarray(t_values)
+    t, dofs = np.asarray(t_values), np.array(u_values)
     if dudt_values is not None:
-        return WaveSolution(problem.space, t, u_values, dudt_values, problem=problem)
-    return TransientSolution(problem.space, t, u_values, problem=problem)
+        return WaveSolution(problem.space, t, dofs, np.array(dudt_values), operator=problem.operator)
+    return TransientSolution(problem.space, t, dofs, operator=problem.operator)
 
 
 @dataclass(frozen=True)

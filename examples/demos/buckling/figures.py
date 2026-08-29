@@ -12,10 +12,10 @@ from demos.buckling.physics import BucklingStudy, euler_load, run
 def _buckled(s: BucklingStudy, solution, i):
     """The mesh deformed by mode `i`, scaled so its bow is a fixed fraction of span,
     and the signed transverse displacement to colour it by."""
-    n_v = len(s.mesh.vertices)
-    transverse = solution.modes[i].reshape(-1, 2)[:n_v, 0]
+    mode = solution.mode(i)
+    transverse = mode.component(0)[:len(s.mesh.vertices)]
     scale = 0.14 * s.length / np.abs(transverse).max()
-    return solution.mode_mesh(i, scale), scale * transverse
+    return mode.deformed_mesh(scale), scale * transverse
 
 
 

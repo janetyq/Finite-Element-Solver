@@ -139,8 +139,7 @@ def warm_up(mesh, dt, steps, kappa, u_ambient, u_hot, ramp):
     # Each step as a steady solution carries the recovered heat flux -grad u. The heat
     # shed through the film at each step is the same convective integral the steady
     # comparison reads, kappa * integral_film (u - u_ambient).
-    flux_values = [np.linalg.norm(solution.at(i).nodal_gradient(), axis=1)
-                   for i in range(len(solution.dofs))]
+    flux_values = [np.linalg.norm(step.nodal_gradient(), axis=1) for step in solution]
     film_mass = heat.space.assemble(
         BoundaryMassForm(1, heat.resolved.robin[0].facet_mask), boundary=True)
     shed_values = [kappa * float(np.asarray(film_mass @ (u - u_ambient)).sum())
@@ -195,7 +194,7 @@ class HeatsinkStudy:
     eta_theory: np.ndarray
 
     @property
-    def u_values(self) -> list[np.ndarray]:
+    def u_values(self) -> np.ndarray:
         return self.solution.dofs
 
     @property

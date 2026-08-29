@@ -15,7 +15,8 @@ from fem.conditions import Conditions
 from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod
 from fem.regions import TimeDependent, everywhere, evaluate_field, field_at, on_plane
-from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution, TransientSolution
+from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution, TransientSolution, WaveSolution
+from fem.space import FunctionSpace
 from fem.loads import Source
 
 
@@ -125,33 +126,49 @@ def test_newmark_refuses_time_dependent_dirichlet_data(make_unit_square):
 
 
 def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_unit_square, tmp_path):
-    """A heat step carries the flux, an elastic step the stress; a loaded series, which
-    has no problem, packages a bare field."""
+    """A heat step carries the gradient, an elastic step the stress; a loaded series,
+    which has no operator, packages a bare field."""
     mesh = make_unit_square(4)
     heat = Heat().problem(mesh, Conditions(Source(1.0)))
     u0 = heat.space.interpolate(0.0)
     history = ThetaMethod(dt=0.1, steps=3).solve(heat, u0)
     assert isinstance(history, TransientSolution)
-    step = history.at(2)
+    assert len(history) == 4 and history.dofs.shape == (4, heat.space.n_dofs)
+    step = history[2]
     assert isinstance(step, DiffusionSolution)
     np.testing.assert_array_equal(step.dofs, history.dofs[2])
     np.testing.assert_allclose(step.gradient, heat.space.gradient(history.dofs[2]))
-    assert isinstance(history.final, DiffusionSolution)
-    np.testing.assert_array_equal(history.final.dofs, history.dofs[-1])
+    assert isinstance(history[-1], DiffusionSolution)
+    np.testing.assert_array_equal(history[-1].dofs, history.dofs[-1])
+    assert [type(s) for s in history] == [DiffusionSolution] * 4
+    with pytest.raises(TypeError, match='indexed by step'):
+        history[1:2]  # type: ignore[index]
 
     bc = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))
     elastic = LinearElastic(E=10.0, nu=0.3).problem(mesh, bc + Source([0.0, -1.0]))
     zero = np.zeros(elastic.space.n_dofs)
     waves = NewmarkMethod(dt=0.01, steps=2).solve(elastic, zero, zero)
-    assert isinstance(waves.final, ElasticSolution)
-    assert waves.final.stress.shape == (len(mesh.elements), 3, 3)
+    assert isinstance(waves[-1], ElasticSolution)
+    assert waves[-1].stress.shape == (len(mesh.elements), 3, 3)
+    np.testing.assert_array_equal(waves.velocity(1).dofs, waves.dudt[1])
 
     path = tmp_path / 'heat.npz'
     history.save(str(path))
     loaded = TransientSolution.load(str(path))
-    assert isinstance(loaded, TransientSolution) and loaded.problem is None
-    assert type(loaded.at(1)) is FieldSolution
-    np.testing.assert_array_equal(loaded.at(1).dofs, history.dofs[1])
+    assert isinstance(loaded, TransientSolution) and loaded.operator is None
+    assert type(loaded[1]) is FieldSolution
+    np.testing.assert_array_equal(loaded[1].dofs, history.dofs[1])
+
+
+def test_transient_solution_checks_its_shape(make_unit_square):
+    """One row per step on the space, and one time per row."""
+    space = FunctionSpace(make_unit_square(4))
+    with pytest.raises(ValueError, match='n_steps'):
+        TransientSolution(space, np.array([0.0, 1.0]), np.zeros((2, space.n_dofs + 1)))
+    with pytest.raises(ValueError, match='n_steps'):
+        TransientSolution(space, np.array([0.0]), np.zeros((2, space.n_dofs)))
+    with pytest.raises(ValueError, match='dudt'):
+        WaveSolution(space, np.array([0.0]), np.zeros((1, space.n_dofs)), np.zeros((2, space.n_dofs)))
 
 
 def test_snapshot_at_a_time_is_a_steady_problem(make_unit_square):
