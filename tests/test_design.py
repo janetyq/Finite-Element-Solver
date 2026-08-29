@@ -2,12 +2,13 @@
 update, and the optimizer over them."""
 import numpy as np
 import pytest
+from scipy.sparse import csr_array
 
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.analysis.design import (
     DesignOptimizer, SIMPModel, TargetCompliance, calculate_smoothing_matrix,
-    optimality_criteria_update,
+    filter_sensitivity, optimality_criteria_update,
 )
 from fem.physics.equations import LinearElastic, Poisson
 from fem.physics.forms import LinearElasticForm, PrecomputedForm
@@ -150,7 +151,65 @@ def test_smoothing_matrix_stays_sparse_under_refinement(make_unit_square):
     assert fine.nnz / fine.shape[0] < 1.5 * coarse.nnz / coarse.shape[0]
 
 
+def test_filter_on_a_uniform_density_is_the_plain_weighted_mean(make_unit_square):
+    """Sigmund's filter weights each neighbour's sensitivity by its density and divides by
+    the element's own; with rho uniform the two cancel and the plain cone mean is left."""
+    mesh = make_unit_square(12)
+    weights = calculate_smoothing_matrix(mesh, r=0.15)
+    rho = np.full(len(mesh.elements), 0.5)
+    sensitivity = np.linspace(1.0, 2.0, len(mesh.elements))
+    np.testing.assert_allclose(filter_sensitivity(weights, rho, sensitivity), weights @ sensitivity)
+
+
+def test_filter_matches_the_hand_computed_sigmund_value():
+    """s_i = sum_j w_ij rho_j s_j / (rho_i sum_j w_ij), on three elements written out."""
+    weights = np.array([[0.5, 0.25, 0.25],
+                        [0.25, 0.5, 0.25],
+                        [0.25, 0.25, 0.5]])
+    rho = np.array([1.0, 0.5, 0.2])
+    sensitivity = np.array([2.0, 4.0, 8.0])
+    expected = (weights @ (rho * sensitivity)) / rho
+    np.testing.assert_allclose(
+        filter_sensitivity(csr_array(weights), rho, sensitivity), expected)
+    # The first entry by hand: (0.5*1*2 + 0.25*0.5*4 + 0.25*0.2*8) / 1 = 1.9.
+    assert np.isclose(expected[0], 1.9)
+
+
+def test_filter_floors_a_void_density():
+    """A density at the OC floor divides by the floor, not by zero."""
+    weights = csr_array(np.eye(2))
+    rho = np.array([0.0, 1.0])
+    filtered = filter_sensitivity(weights, rho, np.array([1.0, 1.0]))
+    assert np.all(np.isfinite(filtered)) and filtered[1] == 1.0
+
+
 # -- the OC update ---------------------------------------------------------------
+
+
+def test_optimality_criteria_update_moves_a_larger_element_less():
+    """The condition balances the sensitivity against the volume it buys, dV/drho_e = v_e,
+    so at equal sensitivity the larger element (more volume per unit density) grows less.
+    With equal volumes the volumes drop out and both elements move alike."""
+    rho = np.array([0.5, 0.5])
+    sensitivity = np.array([1.0, 1.0])
+    unequal = optimality_criteria_update(rho, sensitivity, np.array([1.0, 4.0]),
+                                         volume_frac=0.6, move=0.5)
+    assert unequal[0] > unequal[1]
+    equal = optimality_criteria_update(rho, sensitivity, np.array([2.0, 2.0]),
+                                       volume_frac=0.6, move=0.5)
+    np.testing.assert_allclose(equal, [0.6, 0.6], atol=1e-6)
+
+
+def test_optimality_criteria_update_is_unchanged_by_a_uniform_volume_scale():
+    """Volumes enter relative to their mean, so scaling every element by the same factor
+    leaves the step exactly alone."""
+    rho = np.linspace(0.2, 0.8, 8)
+    sensitivity = np.linspace(1.0, 3.0, 8)
+    small = optimality_criteria_update(rho, sensitivity, np.ones(8), volume_frac=0.5)
+    large = optimality_criteria_update(rho, sensitivity, np.full(8, 7.0), volume_frac=0.5)
+    np.testing.assert_allclose(small, large)
+
+
 
 
 def test_optimality_criteria_update_rejects_a_signed_sensitivity():
