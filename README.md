@@ -255,7 +255,7 @@ conditions = Conditions(Dirichlet(everywhere(), 0), Source(1))
 solution = Poisson().problem(mesh, conditions).solve()
 
 plotter = Plotter(title="Poisson")
-plotter.plot(mesh, solution.dofs, mode="surface")
+plotter.plot(mesh, solution, mode="surface")
 plotter.show()
 ```
 
