@@ -864,6 +864,18 @@ class EnergyForm(Form[ElasticSolution]):
         P = t.P
 
         J = np.linalg.det(F)
+        # J <= 0 is an inverted (non-physical) element. A solve never accepts such a
+        # state (its energy is infinite), so this is a state handed in from outside;
+        # refuse it rather than report a NaN or infinite stress.
+        inverted = J <= 0.0
+        if np.any(inverted):
+            n_points = int(inverted.sum())
+            n_elements = int(inverted.reshape(n_el, n_qp).any(axis=1).sum())
+            raise RuntimeError(
+                f'cannot recover stress: {n_points} quadrature points in {n_elements} '
+                f'elements are inverted (det F <= 0); the state is not a physical '
+                f'deformation'
+            )
         cauchy = np.einsum('e,eci,eki->eck', 1.0 / J, P, F)
 
         # The density's own measure: Green-Lagrange for St-VK, eps for its linearisation.

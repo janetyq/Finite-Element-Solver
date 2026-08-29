@@ -17,6 +17,7 @@ from mms import (
 )
 from fem.physics.equations import LinearElastic, Poisson
 from fem.analysis.estimators import RecoveryEstimator
+from fem.physics.derived import StressFlux
 from fem.physics.materials import Enu_to_Lame
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
@@ -107,6 +108,21 @@ def test_recovery_of_a_linear_field_is_near_zero(make_unit_square):
 
     eta = RecoveryEstimator().estimate(problem, solution)
     assert np.all(eta < 1e-10)
+
+
+def test_elastic_recovery_reads_the_full_stress_in_3d():
+    """The stress flux slices the tensor to the mesh's own dimension, so a 3D solve
+    recovers all three rows and the estimate is one finite indicator per tet."""
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(4, 4, 4))
+    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0, 0.0]), Source([0.0, 0.0, -1.0]))
+    problem = ELASTIC.problem(mesh, bc)
+    solution = problem.solve()
+
+    assert StressFlux().evaluate(solution).shape == (len(mesh.elements), 3, 3)
+    eta = RecoveryEstimator().estimate(problem, solution)
+    assert eta.shape == (len(mesh.elements),)
+    assert np.all(np.isfinite(eta)) and np.all(eta >= 0.0)
+    assert eta.max() > 0.0
 
 
 # -- drives adaptive refinement ----------------------------------------------

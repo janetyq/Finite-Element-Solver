@@ -200,7 +200,10 @@ class StressFlux:
             raise TypeError(
                 'the elastic flux needs recovered stress; got a bare FieldSolution'
             )
-        return solution.stress[:, :2, :2]           # (n_el, d, d)
+        # The in-plane block, matching `sample`: the estimators jump and recover the
+        # stress in the mesh's own dimension and have no use for the out-of-plane lift.
+        d = solution.space.spatial_dim
+        return solution.stress[:, :d, :d]           # (n_el, d, d)
 
     def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:
         if not isinstance(solution, ElasticSolution):
