@@ -1,5 +1,5 @@
 """Display sampling: a space tessellated into flat triangles on its true geometry, and
-the `FieldView` a panel draws.
+the `PanelView` a panel draws.
 
 matplotlib draws straight-sided triangles with one value per vertex or per face. A P1
 mesh already is that. A P2 or curved space is not: its field varies within an element
@@ -8,7 +8,7 @@ sub-triangles through its own shape functions (`tessellate`). A display tessella
 only: it adds no error to the solve, it just controls how faithfully the computed
 geometry and field are drawn.
 
-`field_view` packages whichever case applies into one `FieldView`, so the drawing helpers
+`panel_view` packages whichever case applies into one `PanelView`, so the drawing helpers
 in `fem.plot.helpers` see points, triangles, values, and boundary polylines, and never a
 `FunctionSpace`, an element type, or a `Solution`.
 """
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from fem.post.solution import Solution
     from fem.space import FunctionSpace
 
-__all__ = ['FieldView', 'PlotTessellation', 'boundary_polylines', 'field_view', 'tessellate']
+__all__ = ['PanelView', 'PlotTessellation', 'boundary_polylines', 'panel_view', 'tessellate']
 
 
 def _reference_subtriangulation(subdivisions: int) -> tuple[FloatArray, IntArray]:
@@ -145,7 +145,7 @@ def _mesh_boundary_polylines(mesh: Mesh, subdivisions: int,
 
 
 @dataclass(frozen=True)
-class FieldView:
+class PanelView:
     '''What one panel draws, on the true geometry.
 
     `points`/`triangles` are the straight-sided triangulation matplotlib gets: the mesh
@@ -169,10 +169,10 @@ class FieldView:
     def is_3d(self) -> bool:
         return self.points.shape[1] == 3
 
-    def with_values(self, values: FloatArray | None) -> FieldView:
+    def with_values(self, values: FloatArray | None) -> PanelView:
         '''The same geometry carrying another field (an animation's next frame).'''
         values = None if values is None else np.asarray(values)
-        return FieldView(self.mesh, self.nodes, self.points, self.triangles, values,
+        return PanelView(self.mesh, self.nodes, self.points, self.triangles, values,
                          self.boundary, self.curved, self._to_points)
 
     @property
@@ -212,15 +212,15 @@ class FieldView:
         return values
 
 
-def field_view(
+def panel_view(
     target: Mesh | Solution,
     values: FloatArray | Sequence[float] | None = None,
     *,
     space: FunctionSpace | None = None,
     warp: FloatArray | bool | None = None,
     subdivisions: int = 3,
-) -> FieldView:
-    '''Build the `FieldView` a panel draws for `values` on `target`.
+) -> PanelView:
+    '''Build the `PanelView` a panel draws for `values` on `target`.
 
     `target` is a `Mesh` or a `Solution`. A solution supplies its mesh and the space that
     numbers its field, so a P2 or curved solve renders faithfully with nothing else
@@ -290,4 +290,4 @@ def field_view(
         from fem.post.recovery import recover_nodal
         return recover_nodal(FunctionSpace(mesh), per_element)
 
-    return FieldView(mesh, nodes, points, triangles, values, boundary, curved, to_points)
+    return PanelView(mesh, nodes, points, triangles, values, boundary, curved, to_points)

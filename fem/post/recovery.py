@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from scipy.sparse.linalg import spsolve
 
-from fem.typing import ElementField, FloatArray, VertexField
+from fem.typing import ElementValues, FloatArray, NodalValues
 
 if TYPE_CHECKING:
     from fem.elements import ElementGeometry
@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 __all__ = ['average_to_nodal', 'nodal_gradient', 'project_to_nodal', 'recover_nodal']
 
 
-def recover_nodal(space: FunctionSpace, values: ElementField,
-                  method: str = 'average') -> VertexField:
+def recover_nodal(space: FunctionSpace, values: ElementValues,
+                  method: str = 'average') -> NodalValues:
     '''Recover a continuous nodal field from a per-element one.
 
     Takes `(n_elements,)` or `(n_elements, *component_shape)` and returns `(n_nodes,)`
@@ -52,7 +52,7 @@ def recover_nodal(space: FunctionSpace, values: ElementField,
     raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
 
 
-def average_to_nodal(space: FunctionSpace, values_at_nodes: FloatArray) -> VertexField:
+def average_to_nodal(space: FunctionSpace, values_at_nodes: FloatArray) -> NodalValues:
     '''Volume-weighted nodal average of a field sampled at each element's nodes.
 
     `values_at_nodes` is `(n_elements, N, *component_shape)`: element e's reading of
@@ -86,7 +86,7 @@ def average_to_nodal(space: FunctionSpace, values_at_nodes: FloatArray) -> Verte
     return sums / norms
 
 
-def _recover_nodal_l2(space: FunctionSpace, values: FloatArray) -> VertexField:
+def _recover_nodal_l2(space: FunctionSpace, values: FloatArray) -> NodalValues:
     '''The L2 projection of a per-element field onto the nodal space: solve M q = b.
 
     `b_i = ∫ f φ_i`, and with `f` element-constant that is `Σ_e f_e ∫_e φ_i`, built from
@@ -110,7 +110,7 @@ def _recover_nodal_l2(space: FunctionSpace, values: FloatArray) -> VertexField:
 
 
 def project_to_nodal(space: FunctionSpace, values_qp: FloatArray,
-                     geometry: ElementGeometry) -> VertexField:
+                     geometry: ElementGeometry) -> NodalValues:
     '''L2-project a per-quadrature-point field onto the continuous nodal space.
 
     `values_qp` is `(n_elements, n_qp, *component_shape)`, a field sampled at
@@ -135,8 +135,8 @@ def project_to_nodal(space: FunctionSpace, values_qp: FloatArray,
     return np.asarray(projected).reshape(space.n_nodes, *trailing)
 
 
-def nodal_gradient(space: FunctionSpace, u: VertexField,
-                   method: str = 'average') -> VertexField:
+def nodal_gradient(space: FunctionSpace, u: NodalValues,
+                   method: str = 'average') -> NodalValues:
     '''(n_nodes, spatial_dim) continuous gradient of a nodal field.
 
     `'average'` evaluates each element's gradient at its own nodes and volume-averages

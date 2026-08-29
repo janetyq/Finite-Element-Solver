@@ -37,7 +37,7 @@ from fem.boundary import (
 from fem.loads import BoundaryLoad, Load, PointLoad, Source, _EvaluatedLoad, total_load
 from fem.physics.forms import BoundaryMassForm, Form
 from fem.regions import TimeDependent, evaluate_field
-from fem.typing import Constraints, DofIndices, DofVector, FloatArray, VertexField, VertexIndices
+from fem.typing import Constraints, DofIndices, DofVector, FloatArray, NodalValues, VertexIndices
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace
@@ -252,7 +252,7 @@ class ResolvedConditions:
         return self.has_time_dependent_dirichlet or any(term.is_time_dependent for term in self.loads)
 
     @property
-    def neumann_load(self) -> VertexField:
+    def neumann_load(self) -> NodalValues:
         '''`(n_nodes, n_components)` the Neumann values summed as one nodal field, at
         the resolution time.'''
         total = np.zeros((self.n_nodes, self.n_components))

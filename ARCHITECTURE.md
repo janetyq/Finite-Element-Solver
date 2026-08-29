@@ -74,11 +74,11 @@ is `kappa * BoundaryMassForm(mask)` added to the physics form and assembled besi
 - `fem/mesh`: geometry and meshing (`Mesh`, the pieces and `Outline`, its sampled `PSLG`, Ruppert,
   red-green refinement, the SVG reader).
 - `fem/physics`: `forms`, `energies`, `materials`, `fields`, the named `equations`, and `derived`
-  (the `DerivedField`s a form recovers).
+  (the `Flux` a form names).
 - `fem/algebra`: `system`, `backends`, `solve` strategies, `integrators`.
 - `fem/analysis`: `buckling`, `modal`, `adaptivity`, `estimators`, `sensitivity`, `design`.
 - `fem/post`: the typed `solution`s, nodal `recovery`, `invariants`, `io`.
-- `fem/plot`: matplotlib only; `tessellation` builds the `FieldView` a panel draws.
+- `fem/plot`: matplotlib only; `tessellation` builds the `PanelView` a panel draws.
 
 Everything a user needs is re-exported from `fem`; `Plotter` / `PlotMode` are served lazily so
 `import fem` never imports matplotlib. The MMS convergence studies are demo and test support,
@@ -124,11 +124,11 @@ classes for that reason, as are the backends, the estimators, and `Problem` / `L
 A form is one base class. Every `Form` writes `element_residuals` and `element_tangents` at a
 state; what else it can answer is a hook with a default of "no": `constant_tangent` (every
 `BilinearForm`, whose residual is `K u`), `has_energy` (a bilinear form's `½ uᵀ K u`, an
-`EnergyForm`'s density), `derived_field` (the recoverable flux), `near_null_space` (the AMG
+`EnergyForm`'s density), `flux` (the recoverable flux), `near_null_space` (the AMG
 near-kernel). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses,
 and SIMP need a constant tangent; `NewtonSolve` needs nothing more and uses the energy as its
-line-search merit when there is one. `RecoversElasticFields` stays a protocol: the interface the
-two elastic forms share with `ElasticSolution` and `StressField`.
+line-search merit when there is one. `RecoversElasticState` stays a protocol: the interface the
+two elastic forms share with `ElasticSolution` and `StressFlux`.
 
 ## Where the classes sit
 
@@ -155,7 +155,7 @@ two elastic forms share with `ElasticSolution` and `StressField`.
 | Error estimators, `SensitivityAnalysis` | | | | | | | | ▒ | █ |
 | `Solution` (typed) | | | | | | | ▒ | | █ |
 | `recovery`, `invariants`, `io` (`fem/post`) | | | | | | | | | █ |
-| `Plotter`, `FieldView` / `fem/plot` | | | | | | | | | █ |
+| `Plotter`, `PanelView` / `fem/plot` | | | | | | | | | █ |
 | `numerics` | | | | | | | | | ▒ |
 
 Constraints (5) have one owner, the `Problem`, whose constructor resolves the boundary conditions
@@ -168,8 +168,8 @@ to material.
 Post-processing (9) is distributed under one rule: a derived quantity lives on the object that
 owns the data it needs. `FunctionSpace` owns `integrate` and the per-element `gradient`;
 `fem/post/recovery.py` owns `recover_nodal`, `average_to_nodal`, `project_to_nodal`, and
-`nodal_gradient`, each a function of a space; a `Form` owns `sample` / `derived_fields` and
-`derived_field` (which flux is recoverable, read
+`nodal_gradient`, each a function of a space; a `Form` owns `sample` / `recover` and
+`flux` (which flux is recoverable, read
 by the estimators off `problem.operator`); `Problem.solve` picks the typed `Solution` for its
 operator (`solution(u)` packages a vector solved elsewhere); `Solution` owns the packaging (`ElasticSolution.stress`, `nodal_stress`,
 `deformed_mesh`); `invariants` owns the frame-independent reductions.
@@ -251,8 +251,8 @@ and writes `P` and `A` directly. The equation names the model: `LinearElastic` g
 stiffness `LinearElasticForm`, `FiniteStrainElastic` the `EnergyForm` over its `law`
 (`StVenantKirchhoff` by default). In 2D the law is plane strain throughout.
 
-Stress recovery is on the form (`RecoversElasticFields`): `sample` gives strain and stress at
-every point of a geometry's rule, `derived_fields` reduces that to one tensor per element. Full
+Stress recovery is on the form (`RecoversElasticState`): `sample` gives strain and stress at
+every point of a geometry's rule, `recover` reduces that to one tensor per element. Full
 `(n_elements, 3, 3)` tensors cross the boundary, never Voigt vectors, and `fem/post/invariants.py`
 reduces them to frame-independent scalars.
 
@@ -275,7 +275,7 @@ that remeshes builds a new one. `bc` is the spec the constraints came from and `
 resolution on this space. It also answers the two questions that depend on which physics it was
 composed from: `solution(u)`
 packages a solved vector as the typed `Solution` its operator recovers (`ElasticSolution` for a
-form that recovers stress, `ScalarFieldSolution` for one naming a flux, else `FieldSolution`), and
+form that recovers stress, `DiffusionSolution` for one naming a flux, else `FieldSolution`), and
 `near_null_space()` is the operator's AMG near-kernel, if it has one. Both delegate to the form.
 The solution type is carried statically the same way: a form is a `Form[S]` for the solution it
 packages (`LinearElasticForm` is a `Form[ElasticSolution]`), a problem over it a `Problem[S]` whose
@@ -356,7 +356,7 @@ to copy: `Form` (`BilinearForm` by `element_matrices`, `EnergyForm` by an `Energ
 `SolveStrategy` (`LinearSolve`, `NewtonSolve`); `Backend` and `Factorization` (`DirectBackend`,
 `IterativeBackend`, `MinresBackend`); `ErrorEstimator` (the three estimators, or any callable of
 `(problem, solution)`); `QuantityOfInterest` and `Parameterization` (`Compliance`, `PointValue`,
-`DensityField`, `ModulusField`); `DerivedField` (`GradientField`, `StressField`); `FieldShape`
+`DensityParameterization`, `ModulusParameterization`); `Flux` (`GradientFlux`, `StressFlux`); `FieldShape`
 (`Scalar`, `Vector`).
 
 ### Error estimation and sensitivity
@@ -364,7 +364,7 @@ to copy: `Form` (`BilinearForm` by `element_matrices`, `EnergyForm` by an `Energ
 `fem/analysis/estimators.py` provides the residual estimator (2D, straight-sided), the Zienkiewicz-Zhu
 recovery estimator (dimension-general, curved elements included), and the goal-oriented estimator
 (the product of primal and dual recovery indicators). An estimator has no physics of its own: each
-takes `(problem, solution)` and reads the `DerivedField` off the problem's operator and the source
+takes `(problem, solution)` and reads the `Flux` off the problem's operator and the source
 off the problem. A custom estimate is any callable of the same two arguments.
 `fem/analysis/sensitivity.py` computes `dJ/dp` for a `QuantityOfInterest` through one adjoint solve on the
 forward factorization; `fem/analysis/design.py` drives an optimality-criteria update from that gradient.
@@ -372,14 +372,14 @@ forward factorization; `fem/analysis/design.py` drives an optimality-criteria up
 ### `Solution`
 
 One dataclass per shape, each holding the `FunctionSpace` it was solved on: `FieldSolution` (the
-field `u`), `ScalarFieldSolution` (adds the flux), `ElasticSolution` (adds strain, stress,
+field `u`), `DiffusionSolution` (adds the gradient), `ElasticSolution` (adds strain, stress,
 compliance), `TransientSolution` / `WaveSolution` (time series; `at(i)` is one step as a steady
 solution, flux or stress included), `BucklingSolution` (adds the
 prestress `reference` solve) / `ModalSolution`. `ElasticSolution` stores the full tensors and derives
 `von_mises`, `pressure`, and `principal_stress` on demand; `nodal_stress` re-evaluates the form at
 the nodes so a P2 stress keeps its within-element variation. `save` / `load` round-trip any of them
 through `fem/post/io.py`. A solution is also what a plot takes: `Plotter.plot(solution, values)`
-builds a `FieldView` (`fem/plot/tessellation.py`) from its space, so a P2 or curved field draws on
+builds a `PanelView` (`fem/plot/tessellation.py`) from its space, so a P2 or curved field draws on
 its true geometry and the drawing helpers never see a `FunctionSpace`.
 
 ## Module order

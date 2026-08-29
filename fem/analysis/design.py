@@ -25,13 +25,13 @@ from fem.mesh.mesh import Mesh
 from fem.problem import LinearProblem, Problem
 from fem.analysis.sensitivity import (
     Compliance,
-    DensityField,
+    DensityParameterization,
     QuantityOfInterest,
     SensitivityAnalysis,
 )
 from fem.post.solution import ElasticSolution, FieldSolution
 from fem.space import FunctionSpace
-from fem.typing import DofVector, ElementField, FloatArray, SparseMatrix
+from fem.typing import DofVector, ElementValues, FloatArray, SparseMatrix
 
 logger = logging.getLogger(__name__)
 
@@ -71,14 +71,14 @@ def calculate_smoothing_matrix(mesh: Mesh, r: float) -> SparseMatrix:
 
 
 def optimality_criteria_update(
-    rho: ElementField,
-    sensitivity: ElementField,
+    rho: ElementValues,
+    sensitivity: ElementValues,
     volumes: FloatArray,
     volume_frac: float,
     move: float = 0.1,
     max_iters: int = 100,
     tol: float = 1e-8,
-) -> ElementField:
+) -> ElementValues:
     '''One OC density step: bisect a Lagrange multiplier to meet the volume target.
 
     `sensitivity` is the objective's negative gradient with respect to density (positive
@@ -136,7 +136,7 @@ class SIMPModel:
     `template` supplies the solid material (a `LinearElasticForm` with a scalar
     modulus), the supports, and the load, shared by every density. `problem(rho)` is the
     elastic problem at density `rho`, its stiffness rescaled by `rho^p` from one cached
-    set of solid element matrices; `parameterization(rho)` is the `DensityField` that
+    set of solid element matrices; `parameterization(rho)` is the `DensityParameterization` that
     differentiates it.
 
     `sensitivity_filter` is the SIMP cone filter (`calculate_smoothing_matrix`), applied
@@ -146,7 +146,7 @@ class SIMPModel:
     penalty: float = 3.0
     sensitivity_filter: SparseMatrix | None = None
     _material: LinearElasticMaterial = field(init=False, repr=False)
-    _density: DensityField = field(init=False, repr=False)
+    _density: DensityParameterization = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         operator = self.template.physics
@@ -159,7 +159,7 @@ class SIMPModel:
             raise ValueError('SIMP scales one solid modulus; E must be a scalar')
         self._material = operator.material
         solid = operator.element_matrices(self.space.geometry)
-        self._density = DensityField(
+        self._density = DensityParameterization(
             space=self.space, nu=self._material.nu, _K0=solid,
             rho=np.ones(len(self.space.element_nodes)), penalty=self.penalty,
         )
@@ -172,20 +172,20 @@ class SIMPModel:
     def volumes(self) -> FloatArray:
         return self.space.element_volumes
 
-    def scaled_modulus(self, rho: ElementField) -> ElementField:
+    def scaled_modulus(self, rho: ElementValues) -> ElementValues:
         '''The SIMP-scaled modulus `E(rho) = rho^p E0`, one value per element.'''
         return np.asarray(rho, dtype=float) ** self.penalty * self._material.E
 
-    def parameterization(self, rho: ElementField) -> DensityField:
+    def parameterization(self, rho: ElementValues) -> DensityParameterization:
         return self._density.with_density(rho)
 
-    def problem(self, rho: ElementField) -> LinearProblem[FieldSolution]:
+    def problem(self, rho: ElementValues) -> LinearProblem[FieldSolution]:
         '''The elastic problem at density `rho`, its stiffness rescaled by `rho^p`.'''
         dilution = np.asarray(rho, dtype=float) ** self.penalty
         stiffness = PrecomputedForm(dilution[:, None, None] * self._density._K0)
         return self.template.with_operator(stiffness)
 
-    def solution(self, rho: ElementField, u: DofVector) -> ElasticSolution:
+    def solution(self, rho: ElementValues, u: DofVector) -> ElasticSolution:
         '''The displacement `u` at density `rho` with the stress of the diluted material.'''
         # Stress wants the diluted material itself: sigma = D(E(rho)) eps.
         form = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus(rho), self._material.nu))
@@ -195,7 +195,7 @@ class SIMPModel:
 @dataclass(frozen=True, eq=False)
 class DesignHistory:
     '''The per-iteration series a design optimization produces.'''
-    rho: list[ElementField]
+    rho: list[ElementValues]
     u: list[DofVector]
     objective: list[float]
 
@@ -224,7 +224,7 @@ class DesignOptimizer:
         self.volume_frac = volume_frac
         self.iters = iters
         self.move = move
-        self.rho: ElementField = np.full(len(model.space.element_nodes), volume_frac)
+        self.rho: ElementValues = np.full(len(model.space.element_nodes), volume_frac)
         self.solution: ElasticSolution | None = None
         self.history: DesignHistory | None = None
 
@@ -248,10 +248,10 @@ class DesignOptimizer:
         )
         return u, objective_value
 
-    def run(self, on_iteration: Callable[[int, ElementField, float], None] | None = None) -> DesignHistory:
+    def run(self, on_iteration: Callable[[int, ElementValues, float], None] | None = None) -> DesignHistory:
         '''Run every iteration and return the history; `on_iteration(i, rho, J)` is
         called after each.'''
-        rho_series: list[ElementField] = []
+        rho_series: list[ElementValues] = []
         u_series: list[DofVector] = []
         objective_series: list[float] = []
         for i in range(self.iters):

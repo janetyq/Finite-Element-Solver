@@ -16,7 +16,7 @@ from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.physics.equations import Poisson
 from fem.analysis.estimators import RecoveryEstimator
 from fem.mesh.structured import box_mesh
-from fem.physics.derived import GradientField
+from fem.physics.derived import GradientFlux
 from fem.regions import everywhere
 from fem.loads import Source
 
@@ -47,7 +47,7 @@ def test_sample_sees_within_element_variation_on_p2_but_not_p1():
     for element_type, name in [(LinearTriangleElement, 'P1'), (QuadraticTriangleElement, 'P2')]:
         problem, solution = _solve(Poisson(), 4, element_type, source=Source(_poisson_source))
         geometry = problem.space.geometry_at(4)
-        sampled = GradientField().sample(solution, geometry)   # (n_el, n_qp, 1, d)
+        sampled = GradientFlux().sample(solution, geometry)   # (n_el, n_qp, 1, d)
         spreads[name] = np.ptp(sampled, axis=1).max()          # spread across qp
 
     assert spreads['P1'] == pytest.approx(0.0, abs=1e-12)

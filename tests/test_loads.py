@@ -40,7 +40,7 @@ def test_a_sum_answers_the_hooks_from_its_terms(make_unit_square):
 
     linear = elastic + spring
     assert linear.constant_tangent and linear.has_energy
-    assert linear.derived_field() is not None
+    assert linear.flux() is not None
     assert linear.near_null_space(space).shape == (space.n_dofs, 3)
 
     nonlinear = EnergyForm(StVenantKirchhoff(200.0, 0.3)) + spring
@@ -48,7 +48,7 @@ def test_a_sum_answers_the_hooks_from_its_terms(make_unit_square):
     with pytest.raises(TypeError, match='element blocks'):
         nonlinear.element_tangents(space.geometry, np.zeros((1, 3, 2)))
     with pytest.raises(ValueError, match='more than one'):
-        (elastic + elastic).derived_field()
+        (elastic + elastic).flux()
 
 
 def test_a_state_dependent_sum_has_consistent_energy_residual_and_tangent(make_unit_square):
@@ -75,14 +75,14 @@ def test_a_state_dependent_sum_has_consistent_energy_residual_and_tangent(make_u
 def test_the_robin_term_is_a_term_of_the_operator(make_unit_square):
     """A problem with a Robin condition has one boundary term in its operator, which the
     physics form, the packaging, and `with_operator` all see."""
-    from fem.post.solution import ScalarFieldSolution
+    from fem.post.solution import DiffusionSolution
     mesh = make_unit_square(6)
     bc = Conditions(Robin(everywhere(), kappa=2.0, g=1.0))
     problem = Poisson().problem(mesh, bc + Source(1.0))
 
     assert isinstance(problem.operator, SumForm) and len(problem.operator.terms) == 2
     assert isinstance(problem.physics, DiffusionForm)
-    assert isinstance(problem.solve(), ScalarFieldSolution)
+    assert isinstance(problem.solve(), DiffusionSolution)
     derived = problem.with_operator(2.0 * DiffusionForm())
     assert len(derived.operator.terms) == 2
     expected = 2.0 * problem.space.assemble(DiffusionForm()) + problem.space.assemble(

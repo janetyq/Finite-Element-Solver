@@ -36,16 +36,16 @@ import numpy as np
 from fem.elements import ElementGeometry
 from fem.physics.energies import StrainEnergyDerivatives
 from fem.physics.materials import LinearElasticMaterial
-from fem.physics.derived import DerivedField, GradientField, StressField
-from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
+from fem.physics.derived import Flux, GradientFlux, ScaledFlux, StressFlux
+from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
 from fem.regions import evaluate_field
-from fem.typing import BoolArray, ElementField, FieldValue, FloatArray, Vertices
+from fem.typing import BoolArray, ElementValues, FieldValue, FloatArray, Vertices
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace
 
 # The typed solution a form packages (`solution`): `ElasticSolution` for a form that
-# recovers stress, `ScalarFieldSolution` for one naming a flux, else `FieldSolution`.
+# recovers stress, `DiffusionSolution` for one naming a flux, else `FieldSolution`.
 # It flows up through `Problem[S]` to `Problem.solve() -> S`.
 S = TypeVar('S', bound=FieldSolution)
 
@@ -157,22 +157,22 @@ def _with_out_of_plane(tensor: FloatArray, zz: FloatArray) -> FloatArray:
 
 
 @dataclass(frozen=True)
-class ElasticFields:
+class ElasticState:
     '''What an elastic form recovers from a solved displacement, per element.'''
     strain: FloatArray       # (n_elements, 3, 3)
     stress: FloatArray       # (n_elements, 3, 3)
-    compliance: ElementField  # (n_elements,)
+    compliance: ElementValues  # (n_elements,)
 
 
 @dataclass(frozen=True)
-class ElasticPointFields:
+class ElasticPointState:
     '''Strain and stress at every point of a geometry's rule, full 3x3 tensors.'''
     strain: FloatArray       # (n_elements, n_qp, 3, 3)
     stress: FloatArray       # (n_elements, n_qp, 3, 3)
 
 
 @runtime_checkable
-class RecoversElasticFields(Protocol):
+class RecoversElasticState(Protocol):
     '''A form that can recover an elastic state from a solved displacement.
 
     `runtime_checkable`, so a caller can branch on it. The check only tests that
@@ -181,7 +181,7 @@ class RecoversElasticFields(Protocol):
 
     def sample(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> ElasticPointFields:
+    ) -> ElasticPointState:
         '''Strain and stress at every point of `geometry`'s rule.
 
         `u_elements` is `(n_elements, N, n_components)`, matching what
@@ -196,9 +196,9 @@ class RecoversElasticFields(Protocol):
         '''
         ...
 
-    def derived_fields(
+    def recover(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> ElasticFields:
+    ) -> ElasticState:
         '''One strain, stress, and compliance per element, from `(n_elements, N,
         n_components)` nodal values: the element mean of `sample` over the rule.'''
         ...
@@ -225,7 +225,7 @@ class Form(ABC, Generic[S]):
     - `has_energy`: `element_energies` is defined and the residual is its gradient.
       Read only by the line search, which then scores a step by the energy instead
       of ½‖r‖²; the Newton iteration is the same either way.
-    - `derived_field`: the flux post-processing recovers and estimators jump
+    - `flux`: the flux post-processing recovers and estimators jump
       (Poisson's gradient, elasticity's stress).
     - `near_null_space`: the AMG near-kernel an iterative solve of the tangent is
       built with (the rigid-body modes of elasticity).
@@ -283,7 +283,7 @@ class Form(ABC, Generic[S]):
         '''(n_elements,) stored energy per element at the state; defined when `has_energy`.'''
         raise NotImplementedError(f'{type(self).__name__} has no energy')
 
-    def derived_field(self) -> DerivedField | None:
+    def flux(self) -> Flux | None:
         return None
 
     def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
@@ -401,7 +401,7 @@ def sample_field(field: FieldValue, geometry: ElementGeometry, n_components: int
 
 
 @dataclass(frozen=True)
-class DiffusionForm(BilinearForm[ScalarFieldSolution]):
+class DiffusionForm(BilinearForm[DiffusionSolution]):
     '''The diffusion form ∫ κ ∇u·∇v: the Laplacian at κ ≡ 1, the operator of Poisson,
     heat, and (with κ = c²) the wave equation.
 
@@ -430,11 +430,11 @@ class DiffusionForm(BilinearForm[ScalarFieldSolution]):
         return np.einsum(
             'eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ * kappa)
 
-    def derived_field(self) -> DerivedField:
-        return GradientField()
+    def flux(self) -> Flux:
+        return GradientFlux(self.coefficient)
 
-    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ScalarFieldSolution':
-        return ScalarFieldSolution.from_solve(space, u)
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'DiffusionSolution':
+        return DiffusionSolution.from_solve(space, u)
 
 
 def rigid_body_modes(vertices: Vertices, n_components: int) -> FloatArray:
@@ -486,8 +486,8 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         # intermediate and runs far slower.
         return np.einsum('eqji,ejk,eqkl,eq->eil', B, D, B, geometry.weight_detJ, optimize=True)
 
-    def derived_field(self) -> DerivedField:
-        return StressField(self)
+    def flux(self) -> Flux:
+        return StressFlux(self)
 
     def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ElasticSolution':
         return ElasticSolution.from_solve(space, u, self)
@@ -499,7 +499,7 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
 
     def sample(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> ElasticPointFields:
+    ) -> ElasticPointState:
         '''Strain and stress at every point of `geometry`'s rule.
 
         Full `(n_elements, n_qp, 3, 3)` tensors, not the Voigt vectors assembly works
@@ -527,12 +527,12 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
             strain = _with_out_of_plane(strain, np.zeros(len(strain)))
             stress = _with_out_of_plane(stress, sigma_zz)
 
-        return ElasticPointFields(strain.reshape(n_el, n_qp, 3, 3),
+        return ElasticPointState(strain.reshape(n_el, n_qp, 3, 3),
                                   stress.reshape(n_el, n_qp, 3, 3))
 
-    def derived_fields(
+    def recover(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> ElasticFields:
+    ) -> ElasticState:
         '''Element strain, stress, and compliance from nodal displacements.
 
         Strain and stress are the element mean of `sample` over the rule: the
@@ -544,7 +544,7 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         # lift above leaves this equal to the in-plane Voigt dot product it replaces.
         compliance = np.einsum('eqij,eqij,eq->e', fields.stress, fields.strain,
                                geometry.weight_detJ)
-        return ElasticFields(_element_mean(fields.strain, geometry.weight_detJ),
+        return ElasticState(_element_mean(fields.strain, geometry.weight_detJ),
                              _element_mean(fields.stress, geometry.weight_detJ),
                              compliance)
 
@@ -596,7 +596,7 @@ class ScaledForm(Form[S]):
     '''A form scaled by a constant: `factor * form`, such as c² times the Laplacian for
     the wave operator, or κ times a boundary mass for a Robin term.
 
-    Every hook is the wrapped form's; the energy, residual, and tangent are scaled. A
+    Every hook is the wrapped form's; the energy, residual, tangent, and flux are scaled. A
     sum is never wrapped: `factor * (a + b)` distributes into a sum of scaled terms.
     '''
     factor: float
@@ -633,8 +633,9 @@ class ScaledForm(Form[S]):
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         return self.factor * self.form.element_energies(geometry, u_elements)
 
-    def derived_field(self) -> DerivedField | None:
-        return self.form.derived_field()
+    def flux(self) -> Flux | None:
+        flux = self.form.flux()
+        return None if flux is None else ScaledFlux(self.factor, flux)
 
     def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
         return self.form.near_null_space(space)
@@ -648,7 +649,7 @@ class SumForm(Form[S]):
     '''The sum of forms, each integrating over its own domain: `a + b`.
 
     The tangent is constant when every term's is, and the energy exists when every
-    term has one. The derived field, the near-null space, and the solution packaging
+    term has one. The flux, the near-null space, and the solution packaging
     come from the one term that answers (the physics term; a boundary mass answers
     none), and two answering terms is an error. A sum has no element blocks of its
     own: `FunctionSpace` assembles each of `terms` and adds the results.
@@ -674,16 +675,16 @@ class SumForm(Form[S]):
         return self.forms
 
     def _physics_term(self) -> Form[Any] | None:
-        '''The one term that names a derived field, or None.'''
-        physics = [term for term in self.terms if term.derived_field() is not None]
+        '''The one term that names a flux, or None.'''
+        physics = [term for term in self.terms if term.flux() is not None]
         if len(physics) > 1:
             names = ', '.join(type(term).__name__ for term in physics)
-            raise ValueError(f'more than one term of the sum names a derived field: {names}')
+            raise ValueError(f'more than one term of the sum names a flux: {names}')
         return physics[0] if physics else None
 
-    def derived_field(self) -> DerivedField | None:
+    def flux(self) -> Flux | None:
         physics = self._physics_term()
-        return None if physics is None else physics.derived_field()
+        return None if physics is None else physics.flux()
 
     def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
         modes = [m for m in (term.near_null_space(space) for term in self.terms) if m is not None]
@@ -879,22 +880,22 @@ class EnergyForm(Form[ElasticSolution]):
         return (strain.reshape(n_el, n_qp, 3, 3), cauchy.reshape(n_el, n_qp, 3, 3),
                 np.asarray(t.W).reshape(n_el, n_qp))
 
-    def derived_field(self) -> DerivedField:
-        return StressField(self)
+    def flux(self) -> Flux:
+        return StressFlux(self)
 
     def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'ElasticSolution':
         return ElasticSolution.from_solve(space, u, self)
 
     def sample(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> ElasticPointFields:
+    ) -> ElasticPointState:
         '''Strain and Cauchy stress at every point of `geometry`'s rule; see `_point_state`.'''
         strain, cauchy, _ = self._point_state(geometry, u_elements)
-        return ElasticPointFields(strain, cauchy)
+        return ElasticPointState(strain, cauchy)
 
-    def derived_fields(
+    def recover(
         self, geometry: ElementGeometry, u_elements: FloatArray,
-    ) -> ElasticFields:
+    ) -> ElasticState:
         '''Element strain, Cauchy stress, and compliance at a solved displacement.
 
         Strain and stress are the element mean of `sample` over the rule,
@@ -905,5 +906,5 @@ class EnergyForm(Form[ElasticSolution]):
         '''
         strain, cauchy, W = self._point_state(geometry, u_elements)
         compliance = 2.0 * np.einsum('eq,eq->e', W, geometry.weight_detJ)
-        return ElasticFields(_element_mean(strain, geometry.weight_detJ),
+        return ElasticState(_element_mean(strain, geometry.weight_detJ),
                              _element_mean(cauchy, geometry.weight_detJ), compliance)

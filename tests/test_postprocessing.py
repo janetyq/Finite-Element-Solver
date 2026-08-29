@@ -89,7 +89,7 @@ def test_recovered_strain_is_the_analytic_symmetric_gradient():
     A = np.array([[0.03, 0.08], [-0.01, -0.02]])
     geometry, u_elements = _geometry_and_nodal(A)
 
-    fields = LinearElasticForm(LinearElasticMaterial(E, NU)).derived_fields(
+    fields = LinearElasticForm(LinearElasticMaterial(E, NU)).recover(
         geometry, u_elements
     )
 
@@ -104,7 +104,7 @@ def test_recovered_stress_satisfies_the_isotropic_law():
     geometry, u_elements = _geometry_and_nodal(A)
     mu, lamb = Enu_to_Lame(E, NU)
 
-    fields = LinearElasticForm(LinearElasticMaterial(E, NU)).derived_fields(
+    fields = LinearElasticForm(LinearElasticMaterial(E, NU)).recover(
         geometry, u_elements
     )
     strain, stress = fields.strain[0], fields.stress[0]
@@ -121,10 +121,10 @@ def test_energy_and_linear_paths_report_the_same_stress_at_small_strain():
 
     def discrepancy(amplitude):
         geometry, u_elements = _geometry_and_nodal(amplitude * shape)
-        linear = LinearElasticForm(LinearElasticMaterial(E, NU)).derived_fields(
+        linear = LinearElasticForm(LinearElasticMaterial(E, NU)).recover(
             geometry, u_elements
         )
-        energy = EnergyForm(SmallStrain(E, NU)).derived_fields(geometry, u_elements)
+        energy = EnergyForm(SmallStrain(E, NU)).recover(geometry, u_elements)
         # Strain is the same measure in both, so it must match to machine precision;
         # only the stress carries the pushforward difference.
         np.testing.assert_allclose(energy.strain, linear.strain, atol=1e-14)
@@ -145,10 +145,10 @@ def test_out_of_plane_stress_agrees_across_both_elastic_paths():
     A = 1e-6 * np.array([[2.0, 1.0], [-1.0, 4.0]])
     geometry, u_elements = _geometry_and_nodal(A)
 
-    linear = LinearElasticForm(LinearElasticMaterial(E, NU)).derived_fields(
+    linear = LinearElasticForm(LinearElasticMaterial(E, NU)).recover(
         geometry, u_elements
     )
-    energy = EnergyForm(SmallStrain(E, NU)).derived_fields(geometry, u_elements)
+    energy = EnergyForm(SmallStrain(E, NU)).recover(geometry, u_elements)
 
     assert linear.stress[0][2, 2] != pytest.approx(0.0, abs=1e-12)
     np.testing.assert_allclose(energy.stress[0][2, 2], linear.stress[0][2, 2], rtol=1e-5)
@@ -161,7 +161,7 @@ def test_energy_path_compliance_is_the_work_conjugate_pairing():
     A = np.array([[0.15, 0.30], [0.05, -0.10]])   # finite strain
     geometry, u_elements = _geometry_and_nodal(A)
 
-    fields = EnergyForm(StVenantKirchhoff(E, NU)).derived_fields(geometry, u_elements)
+    fields = EnergyForm(StVenantKirchhoff(E, NU)).recover(geometry, u_elements)
 
     # Built from scratch here rather than from the density's derivative chain, so
     # the reference is independent of the code under test: Green-Lagrange strain
@@ -185,10 +185,10 @@ def test_compliance_agrees_across_both_paths_at_small_strain():
     A = 1e-6 * np.array([[1.0, 3.0], [0.5, -2.0]])
     geometry, u_elements = _geometry_and_nodal(A)
 
-    linear = LinearElasticForm(LinearElasticMaterial(E, NU)).derived_fields(
+    linear = LinearElasticForm(LinearElasticMaterial(E, NU)).recover(
         geometry, u_elements
     )
-    energy = EnergyForm(SmallStrain(E, NU)).derived_fields(geometry, u_elements)
+    energy = EnergyForm(SmallStrain(E, NU)).recover(geometry, u_elements)
 
     np.testing.assert_allclose(energy.compliance, linear.compliance, rtol=1e-5)
 
@@ -201,10 +201,10 @@ def test_green_lagrange_strain_vanishes_under_rigid_rotation():
     A = R - np.eye(2)  # u(x) = (R - I)x rotates the element rigidly
     geometry, u_elements = _geometry_and_nodal(A)
 
-    exact = EnergyForm(StVenantKirchhoff(E, NU)).derived_fields(geometry, u_elements)
+    exact = EnergyForm(StVenantKirchhoff(E, NU)).recover(geometry, u_elements)
     np.testing.assert_allclose(exact.strain, 0.0, atol=1e-12)
 
-    linearised = EnergyForm(SmallStrain(E, NU)).derived_fields(geometry, u_elements)
+    linearised = EnergyForm(SmallStrain(E, NU)).recover(geometry, u_elements)
     assert np.abs(linearised.strain).max() > 1e-3
 
 

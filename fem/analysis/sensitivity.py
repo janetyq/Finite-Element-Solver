@@ -34,7 +34,7 @@ from fem.problem import Problem
 from fem.space import FunctionSpace
 from fem.algebra.solve import backend_for
 from fem.algebra.system import DiscreteSystem
-from fem.typing import BoolArray, DofVector, ElementField, FloatArray, IntArray
+from fem.typing import BoolArray, DofVector, ElementValues, FloatArray, IntArray
 
 
 def _element_dof_vectors(space: FunctionSpace, vector: DofVector) -> FloatArray:
@@ -169,18 +169,18 @@ class _VonMisesStress:
         u_el = _element_dof_vectors(self.space, u)                       # (n_el, N*nc)
         return np.einsum('esk,ek->es', self._DB(), u_el)                 # (n_el, 3): xx, yy, xy
 
-    def von_mises(self, u: DofVector) -> ElementField:
+    def von_mises(self, u: DofVector) -> ElementValues:
         s = self._voigt_stress(u)
         return np.sqrt(np.maximum(self._Q(s), 0.0))
 
-    def _Q(self, s: FloatArray) -> ElementField:
+    def _Q(self, s: FloatArray) -> ElementValues:
         '''von Mises squared from the in-plane Voigt stress, plane strain.'''
         sxx, syy, sxy = s[:, 0], s[:, 1], s[:, 2]
         szz = self.material.nu * (sxx + syy)
         # vm^2 = 1/2[(sxx-syy)^2 + (syy-szz)^2 + (szz-sxx)^2] + 3 sxy^2, expanded.
         return sxx**2 + syy**2 + szz**2 - sxx * syy - syy * szz - szz * sxx + 3.0 * sxy**2
 
-    def _dvm_du(self, u: DofVector) -> tuple[ElementField, FloatArray]:
+    def _dvm_du(self, u: DofVector) -> tuple[ElementValues, FloatArray]:
         '''Per-element `(von_mises, d(von_mises)/d u_e)`; the latter is `(n_el, N*nc)`.'''
         DB = self._DB()
         s = np.einsum('esk,ek->es', DB, _element_dof_vectors(self.space, u))
@@ -307,7 +307,7 @@ class _ElementModulusParameterization:
     nu: float
     _K0: FloatArray = field(repr=False)
 
-    def _element_quadratic(self, u: DofVector, lam: DofVector) -> ElementField:
+    def _element_quadratic(self, u: DofVector, lam: DofVector) -> ElementValues:
         '''The element bilinear form `λ_eᵀ K0_e u_e`, one scalar per element.'''
         u_el = _element_dof_vectors(self.space, u)
         lam_el = _element_dof_vectors(self.space, lam)
@@ -315,7 +315,7 @@ class _ElementModulusParameterization:
 
 
 @dataclass(frozen=True)
-class DensityField(_ElementModulusParameterization):
+class DensityParameterization(_ElementModulusParameterization):
     '''SIMP density: `E(ρ) = ρ^p E0`, so the stiffness scales by `ρ^p` per element.
 
     `∂K/∂ρ_e = p ρ_e^{p-1} K0_e` with `K0_e` the solid-material element stiffness, so the
@@ -326,20 +326,20 @@ class DensityField(_ElementModulusParameterization):
     No sensitivity filter here: filtering the raw sensitivity is a property of density
     topology optimization, not of the adjoint, so it lives in the optimization loop.
     '''
-    rho: ElementField = field(default_factory=lambda: np.zeros(0))
+    rho: ElementValues = field(default_factory=lambda: np.zeros(0))
     penalty: float = 3.0
 
     @classmethod
     def create(
-        cls, space: FunctionSpace, rho: ElementField, base_E: float, nu: float,
+        cls, space: FunctionSpace, rho: ElementValues, base_E: float, nu: float,
         penalty: float = 3.0,
-    ) -> 'DensityField':
+    ) -> 'DensityParameterization':
         K0 = LinearElasticForm(LinearElasticMaterial(base_E, nu)).element_matrices(space.geometry)
         return cls(space=space, nu=nu, _K0=K0, rho=np.asarray(rho, dtype=float), penalty=penalty)
 
-    def with_density(self, rho: ElementField) -> 'DensityField':
+    def with_density(self, rho: ElementValues) -> 'DensityParameterization':
         '''The same parameterization at a new density, sharing the cached `K0`.'''
-        return DensityField(
+        return DensityParameterization(
             space=self.space, nu=self.nu, _K0=self._K0,
             rho=np.asarray(rho, dtype=float), penalty=self.penalty,
         )
@@ -354,23 +354,23 @@ class DensityField(_ElementModulusParameterization):
 
 
 @dataclass(frozen=True)
-class ModulusField(_ElementModulusParameterization):
+class ModulusParameterization(_ElementModulusParameterization):
     '''A per-element Young's modulus, differentiated directly (no SIMP penalty).
 
     `K` is linear in `E`, so `∂K/∂E_e = K0_e` at unit modulus and the gradient is
     `−(λ_eᵀ K0_e u_e)`. The parameterization for inverse problems that recover a modulus
     field from measured response.
     '''
-    E: ElementField = field(default_factory=lambda: np.zeros(0))
+    E: ElementValues = field(default_factory=lambda: np.zeros(0))
 
     @classmethod
-    def create(cls, space: FunctionSpace, E: ElementField, nu: float) -> 'ModulusField':
+    def create(cls, space: FunctionSpace, E: ElementValues, nu: float) -> 'ModulusParameterization':
         # Unit-modulus solid stiffness: K_e(E_e) = E_e * K0_e, so ∂K/∂E_e = K0_e.
         K0 = LinearElasticForm(LinearElasticMaterial(1.0, nu)).element_matrices(space.geometry)
         return cls(space=space, nu=nu, _K0=K0, E=np.asarray(E, dtype=float))
 
-    def with_modulus(self, E: ElementField) -> 'ModulusField':
-        return ModulusField(space=self.space, nu=self.nu, _K0=self._K0, E=np.asarray(E, dtype=float))
+    def with_modulus(self, E: ElementValues) -> 'ModulusParameterization':
+        return ModulusParameterization(space=self.space, nu=self.nu, _K0=self._K0, E=np.asarray(E, dtype=float))
 
     @property
     def size(self) -> int:

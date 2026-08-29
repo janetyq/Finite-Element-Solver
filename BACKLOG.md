@@ -145,9 +145,9 @@ Two approaches measured and rejected, so they are not proposed again:
 **Post-processing coverage**
 
 The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3). Steady solves now recover
-their derived fields through one seam: `Form.derived_field` names the field (Poisson's gradient,
-elasticity's stress, `fem.physics.derived.DerivedField`), the typed `Solution` carries it per element
-(`ScalarFieldSolution.flux`, `ElasticSolution.stress`), and `fem.post.recovery.recover_nodal` turns it into
+their derived fields through one seam: `Form.flux` names the field (Poisson's gradient,
+elasticity's stress, `fem.physics.derived.Flux`), the typed `Solution` carries it per element
+(`DiffusionSolution.gradient`, `ElasticSolution.stress`), and `fem.post.recovery.recover_nodal` turns it into
 a continuous per-node field for smooth output, P2 plotting, and the recovery estimator; a
 `TransientSolution` packages any step the same way through `at(i)`.
 
@@ -168,8 +168,8 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
 
 **Features**
 - 💡 **Adjoint sensitivity: follow-ups.** The core shipped (`fem/analysis/sensitivity.py`:
-  `SensitivityAnalysis`, `Compliance` / `PointValue` quantities of interest, `DensityField` /
-  `ModulusField` parameterizations) and the `DesignOptimizer` over it (`fem/analysis/design.py`, SIMP density
+  `SensitivityAnalysis`, `Compliance` / `PointValue` quantities of interest, `DensityParameterization` /
+  `ModulusParameterization`) and the `DesignOptimizer` over it (`fem/analysis/design.py`, SIMP density
   design with the compliance sensitivity from the core). Design record in
   `attic/fem-adjoint-sensitivity-design-2026-08-18.md`; the follow-up plan
   is `attic/fem-adjoint-followups-2026-08-19.md`. **Stress-based quantities of interest** shipped

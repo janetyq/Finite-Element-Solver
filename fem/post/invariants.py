@@ -11,10 +11,10 @@ by rotating the input.
 """
 import numpy as np
 
-from fem.typing import ElementField, FloatArray
+from fem.typing import ElementValues, FloatArray
 
 
-def frobenius(tensor: FloatArray) -> ElementField:
+def frobenius(tensor: FloatArray) -> ElementValues:
     '''The Frobenius norm sqrt(A:A), batched over `(n_elements, d, d)`.
 
     Counts each off-diagonal entry the two times it appears in a symmetric tensor.
@@ -22,7 +22,7 @@ def frobenius(tensor: FloatArray) -> ElementField:
     return np.sqrt(np.einsum('eij,eij->e', tensor, tensor))
 
 
-def trace(tensor: FloatArray) -> ElementField:
+def trace(tensor: FloatArray) -> ElementValues:
     '''The first invariant tr(A), batched.'''
     return np.einsum('eii->e', tensor)
 
@@ -38,12 +38,12 @@ def deviatoric(tensor: FloatArray) -> FloatArray:
     return tensor - (trace(tensor) / d)[:, None, None] * np.eye(d)
 
 
-def pressure(stress: FloatArray) -> ElementField:
+def pressure(stress: FloatArray) -> ElementValues:
     '''Hydrostatic pressure -tr(sigma)/d: positive in compression, batched.'''
     return -trace(stress) / stress.shape[-1]
 
 
-def von_mises(stress: FloatArray) -> ElementField:
+def von_mises(stress: FloatArray) -> ElementValues:
     '''Von Mises equivalent stress sqrt(3/2 s:s), with s the deviatoric stress.
 
     The scalar a yield criterion compares against a material's tensile strength,
@@ -71,7 +71,7 @@ def principal(tensor: FloatArray) -> FloatArray:
     return np.asarray(np.linalg.eigvalsh(tensor), dtype=np.float64)
 
 
-def max_shear(tensor: FloatArray) -> ElementField:
+def max_shear(tensor: FloatArray) -> ElementValues:
     '''Maximum shear stress (s_max - s_min)/2, from the principal values.'''
     values = principal(tensor)
     return (values[:, -1] - values[:, 0]) / 2.0

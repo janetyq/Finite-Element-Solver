@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.typing import ElementField, FloatArray, Matrix
+from fem.typing import ElementValues, FloatArray, Matrix
 
 
 def Enu_to_Lame(E, nu):
@@ -83,7 +83,7 @@ class LinearElasticMaterial:
     density cubed each iteration), so the constitutive matrix is requested per
     element rather than built once. nu is uniform.
     '''
-    E: float | ElementField
+    E: float | ElementValues
     nu: float
 
     def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:

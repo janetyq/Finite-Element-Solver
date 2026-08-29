@@ -29,7 +29,7 @@ from fem.plot.helpers import (
     plot_solid,
 )
 from fem.plot.bc import overlay_supports, plot_bc
-from fem.plot.tessellation import field_view
+from fem.plot.tessellation import panel_view
 
 
 class PlotMode(Enum):
@@ -136,8 +136,8 @@ class Plotter:
         `space`, so a P2 or curved solve renders faithfully without passing `space=` by
         hand (an explicit `space` still overrides it), and `warp=True` deforms the field
         by the solution's own displacement. A raw mesh keeps the low-level,
-        field-agnostic path. Either way the panel draws the `FieldView` that
-        `fem.plot.tessellation.field_view` builds.
+        field-agnostic path. Either way the panel draws the `PanelView` that
+        `fem.plot.tessellation.panel_view` builds.
 
         `label` names the quantity on the colorbar (colored mode); a colorbar is built
         once per subplot, so it is read on the call that first draws there and ignored
@@ -172,7 +172,7 @@ class Plotter:
         # The refinement mode takes the red/green classifications, not a field.
         field = (None if values is None or mode is PlotMode.REFINEMENT
                  else np.asarray(values, dtype=float))
-        view = field_view(target, field, space=space, warp=warp, subdivisions=subdivisions)
+        view = panel_view(target, field, space=space, warp=warp, subdivisions=subdivisions)
         mesh = view.mesh
         ax = self.axs[idx]
         if clear:
@@ -329,7 +329,7 @@ class Plotter:
         # z, so its geometry changes frame to frame and it has to be redrawn.
         elif mode in (PlotMode.COLORED, PlotMode.SOLID) and artist is not None:
             ax = self.axs[idx]
-            view = field_view(target, values[0], space=space, subdivisions=subdivisions)
+            view = panel_view(target, values[0], space=space, subdivisions=subdivisions)
 
             def update(frame: int) -> None:
                 artist.set_array(view.with_values(values[frame]).face_values)

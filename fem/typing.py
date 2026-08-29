@@ -2,11 +2,11 @@
 
 Nearly every signature here takes or returns an `np.ndarray`, which says almost
 nothing: the interesting distinctions are which quantity an array holds and what
-shape it has. `ElementField` and `VertexField` are the same runtime type, and
+shape it has. `ElementValues` and `NodalValues` are the same runtime type, and
 confusing them is a real bug, so the names carry the meaning the dtype cannot.
 
 These are aliases, not `NewType`s. A checker will not stop you passing a
-`VertexField` where an `ElementField` is wanted; enforcing that would mean
+`NodalValues` where an `ElementValues` is wanted; enforcing that would mean
 wrapping every array at construction, which is not worth it in numerical code.
 They document intent for the reader and for autocomplete, and the shape comments
 are the contract.
@@ -38,11 +38,12 @@ ElementVertices: TypeAlias = FloatArray
 # boundary facet array.
 Elements: TypeAlias = IntArray
 
-# (n_vertices,) for a scalar PDE, or (n_vertices, n_components) for a vector one.
-VertexField: TypeAlias = FloatArray
+# (n_nodes,) for a scalar PDE, or (n_nodes, n_components) for a vector one: one row per
+# node of the space (vertices first, then any edge nodes).
+NodalValues: TypeAlias = FloatArray
 
 # (n_elements,) one value per element: stress, density, an error estimate.
-ElementField: TypeAlias = FloatArray
+ElementValues: TypeAlias = FloatArray
 
 # (n_vertices * n_components,) the flat unknown a solve works in, ordered so that
 # node v component d lives at index n_components*v + d. `fem.space.dof_indices` builds

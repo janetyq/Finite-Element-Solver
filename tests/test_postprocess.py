@@ -13,10 +13,10 @@ from fem.physics.equations import LinearElastic, Poisson, Projection
 from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
 from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.structured import box_mesh
-from fem.physics.derived import GradientField, StressField
+from fem.physics.derived import GradientFlux, StressFlux
 from fem.post.recovery import nodal_gradient, recover_nodal
 from fem.regions import everywhere, on_plane
-from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
+from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
 from fem.space import FunctionSpace
 from fem.loads import Source
 
@@ -31,15 +31,15 @@ def test_nodal_flux_of_a_linear_field_is_its_exact_constant_gradient(element_typ
     gradient = np.array([3.0, -2.0])
     u = space.node_coords @ gradient                 # a linear field, exact in either space
 
-    solution = ScalarFieldSolution.from_solve(space, u)
+    solution = DiffusionSolution.from_solve(space, u)
 
-    nodal = solution.nodal_flux()
+    nodal = solution.nodal_gradient()
     assert nodal.shape == (space.n_nodes, 2)
     assert np.allclose(nodal, gradient)
 
 
 def test_a_poisson_solve_carries_its_flux_and_recovers_it_to_the_nodes():
-    """Poisson comes back as a ScalarFieldSolution: a per-element flux plus its nodal
+    """Poisson comes back as a DiffusionSolution: a per-element flux plus its nodal
     recovery, aligned with the solution's own space (here P2, so edge nodes too)."""
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [7, 7])
     bc = Conditions(
@@ -48,13 +48,13 @@ def test_a_poisson_solve_carries_its_flux_and_recovers_it_to_the_nodes():
 
     solution = Poisson().problem(mesh, bc + Source(1.0), element_type=QuadraticTriangleElement).solve()
 
-    assert isinstance(solution, ScalarFieldSolution)
-    assert solution.flux.shape == (len(mesh.elements), 2)
-    nodal = solution.nodal_flux()
+    assert isinstance(solution, DiffusionSolution)
+    assert solution.gradient.shape == (len(mesh.elements), 2)
+    nodal = solution.nodal_gradient()
     assert nodal.shape == (solution.space.n_nodes, 2)
     assert np.allclose(nodal, nodal_gradient(solution.space, solution.u))
     # Read at the nodes, not averaged from the per-element values: on P2 the two differ.
-    assert not np.allclose(nodal, recover_nodal(solution.space, solution.flux))
+    assert not np.allclose(nodal, recover_nodal(solution.space, solution.gradient))
 
 
 def test_nodal_flux_takes_a_recovery_method():
@@ -66,15 +66,15 @@ def test_nodal_flux_takes_a_recovery_method():
     )
     solution = Poisson().problem(mesh, bc + Source(1.0)).solve()  # varying flux (curved u)
 
-    average = solution.nodal_flux(method='average')
-    l2 = solution.nodal_flux(method='l2')
+    average = solution.nodal_gradient(method='average')
+    l2 = solution.nodal_gradient(method='l2')
     assert l2.shape == average.shape == (solution.space.n_nodes, 2)
-    assert np.allclose(l2, recover_nodal(solution.space, solution.flux, method='l2'))
+    assert np.allclose(l2, recover_nodal(solution.space, solution.gradient, method='l2'))
     assert not np.allclose(l2, average)
 
 
 def test_a_projection_stays_a_bare_field_solution():
-    """A projection names no derived field, so it is not upgraded to a ScalarFieldSolution."""
+    """A projection names no derived field, so it is not upgraded to a DiffusionSolution."""
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
     solution = Projection().problem(mesh, Conditions() + Source(2.0)).solve()
     assert type(solution) is FieldSolution
@@ -130,25 +130,25 @@ def test_scalar_solution_nodal_values_are_one_per_node():
 def test_forms_name_their_derived_field():
     """The seam: the Laplacian names a gradient, both elastic forms a stress, and the
     mass form (a projection) none."""
-    assert isinstance(DiffusionForm().derived_field(), GradientField)
-    assert isinstance(LinearElasticForm(LinearElasticMaterial(1.0, 0.3)).derived_field(), StressField)
-    assert isinstance(EnergyForm(StVenantKirchhoff(1.0, 0.3)).derived_field(), StressField)
-    assert MassForm().derived_field() is None
+    assert isinstance(DiffusionForm().flux(), GradientFlux)
+    assert isinstance(LinearElasticForm(LinearElasticMaterial(1.0, 0.3)).flux(), StressFlux)
+    assert isinstance(EnergyForm(StVenantKirchhoff(1.0, 0.3)).flux(), StressFlux)
+    assert MassForm().flux() is None
 
 
 def test_derived_field_reads_the_stored_field_and_checks_its_solution():
-    """GradientField reads a scalar solution's flux as (n_el, 1, d) and refuses a solution
+    """GradientFlux reads a scalar solution's flux as (n_el, 1, d) and refuses a solution
     that carries none, so a misuse fails loudly rather than recovering nonsense."""
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
     space = FunctionSpace(mesh, n_components=1)
-    solution = ScalarFieldSolution.from_solve(space, space.node_coords[:, 0])
+    solution = DiffusionSolution.from_solve(space, space.node_coords[:, 0])
 
-    field = GradientField().evaluate(solution)
+    field = GradientFlux().evaluate(solution)
     assert field.shape == (len(mesh.elements), 1, 2)
-    assert np.allclose(field[:, 0, :], solution.flux)
+    assert np.allclose(field[:, 0, :], solution.gradient)
 
     with pytest.raises(TypeError, match='scalar solution'):
-        GradientField().evaluate(FieldSolution(space, space.node_coords[:, 0]))
+        GradientFlux().evaluate(FieldSolution(space, space.node_coords[:, 0]))
 
 
 def test_element_type_round_trips_through_save_and_load(tmp_path):
@@ -164,6 +164,6 @@ def test_element_type_round_trips_through_save_and_load(tmp_path):
     solution.save(path)
     loaded = FieldSolution.load(path)
 
-    assert isinstance(loaded, ScalarFieldSolution)
+    assert isinstance(loaded, DiffusionSolution)
     assert loaded.element_type is QuadraticTriangleElement
-    assert np.allclose(loaded.nodal_flux(), solution.nodal_flux())
+    assert np.allclose(loaded.nodal_gradient(), solution.nodal_gradient())

@@ -13,7 +13,7 @@ from fem.conditions import Conditions
 from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod
 from fem.regions import TimeDependent, everywhere, evaluate_field, field_at, on_plane
-from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution, TransientSolution
+from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution, TransientSolution
 from fem.loads import Source
 
 
@@ -131,10 +131,10 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
     history = ThetaMethod(dt=0.1, steps=3).solve(heat, u0)
     assert isinstance(history, TransientSolution)
     step = history.at(2)
-    assert isinstance(step, ScalarFieldSolution)
+    assert isinstance(step, DiffusionSolution)
     np.testing.assert_array_equal(step.u, history.u[2])
-    np.testing.assert_allclose(step.flux, heat.space.gradient(history.u[2]))
-    assert isinstance(history.final, ScalarFieldSolution)
+    np.testing.assert_allclose(step.gradient, heat.space.gradient(history.u[2]))
+    assert isinstance(history.final, DiffusionSolution)
     np.testing.assert_array_equal(history.final.u, history.u[-1])
 
     bc = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))

@@ -8,6 +8,10 @@ from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.physics.equations import LinearElastic, Poisson
 from fem.analysis.estimators import ResidualEstimator
+from fem.elements import QuadraticTriangleElement
+from fem.physics.forms import DiffusionForm
+from fem.problem import LinearProblem
+from fem.space import FunctionSpace
 from fem.mesh.mesh import Mesh
 from fem.regions import everywhere, on_plane
 from fem.post.solution import ElasticSolution
@@ -81,6 +85,110 @@ def test_adaptive_refinement_with_error_estimator(make_unit_square):
     far_away = (center_dist > 0.35).sum()
     # The source is localised, so more refinement happens near the center
     assert near_center > far_away * 0.3
+
+
+# -- the diffusion coefficient in the flux ------------------------------------
+#
+# The flux the estimator jumps and differentiates is kappa grad u, not grad u. Each test
+# below states a problem whose exact solution the space reproduces, so the estimate
+# should vanish; reading grad u alone would leave a spurious residual behind.
+
+
+def test_poisson_estimator_affine_coefficient_exact_p1_solution_is_quiet(make_unit_square):
+    """kappa = 1 + x, u = x: the flux (1 + x) is continuous, and its divergence, 1,
+    cancels the source f = -1. Reading grad u alone would report f + laplacian(u) = -1."""
+    mesh = make_unit_square(6)
+    bc = Conditions(Dirichlet(everywhere(), lambda p: p[0]), Source(-1.0))
+    problem = Poisson(coefficient=lambda p: 1.0 + p[0]).problem(mesh, bc)
+    solution = problem.solve()
+    np.testing.assert_allclose(solution.u, mesh.vertices[:, 0], atol=1e-12)
+
+    eta = ResidualEstimator().estimate(problem, solution)
+    assert np.all(eta < 1e-10)
+
+
+def test_poisson_estimator_affine_coefficient_exact_p2_solution_is_quiet(make_unit_square):
+    """kappa = 1 + x, u = x^2 on P2: div(kappa grad u) = 2 + 4x needs both the
+    kappa laplacian(u) and the grad(kappa) . grad(u) terms; the source f = -(2 + 4x)
+    cancels it exactly, and the flux 2x(1 + x) is continuous across every edge."""
+    mesh = make_unit_square(4)
+    space = FunctionSpace(mesh, QuadraticTriangleElement)
+    # An affine kappa against P2 gradients, and an affine source against a P2 test
+    # function, are cubic integrands: raise both rules so the discrete solution is the
+    # exact u = x^2.
+    bc = Conditions(
+        Dirichlet(everywhere(), lambda p: p[0]**2),
+        Source(lambda p: -(2.0 + 4.0 * p[0]), quadrature_degree=4),
+    )
+    problem = LinearProblem(space, DiffusionForm(lambda p: 1.0 + p[0], rule_degree=4), bc)
+    solution = problem.solve()
+    np.testing.assert_allclose(solution.u, space.node_coords[:, 0]**2, atol=1e-10)
+
+    eta = ResidualEstimator().estimate(problem, solution)
+    assert np.all(eta < 1e-9)
+
+
+def test_poisson_estimator_constant_coefficient_scales_the_estimate(make_unit_square):
+    """Scaling kappa and the source together leaves u unchanged and scales every
+    residual, so the estimate scales with them."""
+    mesh = make_unit_square(8)
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    def source(p):
+        return np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])
+
+    unit = Poisson().problem(mesh, bc + Source(source))
+    scaled = Poisson(coefficient=3.0).problem(mesh, bc + Source(lambda p: 3.0 * source(p)))
+    u_unit, u_scaled = unit.solve(), scaled.solve()
+    np.testing.assert_allclose(u_scaled.u, u_unit.u, atol=1e-12)
+
+    eta_unit = ResidualEstimator().estimate(unit, u_unit)
+    eta_scaled = ResidualEstimator().estimate(scaled, u_scaled)
+    np.testing.assert_allclose(eta_scaled, 3.0 * eta_unit, rtol=1e-10)
+
+
+def test_poisson_estimator_scaled_form_scales_its_flux(make_unit_square):
+    """`3 * DiffusionForm()` and `DiffusionForm(3.0)` are the same operator, so their
+    estimates agree: the scaled form's flux carries the factor."""
+    mesh = make_unit_square(6)
+    bc = Conditions(Dirichlet(everywhere(), 0.0), Source(lambda p: p[0] * p[1]))
+    space = FunctionSpace(mesh)
+    by_coefficient = LinearProblem(space, DiffusionForm(3.0), bc)
+    by_factor = LinearProblem(space, 3.0 * DiffusionForm(), bc)
+    solution = by_coefficient.solve()
+    np.testing.assert_allclose(by_factor.solve().u, solution.u, atol=1e-12)
+
+    eta_coefficient = ResidualEstimator().estimate(by_coefficient, solution)
+    eta_factor = ResidualEstimator().estimate(by_factor, solution)
+    np.testing.assert_allclose(eta_factor, eta_coefficient, rtol=1e-10)
+    assert eta_coefficient.max() > 1e-3
+
+
+def test_poisson_estimator_neumann_edge_registers_a_missed_flux(make_unit_square):
+    """u = x with kappa = 2: the outward flux on x = 1 is 2. The matching Neumann value
+    is quiet; a mismatched one shows up on the elements along that edge only."""
+    mesh = make_unit_square(6)
+    kappa = 2.0
+    left = Conditions(Dirichlet(on_plane(0, 0.0), 0.0))
+
+    matched = Poisson(coefficient=kappa).problem(mesh, left + Neumann(on_plane(0, 1.0), kappa))
+    solution = matched.solve()
+    np.testing.assert_allclose(solution.u, mesh.vertices[:, 0], atol=1e-12)
+    eta = ResidualEstimator().estimate(matched, solution)
+    # `g` is nodal, so at the corners (1, 0) and (1, 1) it also reaches the flux-free top
+    # and bottom edges through the shared vertex (the elastic test below works the same
+    # effect by hand); every other element is quiet.
+    corner = np.any(np.isclose(mesh.vertices[mesh.elements][:, :, 0], 1.0)
+                    & np.isin(mesh.vertices[mesh.elements][:, :, 1], [0.0, 1.0]), axis=1)
+    assert np.all(eta[~corner] < 1e-10)
+
+    mismatched = Poisson(coefficient=kappa).problem(mesh, left + Neumann(on_plane(0, 1.0), 0.5 * kappa))
+    eta = ResidualEstimator().estimate(mismatched, mismatched.solution(mesh.vertices[:, 0]))
+    on_right = np.any(np.isclose(mesh.vertices[mesh.elements][:, :, 0], 1.0), axis=1)
+    # A boundary element touches x = 1 along an edge, not just at a corner, when two
+    # of its vertices lie on it.
+    right_edge = np.sum(np.isclose(mesh.vertices[mesh.elements][:, :, 0], 1.0), axis=1) == 2
+    assert np.all(eta[right_edge] > 1e-3)
+    assert np.all(eta[~on_right] < 1e-10)
 
 
 # -- the elastic boundary term ------------------------------------------------

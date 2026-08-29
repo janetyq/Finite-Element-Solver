@@ -27,7 +27,7 @@ import numpy as np
 from fem.elements import ElementGeometry
 from fem.physics.forms import BoundaryMassForm, sample_field
 from fem.regions import TimeDependent, evaluate_field, field_at
-from fem.typing import BoolArray, DofVector, FieldValue, FloatArray, IntArray, Operator, Region, VertexField
+from fem.typing import BoolArray, DofVector, FieldValue, FloatArray, IntArray, Operator, Region, NodalValues
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace
@@ -116,7 +116,7 @@ class BoundaryLoad:
     def is_time_dependent(self) -> bool:
         return isinstance(self.value, TimeDependent)
 
-    def nodal_values(self, space: 'FunctionSpace', t: float = 0.0) -> VertexField:
+    def nodal_values(self, space: 'FunctionSpace', t: float = 0.0) -> NodalValues:
         '''`(n_nodes, n_components)` value of `g` at time `t`, zero off the region.'''
         g = np.zeros((space.n_nodes, space.n_components))
         if len(self.node_idxs):
