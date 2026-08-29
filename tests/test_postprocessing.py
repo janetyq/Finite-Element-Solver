@@ -66,7 +66,6 @@ def test_solver_and_design_model_recover_the_same_fields(make_unit_square):
     """`Problem.solve` and `SIMPModel` recover the same fields: at a uniform unit density the
     diluted problem is the plain elastic solve."""
     from fem.analysis.design import SIMPModel
-    from fem.algebra.solve import LinearSolve
 
     mesh = make_unit_square(6)
     _, solution = _solved(mesh)
@@ -74,7 +73,7 @@ def test_solver_and_design_model_recover_the_same_fields(make_unit_square):
     equation = LinearElastic(E=1.0, nu=0.3)
     model = SIMPModel(equation.problem(mesh, _cantilever_bc()), penalty=1.0)
     rho = np.ones(len(mesh.elements))
-    design_solution = model.solution(rho, LinearSolve().solve(model.problem(rho)))
+    design_solution = model.problem(rho).solve()
 
     np.testing.assert_allclose(design_solution.dofs, solution.dofs, rtol=1e-10)
     np.testing.assert_allclose(design_solution.compliance, solution.compliance, rtol=1e-10)

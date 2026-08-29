@@ -30,7 +30,7 @@ from fem.analysis.sensitivity import (
     QuantityOfInterest,
     SensitivityAnalysis,
 )
-from fem.post.solution import ElasticSolution, FieldSolution
+from fem.post.solution import ElasticSolution
 from fem.space import FunctionSpace
 from fem.typing import DofVector, ElementValues, FloatArray, SparseMatrix
 
@@ -180,17 +180,15 @@ class SIMPModel:
     def parameterization(self, rho: ElementValues) -> DensityParameterization:
         return self._density.with_density(rho)
 
-    def problem(self, rho: ElementValues) -> LinearProblem[FieldSolution]:
-        '''The elastic problem at density `rho`, its stiffness rescaled by `rho^p`.'''
+    def problem(self, rho: ElementValues) -> LinearProblem[ElasticSolution]:
+        '''The elastic problem at density `rho`: its stiffness rescaled by `rho^p` from
+        the cached solid matrices, standing in for the diluted material's own form, so
+        the problem solves to an `ElasticSolution` with the diluted stress
+        `sigma = D(E(rho)) eps`.'''
         dilution = np.asarray(rho, dtype=float) ** self.penalty
-        stiffness = PrecomputedForm(dilution[:, None, None] * self._density._K0)
+        diluted = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus(rho), self._material.nu))
+        stiffness = PrecomputedForm(dilution[:, None, None] * self._density._K0, form=diluted)
         return self.template.with_operator(stiffness)
-
-    def solution(self, rho: ElementValues, u: DofVector) -> ElasticSolution:
-        '''The displacement `u` at density `rho` with the stress of the diluted material.'''
-        # Stress wants the diluted material itself: sigma = D(E(rho)) eps.
-        form = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus(rho), self._material.nu))
-        return ElasticSolution.from_solve(self.space, u, form)
 
 
 @dataclass(frozen=True, eq=False)
@@ -200,9 +198,10 @@ class DesignHistory:
     `dofs (n_iters, n_dofs)`, and the `objective (n_iters,)` it scored.
 
     A sequence of solutions, like a `TransientSolution`: `history[i]` is the
-    `ElasticSolution` of iterate `i` (its displacement with the diluted material's
-    stress, packaged by `model`), `len` the iteration count, and iterating yields
-    every iterate.
+    `ElasticSolution` of iterate `i`, packaged by the operator of `model.problem(rho[i])`
+    (each iterate has its own diluted operator, so the model, which rebuilds one from a
+    density, stands where a transient series holds its one operator); `len` is the
+    iteration count and iterating yields every iterate.
     '''
     model: SIMPModel
     rho: FloatArray
@@ -235,7 +234,7 @@ class DesignHistory:
         '''Iterate `i` as the elastic solution of its density.'''
         if not isinstance(i, (int, np.integer)):
             raise TypeError(f'a history is indexed by iterate, got {type(i).__name__}')
-        return self.model.solution(self.rho[i], self.dofs[i])
+        return self.model.problem(self.rho[i]).solution(self.dofs[i])
 
     def __iter__(self) -> Iterator[ElasticSolution]:
         return (self[i] for i in range(len(self)))
@@ -269,13 +268,14 @@ class DesignOptimizer:
         self.solution: ElasticSolution | None = None
         self.history: DesignHistory | None = None
 
-    def step(self) -> tuple[DofVector, float]:
-        '''One iteration: solve, score, and advance the density. Returns `(u, J)`.'''
+    def step(self) -> tuple[ElasticSolution, float]:
+        '''One iteration: solve, score, and advance the density. Returns the iterate's
+        `ElasticSolution` and its objective `J`.'''
         problem = self.model.problem(self.rho)
         analysis = SensitivityAnalysis(problem)
         u = analysis.solve_forward()
         objective_value = self.objective.value(problem, u)
-        self.solution = self.model.solution(self.rho, u)
+        self.solution = problem.solution(u)
 
         parameterization = self.model.parameterization(self.rho)
         gradient = analysis.gradient(self.objective, parameterization, u)
@@ -287,7 +287,7 @@ class DesignOptimizer:
         self.rho = optimality_criteria_update(
             self.rho, sensitivity, self.model.volumes, self.volume_frac, self.move,
         )
-        return u, objective_value
+        return self.solution, objective_value
 
     def run(self, on_iteration: Callable[[int, ElementValues, float], None] | None = None) -> DesignHistory:
         '''Run every iteration and return the history; `on_iteration(i, rho, J)` is
@@ -297,9 +297,9 @@ class DesignOptimizer:
         objective_series: list[float] = []
         for i in range(self.iters):
             rho_before = self.rho
-            u, objective_value = self.step()
+            solution, objective_value = self.step()
             rho_series.append(rho_before)
-            u_series.append(u)
+            u_series.append(solution.dofs)
             objective_series.append(objective_value)
             logger.info('Design iteration %d: objective = %.6g, volume fraction = %.4f',
                         i, objective_value,

@@ -16,6 +16,7 @@ from fem.problem import LinearProblem
 from fem.regions import on_plane
 from fem.analysis.sensitivity import Compliance
 from fem.algebra.solve import LinearSolve
+from fem.post.solution import ElasticSolution, FieldSolution
 from fem.space import FunctionSpace
 
 
@@ -218,3 +219,45 @@ def test_target_compliance_scores_the_squared_miss(make_unit_square):
 
     assert np.isclose(qoi.value(problem, u), (0.5 * compliance) ** 2)
     np.testing.assert_allclose(qoi.dJ_du(problem, u), compliance * problem.load)
+
+
+# -- packaging through the precomputed form ---------------------------------------
+
+
+def test_diluted_problem_solves_to_an_elastic_solution_of_the_diluted_material(make_unit_square):
+    """`model.problem(rho).solve()` is an `ElasticSolution` whose stress is that of the
+    diluted material, `sigma = D(rho^p E0) eps`: at full density it is the solid's."""
+    mesh = make_unit_square(6)
+    model = _model(mesh)
+    rho = np.full(len(mesh.elements), 0.5)
+    diluted = model.problem(rho).solve()
+    assert isinstance(diluted, ElasticSolution)
+
+    material = LinearElasticMaterial(model.scaled_modulus(rho), 0.3)
+    reference = LinearProblem(model.space, LinearElasticForm(material), _cantilever_bc()).solve()
+    np.testing.assert_allclose(diluted.dofs, reference.dofs, rtol=1e-10)
+    np.testing.assert_allclose(diluted.stress, reference.stress, rtol=1e-10, atol=1e-14)
+
+    solid = model.template.solve()
+    full = model.problem(np.ones(len(mesh.elements))).solve()
+    np.testing.assert_allclose(full.stress, solid.stress, rtol=1e-10, atol=1e-14)
+
+
+def test_precomputed_form_delegates_to_the_physics_it_stands_in_for(make_unit_square):
+    """With a `form`, it packages, names a flux, and supplies a near-kernel as
+    that form does; bare, it packages a field and names none."""
+    mesh = make_unit_square(4)
+    space = FunctionSpace(mesh, n_components=2)
+    elastic = LinearElasticForm(LinearElasticMaterial(1.0, 0.3))
+    K = elastic.element_matrices(space.geometry)
+    u = np.zeros(space.n_dofs)
+
+    standing_in = PrecomputedForm(K, form=elastic)
+    assert isinstance(standing_in.solution(space, u), ElasticSolution)
+    assert standing_in.flux() is not None
+    modes = standing_in.near_null_space(space)
+    assert modes is not None and modes.shape == (space.n_dofs, 3)
+
+    bare = PrecomputedForm(K)
+    assert type(bare.solution(space, u)) is FieldSolution
+    assert bare.flux() is None and bare.near_null_space(space) is None

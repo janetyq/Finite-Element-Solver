@@ -26,7 +26,7 @@ from its terms. A form names its integration `domain` (the volume elements or th
 facets), so a sum may mix the two, as an operator with a Robin boundary term does, and the
 space assembles each term over its own domain.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from numbers import Real
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, Protocol, TypeVar, cast, runtime_checkable
@@ -713,7 +713,7 @@ _NO_BLOCKS = 'a SumForm has no element blocks of its own; assemble its terms'
 
 
 @dataclass(frozen=True, eq=False)
-class PrecomputedForm(BilinearForm[FieldSolution]):
+class PrecomputedForm(BilinearForm[S]):
     '''Element matrices computed elsewhere, handed to assembly as they are.
 
     An escape hatch for a driver that can derive its element matrices more cheaply
@@ -722,10 +722,18 @@ class PrecomputedForm(BilinearForm[FieldSolution]):
     by `rho^p`, so a topology optimization iteration rescales one precomputed set
     rather than re-contracting `B^T D B` over the mesh.
 
+    `form` is the form the matrices stand in for, when there is one: the diluted
+    `LinearElasticForm` whose stiffness they are. Everything a form answers beyond its
+    matrix (`solution` packaging, `flux`, `near_null_space`) is delegated to it, so a
+    problem over precomputed elastic matrices solves to an `ElasticSolution` with the
+    diluted material's stress, and an iterative backend gets the rigid-body modes.
+    Without one the form packages a bare `FieldSolution` and names no flux.
+
     Valid only for the geometry the matrices were computed on. The element count is
     checked, the one mismatch a bare `matrices` array can reveal.
     '''
     matrices: FloatArray   # (n_elements, k, k)
+    form: Form[S] | None = field(default=None, kw_only=True)
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         if len(self.matrices) != geometry.n_elements:
@@ -734,6 +742,17 @@ class PrecomputedForm(BilinearForm[FieldSolution]):
                 f'geometry has {geometry.n_elements}'
             )
         return self.matrices
+
+    def flux(self) -> Flux | None:
+        return None if self.form is None else self.form.flux()
+
+    def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
+        return None if self.form is None else self.form.near_null_space(space)
+
+    def solution(self, space: 'FunctionSpace', u: FloatArray) -> S:
+        if self.form is None:
+            return cast(S, FieldSolution(space, u))
+        return self.form.solution(space, u)
 
 
 class EnergyDensity(Protocol):
