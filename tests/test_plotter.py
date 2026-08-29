@@ -224,7 +224,7 @@ def test_a_conditions_panel_keeps_its_aspect_but_not_the_x_y_labels(mesh):
     )
 
     plotter = Plotter(1, 2)
-    plotter.plot(mesh, mode='bc', bc=bc, idx=(0, 0))
+    plotter.plot(mesh, mode='bc', conditions=bc, idx=(0, 0))
     plotter.plot(mesh, mode='mesh', idx=(0, 1))
     plotter.format_axs()
 

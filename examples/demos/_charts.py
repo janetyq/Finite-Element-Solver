@@ -8,7 +8,7 @@ def conditions_figure(mesh, bc, caption, panel_aspect=1.0):
     """The one-panel "how the problem was posed" figure most demos end on: the boundary
     conditions drawn on the mesh, filed as setup so the gallery keeps it by the source."""
     conditions = Plotter(panel_aspect=panel_aspect)
-    conditions.plot(mesh, mode='bc', bc=bc)
+    conditions.plot(mesh, mode='bc', conditions=bc)
     return Figure(conditions, caption, 'conditions', setup=True)
 
 

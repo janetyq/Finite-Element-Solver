@@ -117,7 +117,7 @@ class Plotter:
         mode: PlotMode | str = PlotMode.MESH,
         idx: tuple[int, int] = (0, 0),
         title: str | None = None,
-        bc: 'Conditions | None' = None,
+        conditions: 'Conditions | None' = None,
         clear: bool = False,
         empty: bool = False,
         label: str | None = None,
@@ -179,7 +179,7 @@ class Plotter:
             ax.clear()
 
         artist = None
-        # TODO: check that values/bc are provided for intended mode
+        # TODO: check that values/conditions are provided for intended mode
         if mode is PlotMode.MESH:
             plot_mesh(ax, view)
         elif mode is PlotMode.BOUNDARY:
@@ -209,7 +209,7 @@ class Plotter:
         elif mode is PlotMode.ARROWS:
             plot_arrows(ax, view, values)
         elif mode is PlotMode.BC:
-            plot_bc(ax, mesh, bc)
+            plot_bc(ax, mesh, conditions)
             self._bc_panels.add(idx)
 
         ax.set_title(title) # overrides any existing title
@@ -220,7 +220,7 @@ class Plotter:
     def overlay_supports(
         self,
         mesh: 'Mesh',
-        bc: 'Conditions',
+        conditions: 'Conditions',
         idx: tuple[int, int] = (0, 0),
         coords: FloatArray | None = None,
     ) -> None:
@@ -229,7 +229,7 @@ class Plotter:
         `coords` places them at deformed vertex positions (for a buckled shape, so a
         load follows the material) while the conditions are still read off `mesh`.
         """
-        overlay_supports(self.axs[idx], mesh, bc, coords=coords)
+        overlay_supports(self.axs[idx], mesh, conditions, coords=coords)
 
     def plot_highlights(
         self,

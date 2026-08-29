@@ -365,7 +365,7 @@ def solve_elastic_mms_p2(n: int) -> MMSSolve:
 
     bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0]))
     operator = LinearElasticForm(LinearElasticMaterial(ELASTIC_E, ELASTIC_NU))
-    load = Source(elastic_source, n_components=2, quadrature_degree=4)
+    load = Source(elastic_source, quadrature_degree=4)
     problem = LinearProblem(space, operator, bc + load)
     u = LinearSolve().solve(problem)
 

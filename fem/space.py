@@ -514,7 +514,7 @@ class FunctionSpace:
         of its `quadrature_degree`.
         '''
         geometry = self.geometry_at(source.quadrature_degree)
-        vectors = source.element_vectors(geometry)
+        vectors = source.element_vectors(geometry, self.n_components)
         return self._volume_vector_scatter.scatter(vectors)
 
     # -- state-dependent assembly -------------------------------------------

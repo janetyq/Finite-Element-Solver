@@ -199,6 +199,6 @@ def test_linear_form_constant_source_integrates_the_hat_exactly():
     """For a constant source c, each node's load is c * volume / N and the loads sum to
     c * volume."""
     volume = float(TRI.volumes[0])
-    b = Source(3.0, 1).element_vectors(TRI)[0]   # (N,)
+    b = Source(3.0).element_vectors(TRI, 1)[0]   # (N,)
     np.testing.assert_allclose(b, 3.0 * volume / 3)  # 3 nodes, integral of a P1 hat
     np.testing.assert_allclose(b.sum(), 3.0 * volume)

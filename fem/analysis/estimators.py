@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class Solved:
-    '''The resolved view of a solved system an estimator reads: space, solution, BCs.
+    '''The resolved view of a solved system an estimator reads: space, solution, conditions.
 
     Built once per `estimate` so the engine does not re-derive the DOF partition per
     edge. `is_fixed[v, c]` marks vertex `v`'s component `c` as Dirichlet-constrained,

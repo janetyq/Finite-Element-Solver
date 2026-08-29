@@ -128,7 +128,7 @@ def test_a_shared_specification_is_unchanged_by_resolution(make_unit_square):
                             Neumann(on_plane(0, 1.0), 1.0))
     before = bc.items
     p1 = bc.resolve(FunctionSpace(mesh))
-    p2 = bc.resolve(FunctionSpace(mesh, QuadraticTriangleElement), t=2.0)
+    p2 = bc.resolve(FunctionSpace(mesh, QuadraticTriangleElement)).at(2.0)
     assert bc.items is before
     assert len(p2.fixed_idxs) > len(p1.fixed_idxs)   # the P2 edge nodes are pinned too
     np.testing.assert_allclose(p2.fixed_values, 2.0)

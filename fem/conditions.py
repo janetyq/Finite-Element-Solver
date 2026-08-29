@@ -10,9 +10,10 @@ mesh, and it is what `equation.problem(mesh, conditions)` takes.
 one space: the Dirichlet DOF partition, the operator terms a Robin condition adds, and
 the load terms (the source, one boundary integral per Neumann or Robin value, the point
 loads). Resolution has two steps: the geometry (which nodes and facets a region selects)
-is done once, and the values are evaluated at a time, so `at(t)` re-evaluates a
-`TimeDependent` Dirichlet value without selecting again; the load terms re-evaluate
-themselves per time (`Load.vector(space, t)`).
+is done once, and the values are evaluated at a time. `load_at(t)` and
+`constraints_at(t)` re-evaluate the `TimeDependent` values without selecting again,
+which an integrator calls per step; `at(t)` is the whole resolution fixed at `t`, the
+steady snapshot a steady solve or an estimator works on.
 """
 from __future__ import annotations
 
@@ -33,10 +34,10 @@ from fem.boundary import (
     _coerce_components,
     field_at,
 )
-from fem.loads import BoundaryLoad, Load, PointLoad, Source
+from fem.loads import BoundaryLoad, Load, PointLoad, Source, _EvaluatedLoad, total_load
 from fem.physics.forms import BoundaryMassForm, Form
-from fem.regions import TimeDependent
-from fem.typing import DofIndices, FloatArray, VertexField, VertexIndices
+from fem.regions import TimeDependent, evaluate_field
+from fem.typing import Constraints, DofIndices, DofVector, FloatArray, VertexField, VertexIndices
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace
@@ -104,8 +105,7 @@ class Conditions:
         return next((item for item in self.items if isinstance(item, Source)), None)
 
     @property
-    def loads(self) -> tuple[Load, ...]:
-        '''The point loads: the load terms beyond the source and the boundary values.'''
+    def point_loads(self) -> tuple[PointLoad, ...]:
         return tuple(item for item in self.items if isinstance(item, PointLoad))
 
     @property
@@ -153,16 +153,16 @@ class Conditions:
 
     # -- resolution ----------------------------------------------------------------------
 
-    def resolve(self, space: FunctionSpace, t: float = 0.0) -> ResolvedConditions:
+    def resolve(self, space: FunctionSpace) -> ResolvedConditions:
         '''Reduce this specification to what a solver on `space` indexes into, with any
-        `TimeDependent` value taken at time `t`.'''
+        `TimeDependent` value taken at `t = 0`.'''
         nodes, n_components = space.nodes, space.n_components
         n = len(nodes.vertices)
         dirichlet: list[DirichletContribution] = []
         neumann: list[NeumannContribution] = []
         robin: list[RobinContribution] = []
         for condition in self.boundary:
-            contribution = condition.resolve(nodes, n_components, t)
+            contribution = condition.resolve(nodes, n_components)
             if isinstance(contribution, DirichletContribution):
                 dirichlet.append(contribution)
             elif isinstance(contribution, NeumannContribution):
@@ -196,18 +196,14 @@ class Conditions:
         # stays on its edge instead of spreading through a shared corner node.
         operator_terms = tuple(
             r.kappa * BoundaryMassForm(n_components, r.facet_mask) for r in robin)
-        source = self.source
-        if source is not None:
-            source = replace(source, n_components=n_components)
-        loads: list[Load] = [] if source is None else [source]
+        loads: list[Load] = [] if self.source is None else [self.source]
         loads += [BoundaryLoad.over(space, c.facet_mask, c.node_idxs, c.value) for c in neumann]
         loads += [BoundaryLoad.over(space, c.facet_mask, c.node_idxs, c.value) for c in robin]
-        loads += list(self.loads)
+        loads += list(self.point_loads)
         return ResolvedConditions(
-            n_vertices=n, n_components=n_components,
-            fixed_idxs=fixed_idxs, free_idxs=free_idxs, fixed_values=fixed_values,
+            space=space, fixed_idxs=fixed_idxs, free_idxs=free_idxs, fixed_values=fixed_values,
             dirichlet=tuple(dirichlet), neumann=tuple(neumann), robin=tuple(robin),
-            operator_terms=operator_terms, source=source, loads=tuple(loads),
+            operator_terms=operator_terms, source=self.source, loads=tuple(loads),
         )
 
 
@@ -217,12 +213,12 @@ class ResolvedConditions:
     partition, the operator terms, the load terms, and one contribution per boundary
     condition.
 
-    Frozen and built per space so it cannot drift out of step with it. `at(t)` is the
-    same resolution with every time-dependent Dirichlet value re-evaluated at `t`; the
-    load terms carry their own values and are re-evaluated by `Problem.load_at`.
+    Frozen and built per space so it cannot drift out of step with it. The values are
+    those at `t = 0`; `constraints_at(t)` and `load_at(t)` re-evaluate the
+    time-dependent ones, and `at(t)` is the whole resolution fixed at `t`, no longer
+    time-dependent.
     '''
-    n_vertices: int
-    n_components: int
+    space: FunctionSpace
     fixed_idxs: DofIndices      # DOF indices held by Dirichlet conditions
     free_idxs: DofIndices       # the complement
     fixed_values: FloatArray    # values at fixed_idxs, same order
@@ -230,29 +226,79 @@ class ResolvedConditions:
     neumann: tuple[NeumannContribution, ...] = ()
     robin: tuple[RobinContribution, ...] = ()
     operator_terms: tuple[Form, ...] = ()   # κ boundary mass per Robin condition
-    source: Source | None = None            # the volume source, sized to the space
+    source: Source | None = None            # the volume source, a pointwise field
     loads: tuple[Load, ...] = ()            # source, boundary integrals, point loads
 
     @property
-    def constraints(self) -> tuple[DofIndices, DofIndices, FloatArray]:
+    def n_nodes(self) -> int:
+        return self.space.n_nodes
+
+    @property
+    def n_components(self) -> int:
+        return self.space.n_components
+
+    @property
+    def constraints(self) -> Constraints:
         '''`(free_idxs, fixed_idxs, fixed_values)`, the partition `DiscreteSystem` takes.'''
         return self.free_idxs, self.fixed_idxs, self.fixed_values
+
+    @property
+    def has_time_dependent_dirichlet(self) -> bool:
+        return any(isinstance(d.value, TimeDependent) for d in self.dirichlet)
+
+    @property
+    def is_time_dependent(self) -> bool:
+        '''Whether a Dirichlet value or a load term still depends on time.'''
+        return self.has_time_dependent_dirichlet or any(term.is_time_dependent for term in self.loads)
 
     @property
     def neumann_load(self) -> VertexField:
         '''`(n_nodes, n_components)` the Neumann values summed as one nodal field, at
         the resolution time.'''
-        total = np.zeros((self.n_vertices, self.n_components))
+        total = np.zeros((self.n_nodes, self.n_components))
         for neumann in self.neumann:
             total += neumann.nodal_values
         return total
 
+    def load_at(self, t: float) -> DofVector:
+        '''The sum of the load terms at time `t`.'''
+        return total_load(self.loads, self.space, t)
+
+    def constraints_at(self, t: float) -> Constraints:
+        '''The Dirichlet partition at time `t`: the same DOFs as `constraints`, with
+        the prescribed values of a `TimeDependent` condition taken at `t`.'''
+        if not self.has_time_dependent_dirichlet:
+            return self.constraints
+        return self._with_dirichlet_at(t).constraints
+
     def at(self, t: float) -> ResolvedConditions:
-        '''This resolution with the time-dependent Dirichlet values taken at `t`.'''
-        if not any(isinstance(d.value, TimeDependent) for d in self.dirichlet):
+        '''This resolution with every time-dependent value fixed at `t`: the Dirichlet
+        values re-evaluated, the source's field fixed, and each time-dependent load
+        term replaced by its vector.'''
+        if not self.is_time_dependent:
+            return self
+        fixed = self._with_dirichlet_at(t)
+        dirichlet = tuple(replace(d, value=field_at(d.value, t)) for d in fixed.dirichlet)
+        neumann = tuple(self._neumann_at(c, t) for c in self.neumann)
+        loads = tuple(_EvaluatedLoad(term.vector(self.space, t)) if term.is_time_dependent else term
+                      for term in self.loads)
+        source = None if self.source is None else self.source.at(t)
+        return replace(fixed, dirichlet=dirichlet, neumann=neumann, source=source, loads=loads)
+
+    def _neumann_at(self, c: NeumannContribution, t: float) -> NeumannContribution:
+        if not isinstance(c.value, TimeDependent):
+            return c
+        value = field_at(c.value, t)
+        nodal = np.zeros((self.n_nodes, self.n_components))
+        if len(c.node_idxs):
+            nodal[c.node_idxs] = evaluate_field(value, self.space.node_coords[c.node_idxs], self.n_components)
+        return replace(c, value=value, nodal_values=nodal)
+
+    def _with_dirichlet_at(self, t: float) -> ResolvedConditions:
+        if not self.has_time_dependent_dirichlet:
             return self
         dirichlet = tuple(d.at(t) for d in self.dirichlet)
-        fixed_idxs, fixed_values, free_idxs = _partition(self.n_vertices, self.n_components, dirichlet)
+        fixed_idxs, fixed_values, free_idxs = _partition(self.n_nodes, self.n_components, dirichlet)
         return replace(self, fixed_idxs=fixed_idxs, free_idxs=free_idxs,
                        fixed_values=fixed_values, dirichlet=dirichlet)
 

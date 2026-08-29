@@ -1,7 +1,7 @@
 """Load terms: the linear form L(v), each assembled as a vector.
 
 A `Load` answers `vector(space, t)`, the DOF vector of `∫ f·v` for its own `f` at time `t`,
-and `is_time_dependent`. A `Problem` holds a tuple of them and its load is their sum, so a
+and `is_time_dependent`. A `ResolvedConditions` holds a tuple of them and the problem's load is their sum, so a
 body force, a boundary flux, a Robin value, and a point force are four terms of one shape
 rather than four branches in one function.
 
@@ -52,10 +52,9 @@ class Source:
     `FunctionSpace.assemble_load` scatters, so variation within an element is kept.
     `nodal=True` reads a callable at the nodes instead and integrates its interpolant,
     an approximation kept for comparison against the sampled path. `field` may be
-    `TimeDependent`. `n_components` is filled in by `Conditions.resolve` from the space.
+    `TimeDependent`. The component count is the space's, read at assembly.
     '''
     field: FieldValue
-    n_components: int = 1
     quadrature_degree: int = 2
     nodal: bool = False
 
@@ -73,7 +72,7 @@ class Source:
         '''This source with a time-dependent field fixed at `t`; itself otherwise.'''
         if not self.is_time_dependent:
             return self
-        return Source(field_at(self.field, t), self.n_components, self.quadrature_degree, self.nodal)
+        return Source(field_at(self.field, t), self.quadrature_degree, self.nodal)
 
     def vector(self, space: 'FunctionSpace', t: float = 0.0) -> DofVector:
         if not self.is_sampled:
@@ -81,12 +80,12 @@ class Source:
             return np.asarray(space.mass_matrix @ nodal).flatten()
         return space.assemble_load(self.at(t))
 
-    def element_vectors(self, geometry: ElementGeometry) -> FloatArray:
+    def element_vectors(self, geometry: ElementGeometry, n_components: int) -> FloatArray:
         '''(n_elements, N*n_components) element load vectors, DOFs interleaved per node,
         with `field` sampled at `geometry`'s points.'''
         if self.is_time_dependent:
             raise TypeError('a time-dependent Source has no vectors without a time; use at(t)')
-        f = sample_field(self.field, geometry, self.n_components)   # (n_el, n_qp, c)
+        f = sample_field(self.field, geometry, n_components)   # (n_el, n_qp, c)
         # b[e, n, c] = sum_q weight_detJ[e,q] * shape[q,n] * f[e,q,c]
         b = np.einsum('eq,qn,eqc->enc', geometry.weight_detJ, geometry.shape, f)
         return b.reshape(geometry.n_elements, -1)
@@ -158,7 +157,7 @@ class PointLoad:
 @dataclass(frozen=True)
 class _EvaluatedLoad:
     '''A load vector already evaluated: the snapshot of a time-dependent term at one time,
-    which `Problem.at` builds.'''
+    which `ResolvedConditions.at` builds.'''
     values: DofVector
 
     @property

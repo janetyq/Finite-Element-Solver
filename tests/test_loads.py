@@ -144,7 +144,7 @@ def test_time_dependent_terms_are_evaluated_per_time(make_unit_square):
     space = FunctionSpace(mesh)
     np.testing.assert_allclose(time_form.vector(space, 2.0), 2.0 * Source(1.0).vector(space))
     with pytest.raises(TypeError, match='at\\(t\\)'):
-        time_form.element_vectors(space.geometry)
+        time_form.element_vectors(space.geometry, 1)
 
 
 def test_a_traction_holds_its_boundary_mass_across_times(make_unit_square):

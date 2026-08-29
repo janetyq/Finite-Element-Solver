@@ -2,7 +2,7 @@
 
 An `Equation` is typed data naming a PDE and carrying its physical parameters.
 `operator` gives the `Form` a solve assembles, constant-tangent or not. `space` and
-`problem` resolve the equation against a mesh and a BC spec, the two steps every
+`problem` resolve the equation against a mesh and a `Conditions`, the two steps every
 facade shares. `time_orders` says which time-derivative orders the PDE has a meaning
 for, and the solves check it: a steady solve needs order 0, `ThetaMethod` order 1,
 `NewmarkMethod` and `ModalAnalysis` order 2.
