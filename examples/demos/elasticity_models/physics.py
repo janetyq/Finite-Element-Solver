@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import Dirichlet
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
 from fem.physics.energies import NeohookeanEnergyDensity
 from fem.physics.equations import FiniteStrainElastic, LinearElastic
 from fem.physics.forms import EnergyForm
@@ -69,9 +69,9 @@ def stretch_four_ways(mesh: Mesh, bc: Conditions):
         ('Linear solve\n(small strain)', linear_solution),
         ('Energy minimisation\n(small strain)', energy_problem.solution(energy_u)),
         ('Green-Lagrange\n(St-Venant-Kirchhoff)',
-         stvk.problem(mesh, bc).solve(strategy=newton, u0=linear_solution.dofs)),
+         stvk.problem(mesh, bc).solve(strategy=newton, initial=Initial(linear_solution))),
         ('Neo-Hookean\n(invariants of C)',
-         neohookean.problem(mesh, bc).solve(strategy=newton, u0=linear_solution.dofs)),
+         neohookean.problem(mesh, bc).solve(strategy=newton, initial=Initial(linear_solution))),
     ]
     return solutions, energy_problem, energy_u
 

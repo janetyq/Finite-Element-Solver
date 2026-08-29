@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 from fem.boundary import Dirichlet, Neumann
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
+from fem.field import NodalField
 from fem.physics.forms import LinearElasticForm
 from fem.algebra.backends import DirectBackend, IterativeBackend, MinresBackend
 from fem.physics.forms import rigid_body_modes
@@ -195,8 +196,9 @@ def test_iterative_backend_matches_direct_through_a_time_step():
     u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=10, size=0.2) + 300
     problem = Heat().problem(mesh)
 
-    direct = ThetaMethod(dt=0.01, steps=5).solve(problem, u0).dofs[-1]
-    iterative = ThetaMethod(dt=0.01, steps=5).solve(problem, u0, backend=IterativeBackend()).dofs[-1]
+    start = Initial(NodalField(problem.space, u0))
+    direct = ThetaMethod(dt=0.01, steps=5).solve(problem, initial=start).dofs[-1]
+    iterative = ThetaMethod(dt=0.01, steps=5).solve(problem, initial=start, backend=IterativeBackend()).dofs[-1]
     np.testing.assert_allclose(iterative, direct, atol=1e-7)
 
 

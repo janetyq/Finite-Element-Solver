@@ -19,7 +19,7 @@ from scipy.sparse import eye_array
 from scipy.sparse.linalg import ArpackNoConvergence, eigsh
 
 from fem.algebra.backends import Backend, IterativeBackend, MinresBackend
-from fem.field import NodalField
+from fem.conditions import Initial
 from fem.problem import Problem
 from fem.algebra.system import DiscreteSystem
 from fem.typing import Constraints, DofIndices, DofVector, FloatArray, Operator
@@ -29,7 +29,7 @@ class SolveStrategy(Protocol):
     '''How a `Problem` is iterated to its solution. Orthogonal to the `Backend`, which is
     how each linear system on the way is solved and is given at the call.'''
 
-    def solve(self, problem: Problem, u0: DofVector | NodalField | None = None, *,
+    def solve(self, problem: Problem, *, initial: Initial | None = None,
               backend: Backend | None = None) -> DofVector: ...
 
 
@@ -69,7 +69,7 @@ class LinearSolve:
     elasticity), which is handed the problem's near-kernel (see `backend_for`).
     '''
 
-    def solve(self, problem: Problem, u0: DofVector | NodalField | None = None, *,
+    def solve(self, problem: Problem, *, initial: Initial | None = None,
               backend: Backend | None = None) -> DofVector:
         if not problem.is_linear:
             raise TypeError(
@@ -203,10 +203,13 @@ class NewtonSolve:
             return TangentRegularization() if iterative else None
         return self.regularization
 
-    def solve(self, problem: Problem, u0: DofVector | NodalField | None = None, *,
+    def solve(self, problem: Problem, *, initial: Initial | None = None,
               backend: Backend | None = None) -> DofVector:
         free, fixed, fixed_values = problem.constraints
-        u = np.zeros(problem.space.n_dofs) if u0 is None else np.asarray(u0, dtype=float).copy()
+        # A seed is a guess, not a state, so it is not held to the Dirichlet data: the
+        # fixed entries are overwritten and only the free ones are iterated.
+        seed = problem.u0 if initial is None else problem.resolved.resolve_initial(initial, check=False)[0]
+        u = seed.dofs.copy()
         u[fixed] = fixed_values
 
         regularization = self.regularization_for(backend)

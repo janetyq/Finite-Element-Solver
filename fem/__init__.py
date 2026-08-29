@@ -39,7 +39,7 @@ from fem.elements import (
     IsoparametricTriangleElement,
 )
 from fem.boundary import Condition, Dirichlet, Neumann, Robin
-from fem.conditions import Conditions, ResolvedConditions
+from fem.conditions import Conditions, Initial, ResolvedConditions
 from fem.regions import (
     everywhere,
     on_plane,
@@ -179,6 +179,7 @@ __all__ = [
     "IsoparametricTriangleElement",
     "Condition",
     "Conditions",
+    "Initial",
     "ResolvedConditions",
     "Dirichlet",
     "Neumann",

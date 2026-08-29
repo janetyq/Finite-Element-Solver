@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.boundary import Dirichlet, Neumann, Robin
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
 from fem.physics.equations import Heat, Poisson
 from fem.physics.forms import BoundaryMassForm
 from fem.algebra.integrators import ThetaMethod
@@ -131,11 +131,11 @@ def warm_up(mesh, dt, steps, kappa, u_ambient, u_hot, ramp):
     bc = Conditions(
         Dirichlet(on_plane(1, 0.0), TimeDependent(base_temperature)),
         Robin(heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient),
+        Initial(u_ambient),
     )
     # The heat equation is Poisson's operator integrated in time (see fem.problem.heat).
     heat = Heat().problem(mesh, bc)
-    u_initial = heat.space.interpolate(u_ambient)
-    solution = ThetaMethod(dt=dt, steps=steps).solve(heat, u_initial)
+    solution = ThetaMethod(dt=dt, steps=steps).solve(heat)
     # Each step as a steady solution carries the recovered heat flux -grad u. The heat
     # shed through the film at each step is the same convective integral the steady
     # comparison reads, kappa * integral_film (u - u_ambient).

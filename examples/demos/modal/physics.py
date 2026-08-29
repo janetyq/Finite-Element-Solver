@@ -148,9 +148,8 @@ def strike(fork: ModalSolution, voice, ring_periods, steps_per_period,
     equation = LinearElastic(E, NU, density=RHO, damping=damping)
     problem = equation.problem(fork.mesh, clamp + PointLoad(at_indices([left_tip, right_tip]),
                                               TimeDependent(pinch)), element_type=QuadraticTriangleElement)
-    rest = np.zeros(problem.space.n_dofs)
     ringing = NewmarkMethod(dt=period / steps_per_period,
-                            steps=int(ring_periods * steps_per_period)).solve(problem, rest, rest)
+                            steps=int(ring_periods * steps_per_period)).solve(problem)
     return ringing, right_tip, tap_length, damping
 
 

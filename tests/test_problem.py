@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from fem.boundary import Dirichlet, Neumann, Robin
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
+from fem.field import NodalField
 from fem.physics.energies import StVenantKirchhoff
 from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, ScaledForm
 from fem.physics.materials import LinearElasticMaterial
@@ -47,7 +48,8 @@ def test_newton_on_a_linear_problem_is_seed_independent(make_unit_square):
     rng = np.random.default_rng(0)
     for _ in range(3):
         seed = rng.normal(size=problem.space.n_dofs)
-        np.testing.assert_allclose(NewtonSolve().solve(problem, u0=seed), reference, atol=1e-10)
+        start = Initial(NodalField(problem.space, seed))
+        np.testing.assert_allclose(NewtonSolve().solve(problem, initial=start), reference, atol=1e-10)
 
 
 def test_line_search_is_a_noop_on_a_linear_problem(make_unit_square):

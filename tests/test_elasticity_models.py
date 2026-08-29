@@ -16,7 +16,8 @@ import pytest
 
 from fem.algebra.backends import MinresBackend
 from fem.boundary import Dirichlet
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
+from fem.field import NodalField
 from fem.physics.materials import LinearElasticMaterial
 from fem.problem import Problem
 from fem.regions import on_plane
@@ -96,7 +97,7 @@ def test_newton_refuses_to_return_an_unconverged_state(make_unit_square):
     free, fixed, fixed_values = problem.constraints
     np.testing.assert_allclose(attempt.u[fixed], fixed_values)
     assert np.any(attempt.u[free] != 0.0)
-    u = NewtonSolve().solve(problem, u0=attempt.u)
+    u = NewtonSolve().solve(problem, initial=Initial(NodalField(problem.space, attempt.u)))
     np.testing.assert_allclose(problem.residual(u)[free], 0.0, atol=1e-8)
 
 

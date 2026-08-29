@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
 from fem.field import NodalField
 from fem.physics.equations import Wave
 from fem.algebra.integrators import NewmarkMethod
@@ -68,18 +68,14 @@ def run(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400, min_angle=28, 
     for _ in range(uniform_rounds):
         mesh = mesh.refined()
 
-    # No conditions, so every edge is a wall: the natural du/dn = 0 reflects a wave
-    # the same way up.
-    bc = Conditions()
-    wave = Wave(stiffness=c**2).problem(mesh, bc)
-
     # A straight front on the open side, travelling toward the wall. Given d'Alembert's
     # pairing u = g(x - ct), du/dt = -c g'(x), so it moves one way instead of splitting.
     def profile(p):
         return np.exp(-((p[0] - front_x) / front_width) ** 2)
 
-    u_initial = wave.space.interpolate(profile)
-    dudt_initial = wave.space.interpolate(
-        lambda p: 2 * c * (p[0] - front_x) / front_width**2 * profile(p))
-    solution = NewmarkMethod(dt=dt, steps=steps).solve(wave, u_initial, dudt_initial)
-    return HarborStudy(mesh, u_initial, dudt_initial, solution)
+    # No boundary conditions, so every edge is a wall: the natural du/dn = 0 reflects
+    # a wave the same way up.
+    bc = Conditions(Initial(profile, v0=lambda p: 2 * c * (p[0] - front_x) / front_width**2 * profile(p)))
+    wave = Wave(stiffness=c**2).problem(mesh, bc)
+    solution = NewmarkMethod(dt=dt, steps=steps).solve(wave)
+    return HarborStudy(mesh, wave.u0, wave.v0, solution)

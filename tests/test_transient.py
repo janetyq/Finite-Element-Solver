@@ -11,7 +11,7 @@ from fem.field import NodalField
 import pytest
 
 from fem.boundary import Dirichlet, Neumann, Robin
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
 from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod
 from fem.regions import TimeDependent, everywhere, evaluate_field, field_at, on_plane
@@ -73,7 +73,7 @@ def test_theta_method_integrates_a_time_dependent_source_to_second_order(make_un
     T = 1.0
     errors = []
     for steps in (5, 10, 20):
-        solution = ThetaMethod(dt=T / steps, steps=steps).solve(problem, np.zeros(problem.space.n_dofs))
+        solution = ThetaMethod(dt=T / steps, steps=steps).solve(problem)
         errors.append(abs(_mean(problem, solution.dofs[-1]) - (1 - np.cos(T))))
     orders = np.log(np.array(errors[:-1]) / errors[1:]) / np.log(2)
     assert np.all(orders > 1.9), orders
@@ -87,9 +87,8 @@ def test_theta_method_follows_time_dependent_dirichlet_data(make_unit_square):
     problem = Heat().problem(mesh, bc + Source(TimeDependent(lambda p, t: 1.0)))
     assert problem.is_time_dependent
     np.testing.assert_allclose(problem.constraints_at(2.0)[2], 3.0)
-    u0 = problem.space.interpolate(1.0)
     for theta in (0.5, 1.0):
-        solution = ThetaMethod(dt=0.1, steps=10, theta=theta).solve(problem, u0)
+        solution = ThetaMethod(dt=0.1, steps=10, theta=theta).solve(problem, initial=Initial(1.0))
         np.testing.assert_allclose(solution.dofs[-1], 2.0, atol=1e-10)
         np.testing.assert_allclose(solution.dofs[5], 1.5, atol=1e-10)
 
@@ -99,18 +98,16 @@ def test_newmark_integrates_a_time_dependent_source(make_unit_square):
     exactly; average acceleration is exact for a constant acceleration. A source
     sin(t) gives mean u = t - sin(t), converging at second order."""
     mesh = make_unit_square(6)
-    n = Wave(stiffness=1.0).space(mesh).n_dofs
-    zero = np.zeros(n)
 
     constant = Wave(stiffness=1.0).problem(mesh, Conditions(Source(TimeDependent(lambda p, t: 2.0 + 0.0 * t))))
-    solution = NewmarkMethod(dt=0.05, steps=20).solve(constant, zero, zero)
+    solution = NewmarkMethod(dt=0.05, steps=20).solve(constant)
     assert _mean(constant, solution.dofs[-1]) == pytest.approx(1.0, abs=1e-10)
 
     forced = Wave(stiffness=1.0).problem(mesh, Conditions(Source(TimeDependent(lambda p, t: np.sin(t)))))
     T = 1.0
     errors = []
     for steps in (5, 10, 20):
-        solution = NewmarkMethod(dt=T / steps, steps=steps).solve(forced, zero, zero)
+        solution = NewmarkMethod(dt=T / steps, steps=steps).solve(forced)
         errors.append(abs(_mean(forced, solution.dofs[-1]) - (T - np.sin(T))))
     orders = np.log(np.array(errors[:-1]) / errors[1:]) / np.log(2)
     assert np.all(orders > 1.9), orders
@@ -120,9 +117,8 @@ def test_newmark_refuses_time_dependent_dirichlet_data(make_unit_square):
     mesh = make_unit_square(4)
     bc = Conditions(Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: t)))
     problem = Wave(stiffness=1.0).problem(mesh, bc)
-    n = problem.space.n_dofs
     with pytest.raises(NotImplementedError, match='Dirichlet'):
-        NewmarkMethod(dt=0.01, steps=1).solve(problem, np.zeros(n), np.zeros(n))
+        NewmarkMethod(dt=0.01, steps=1).solve(problem)
 
 
 def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_unit_square, tmp_path):
@@ -130,8 +126,7 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
     which has no operator, packages a bare field."""
     mesh = make_unit_square(4)
     heat = Heat().problem(mesh, Conditions(Source(1.0)))
-    u0 = heat.space.interpolate(0.0)
-    history = ThetaMethod(dt=0.1, steps=3).solve(heat, u0)
+    history = ThetaMethod(dt=0.1, steps=3).solve(heat)
     assert isinstance(history, TransientSolution)
     assert len(history) == 4 and history.dofs.shape == (4, heat.space.n_dofs)
     step = history[2]
@@ -146,8 +141,7 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
 
     bc = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))
     elastic = LinearElastic(E=10.0, nu=0.3).problem(mesh, bc + Source([0.0, -1.0]))
-    zero = np.zeros(elastic.space.n_dofs)
-    waves = NewmarkMethod(dt=0.01, steps=2).solve(elastic, zero, zero)
+    waves = NewmarkMethod(dt=0.01, steps=2).solve(elastic)
     assert isinstance(waves[-1], ElasticSolution)
     assert waves[-1].stress.shape == (len(mesh.elements), 3, 3)
     np.testing.assert_array_equal(waves.velocity(1).dofs, waves.dudt[1])

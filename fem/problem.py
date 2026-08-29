@@ -44,7 +44,7 @@ import copy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from fem.conditions import Conditions, ResolvedConditions
+from fem.conditions import Conditions, Initial, ResolvedConditions
 from fem.field import NodalField
 from fem.physics.forms import Form
 from fem.loads import Load, Source
@@ -207,6 +207,17 @@ class Problem(Generic[S]):
         return self._resolved.constraints
 
     @property
+    def u0(self) -> NodalField:
+        '''The state a solve starts from: the conditions' `Initial`, else the Dirichlet
+        lift. An integrator steps from it and `NewtonSolve` iterates from it.'''
+        return self._resolved.u0
+
+    @property
+    def v0(self) -> NodalField:
+        '''The time derivative of the state at `t = 0`, zero unless the `Initial` gave one.'''
+        return self._resolved.v0
+
+    @property
     def load(self) -> DofVector:
         return self._b
 
@@ -290,7 +301,7 @@ class Problem(Generic[S]):
         self,
         strategy: 'SolveStrategy | None' = None,
         backend: 'Backend | None' = None,
-        u0: DofVector | NodalField | None = None,
+        initial: Initial | None = None,
         t: float | None = None,
     ) -> S:
         '''Solve and package the result as the typed `Solution` for this operator.
@@ -298,8 +309,8 @@ class Problem(Generic[S]):
         `strategy` is how the problem is iterated (`LinearSolve`, `NewtonSolve`); None is
         `default_strategy`, `LinearSolve` for a constant tangent and line-searched
         `NewtonSolve` otherwise. `backend` is how each linear system on the way is solved
-        (direct by default); the two are independent choices. `u0` seeds an iterative
-        strategy. A time-dependent problem is solved as its snapshot `at(t)`, so `t` is
+        (direct by default); the two are independent choices. `initial` seeds an
+        iterative strategy in place of the conditions' own `Initial`. A time-dependent problem is solved as its snapshot `at(t)`, so `t` is
         required for one; an integrator steps it instead.
         '''
         if 0 not in self.time_orders:
@@ -313,11 +324,11 @@ class Problem(Generic[S]):
                     'the problem has a time-dependent source or boundary value; pass t= '
                     'for a steady solve at that time, or step it with an integrator'
                 )
-            return self.at(t).solve(strategy, backend, u0)
+            return self.at(t).solve(strategy, backend, initial)
         if strategy is None:
             from fem.algebra.solve import default_strategy
             strategy = default_strategy(self)
-        return self.solution(strategy.solve(self, u0, backend=backend))
+        return self.solution(strategy.solve(self, initial=initial, backend=backend))
 
     def near_null_space(self) -> FloatArray | None:
         '''The operator's AMG near-kernel over all DOFs, or None.

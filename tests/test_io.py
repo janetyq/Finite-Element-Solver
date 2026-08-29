@@ -5,6 +5,8 @@ import numpy as np
 import pytest
 
 from fem.algebra.integrators import ThetaMethod
+from fem.conditions import Initial
+from fem.field import NodalField
 from fem.post.io import load_mesh, save_mesh
 from fem.mesh.mesh import Mesh
 from fem.space import FunctionSpace
@@ -118,7 +120,7 @@ def test_transient_solution_round_trip_after_solve(make_unit_square, tmp_path):
     mesh = make_unit_square(8)
     u0 = bump_function(mesh.vertices, mesh.vertices.max(axis=0), mag=50, size=0.3) + 300
     heat = Heat().problem(mesh)
-    solution = ThetaMethod(dt=0.01, steps=3).solve(heat, u0)
+    solution = ThetaMethod(dt=0.01, steps=3).solve(heat, initial=Initial(NodalField(heat.space, u0)))
     path = tmp_path / "heat.npz"
 
     solution.save(path)

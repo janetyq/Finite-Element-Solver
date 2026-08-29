@@ -82,20 +82,19 @@ def test_solves_refuse_a_time_order_the_equation_has_no_meaning_for(make_unit_sq
     mesh = make_unit_square(4)
     bc = Conditions(Dirichlet(everywhere(), 0.0))
     heat, wave, poisson = Heat().problem(mesh, bc), Wave().problem(mesh, bc), Poisson().problem(mesh, bc)
-    zero = np.zeros(heat.space.n_dofs)
 
     with pytest.raises(TypeError, match='Poisson'):
         heat.solve()
     with pytest.raises(TypeError, match='Poisson'):
         wave.solve()
     with pytest.raises(TypeError, match='Heat'):
-        ThetaMethod(dt=0.1, steps=1).solve(poisson, zero)
+        ThetaMethod(dt=0.1, steps=1).solve(poisson)
     with pytest.raises(TypeError, match='Wave'):
-        NewmarkMethod(dt=0.1, steps=1).solve(heat, zero, zero)
+        NewmarkMethod(dt=0.1, steps=1).solve(heat)
     with pytest.raises(TypeError, match='second-order'):
         ModalAnalysis(n_modes=1).solve(poisson)
-    assert ThetaMethod(dt=0.1, steps=1).solve(heat, zero).t[-1] == 0.1
-    assert NewmarkMethod(dt=0.1, steps=1).solve(wave, zero, zero).t[-1] == 0.1
+    assert ThetaMethod(dt=0.1, steps=1).solve(heat).t[-1] == 0.1
+    assert NewmarkMethod(dt=0.1, steps=1).solve(wave).t[-1] == 0.1
     # A problem composed by hand allows every order.
     assert LinearProblem(heat.space, heat.physics).time_orders == {0, 1, 2}
 
