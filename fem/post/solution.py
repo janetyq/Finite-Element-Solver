@@ -1,9 +1,11 @@
 """Typed solution containers: one dataclass per solve shape.
 
-A `FieldSolution` carries the unknown `u`; `ElasticSolution` adds the recovered
-stress fields; `TransientSolution` is a time series and `WaveSolution` adds the
-velocity series. `save`/`load` round-trip any of them through `fem.post.io`, which
-reflects over the dataclass fields.
+A `FieldSolution` is a `NodalField` (the unknown on its space) with the provenance a
+solve adds: `DiffusionSolution` its recovered gradient, `ElasticSolution` the stress
+state. `TransientSolution` is a time series and `WaveSolution` adds the velocity
+series; `BucklingSolution` and `ModalSolution` hold eigenpairs. `save`/`load`
+round-trip any of them through `fem.post.io`, which reflects over the dataclass
+fields.
 
 `save` and `load` import `fem.post.io` lazily: I/O reads the solution types, so the edge
 points up and stays function-local.
@@ -13,11 +15,13 @@ from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 import numpy as np
 
+from fem.field import NodalField
 from fem.post import invariants
 from fem.post import recovery
 from fem.typing import DofVector, ElementValues, FloatArray
 
 S = TypeVar('S', bound='FieldSolution')   # the steady solution a step packages
+T = TypeVar('T', bound='Solution')
 
 if TYPE_CHECKING:
     from fem.elements import Element
@@ -27,13 +31,14 @@ if TYPE_CHECKING:
     from fem.space import FunctionSpace
 
 
-@dataclass(frozen=True, eq=False)
 class Solution:
-    '''Base: every solution holds the `FunctionSpace` its DOFs live on.
+    '''What every solution shares: the `FunctionSpace` its values live on, and
+    persistence.
 
-    The space fixes which node each entry of a DOF vector belongs to; `mesh`,
-    `n_components`, and `element_type` are read off it. `save` stores the mesh and the
-    space's parameters, and `load` rebuilds the space, whose numbering is deterministic.
+    A mixin rather than a dataclass base, so `FieldSolution` can take its `space` from
+    `NodalField`; the eigen and transient solutions declare `space` themselves. `save`
+    stores the mesh and the space's parameters, and `load` rebuilds the space, whose
+    numbering is deterministic.
     '''
     space: 'FunctionSpace'
 
@@ -53,31 +58,25 @@ class Solution:
         from fem.post.io import save_solution
         save_solution(self, path)
 
-    @staticmethod
-    def load(path: str) -> 'Solution':
+    @classmethod
+    def load(cls: type[T], path: str) -> T:
+        '''The solution saved at `path`, checked to be a `cls`: `ElasticSolution.load`
+        returns an `ElasticSolution` or raises; `Solution.load` takes any.'''
         from fem.post.io import load_solution
-        return load_solution(path)
+        loaded = load_solution(path)
+        if not isinstance(loaded, cls):
+            raise TypeError(f'{path} holds a {type(loaded).__name__}, not a {cls.__name__}')
+        return loaded
 
 
 @dataclass(frozen=True, eq=False)
-class FieldSolution(Solution):
-    '''A single steady field u: Projection, and the base of Poisson and elasticity.'''
-    u: DofVector
+class FieldSolution(NodalField, Solution):
+    '''A single steady field: Projection, and the base of Poisson and elasticity.
 
-    @property
-    def nodal_values(self) -> FloatArray:
-        '''`u` by node: `(n_nodes,)` for a scalar field, `(n_nodes, n_components)` for
-        a vector one. Row `i` is the space's node `i` (vertices first, then any edge nodes).'''
-        values = np.asarray(self.u).reshape(-1, self.n_components)
-        return values[:, 0] if self.n_components == 1 else values
-
-    def deformed_mesh(self) -> 'Mesh':
-        '''The mesh displaced by u (meaningful for a vector displacement field).
-
-        Only the leading vertex DOFs move the geometry: a P2 field's edge-midpoint
-        DOFs have no mesh vertices, so the warp is the field's P1 restriction.
-        '''
-        return self.mesh.displaced(np.asarray(self.u).reshape(-1, self.n_components))
+    A `NodalField`, so it reads by node (`nodal_values`, `component`), integrates,
+    evaluates at points, and warps the mesh; the subclasses add what their physics
+    recovers from it.
+    '''
 
 
 @dataclass(frozen=True, eq=False)
@@ -85,25 +84,25 @@ class DiffusionSolution(FieldSolution):
     '''A scalar field plus its recovered per-element gradient: the solution of
     `DiffusionForm` (Poisson, heat, wave).
 
-    `gradient` is one `grad u` per element (the element mean). The diffusive flux
-    `kappa grad u` is the form's `GradientFlux`, which applies the coefficient.
-    `nodal_gradient` gives the continuous per-node field a P2 plot or a nodal consumer
-    wants, re-evaluated from `u` at the nodes so a P2 gradient's variation within the
-    element is kept.
+    `gradient` is one `grad u` per element (the element mean), the `NodalField`
+    gradient held so a loaded solution carries it. The diffusive flux `kappa grad u`
+    is the form's `GradientFlux`, which applies the coefficient. `nodal_gradient`
+    gives the continuous per-node field a P2 plot or a nodal consumer wants,
+    re-evaluated at the nodes so a P2 gradient's variation within the element is kept.
     '''
     gradient: ElementValues   # (n_elements, spatial_dim) per-element grad u
 
     @classmethod
-    def from_solve(cls, space: 'FunctionSpace', u: DofVector) -> 'DiffusionSolution':
+    def from_solve(cls, space: 'FunctionSpace', dofs: DofVector) -> 'DiffusionSolution':
         '''Package a scalar solve, recovering its per-element gradient.'''
-        return cls(space, u, gradient=space.gradient(u))
+        return cls(space, dofs, gradient=NodalField(space, dofs).gradient())
 
     def nodal_gradient(self, method: str = 'average') -> FloatArray:
         '''(n_nodes, spatial_dim) continuous gradient at the nodes.
 
         `method` is the recovery (`'average'` or `'l2'`); see `fem.post.recovery`.
         '''
-        return recovery.nodal_gradient(self.space, self.u, method=method)
+        return recovery.nodal_gradient(self.space, self.dofs, method=method)
 
 
 @dataclass(frozen=True, eq=False)
@@ -124,6 +123,7 @@ class ElasticSolution(FieldSolution):
         default=None, kw_only=True, repr=False, metadata={'persist': False})
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         # `fem.post.io` rebuilds this from stored arrays without checking their rank.
         for name in ('strain', 'stress'):
             value = getattr(self, name)
@@ -137,16 +137,15 @@ class ElasticSolution(FieldSolution):
     def from_solve(
         cls,
         space: 'FunctionSpace',
-        u: DofVector,
+        dofs: DofVector,
         form: 'RecoversElasticState',
     ) -> 'ElasticSolution':
-        '''Recover the elastic fields for `u` and package them.'''
-        # (n_elements, N, n_components): the layout RecoversElasticState takes,
-        # and the same one FunctionSpace.assemble_residual gathers. Indexed by the
-        # space's element nodes, not the mesh triangles: a P2 element has six nodes.
-        u_elements = np.asarray(u).reshape(-1, space.n_components)[space.element_nodes]
+        '''Recover the elastic fields for `dofs` and package them.'''
+        # (n_elements, N, n_components): the layout RecoversElasticState takes, and
+        # the same one FunctionSpace.assemble_residual gathers.
+        u_elements = NodalField(space, dofs).element_values
         fields = form.recover(space.geometry, u_elements)
-        return cls(space, u, fields.strain, fields.stress, fields.compliance, form=form)
+        return cls(space, dofs, fields.strain, fields.stress, fields.compliance, form=form)
 
     @property
     def von_mises(self) -> ElementValues:
@@ -172,7 +171,7 @@ class ElasticSolution(FieldSolution):
         if self.form is None:
             return recovery.recover_nodal(self.space, getattr(self, name), method=method)
         space = self.space
-        u_elements = np.asarray(self.u).reshape(-1, self.n_components)[space.element_nodes]
+        u_elements = self.element_values
         if method == 'average':
             fields = self.form.sample(space.geometry_at_nodes, u_elements)
             return recovery.average_to_nodal(space, getattr(fields, name))
@@ -223,6 +222,7 @@ class BucklingSolution(Solution):
     is the pre-buckling solve the modes were computed about (its stress is the
     prestress); it is not saved.
     '''
+    space: 'FunctionSpace'
     load_factors: FloatArray   # (n_modes,) ascending λ
     modes: FloatArray          # (n_modes, n_dofs) mode-shape displacement vectors
     reference: 'ElasticSolution | None' = field(
@@ -239,7 +239,7 @@ class BucklingSolution(Solution):
         The amplitude is arbitrary, so `scale` is a display choice. Only the leading
         vertex DOFs move the geometry (a P2 mode draws as its P1 restriction).
         '''
-        return self.mesh.displaced(self.modes[i].reshape(-1, self.n_components), scale)
+        return NodalField(self.space, self.modes[i]).deformed_mesh(scale)
 
 
 @dataclass(frozen=True, eq=False)
@@ -253,6 +253,7 @@ class ModalSolution(Solution):
     vibration is a superposition of the modes, weighted by how the structure was set
     moving. `frequencies` (Hz) and `periods` (s) are the same data in engineering units.
     '''
+    space: 'FunctionSpace'
     angular_frequencies: FloatArray   # (n_modes,) ascending omega, rad/s
     modes: FloatArray                 # (n_modes, n_dofs) mode-shape displacement vectors
 
@@ -273,19 +274,20 @@ class ModalSolution(Solution):
         The amplitude is arbitrary, so `scale` is a display choice. Only the leading
         vertex DOFs move the geometry (a P2 mode draws as its P1 restriction).
         '''
-        return self.mesh.displaced(self.modes[i].reshape(-1, self.n_components), scale)
+        return NodalField(self.space, self.modes[i]).deformed_mesh(scale)
 
 
 @dataclass(frozen=True, eq=False)
 class TransientSolution(Solution, Generic[S]):
-    '''A time series: the times t and the field u at each step.
+    '''A time series: the times t and the DOF vector at each step.
 
     `problem` is the problem it was stepped from, kept so `at(i)` can package a step
-    as the typed steady solution its physics recovers (flux for heat, stress for
+    as the typed steady solution its physics recovers (gradient for heat, stress for
     elasticity). It is not saved; a loaded series packages a bare `FieldSolution`.
     '''
+    space: 'FunctionSpace'
     t: FloatArray
-    u: list[DofVector]
+    dofs: list[DofVector]
     problem: 'Problem[S] | None' = field(
         default=None, kw_only=True, repr=False, metadata={'persist': False})
 
@@ -293,8 +295,8 @@ class TransientSolution(Solution, Generic[S]):
         '''Step `i` as a steady solution, with the derived field the problem recovers.
         A loaded series (no problem) packages a bare `FieldSolution`.'''
         if self.problem is None:
-            return cast(S, FieldSolution(self.space, self.u[i]))
-        return self.problem.solution(self.u[i])
+            return cast(S, FieldSolution(self.space, self.dofs[i]))
+        return self.problem.solution(self.dofs[i])
 
     @property
     def final(self) -> S:

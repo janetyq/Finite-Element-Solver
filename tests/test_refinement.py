@@ -40,7 +40,7 @@ def test_adaptive_refinement_grows_mesh_and_resolves(make_unit_square):
 
     assert len(driver.mesh.elements) > n_before, "mesh never grew"
     # The solution must belong to the *final* mesh, not the one we started on.
-    u = solution.u
+    u = solution.dofs
     assert solution.mesh is driver.mesh
     assert len(u) == len(driver.mesh.vertices)
     assert np.all(np.isfinite(u))
@@ -86,7 +86,7 @@ def test_adaptive_refinement_carries_geometric_dirichlet_bcs(make_unit_square):
 
     final = driver.mesh
     assert len(final.vertices) > n_before, "mesh never grew"
-    u = solution.u
+    u = solution.dofs
     # Every boundary node of the *refined* mesh is pinned, including the new ones.
     assert np.allclose(u[final.boundary_idxs], 0.0, atol=1e-12)
     assert np.abs(u).max() > 0, "solution is trivially zero"
@@ -140,8 +140,8 @@ def test_adaptive_refinement_drives_a_finite_strain_problem(make_unit_square):
 
     assert len(driver.mesh.elements) > n_before, "mesh never grew"
     assert solution.mesh is driver.mesh
-    assert len(solution.u) == len(driver.mesh.vertices) * 2
-    assert np.all(np.isfinite(solution.u))
+    assert len(solution.dofs) == len(driver.mesh.vertices) * 2
+    assert np.all(np.isfinite(solution.dofs))
 
 
 def test_recovery_estimator_reads_the_flux_off_an_energy_problem(make_unit_square):

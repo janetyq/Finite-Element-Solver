@@ -69,7 +69,7 @@ def steady_heatsink(mesh, bc, kappa, u_ambient):
     the base, so it is the sink's dissipation.
     """
     problem = Poisson().problem(mesh, bc + Source(0))
-    u = problem.solve().u
+    u = problem.solve().dofs
     # The convective loss, read off the same region-restricted boundary mass a Robin
     # condition assembles, so it is the exact discrete integral of (u - u_ambient).
     resolved = problem.resolved
@@ -140,11 +140,11 @@ def warm_up(mesh, dt, steps, kappa, u_ambient, u_hot, ramp):
     # shed through the film at each step is the same convective integral the steady
     # comparison reads, kappa * integral_film (u - u_ambient).
     flux_values = [np.linalg.norm(solution.at(i).nodal_gradient(), axis=1)
-                   for i in range(len(solution.u))]
+                   for i in range(len(solution.dofs))]
     film_mass = heat.space.assemble(
         BoundaryMassForm(1, heat.resolved.robin[0].facet_mask), boundary=True)
     shed_values = [kappa * float(np.asarray(film_mass @ (u - u_ambient)).sum())
-                   for u in solution.u]
+                   for u in solution.dofs]
     return bc, solution, flux_values, shed_values
 
 
@@ -196,7 +196,7 @@ class HeatsinkStudy:
 
     @property
     def u_values(self) -> list[np.ndarray]:
-        return self.solution.u
+        return self.solution.dofs
 
     @property
     def t_values(self) -> np.ndarray:

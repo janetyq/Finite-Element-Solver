@@ -7,6 +7,7 @@ updating only the right-hand side, re-evaluating a time-dependent load
 (`Problem.load_at`) each step. `dt` and the step count live here; initial conditions
 come in through `solve`, as DOF vectors (`FunctionSpace.interpolate`). The result is a
 `TransientSolution` that packages any step as the typed steady solution (`at(i)`).
+An initial state is a `NodalField` (`space.interpolate`) or its DOF vector.
 
 The wave path uses Newmark rather than a 2N first-order block: its effective operator
 `M + β dt² K` is SPD and N-sized, so it stays inside the CG/preconditioning path.
@@ -17,6 +18,7 @@ from typing import TypeVar
 import numpy as np
 
 from fem.algebra.backends import Backend
+from fem.field import NodalField
 from fem.problem import Problem
 from fem.post.solution import FieldSolution, TransientSolution, WaveSolution
 from fem.algebra.system import DiscreteSystem
@@ -56,9 +58,10 @@ class ThetaMethod:
     steps: int
     theta: float = 0.5
 
-    def solve(self, problem: Problem[S], u0: DofVector, *,
+    def solve(self, problem: Problem[S], u0: DofVector | NodalField, *,
               backend: Backend | None = None) -> TransientSolution[S]:
-        '''Step from `u0`; `backend` solves the factored-once step operator.'''
+        '''Step from `u0` (a `NodalField` or its DOF vector); `backend` solves the
+        factored-once step operator.'''
         _require_order(problem, 1, 'ThetaMethod integrates a first-order system', 'Heat')
         M = problem.mass
         K = problem.tangent(None)
@@ -102,9 +105,11 @@ class NewmarkMethod:
     beta: float = 0.25
     gamma: float = 0.5
 
-    def solve(self, problem: Problem[S], u0: DofVector, v0: DofVector, *,
+    def solve(self, problem: Problem[S], u0: DofVector | NodalField,
+              v0: DofVector | NodalField, *,
               backend: Backend | None = None) -> WaveSolution[S]:
-        '''Step from `(u0, v0)`; `backend` solves the factored-once effective operator.'''
+        '''Step from `(u0, v0)`, fields or DOF vectors; `backend` solves the
+        factored-once effective operator.'''
         _require_order(problem, 2, 'NewmarkMethod integrates a second-order system',
                        'Wave or an elastic equation')
         if problem.conditions.has_time_dependent_dirichlet:

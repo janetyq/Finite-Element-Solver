@@ -3,6 +3,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+from fem.field import NodalField
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.animation import FuncAnimation
@@ -112,8 +114,8 @@ class Plotter:
 
     def plot(
         self,
-        target: "Mesh | Solution",
-        values: FloatArray | Sequence[float] | Sequence[str] | None = None,
+        target: "Mesh | Solution | NodalField",
+        values: "FloatArray | Sequence[float] | Sequence[str] | NodalField | None" = None,
         mode: PlotMode | str = PlotMode.MESH,
         idx: tuple[int, int] = (0, 0),
         title: str | None = None,
@@ -132,11 +134,12 @@ class Plotter:
     ) -> Any:
         """Draw `values` on `target` into the subplot at `idx`.
 
-        `target` is a `Mesh` or a `Solution`. A solution supplies both its mesh and its
-        `space`, so a P2 or curved solve renders faithfully without passing `space=` by
-        hand (an explicit `space` still overrides it), and `warp=True` deforms the field
-        by the solution's own displacement. A raw mesh keeps the low-level,
-        field-agnostic path. Either way the panel draws the `PanelView` that
+        `target` is a `Mesh`, a `Solution`, or a `NodalField`. A field or solution
+        supplies both its mesh and its `space`, so a P2 or curved solve renders faithfully
+        without passing `space=` by hand (an explicit `space` still overrides it), and
+        `warp=True` deforms the field by the target's own displacement. `values` may be
+        a `NodalField` too, drawn by node on its own space. A raw mesh keeps the
+        low-level, field-agnostic path. Either way the panel draws the `PanelView` that
         `fem.plot.tessellation.panel_view` builds.
 
         `label` names the quantity on the colorbar (colored mode); a colorbar is built
@@ -171,6 +174,7 @@ class Plotter:
         mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
         # The refinement mode takes the red/green classifications, not a field.
         field = (None if values is None or mode is PlotMode.REFINEMENT
+                 else values if isinstance(values, NodalField)
                  else np.asarray(values, dtype=float))
         view = panel_view(target, field, space=space, warp=warp, subdivisions=subdivisions)
         mesh = view.mesh

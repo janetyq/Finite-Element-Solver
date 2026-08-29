@@ -255,7 +255,7 @@ conditions = Conditions(Dirichlet(everywhere(), 0), Source(1))
 solution = Poisson().problem(mesh, conditions).solve()
 
 plotter = Plotter(title="Poisson")
-plotter.plot(mesh, solution.u, mode="surface")
+plotter.plot(mesh, solution, mode="surface")
 plotter.show()
 ```
 
@@ -290,7 +290,7 @@ Every step of a solve is one choice among a few named objects, all importable fr
 | Backend | `DirectBackend`, `IterativeBackend`, `MinresBackend`, via `backend=` | direct |
 | In time | `ThetaMethod`, `NewmarkMethod` (with `RayleighDamping`) | |
 | Analyses | `BucklingAnalysis`, `ModalAnalysis`, `AdaptiveRefinement` with `ResidualEstimator` / `RecoveryEstimator` / `GoalOrientedEstimator`, `SensitivityAnalysis`, `DesignOptimizer` over a `SIMPModel` | |
-| Result | `DiffusionSolution`, `ElasticSolution`, `FieldSolution`, `TransientSolution`, `BucklingSolution`, `ModalSolution` | by the physics |
+| Result | `DiffusionSolution`, `ElasticSolution`, `FieldSolution` (each a `NodalField`), `TransientSolution`, `BucklingSolution`, `ModalSolution` | by the physics |
 | Plot | `Plotter.plot(target, values, mode=)` with `mesh`, `boundary`, `colored`, `surface`, `arrows`, `solid`, `bc`, `refinement` | |
 
 
@@ -301,7 +301,10 @@ demand:
 ```python
 solution = LinearElastic(E=200, nu=0.3).problem(mesh, conditions).solve()
 
-solution.u                 # (n_vertices * n_components,) displacement
+solution.dofs              # (n_nodes * n_components,) the DOF vector
+solution.nodal_values      # (n_nodes, n_components) the same by node
+solution.evaluate(points)  # (n_points, n_components) the field at any points
+solution.deformed_mesh()   # the mesh displaced by the field
 solution.stress            # (n_elements, 3, 3) Cauchy stress tensors
 solution.von_mises         # (n_elements,) equivalent stress, the usual plot
 solution.principal_stress  # (n_elements, 3) principal values, ascending

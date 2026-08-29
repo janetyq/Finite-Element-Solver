@@ -115,7 +115,7 @@ def test_a_point_load_is_a_nodal_force(make_unit_square):
 
     load = problem.load.reshape(-1, 2)
     assert load[tip, 1] == -1.0 and np.count_nonzero(load) == 1
-    assert problem.solve().u.reshape(-1, 2)[tip, 1] < 0
+    assert problem.solve().component(1)[tip] < 0
 
     with pytest.raises(ValueError, match='selects no node'):
         PointLoad(at_indices([]), [0.0, -1.0]).vector(problem.space)
@@ -180,7 +180,7 @@ def test_rayleigh_damping_decays_a_mode_at_the_analytic_rate(make_unit_square):
     dt = 2 * period / steps
     solution = NewmarkMethod(dt=dt, steps=steps).solve(problem, phi.copy(), np.zeros_like(phi))
 
-    q = np.array([phi @ (M @ u) / (phi @ (M @ phi)) for u in solution.u])
+    q = np.array([phi @ (M @ u) / (phi @ (M @ phi)) for u in solution.dofs])
     t = solution.t
     exact = np.exp(-alpha * t / 2) * (np.cos(omega_d * t) + zeta / np.sqrt(1 - zeta**2) * np.sin(omega_d * t))
     assert np.abs(q - exact).max() < 5e-3
@@ -197,7 +197,7 @@ def test_undamped_is_the_no_damping_path(make_unit_square):
     v0 = np.zeros_like(u0)
     a = NewmarkMethod(dt=0.01, steps=5).solve(plain, u0, v0)
     b = NewmarkMethod(dt=0.01, steps=5).solve(zero, u0, v0)
-    np.testing.assert_allclose(a.u[-1], b.u[-1], atol=1e-12)
+    np.testing.assert_allclose(a.dofs[-1], b.dofs[-1], atol=1e-12)
     with pytest.raises(ValueError, match='non-negative'):
         RayleighDamping(alpha=-1.0)
 

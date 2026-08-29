@@ -164,7 +164,7 @@ def test_p2_residual_reliability_is_bounded_and_stable():
     for n in (6, 11, 21):
         problem, solution = _solve(equation, n, source=Source(_poisson_source))
         eta = _global(ResidualEstimator().estimate(problem, solution))
-        true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
+        true_error = h1_seminorm_error(problem.space, solution.dofs, exact_gradient)
         indices.append(eta / true_error)
 
     assert all(1.0 < i < 15.0 for i in indices)

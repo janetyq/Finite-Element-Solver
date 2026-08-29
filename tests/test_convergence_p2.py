@@ -100,5 +100,5 @@ def test_p2_is_reachable_through_the_solver_facade():
 
     exact = np.sin(np.pi * problem.space.node_coords[:, 0]) * np.sin(np.pi * problem.space.node_coords[:, 1])
     # P2 on this mesh is already far past the P1 error floor at the same spacing.
-    assert len(solution.u) == problem.space.n_dofs
-    assert np.abs(solution.u - exact).max() < 5e-3
+    assert len(solution.dofs) == problem.space.n_dofs
+    assert np.abs(solution.dofs - exact).max() < 5e-3

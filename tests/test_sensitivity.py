@@ -115,8 +115,8 @@ def test_point_displacement_gradient_matches_finite_differences(make_unit_square
     nu = 0.3
     E0 = np.linspace(0.5, 1.5, len(space.element_nodes))
     # The vertical DOF of a loaded right-edge node: an interior objective of the field.
-    tip_dof = _rightmost_vertical_dof(space)
-    qoi = PointValue(tip_dof)
+    tip = space.node_coords[int(np.argmax(space.node_coords[:, 0]))]
+    qoi = PointValue(tip, component=1)
 
     def modulus_problem(E):
         K0 = LinearElasticForm(LinearElasticMaterial(1.0, nu)).element_matrices(space.geometry)
@@ -138,7 +138,20 @@ def test_point_displacement_gradient_matches_finite_differences(make_unit_square
     np.testing.assert_allclose(adjoint_grad, fd_grad, rtol=1e-5, atol=1e-7)
 
 
-def _rightmost_vertical_dof(space):
-    coords = space.node_coords
-    node = int(np.argmax(coords[:, 0]))
-    return node * space.n_components + 1
+
+
+def test_point_value_rejects_a_component_the_field_lacks(make_unit_square):
+    """A scalar field has component 0 only; asking for another is an error, not a slice."""
+    import pytest
+
+    space = FunctionSpace(make_unit_square(4))
+    problem = LinearProblem(space, LinearElasticForm(LinearElasticMaterial(1.0, 0.3)), _cantilever_bc()) \
+        if space.n_components == 2 else None
+    del problem
+    scalar = LinearProblem(FunctionSpace(make_unit_square(4), n_components=1),
+                           PrecomputedForm(np.zeros((len(space.element_nodes), 3, 3))),
+                           Conditions(Dirichlet(on_plane(0, 0.0), 0.0)))
+    with pytest.raises(IndexError, match='component 1'):
+        PointValue(np.array([0.5, 0.5]), component=1).value(scalar, np.zeros(scalar.space.n_dofs))
+    with pytest.raises(IndexError, match='component 1'):
+        PointValue(np.array([0.5, 0.5]), component=1).dJ_du(scalar, np.zeros(scalar.space.n_dofs))

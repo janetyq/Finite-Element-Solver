@@ -69,9 +69,9 @@ def stretch_four_ways(mesh: Mesh, bc: Conditions):
         ('Linear solve\n(small strain)', linear_solution),
         ('Energy minimisation\n(small strain)', energy_problem.solution(energy_u)),
         ('Green-Lagrange\n(St-Venant-Kirchhoff)',
-         stvk.problem(mesh, bc).solve(strategy=newton, u0=linear_solution.u)),
+         stvk.problem(mesh, bc).solve(strategy=newton, u0=linear_solution.dofs)),
         ('Neo-Hookean\n(invariants of C)',
-         neohookean.problem(mesh, bc).solve(strategy=newton, u0=linear_solution.u)),
+         neohookean.problem(mesh, bc).solve(strategy=newton, u0=linear_solution.dofs)),
     ]
     return solutions, energy_problem, energy_u
 
@@ -93,7 +93,7 @@ class StretchStudy:
     @property
     def drift(self) -> float:
         """Relative difference between the linear and energy-minimised displacements."""
-        linear_u = self.solutions[0][1].u
+        linear_u = self.solutions[0][1].dofs
         return float(np.linalg.norm(self.energy_u - linear_u) / np.linalg.norm(linear_u))
 
     @property

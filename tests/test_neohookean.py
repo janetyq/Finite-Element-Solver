@@ -81,7 +81,7 @@ def _stretched(make_unit_square, model, stretch, n=8, **kw):
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, 1.0), [stretch, 0]),
     )
-    return model(E=200, nu=0.4, **kw).problem(mesh, bc).solve().u
+    return model(E=200, nu=0.4, **kw).problem(mesh, bc).solve().dofs
 
 
 def test_neohookean_agrees_with_small_strain_to_second_order(make_unit_square):
@@ -117,8 +117,8 @@ def test_neohookean_solve_converges_and_reports_stress(make_unit_square):
     assert vm.max() > 0.0
     # A large stretch really engages the nonlinearity, so it disagrees with the small-strain
     # answer by well more than roundoff.
-    u_small = LinearElastic(E=200, nu=0.4).problem(mesh, bc).solve().u
-    rel = np.linalg.norm(solution.u.flatten() - u_small.flatten()) / np.linalg.norm(u_small)
+    u_small = LinearElastic(E=200, nu=0.4).problem(mesh, bc).solve().dofs
+    rel = np.linalg.norm(solution.dofs.flatten() - u_small.flatten()) / np.linalg.norm(u_small)
     assert rel > 1e-3, f"finite-strain answer should differ from small strain, got rel={rel:.2e}"
 
 

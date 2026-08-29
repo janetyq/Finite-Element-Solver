@@ -53,7 +53,7 @@ class Flux(Protocol):
     def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:
         '''(n_elements, n_qp, n_components, spatial_dim) flux at `geometry`'s quadrature points.
 
-        Recomputed from `solution.u` at each point rather than read from the stored
+        Recomputed from `solution.dofs` at each point rather than read from the stored
         per-element value, so a P2 flux keeps its variation within the element.
         '''
         ...
@@ -122,7 +122,7 @@ class GradientFlux:
 
     def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:
         solution = self._diffusion(solution)
-        u_elements = solution.u[solution.space.element_nodes]   # (n_el, N)
+        u_elements = solution.element_values                      # (n_el, N)
         grad = geometry.gradients(u_elements)                  # (n_el, n_qp, d)
         n_el, n_qp = geometry.weight_detJ.shape
         points = geometry.points.reshape(n_el * n_qp, geometry.spatial_dim)
@@ -132,7 +132,7 @@ class GradientFlux:
     def divergence(self, solution: FieldSolution) -> FloatArray:
         solution = self._diffusion(solution)
         space = solution.space
-        hessian = space.element_hessian(solution.u[space.element_nodes])   # (n_el, d, d)
+        hessian = space.element_hessian(solution.element_values)   # (n_el, d, d)
         laplacian = np.einsum('eii->e', hessian)               # (n_el,)
         kappa = self._kappa_at(solution.mesh.centroids)         # (n_el,)
         grad_kappa = space.gradient(space.interpolate(self.coefficient))   # (n_el, d)
@@ -212,8 +212,7 @@ class StressFlux:
                 'StressFlux needs its elastic form to sample stress at quadrature points; '
                 'build it through the form\'s flux'
             )
-        space = solution.space
-        u_elements = solution.u.reshape(-1, space.n_components)[space.element_nodes]
+        u_elements = solution.element_values
         # The in-plane block: the estimators jump and recover the in-plane stress and
         # have no use for the out-of-plane lift.
         d = geometry.reference_dim
@@ -232,9 +231,8 @@ class StressFlux:
                 f'LinearElasticForm; got {type(self.form).__name__}. The recovery '
                 'estimator needs no divergence and works on any elastic form.'
             )
-        space = solution.space
-        u_elements = solution.u.reshape(-1, space.n_components)[space.element_nodes]
-        hessian = space.element_hessian(u_elements)      # (n_el, d, d, n_comp)
+        u_elements = solution.element_values
+        hessian = solution.space.element_hessian(u_elements)   # (n_el, d, d, n_comp)
         # Navier form of div(sigma): (lambda + mu) grad(div u) + mu laplacian(u).
         # grad(div u)_i = sum_k d2 u_k / dx_i dx_k = sum_k H[i, k, k];
         # laplacian(u)_i = sum_j H[j, j, i]. Both read off the per-component Hessian.

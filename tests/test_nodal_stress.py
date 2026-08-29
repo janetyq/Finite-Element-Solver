@@ -177,7 +177,7 @@ def test_p2_per_element_flux_is_the_centroid_gradient():
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
     np.testing.assert_allclose(solution.gradient, exact_gradient(centroids), atol=1e-9)
     for e in (0, len(mesh.elements) - 1):
-        u_e = solution.u[solution.space.element_nodes[e]]
+        u_e = solution.dofs[solution.space.element_nodes[e]]
         np.testing.assert_allclose(solution.space.element_gradient(e, u_e), solution.gradient[e])
 
 

@@ -36,7 +36,7 @@ def _elastic(element_type):
 
 
 def _goal_oriented():
-    return GoalOrientedEstimator(PointValue(0))
+    return GoalOrientedEstimator(PointValue(np.array([0.5, 0.5])))
 
 
 ESTIMATORS = [ResidualEstimator, RecoveryEstimator, _goal_oriented]

@@ -45,6 +45,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from fem.conditions import Conditions, ResolvedConditions
+from fem.field import NodalField
 from fem.physics.forms import Form
 from fem.loads import Load, Source
 from fem.post.solution import FieldSolution
@@ -289,7 +290,7 @@ class Problem(Generic[S]):
         self,
         strategy: 'SolveStrategy | None' = None,
         backend: 'Backend | None' = None,
-        u0: DofVector | None = None,
+        u0: DofVector | NodalField | None = None,
         t: float | None = None,
     ) -> S:
         '''Solve and package the result as the typed `Solution` for this operator.

@@ -1,6 +1,8 @@
 """Nodal recovery (`fem.post.recovery`): the volume-weighted average and the L2
 projection of a per-element field onto the nodes."""
 import numpy as np
+
+from fem.field import NodalField
 import pytest
 
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
@@ -106,7 +108,7 @@ def test_l2_recovery_conserves_the_field_integral():
     exact = float((field * space.element_volumes).sum())
 
     recovered = recover_nodal(space, field, method='l2')
-    assert space.integrate(recovered) == pytest.approx(exact, rel=1e-12)
+    assert NodalField(space, recovered).integrate() == pytest.approx(exact, rel=1e-12)
 
 
 def test_l2_and_average_recovery_differ_on_a_varying_field():

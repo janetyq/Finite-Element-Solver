@@ -456,7 +456,7 @@ def test_a_solution_supplies_its_own_space():
     per-node field on the bare mesh (no space) is rejected, so the solution is what
     carried the space that made it renderable."""
     solution, space = _p2_scalar_solution()
-    field = solution.u                                         # length n_nodes
+    field = solution.dofs                                         # length n_nodes
 
     plotter = Plotter(1, 1)
     plotter.plot(solution, field, mode='colored', idx=(0, 0))
@@ -472,7 +472,7 @@ def test_an_explicit_space_overrides_the_solutions():
     on a different discretization."""
     solution, space = _p2_scalar_solution()
     plotter = Plotter(1, 1)
-    plotter.plot(solution, solution.u, mode='colored', idx=(0, 0), space=space)
+    plotter.plot(solution, solution.dofs, mode='colored', idx=(0, 0), space=space)
     assert plotter.get_ax((0, 0)).has_data()
     plotter.close()
 
@@ -499,7 +499,7 @@ def test_warp_true_deforms_by_the_solutions_own_displacement():
 def test_warp_true_needs_a_solution_not_a_bare_mesh():
     """`warp=True` has no displacement to read off a raw mesh, so it is rejected."""
     mesh, space = _p2_square()
-    with pytest.raises(ValueError, match='warp=True needs a Solution'):
+    with pytest.raises(ValueError, match='warp=True needs a field'):
         Plotter(1, 1).plot(mesh, space.node_coords[:, 0], mode='colored', space=space, warp=True)
 
 

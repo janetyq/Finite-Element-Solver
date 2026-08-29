@@ -65,7 +65,7 @@ def _solve_2d(n):
 
     exact = np.zeros((len(mesh.vertices), 2))
     exact[:, 0] = np.sin(PI * mesh.vertices[:, 0]) * np.sin(PI * mesh.vertices[:, 1])
-    return 1.0 / (n - 1), _l2_error(problem.space, solution.u, exact)
+    return 1.0 / (n - 1), _l2_error(problem.space, solution.dofs, exact)
 
 
 @pytest.fixture(scope='module')
@@ -109,7 +109,7 @@ def _solve_3d(n):
     v = mesh.vertices
     exact = np.zeros((len(v), 3))
     exact[:, 0] = np.sin(PI * v[:, 0]) * np.sin(PI * v[:, 1]) * np.sin(PI * v[:, 2])
-    return 1.0 / (n - 1), _l2_error(problem.space, solution.u, exact)
+    return 1.0 / (n - 1), _l2_error(problem.space, solution.dofs, exact)
 
 
 @pytest.fixture(scope='module')

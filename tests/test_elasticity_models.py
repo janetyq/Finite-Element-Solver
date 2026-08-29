@@ -118,7 +118,7 @@ def test_finite_strain_solve_matches_recorded_solution(make_unit_square):
     mesh, bc = _stretched_square(make_unit_square)
     equation = FiniteStrainElastic(E=200, nu=0.4)
     problem = equation.problem(mesh, bc)
-    u = problem.solve().u
+    u = problem.solve().dofs
 
     np.testing.assert_allclose(np.linalg.norm(u), 0.503442620332, rtol=1e-9)
     np.testing.assert_allclose(u.max(), 0.1, rtol=1e-12)
@@ -156,7 +156,7 @@ def test_small_strain_energy_equals_direct_solve(make_unit_square):
     and in a single Newton step: a quadratic energy has an affine gradient."""
     mesh, bc = _stretched_square(make_unit_square)
 
-    u_direct = LinearElastic(E=200, nu=0.4).problem(mesh, bc).solve().u.flatten()
+    u_direct = LinearElastic(E=200, nu=0.4).problem(mesh, bc).solve().dofs.flatten()
     u_energy = _one_newton_step(_energy_problem(mesh, bc, LinearElastic))
 
     np.testing.assert_allclose(u_energy, u_direct, atol=1e-12)
@@ -168,7 +168,7 @@ def test_stvk_needs_more_than_one_newton_step(make_unit_square):
     equation = FiniteStrainElastic(E=200, nu=0.4)
 
     u_one = _one_newton_step(equation.problem(mesh, bc))
-    u_converged = equation.problem(mesh, bc).solve().u
+    u_converged = equation.problem(mesh, bc).solve().dofs
 
     rel = np.linalg.norm(u_one - u_converged) / np.linalg.norm(u_converged)
     assert rel > 0.1, f"one step should be far from converged, got rel={rel:.2e}"
@@ -239,8 +239,8 @@ def test_finite_strain_solve_reaches_the_minres_backend(make_unit_square):
     Hessian is indefinite at the zero seed, exercising MINRES and the regularization."""
     mesh, equation, bc = _stretched_stvk(make_unit_square)
 
-    direct = equation.problem(mesh, bc).solve().u
-    iterative = equation.problem(mesh, bc).solve(backend=MinresBackend()).u
+    direct = equation.problem(mesh, bc).solve().dofs
+    iterative = equation.problem(mesh, bc).solve(backend=MinresBackend()).dofs
 
     assert np.abs(direct).max() > 0, "trivial solution; test proves nothing"
     np.testing.assert_allclose(iterative, direct, atol=1e-7 * np.abs(direct).max())
@@ -252,8 +252,8 @@ def test_problem_solve_uses_the_strategy_it_is_given(make_unit_square):
     plain = NewtonSolve(line_search=None)
     problem = equation.problem(mesh, bc)
 
-    reference = problem.solve().u
-    np.testing.assert_allclose(problem.solve(strategy=plain).u, reference,
+    reference = problem.solve().dofs
+    np.testing.assert_allclose(problem.solve(strategy=plain).dofs, reference,
                                atol=1e-7 * np.abs(reference).max())
 
 

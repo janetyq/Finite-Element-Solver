@@ -96,7 +96,7 @@ def test_a_problem_is_its_conditions_resolved(make_unit_square):
     assert problem.source is problem.resolved.source
     np.testing.assert_array_equal(problem.constraints[1], problem.resolved.fixed_idxs)
     split = Poisson().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0)) + Source(1.0))
-    np.testing.assert_allclose(split.solve().u, problem.solve().u)
+    np.testing.assert_allclose(split.solve().dofs, problem.solve().dofs)
 
 
 def test_newmark_accepts_a_time_dependent_traction_but_not_a_moving_support(make_unit_square):
@@ -107,7 +107,7 @@ def test_newmark_accepts_a_time_dependent_traction_but_not_a_moving_support(make
                                                 Neumann(on_plane(0, 1.0), ramp)))
     rest = np.zeros(loaded.space.n_dofs)
     series = NewmarkMethod(dt=0.05, steps=4).solve(loaded, rest, rest)
-    assert np.abs(series.u[-1]).max() > 0
+    assert np.abs(series.dofs[-1]).max() > 0
     moving = equation.problem(mesh, Conditions(Dirichlet(on_plane(0, 0.0), ramp)))
     with pytest.raises(NotImplementedError, match='Dirichlet'):
         NewmarkMethod(dt=0.05, steps=4).solve(moving, rest, rest)

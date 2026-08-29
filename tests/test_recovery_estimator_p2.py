@@ -78,7 +78,7 @@ def test_p2_recovery_effectivity_stays_bounded():
     for n in (6, 11, 21):
         problem, solution = _solve(equation, n, QuadraticTriangleElement, source=Source(_poisson_source))
         eta = _global(RecoveryEstimator().estimate(problem, solution))
-        true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
+        true_error = h1_seminorm_error(problem.space, solution.dofs, exact_gradient)
         indices.append(eta / true_error)
 
     assert all(0.5 < i < 2.0 for i in indices)

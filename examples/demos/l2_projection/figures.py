@@ -22,9 +22,9 @@ def _projection_figure(s: ProjectionStudy, reference_resolution) -> Figure:
     plotter = Plotter(1, 3, title='L2 projection onto one coarse mesh')
     plotter.plot(fine, exact, mode='colored', idx=(0, 0), label='', clim=(-1, 1),
                  title='The target: sin(40 r^2)')
-    plotter.plot(s.mesh, s.p1.u, mode='colored', idx=(0, 1), label='', clim=(-1, 1),
+    plotter.plot(s.mesh, s.p1.dofs, mode='colored', idx=(0, 1), label='', clim=(-1, 1),
                  title=f'P1 ({len(s.mesh.elements)} triangles)')
-    plotter.plot(s.mesh, s.p2.u, mode='colored', idx=(0, 2), label='', clim=(-1, 1),
+    plotter.plot(s.mesh, s.p2.dofs, mode='colored', idx=(0, 2), label='', clim=(-1, 1),
                  title='P2, same mesh', space=s.p2.space)
     return Figure(
         plotter,
