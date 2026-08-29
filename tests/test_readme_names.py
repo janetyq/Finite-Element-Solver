@@ -19,7 +19,7 @@ HEADING = '### What you choose at each step'
 KEYWORDS = {'element_type=', 'source=', 'law=', 'mode=', 'strategy=', 'backend=', 'u0=', 'v0='}
 # The instances the table calls methods on, by the lowercase name it uses.
 INSTANCES = {'problem': fem.Problem, 'space': fem.FunctionSpace, 'outline': fem.Outline,
-             'solution': fem.Solution}
+             'solution': fem.Solution, 'equation': fem.Equation}
 
 
 def _section() -> str:
