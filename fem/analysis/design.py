@@ -40,10 +40,10 @@ logger = logging.getLogger(__name__)
 def calculate_smoothing_matrix(mesh: Mesh, r: float) -> SparseMatrix:
     '''Row-normalized cone weights over the element centers within radius `r`.
 
-    The SIMP sensitivity filter: an element's smoothed sensitivity is a weighted
-    mean of the sensitivities within `r` of it, under the weight `r - distance`
-    falling linearly to zero at the radius. Filtering keeps the optimizer off
-    checkerboard designs, and `r` sets the design's feature size.
+    The weights of the SIMP sensitivity filter: `w_ij = r - |x_i - x_j|`, falling
+    linearly to zero at the radius, each row normalized to sum to 1. `filter_sensitivity`
+    applies them; on their own, `W @ s` is the plain weighted mean of `s`. Filtering
+    keeps the optimizer off checkerboard designs, and `r` sets the design's feature size.
 
     Sparse, off a KD-tree neighbour query, so the filter costs O(n_elements) when `r`
     tracks the element size. Rows sum to 1, except at `r = 0`, where every weight is
@@ -71,6 +71,26 @@ def calculate_smoothing_matrix(mesh: Mesh, r: float) -> SparseMatrix:
     )
 
 
+RHO_MIN = 1e-6    # the density floor: keeps the diluted stiffness nonsingular
+
+
+def filter_sensitivity(weights: SparseMatrix, rho: ElementValues,
+                       sensitivity: ElementValues) -> ElementValues:
+    '''Sigmund's sensitivity filter over row-normalized cone `weights`:
+
+        s_i = sum_j w_ij rho_j s_j / (rho_i sum_j w_ij).
+
+    The density weighting makes the filtered sensitivity the derivative of a smoothed
+    objective, so a void element next to solid ones is not pulled back by their
+    sensitivity at full strength. With `rho` uniform it is the plain weighted mean
+    `weights @ sensitivity`. `rho_i` is floored at `RHO_MIN`, the same floor the OC
+    update clips to.
+    '''
+    rho = np.asarray(rho, dtype=float)
+    smoothed = weights @ (rho * np.asarray(sensitivity, dtype=float))
+    return smoothed / np.maximum(rho, RHO_MIN)
+
+
 def optimality_criteria_update(
     rho: ElementValues,
     sensitivity: ElementValues,
@@ -83,10 +103,16 @@ def optimality_criteria_update(
     '''One OC density step: bisect a Lagrange multiplier to meet the volume target.
 
     `sensitivity` is the objective's negative gradient with respect to density (positive
-    where adding material helps), which the OC heuristic `rho * sqrt(sensitivity / m)`
-    needs. Each candidate is capped by the `move` limit and clipped to `[1e-6, 1]`, and
-    the multiplier `m` is bisected until the volume-weighted mean density meets
-    `volume_frac`.
+    where adding material helps). The optimality condition balances it against the
+    volume constraint's gradient, `dV/drho_e = v_e`, so the OC heuristic is
+
+        rho_e * sqrt(sensitivity_e / (m * v_e)),
+
+    with `v_e` the element volume normalized by the mean volume (which keeps the
+    multiplier `m` at the same magnitude on any mesh). On a uniform mesh `v_e = 1` and
+    the volumes drop out; on a graded one they stop the update favouring large elements.
+    Each candidate is capped by the `move` limit and clipped to `[RHO_MIN, 1]`, and `m`
+    is bisected until the volume-weighted mean density meets `volume_frac`.
     '''
     if np.any(sensitivity < 0.0):
         raise ValueError(
@@ -96,13 +122,15 @@ def optimality_criteria_update(
             'either way and is not compatible with this update; minimize a compliance '
             'or a squared quantity instead, or use a general gradient optimizer.'
         )
+    volumes = np.asarray(volumes, dtype=float)
+    relative_volumes = volumes / volumes.mean()
     lo, hi = 0.0, 1e15
     rho_new = rho
     for _ in range(max_iters):
         m = 0.5 * (lo + hi)
-        rho_new = rho * np.sqrt(sensitivity / m)
+        rho_new = rho * np.sqrt(sensitivity / (m * relative_volumes))
         rho_new = np.clip(rho_new, rho - move, rho + move)
-        rho_new = np.clip(rho_new, 1e-6, 1.0)
+        rho_new = np.clip(rho_new, RHO_MIN, 1.0)
         if float((volumes * rho_new).sum() / volumes.sum()) < volume_frac:
             hi = m
         else:
@@ -140,8 +168,9 @@ class SIMPModel:
     set of solid element matrices; `parameterization(rho)` is the `DensityParameterization` that
     differentiates it.
 
-    `sensitivity_filter` is the SIMP cone filter (`calculate_smoothing_matrix`), applied
-    to the raw sensitivity by the optimizer.
+    `sensitivity_filter` is the cone weight matrix of the SIMP sensitivity filter
+    (`calculate_smoothing_matrix`), which the optimizer applies to the raw sensitivity
+    through `filter_sensitivity`.
     '''
     template: LinearProblem[ElasticSolution]
     penalty: float = 3.0
@@ -282,7 +311,7 @@ class DesignOptimizer:
         # OC wants the ascent sensitivity: positive where adding material lowers J.
         sensitivity = -gradient
         if self.model.sensitivity_filter is not None:
-            sensitivity = self.model.sensitivity_filter @ sensitivity
+            sensitivity = filter_sensitivity(self.model.sensitivity_filter, self.rho, sensitivity)
 
         self.rho = optimality_criteria_update(
             self.rho, sensitivity, self.model.volumes, self.volume_frac, self.move,

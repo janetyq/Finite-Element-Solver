@@ -176,7 +176,7 @@ Isotropic Material with Penalization) method finds the stiffest structure using 
 the material, penalizing intermediate densities so the design resolves toward solid or
 void. It finds the classic arch, a compression arch over a tension tie braced by a
 diagonal web. Compliance is the work the load does, so it measures deflection
-directly, and the optimized truss is only about 1.6x as compliant as the fully solid
+directly, and the optimized truss is only about 1.7x as compliant as the fully solid
 block on half the material. What it removed was near the neutral axis, where the
 material was barely resisting the bending.
 

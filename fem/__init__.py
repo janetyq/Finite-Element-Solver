@@ -124,6 +124,7 @@ from fem.analysis.design import (
     DesignHistory,
     TargetCompliance,
     calculate_smoothing_matrix,
+    filter_sensitivity,
     optimality_criteria_update,
 )
 from fem.analysis.adaptivity import AdaptiveRefinement
@@ -258,6 +259,7 @@ __all__ = [
     "DesignHistory",
     "TargetCompliance",
     "calculate_smoothing_matrix",
+    "filter_sensitivity",
     "optimality_criteria_update",
     "AdaptiveRefinement",
     "ErrorEstimator",
