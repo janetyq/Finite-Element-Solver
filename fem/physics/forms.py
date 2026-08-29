@@ -722,7 +722,7 @@ class PrecomputedForm(BilinearForm[S]):
     by `rho^p`, so a topology optimization iteration rescales one precomputed set
     rather than re-contracting `B^T D B` over the mesh.
 
-    `physics` is the form the matrices stand in for, when there is one: the diluted
+    `form` is the form the matrices stand in for, when there is one: the diluted
     `LinearElasticForm` whose stiffness they are. Everything a form answers beyond its
     matrix (`solution` packaging, `flux`, `near_null_space`) is delegated to it, so a
     problem over precomputed elastic matrices solves to an `ElasticSolution` with the
@@ -733,7 +733,7 @@ class PrecomputedForm(BilinearForm[S]):
     checked, the one mismatch a bare `matrices` array can reveal.
     '''
     matrices: FloatArray   # (n_elements, k, k)
-    physics: Form[S] | None = field(default=None, kw_only=True)
+    form: Form[S] | None = field(default=None, kw_only=True)
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         if len(self.matrices) != geometry.n_elements:
@@ -744,15 +744,15 @@ class PrecomputedForm(BilinearForm[S]):
         return self.matrices
 
     def flux(self) -> Flux | None:
-        return None if self.physics is None else self.physics.flux()
+        return None if self.form is None else self.form.flux()
 
     def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
-        return None if self.physics is None else self.physics.near_null_space(space)
+        return None if self.form is None else self.form.near_null_space(space)
 
     def solution(self, space: 'FunctionSpace', u: FloatArray) -> S:
-        if self.physics is None:
+        if self.form is None:
             return cast(S, FieldSolution(space, u))
-        return self.physics.solution(space, u)
+        return self.form.solution(space, u)
 
 
 class EnergyDensity(Protocol):

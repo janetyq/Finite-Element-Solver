@@ -247,7 +247,7 @@ Every assembly path goes through a form. Bilinear forms (`MassForm`, `DiffusionF
 supplying `G` and the form `C`; `SumForm` and `ScaledForm` are the combinators (`a + b`, `c * a`:
 the wave operator's `T K`, the Robin boundary term `kappa * BoundaryMassForm(mask)`, which names the
 boundary as its `domain`); `PrecomputedForm` lets a driver reuse element
-matrices it can derive more cheaply (SIMP rescales one set by `rho^p`), naming the `physics`
+matrices it can derive more cheaply (SIMP rescales one set by `rho^p`), naming the `form`
 they stand in for so the problem still packages, names a flux, and supplies a near-kernel as
 that form would. Each is a `BilinearForm`,
 which supplies the residual `K u` and the energy `½ uᵀ K u` from its matrix. `EnergyForm` is the

@@ -244,7 +244,7 @@ def test_diluted_problem_solves_to_an_elastic_solution_of_the_diluted_material(m
 
 
 def test_precomputed_form_delegates_to_the_physics_it_stands_in_for(make_unit_square):
-    """With a `physics`, the form packages, names a flux, and supplies a near-kernel as
+    """With a `form`, it packages, names a flux, and supplies a near-kernel as
     that form does; bare, it packages a field and names none."""
     mesh = make_unit_square(4)
     space = FunctionSpace(mesh, n_components=2)
@@ -252,7 +252,7 @@ def test_precomputed_form_delegates_to_the_physics_it_stands_in_for(make_unit_sq
     K = elastic.element_matrices(space.geometry)
     u = np.zeros(space.n_dofs)
 
-    standing_in = PrecomputedForm(K, physics=elastic)
+    standing_in = PrecomputedForm(K, form=elastic)
     assert isinstance(standing_in.solution(space, u), ElasticSolution)
     assert standing_in.flux() is not None
     modes = standing_in.near_null_space(space)

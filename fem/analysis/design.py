@@ -187,7 +187,7 @@ class SIMPModel:
         `sigma = D(E(rho)) eps`.'''
         dilution = np.asarray(rho, dtype=float) ** self.penalty
         diluted = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus(rho), self._material.nu))
-        stiffness = PrecomputedForm(dilution[:, None, None] * self._density._K0, physics=diluted)
+        stiffness = PrecomputedForm(dilution[:, None, None] * self._density._K0, form=diluted)
         return self.template.with_operator(stiffness)
 
 
