@@ -1,8 +1,10 @@
 """The README's "What you choose at each step" table names real things.
 
 Every backticked name in that section must resolve: an attribute chain from `fem`
-(`Outline.from_svg`, `Plotter.plot`), a `PlotMode` value, or a keyword argument the table
-quotes. A rename that forgets the table fails here.
+(`Outline.from_svg`, `Plotter.plot`), a call on a named instance (`problem.solve()`,
+where `problem` is a `Problem`), a bare method (`.simplified(tolerance)`, on some
+exported class), a `PlotMode` value, or a keyword argument the table quotes. A rename
+that forgets the table fails here.
 """
 import re
 from pathlib import Path
@@ -15,6 +17,9 @@ from fem.plot.plotter import PlotMode
 README = Path(__file__).resolve().parents[1] / 'README.md'
 HEADING = '### What you choose at each step'
 KEYWORDS = {'element_type=', 'source=', 'law=', 'mode=', 'strategy=', 'backend=', 'v0='}
+# The instances the table calls methods on, by the lowercase name it uses.
+INSTANCES = {'problem': fem.Problem, 'space': fem.FunctionSpace, 'outline': fem.Outline,
+             'solution': fem.Solution}
 
 
 def _section() -> str:
@@ -33,12 +38,20 @@ def _names() -> list[str]:
 def _resolves(name: str) -> bool:
     if name in {m.value for m in PlotMode}:
         return True
-    # `Mesh(vertices, elements)` or `Outline.from_polygons`: check the leading path
+    # `.simplified(tolerance)`: a method some exported class has
+    bare = re.match(r'\.(\w+)', name)
+    if bare:
+        return any(hasattr(getattr(fem, export), bare.group(1)) for export in fem.__all__)
+    # `Mesh(vertices, elements)` or `Outline.from_polygons`: check the leading path;
+    # `problem.solve()` starts from the instance's class
     head = re.match(r'[A-Za-z_][\w.]*', name)
     if not head:
         return False
+    parts = head.group(0).split('.')
     obj = fem
-    for part in head.group(0).split('.'):
+    if parts[0] in INSTANCES:
+        obj, parts = INSTANCES[parts[0]], parts[1:]
+    for part in parts:
         if not hasattr(obj, part):
             return False
         obj = getattr(obj, part)
