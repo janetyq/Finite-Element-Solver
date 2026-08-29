@@ -18,7 +18,7 @@ def test_constant_solution_is_reproduced_exactly(make_unit_square):
     c, kappa = 5.0, 2.0
 
     bc = Conditions(Robin(everywhere(), kappa=kappa, g=kappa * c))
-    u = Poisson().problem(mesh, bc + Source(0.0)).solve().u
+    u = Poisson().problem(mesh, bc + Source(0.0)).solve().dofs
 
     assert np.allclose(u, c, atol=1e-10), f"constant not reproduced: range {u.min()}..{u.max()}"
 
@@ -29,12 +29,12 @@ def test_large_kappa_approaches_the_dirichlet_limit(make_unit_square):
     source = 1.0
 
     bc_d = Conditions(Dirichlet(everywhere(), 0.0))
-    u_dirichlet = Poisson().problem(mesh, bc_d + Source(source)).solve().u
+    u_dirichlet = Poisson().problem(mesh, bc_d + Source(source)).solve().dofs
 
     gaps = []
     for kappa in (10.0, 100.0, 1000.0):
         bc_r = Conditions(Robin(everywhere(), kappa=kappa, g=0.0))
-        u_robin = Poisson().problem(mesh, bc_r + Source(source)).solve().u
+        u_robin = Poisson().problem(mesh, bc_r + Source(source)).solve().dofs
         gaps.append(float(np.linalg.norm(u_robin - u_dirichlet)))
 
     assert gaps[0] > gaps[1] > gaps[2], f"gap did not shrink with kappa: {gaps}"
@@ -49,7 +49,7 @@ def test_robin_on_one_edge_pins_only_that_edge(make_unit_square):
     mesh = make_unit_square(12)
 
     bc = Conditions(Robin(on_plane(0, 0.0), kappa=1000.0, g=0.0))
-    u = Poisson().problem(mesh, bc + Source(1.0)).solve().u
+    u = Poisson().problem(mesh, bc + Source(1.0)).solve().dofs
 
     bidx = mesh.boundary_idxs
     left = bidx[np.isclose(mesh.vertices[bidx, 0], 0.0)]

@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from fem.field import NodalField
+
 from fem.typing import FloatArray, IntArray
 
 if TYPE_CHECKING:
@@ -213,8 +215,8 @@ class PanelView:
 
 
 def panel_view(
-    target: Mesh | Solution,
-    values: FloatArray | Sequence[float] | None = None,
+    target: Mesh | Solution | NodalField,
+    values: FloatArray | Sequence[float] | NodalField | None = None,
     *,
     space: FunctionSpace | None = None,
     warp: FloatArray | bool | None = None,
@@ -222,9 +224,10 @@ def panel_view(
 ) -> PanelView:
     '''Build the `PanelView` a panel draws for `values` on `target`.
 
-    `target` is a `Mesh` or a `Solution`. A solution supplies its mesh and the space that
-    numbers its field, so a P2 or curved solve renders faithfully with nothing else
-    passed (an explicit `space` still wins). Three cases:
+    `target` is a `Mesh`, a `Solution`, or a `NodalField`. A field or solution supplies
+    its mesh and the space that numbers it, so a P2 or curved solve renders faithfully
+    with nothing else passed (an explicit `space` still wins); `values` given as a
+    `NodalField` draws its nodal values on its own space. Three cases:
 
     - A bare mesh, or a P1 space: the mesh's own triangles, the field per vertex or per
       element.
@@ -236,20 +239,23 @@ def panel_view(
       tessellating, so a field draws on the deformed shape; `True` deforms by the
       solution's own displacement field and needs a `Solution` as the target.
     '''
-    from fem.post.solution import FieldSolution, Solution
+    from fem.post.solution import Solution
     from fem.space import FunctionSpace
 
-    if isinstance(target, Solution):
+    if isinstance(values, NodalField):
+        space = space if space is not None else values.space
+        values = values.nodal_values
+    if isinstance(target, (Solution, NodalField)):
         mesh = target.mesh
         space = space if space is not None else target.space
         if warp is True:
-            if not isinstance(target, FieldSolution):
-                raise ValueError('warp=True needs a Solution carrying a displacement field u')
-            warp = np.asarray(target.u).reshape(-1, target.n_components)
+            if not isinstance(target, NodalField):
+                raise ValueError('warp=True needs a field carrying a displacement')
+            warp = target.dofs.reshape(-1, target.n_components)
     else:
         mesh = target
         if warp is True:
-            raise ValueError('warp=True needs a Solution as the first argument, not a mesh')
+            raise ValueError('warp=True needs a field as the first argument, not a mesh')
     warp = None if warp is False else warp
     values = None if values is None else np.asarray(values)
 

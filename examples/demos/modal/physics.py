@@ -195,7 +195,7 @@ class ForkStudy:
     @property
     def tip_trace(self) -> np.ndarray:
         """The struck tip's sideways displacement at every step."""
-        return np.array([u.reshape(-1, 2)[self.tip, 0] for u in self.ringing.u])
+        return np.array([u.reshape(-1, 2)[self.tip, 0] for u in self.ringing.dofs])
 
 
 def run(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_angle=27, n_modes=6,

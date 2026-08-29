@@ -101,7 +101,7 @@ def test_poisson_estimator_affine_coefficient_exact_p1_solution_is_quiet(make_un
     bc = Conditions(Dirichlet(everywhere(), lambda p: p[0]), Source(-1.0))
     problem = Poisson(coefficient=lambda p: 1.0 + p[0]).problem(mesh, bc)
     solution = problem.solve()
-    np.testing.assert_allclose(solution.u, mesh.vertices[:, 0], atol=1e-12)
+    np.testing.assert_allclose(solution.dofs, mesh.vertices[:, 0], atol=1e-12)
 
     eta = ResidualEstimator().estimate(problem, solution)
     assert np.all(eta < 1e-10)
@@ -122,7 +122,7 @@ def test_poisson_estimator_affine_coefficient_exact_p2_solution_is_quiet(make_un
     )
     problem = LinearProblem(space, DiffusionForm(lambda p: 1.0 + p[0], rule_degree=4), bc)
     solution = problem.solve()
-    np.testing.assert_allclose(solution.u, space.node_coords[:, 0]**2, atol=1e-10)
+    np.testing.assert_allclose(solution.dofs, space.node_coords[:, 0]**2, atol=1e-10)
 
     eta = ResidualEstimator().estimate(problem, solution)
     assert np.all(eta < 1e-9)
@@ -139,7 +139,7 @@ def test_poisson_estimator_constant_coefficient_scales_the_estimate(make_unit_sq
     unit = Poisson().problem(mesh, bc + Source(source))
     scaled = Poisson(coefficient=3.0).problem(mesh, bc + Source(lambda p: 3.0 * source(p)))
     u_unit, u_scaled = unit.solve(), scaled.solve()
-    np.testing.assert_allclose(u_scaled.u, u_unit.u, atol=1e-12)
+    np.testing.assert_allclose(u_scaled.dofs, u_unit.dofs, atol=1e-12)
 
     eta_unit = ResidualEstimator().estimate(unit, u_unit)
     eta_scaled = ResidualEstimator().estimate(scaled, u_scaled)
@@ -155,7 +155,7 @@ def test_poisson_estimator_scaled_form_scales_its_flux(make_unit_square):
     by_coefficient = LinearProblem(space, DiffusionForm(3.0), bc)
     by_factor = LinearProblem(space, 3.0 * DiffusionForm(), bc)
     solution = by_coefficient.solve()
-    np.testing.assert_allclose(by_factor.solve().u, solution.u, atol=1e-12)
+    np.testing.assert_allclose(by_factor.solve().dofs, solution.dofs, atol=1e-12)
 
     eta_coefficient = ResidualEstimator().estimate(by_coefficient, solution)
     eta_factor = ResidualEstimator().estimate(by_factor, solution)
@@ -172,7 +172,7 @@ def test_poisson_estimator_neumann_edge_registers_a_missed_flux(make_unit_square
 
     matched = Poisson(coefficient=kappa).problem(mesh, left + Neumann(on_plane(0, 1.0), kappa))
     solution = matched.solve()
-    np.testing.assert_allclose(solution.u, mesh.vertices[:, 0], atol=1e-12)
+    np.testing.assert_allclose(solution.dofs, mesh.vertices[:, 0], atol=1e-12)
     eta = ResidualEstimator().estimate(matched, solution)
     # `g` is nodal, so at the corners (1, 0) and (1, 1) it also reaches the flux-free top
     # and bottom edges through the shared vertex (the elastic test below works the same
@@ -344,7 +344,7 @@ def test_adaptive_refinement_elasticity_runs_end_to_end(make_unit_square):
     final = driver.mesh
     assert len(final.elements) > n_before
     assert solution.mesh is final
-    assert np.all(np.isfinite(solution.u))
+    assert np.all(np.isfinite(solution.dofs))
 
     left = np.flatnonzero(np.abs(final.vertices[:, 0]) < 1e-12)
-    assert np.allclose(solution.u.reshape(-1, 2)[left], 0.0, atol=1e-12)
+    assert np.allclose(solution.dofs.reshape(-1, 2)[left], 0.0, atol=1e-12)

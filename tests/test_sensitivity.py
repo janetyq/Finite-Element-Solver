@@ -115,8 +115,8 @@ def test_point_displacement_gradient_matches_finite_differences(make_unit_square
     nu = 0.3
     E0 = np.linspace(0.5, 1.5, len(space.element_nodes))
     # The vertical DOF of a loaded right-edge node: an interior objective of the field.
-    tip_dof = _rightmost_vertical_dof(space)
-    qoi = PointValue(tip_dof)
+    tip = space.node_coords[int(np.argmax(space.node_coords[:, 0]))]
+    qoi = PointValue(tip, component=1)
 
     def modulus_problem(E):
         K0 = LinearElasticForm(LinearElasticMaterial(1.0, nu)).element_matrices(space.geometry)
@@ -138,7 +138,3 @@ def test_point_displacement_gradient_matches_finite_differences(make_unit_square
     np.testing.assert_allclose(adjoint_grad, fd_grad, rtol=1e-5, atol=1e-7)
 
 
-def _rightmost_vertical_dof(space):
-    coords = space.node_coords
-    node = int(np.argmax(coords[:, 0]))
-    return node * space.n_components + 1

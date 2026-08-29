@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from fem.mesh.mesh import Mesh
 from fem.mesh.curves import Arc, Circle, CubicBezier, Curve, Line, Piece
 from fem.space import FunctionSpace
+from fem.field import NodalField
 from fem.mesh.structured import annulus_mesh, box_mesh
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.refinement import RedGreenRefiner
@@ -232,6 +233,7 @@ __all__ = [
     "rigid_body_modes",
     "ThetaMethod",
     "NewmarkMethod",
+    "NodalField",
     "Solution",
     "FieldSolution",
     "DiffusionSolution",

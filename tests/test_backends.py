@@ -43,7 +43,7 @@ def _poisson_mms(n, backend):
     eq = Poisson()
     bc = Conditions(Dirichlet(everywhere(), 0.0))
     problem = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]))
-    u = problem.solve(backend=backend).u
+    u = problem.solve(backend=backend).dofs
     exact = np.sin(np.pi * mesh.vertices[:, 0]) * np.sin(np.pi * mesh.vertices[:, 1])
     error = u - exact
     return 1.0 / (n - 1), np.sqrt(error @ problem.space.mass_matrix @ error)
@@ -55,8 +55,8 @@ def test_iterative_matches_direct_on_poisson():
     eq = Poisson()
     bc = Conditions(Dirichlet(everywhere(), 0.0))
 
-    direct = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])).solve(backend=DirectBackend()).u
-    iterative = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])).solve(backend=IterativeBackend()).u
+    direct = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])).solve(backend=DirectBackend()).dofs
+    iterative = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])).solve(backend=IterativeBackend()).dofs
     np.testing.assert_allclose(iterative, direct, atol=1e-8)
 
 
@@ -69,8 +69,8 @@ def test_iterative_matches_direct_on_elasticity():
     )
     eq = LinearElastic(E=200, nu=0.3)
 
-    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).u
-    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).u
+    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).dofs
+    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).dofs
     # Scale the tolerance to the field magnitude: the displacements are O(1).
     np.testing.assert_allclose(iterative, direct, atol=1e-8 * np.abs(direct).max())
 
@@ -98,8 +98,8 @@ def test_iterative_matches_direct_on_3d_elasticity():
     )
     eq = LinearElastic(E=200, nu=0.3)
 
-    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).u
-    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).u
+    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).dofs
+    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).dofs
     np.testing.assert_allclose(iterative, direct, atol=1e-7 * np.abs(direct).max())
 
 
@@ -176,10 +176,10 @@ def test_iterative_elastic_solve_matches_direct_through_facade_and_composition()
 
     mesh, bc = _cantilever()
     eq = LinearElastic(E=200, nu=0.3)
-    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).u
+    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).dofs
     tol = 1e-7 * np.abs(direct).max()
 
-    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).u
+    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).dofs
     np.testing.assert_allclose(iterative, direct, atol=tol)
     problem = eq.problem(mesh, bc)
     composed = LinearSolve().solve(problem, backend=IterativeBackend())
@@ -195,8 +195,8 @@ def test_iterative_backend_matches_direct_through_a_time_step():
     u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=10, size=0.2) + 300
     problem = Heat().problem(mesh)
 
-    direct = ThetaMethod(dt=0.01, steps=5).solve(problem, u0.copy()).u[-1]
-    iterative = ThetaMethod(dt=0.01, steps=5).solve(problem, u0.copy(), backend=IterativeBackend()).u[-1]
+    direct = ThetaMethod(dt=0.01, steps=5).solve(problem, u0).dofs[-1]
+    iterative = ThetaMethod(dt=0.01, steps=5).solve(problem, u0, backend=IterativeBackend()).dofs[-1]
     np.testing.assert_allclose(iterative, direct, atol=1e-7)
 
 

@@ -53,7 +53,7 @@ def test_newton_on_a_linear_problem_is_seed_independent(make_unit_square):
 def test_line_search_is_a_noop_on_a_linear_problem(make_unit_square):
     """A LinearProblem's exact Newton step already lands on the solution, so backtracking
     accepts alpha = 1 on the first test and changes nothing. The merit is the quadratic
-    energy 1/2 u.K.u - b.u, which the full step minimises."""
+    energy 1/2 u.K.dofs - b.dofs, which the full step minimises."""
     problem = _poisson_problem(make_unit_square(15))
     reference = LinearSolve().solve(problem)
 
@@ -69,7 +69,7 @@ def test_composed_poisson_matches_the_solver_facade(make_unit_square):
     equation = Poisson()
 
     u_composed = LinearSolve().solve(_problem(equation, mesh, bc + Source(_mms_source)))
-    u_solver = equation.problem(mesh, bc + Source(_mms_source)).solve().u
+    u_solver = equation.problem(mesh, bc + Source(_mms_source)).solve().dofs
     np.testing.assert_allclose(u_composed, u_solver, atol=1e-12)
 
 
@@ -82,7 +82,7 @@ def test_composed_linear_elastic_matches_the_solver_facade(make_unit_square):
     equation = LinearElastic(E=200, nu=0.4)
 
     u_composed = LinearSolve().solve(_problem(equation, mesh, bc))
-    u_solver = equation.problem(mesh, bc).solve().u
+    u_solver = equation.problem(mesh, bc).solve().dofs
     np.testing.assert_allclose(u_composed, u_solver, atol=1e-12)
 
 
@@ -355,9 +355,9 @@ def test_problem_solve_is_the_strategy_solve_packaged(make_unit_square):
     by_hand = problem.solution(LinearSolve().solve(problem))
     solution = problem.solve()
     assert type(solution) is type(by_hand)
-    np.testing.assert_array_equal(solution.u, by_hand.u)
+    np.testing.assert_array_equal(solution.dofs, by_hand.dofs)
     both = problem.solve(strategy=LinearSolve(), backend=DirectBackend())
-    np.testing.assert_array_equal(both.u, by_hand.u)
+    np.testing.assert_array_equal(both.dofs, by_hand.dofs)
 
 
 def test_problem_solve_picks_newton_for_a_state_dependent_operator(make_unit_square):
@@ -372,7 +372,7 @@ def test_problem_solve_picks_newton_for_a_state_dependent_operator(make_unit_squ
     problem = finite.problem(mesh, bc)
     assert type(problem) is Problem
     u_newton = NewtonSolve(line_search=BacktrackingLineSearch()).solve(problem)
-    np.testing.assert_allclose(problem.solve().u, u_newton, atol=1e-12)
+    np.testing.assert_allclose(problem.solve().dofs, u_newton, atol=1e-12)
 
 
 def test_equation_problem_takes_a_mesh_or_a_space(make_unit_square):

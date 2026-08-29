@@ -198,7 +198,7 @@ def test_design_optimizer_keeps_the_last_iterates_solution(make_unit_square):
     design = DesignOptimizer(model, volume_frac=0.5, iters=2)
     history = design.run()
     assert design.solution is not None
-    np.testing.assert_allclose(design.solution.u, history.u[-1])
+    np.testing.assert_allclose(design.solution.dofs, history.dofs[-1])
     assert design.solution.stress.shape == (len(model.space.element_nodes), 3, 3)
 
 

@@ -77,8 +77,8 @@ def _zoo_figure(s: OutlineStudy) -> Figure:
         idx = divmod(k, 2)
         # A colour scale per cell (the domains differ in size by orders of magnitude) and
         # no colorbar: the shape matters, not the amplitude.
-        clim = (0.0, float(shape.u.max()))
-        plotter.plot(shape.mesh, shape.u, mode='colored', idx=idx, colorbar=False,
+        clim = (0.0, float(shape.dofs.max()))
+        plotter.plot(shape.mesh, shape.dofs, mode='colored', idx=idx, colorbar=False,
                      clim=clim, empty=True,
                      title=f'{shape.name}: {shape.n_triangles} triangles')
         plot_mesh(plotter.get_ax(idx), shape.mesh, color='0.9', linewidth=0.1)

@@ -17,10 +17,6 @@ EQUATION = Poisson()
 SOURCE = Source(lambda p: 1.0)
 
 
-def _nearest_node(space, point):
-    return int(np.argmin(np.linalg.norm(space.node_coords - np.asarray(point), axis=1)))
-
-
 def _problem_for(mesh):
     bc = Conditions(Dirichlet(everywhere(), 0.0))
     return EQUATION.problem(mesh, bc + SOURCE)
@@ -43,7 +39,7 @@ def test_indicator_peaks_near_the_quantity_of_interest():
     problem = _problem_for(mesh)
     solution = problem.solve()
     target = (0.72, 0.72)
-    qoi = PointValue(_nearest_node(problem.space, target))
+    qoi = PointValue(np.asarray(target))
     eta = GoalOrientedEstimator(qoi).estimate(problem, solution)
 
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
@@ -60,7 +56,7 @@ def test_refines_toward_the_quantity_of_interest_more_than_global():
     target = (0.72, 0.72)
 
     mesh = _square(12)
-    qoi = PointValue(_nearest_node(EQUATION.space(mesh), target))
+    qoi = PointValue(np.asarray(target))
     goal = AdaptiveRefinement(mesh, _problem_for, GoalOrientedEstimator(qoi),
                               max_triangles=400, max_iters=6)
     goal.run()

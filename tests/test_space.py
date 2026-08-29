@@ -85,8 +85,8 @@ def test_nonpositive_n_components_is_rejected(unit_square):
 def test_interpolate_fills_every_dof_of_the_space(unit_square, element_type, value):
     n_components = 1 if np.isscalar(value) else len(value)
     space = FunctionSpace(unit_square, element_type, n_components=n_components)
-    assert space.interpolate(value).shape == (space.n_dofs,)
-    assert np.all(space.interpolate(value) == 1.5)
+    assert space.interpolate(value).dofs.shape == (space.n_dofs,)
+    assert np.all(space.interpolate(value).dofs == 1.5)
 
 
 def test_interpolate_samples_a_callable_at_the_p2_edge_nodes(unit_square):
@@ -99,5 +99,5 @@ def test_interpolate_samples_a_callable_at_the_p2_edge_nodes(unit_square):
 
 def test_interpolate_interleaves_vector_components(unit_square):
     space = FunctionSpace(unit_square, n_components=2)
-    u = space.interpolate([1.0, 2.0])
+    u = space.interpolate([1.0, 2.0]).dofs
     assert np.all(u[0::2] == 1.0) and np.all(u[1::2] == 2.0)

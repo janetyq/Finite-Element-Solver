@@ -28,6 +28,7 @@ from typing import Protocol
 import numpy as np
 
 from fem.algebra.backends import Backend
+from fem.field import NodalField
 from fem.physics.forms import LinearElasticForm
 from fem.physics.materials import LinearElasticMaterial
 from fem.problem import Problem
@@ -88,22 +89,33 @@ class Compliance:
 
 @dataclass(frozen=True)
 class PointValue:
-    '''A single DOF of the solution, `J = u[dof]`: a point displacement or potential.
+    '''The field at a point, `J = u_h(x)`: a point displacement or potential.
 
-    Not self-adjoint: the adjoint load is a unit vector at `dof` (a dummy unit load
-    there), so the adjoint solve reads how sensitive that one DOF is to the design
-    everywhere, the classic unit-load method.
+    `component` picks the component of a vector field. `J` is linear in the DOFs,
+    `J = phi(x) . u_e` over the element holding `x`, so `dJ/du` is the shape functions
+    at `x` scattered to that element's DOFs: a dummy unit load there, the classic
+    unit-load method. At a node it is the unit vector at that node's DOF. Not
+    self-adjoint.
     '''
-    dof: int
+    point: FloatArray
+    component: int = 0
     self_adjoint: bool = False
 
     def value(self, problem: Problem, u: DofVector) -> float:
-        return float(u[self.dof])
+        values = NodalField(problem.space, u).evaluate(self.point)   # (1,) or (1, n_components)
+        return float(values.reshape(1, -1)[0, self.component])
 
     def dJ_du(self, problem: Problem, u: DofVector) -> DofVector:
-        e = np.zeros_like(np.asarray(u, dtype=float))
-        e[self.dof] = 1.0
-        return e
+        return self._weights(problem.space)
+
+    def _weights(self, space: FunctionSpace) -> DofVector:
+        '''`dJ/du`: the shape functions at `point`, on the DOFs of the element holding it.'''
+        (element,), reference = space.mesh.locate(np.atleast_2d(np.asarray(self.point, dtype=float)))
+        phi = space.element_type.shape_values(reference)[0]           # (N,)
+        weights = np.zeros(space.n_dofs)
+        dofs = space.dof_indices(space.element_nodes[element])        # node-major
+        weights[dofs[self.component::space.n_components]] = phi
+        return weights
 
 
 # -- stress-based quantities of interest ---------------------------------------

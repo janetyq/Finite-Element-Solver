@@ -11,7 +11,7 @@ def _flow_figure(s: FlowStudy) -> Figure:
     # `space=solution.space` opts both panels onto the P2 tessellation: the potential
     # shows its within-element curvature and the recovered speed draws smoothly.
     plotter = Plotter(1, 2, title='Potential flow over an airfoil', panel_aspect=1.8)
-    plotter.plot(s.mesh, s.solution.u, mode='colored', idx=(0, 0), label='velocity potential',
+    plotter.plot(s.mesh, s.solution.dofs, mode='colored', idx=(0, 0), label='velocity potential',
                  title='Potential and its equipotentials', contour=22, space=s.solution.space)
     plotter.plot(s.mesh, s.speed, mode='colored', idx=(0, 1), label='flow speed',
                  clim=(0.0, s.speed_cap), title='Flow speed (clipped near the edges)',

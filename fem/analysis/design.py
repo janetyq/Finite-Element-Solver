@@ -196,7 +196,7 @@ class SIMPModel:
 class DesignHistory:
     '''The per-iteration series a design optimization produces.'''
     rho: list[ElementValues]
-    u: list[DofVector]
+    dofs: list[DofVector]
     objective: list[float]
 
 

@@ -27,7 +27,7 @@ The README's "What you choose at each step" table is the menu of options; this i
 | Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for finite strain |
 | Statement | `Problem(space, form)`, or `Equation.problem(mesh, bc)` (which takes the Discretization step too) | `source` (none), `bc` (none), `element_type`; a `LinearProblem` when the form has a constant tangent |
 | Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator or analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`, initial data from `space.interpolate` |
-| Result | a typed `Solution`, returned by every `solve` | |
+| Result | a typed `Solution`, returned by every `solve`; a steady one is a `NodalField` | |
 | Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` |
 
 Composed by hand:
@@ -59,8 +59,9 @@ mass matrix, a callable sampled at the quadrature points, or with `nodal=True` i
 `BoundaryLoad` over its region's facets per Neumann or Robin value, and the point loads. A `Dirichlet`
 value may leave a component `None` (free) for a roller. A region is geometric (`on_plane`, `in_box`,
 a callable of points) or, for a mesh with `boundary_tags`, `on_tag(k)`, which resolves from the
-facets rather than the coordinates. A DOF vector built by hand (an initial condition, a comparison
-field) is `space.interpolate(value)`, nodal on P2 as well.
+facets rather than the coordinates. A field built by hand (an initial condition, a comparison
+field) is `space.interpolate(value)`, a `NodalField` on every node of the space, P2 edge nodes
+included.
 
 Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
 names the `domain` it integrates over (the elements or the boundary facets), so a Robin condition
@@ -69,7 +70,7 @@ is `kappa * BoundaryMassForm(mask)` added to the physics form and assembled besi
 ## Package layout
 
 `fem/` keeps the core objects at the top level (`typing`, `numerics`, `quadrature`, `regions`,
-`elements`, `boundary`, `loads`, `space`, `problem`) and groups the rest by layer:
+`elements`, `boundary`, `field`, `loads`, `space`, `problem`) and groups the rest by layer:
 
 - `fem/mesh`: geometry and meshing (`Mesh`, the pieces and `Outline`, its sampled `PSLG`, Ruppert,
   red-green refinement, the SVG reader).
@@ -140,6 +141,7 @@ two elastic forms share with `ElasticSolution` and `StressFlux`.
 | `RuppertsAlgorithm`, `RedGreenRefiner` | █ | | | | | | | | |
 | `Element` / `ElementGeometry`, `QuadratureRule` | | ▒ | | ▒ | | | | | |
 | `FunctionSpace` | | ▒ | | █ | | | | | |
+| `NodalField` | | ▒ | | | | | | | ▒ |
 | `FieldShape` (`Scalar` / `Vector`) | | | ▒ | | | | | | |
 | `Form` (`BilinearForm`s, `EnergyForm`) | | | █ | ▒ | | | | | ▒ |
 | `Material` / energy densities | | | █ | | | | | | |
@@ -166,20 +168,21 @@ layer alone: an `Equation` answers `operator` itself, so no facade holds a mappi
 to material.
 
 Post-processing (9) is distributed under one rule: a derived quantity lives on the object that
-owns the data it needs. `FunctionSpace` owns `integrate` and the per-element `gradient`;
-`fem/post/recovery.py` owns `recover_nodal`, `average_to_nodal`, `project_to_nodal`, and
+owns the data it needs. A `NodalField` owns what a field on a space can answer by itself
+(`nodal_values`, `component`, `integrate`, `mean`, the per-element `gradient`, `evaluate` at
+points, `deformed_mesh`); `fem/post/recovery.py` owns `recover_nodal`, `average_to_nodal`, `project_to_nodal`, and
 `nodal_gradient`, each a function of a space; a `Form` owns `sample` / `recover` and
 `flux` (which flux is recoverable, read
 by the estimators off `problem.operator`); `Problem.solve` picks the typed `Solution` for its
-operator (`solution(u)` packages a vector solved elsewhere); `Solution` owns the packaging (`ElasticSolution.stress`, `nodal_stress`,
-`deformed_mesh`); `invariants` owns the frame-independent reductions.
+operator (`solution(u)` packages a vector solved elsewhere); `Solution` owns the packaging (`ElasticSolution.stress`, `nodal_stress`);
+`invariants` owns the frame-independent reductions.
 
 ## Role by role
 
 ### `Mesh` / `FunctionSpace`: geometry vs discretization
 
 `Mesh` is geometry: vertices, elements, boundary, topology queries (`edges`, `edge_elements`,
-`element_neighbours`), element geometry (`bounds`, `centroids`, `element_measures`, `measure`,
+`element_neighbours`, `locate`), element geometry (`bounds`, `centroids`, `element_measures`, `measure`,
 `element_diameters`, `min_angle`), and optionally the analytic `Curve` each boundary facet was
 sampled from. Its arrays are read-only, since every space, solution, and refiner built on it
 shares it and its derived tables are cached; a changed mesh is a new one (`displaced`,
@@ -187,6 +190,15 @@ shares it and its derived tables are cached; a changed mesh is a new one (`displ
 `FunctionSpace` has a mesh and owns the discretization: element geometry, DOF numbering,
 cached operators. Two spaces (P1 and P2, scalar and vector) can share one mesh. `fem/mesh`
 imports no plot code.
+
+`NodalField` (`fem/field.py`) is a DOF vector paired with the space that numbers it: what
+`space.interpolate` returns, what every steady `FieldSolution` is, and what an integrator or
+a plot takes. The pairing is what lets it read itself by node or component, integrate,
+evaluate at a point (`Mesh.locate` finds the element and reference coordinates), and warp
+the mesh; `np.asarray(field)` is the bare vector, so the numerics never see the wrapper.
+The values are frozen, like a mesh's arrays, so a solution and the views built on it share
+one copy. Per-element data (a stress, a flux, a density, an error estimate) is not a field
+on the space and stays an `ElementValues` array.
 
 Meshes come from `box_mesh` (an axis-aligned line, rectangle, or box), `annulus_mesh`,
 an `Outline` (`fem/mesh/outline.py`), or `Mesh(vertices, elements)` directly. An `Outline` is

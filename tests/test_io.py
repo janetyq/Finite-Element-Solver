@@ -62,7 +62,7 @@ def test_elastic_solution_round_trip_preserves_fields_mesh_and_dim(make_unit_squ
 
     assert type(loaded) is ElasticSolution
     assert loaded.n_components == 2
-    assert np.allclose(loaded.u, solution.u)
+    assert np.allclose(loaded.dofs, solution.dofs)
     assert np.allclose(loaded.compliance, solution.compliance)
     assert np.allclose(loaded.stress, solution.stress)
     assert loaded.stress.shape == (n_el, 3, 3)
@@ -117,7 +117,7 @@ def test_transient_solution_round_trip_after_solve(make_unit_square, tmp_path):
     mesh = make_unit_square(8)
     u0 = bump_function(mesh.vertices, mesh.vertices.max(axis=0), mag=50, size=0.3) + 300
     heat = Heat().problem(mesh)
-    solution = ThetaMethod(dt=0.01, steps=3).solve(heat, u0.copy())
+    solution = ThetaMethod(dt=0.01, steps=3).solve(heat, u0)
     path = tmp_path / "heat.npz"
 
     solution.save(path)
@@ -125,7 +125,7 @@ def test_transient_solution_round_trip_after_solve(make_unit_square, tmp_path):
 
     assert type(loaded) is TransientSolution
     assert np.allclose(loaded.t, solution.t)
-    assert np.allclose(loaded.u, solution.u)
+    assert np.allclose(loaded.dofs, solution.dofs)
     # Geometry round-trips; a solve rebuilds element data into its own space.
     assert np.allclose(loaded.mesh.vertices, mesh.vertices)
     assert np.array_equal(loaded.mesh.elements, mesh.elements)
@@ -139,7 +139,7 @@ def test_solution_load_does_not_unpickle(make_unit_square, tmp_path):
     solution.save(path)
 
     with np.load(path, allow_pickle=False) as data:
-        assert "value.u" in data.files
+        assert "value.dofs" in data.files
 
 
 def test_saving_a_ragged_field_fails_loudly(make_unit_square, tmp_path):

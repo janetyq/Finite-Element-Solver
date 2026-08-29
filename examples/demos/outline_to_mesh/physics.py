@@ -127,7 +127,7 @@ def zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE) -> list[tuple[str
 
 def dome(mesh: Mesh) -> np.ndarray:
     """Solve -div(grad u) = 1 with u = 0 on every boundary of `mesh`."""
-    return dome_equation.problem(mesh, dome_bc).solve().u
+    return dome_equation.problem(mesh, dome_bc).solve().dofs
 
 
 @dataclass
@@ -136,7 +136,7 @@ class MeshedOutline:
     name: str
     n_points: int
     mesh: Mesh
-    u: np.ndarray
+    dofs: np.ndarray
 
     @property
     def n_triangles(self) -> int:

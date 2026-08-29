@@ -52,7 +52,7 @@ def test_a_poisson_solve_carries_its_flux_and_recovers_it_to_the_nodes():
     assert solution.gradient.shape == (len(mesh.elements), 2)
     nodal = solution.nodal_gradient()
     assert nodal.shape == (solution.space.n_nodes, 2)
-    assert np.allclose(nodal, nodal_gradient(solution.space, solution.u))
+    assert np.allclose(nodal, nodal_gradient(solution.space, solution.dofs))
     # Read at the nodes, not averaged from the per-element values: on P2 the two differ.
     assert not np.allclose(nodal, recover_nodal(solution.space, solution.gradient))
 
@@ -124,7 +124,7 @@ def test_scalar_solution_nodal_values_are_one_per_node():
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
     solution = Poisson().problem(mesh, Conditions(Source(1.0))).solve()
     assert solution.nodal_values.shape == (len(mesh.vertices),)
-    np.testing.assert_array_equal(solution.nodal_values, solution.u)
+    np.testing.assert_array_equal(solution.nodal_values, solution.dofs)
 
 
 def test_forms_name_their_derived_field():

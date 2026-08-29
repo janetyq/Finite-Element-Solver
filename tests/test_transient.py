@@ -6,6 +6,8 @@ the time integral of the mean source: an exact reference for the integrators tha
 isolates how they treat a time-dependent load.
 """
 import numpy as np
+
+from fem.field import NodalField
 import pytest
 
 from fem.boundary import Dirichlet, Neumann, Robin
@@ -59,7 +61,7 @@ def test_time_dependent_traction_and_robin_values_are_taken_at_the_time(make_uni
 
 
 def _mean(problem, u):
-    return problem.space.mean_value(u)
+    return NodalField(problem.space, u).mean()
 
 
 def test_theta_method_integrates_a_time_dependent_source_to_second_order(make_unit_square):
@@ -71,7 +73,7 @@ def test_theta_method_integrates_a_time_dependent_source_to_second_order(make_un
     errors = []
     for steps in (5, 10, 20):
         solution = ThetaMethod(dt=T / steps, steps=steps).solve(problem, np.zeros(problem.space.n_dofs))
-        errors.append(abs(_mean(problem, solution.u[-1]) - (1 - np.cos(T))))
+        errors.append(abs(_mean(problem, solution.dofs[-1]) - (1 - np.cos(T))))
     orders = np.log(np.array(errors[:-1]) / errors[1:]) / np.log(2)
     assert np.all(orders > 1.9), orders
 
@@ -87,8 +89,8 @@ def test_theta_method_follows_time_dependent_dirichlet_data(make_unit_square):
     u0 = problem.space.interpolate(1.0)
     for theta in (0.5, 1.0):
         solution = ThetaMethod(dt=0.1, steps=10, theta=theta).solve(problem, u0)
-        np.testing.assert_allclose(solution.u[-1], 2.0, atol=1e-10)
-        np.testing.assert_allclose(solution.u[5], 1.5, atol=1e-10)
+        np.testing.assert_allclose(solution.dofs[-1], 2.0, atol=1e-10)
+        np.testing.assert_allclose(solution.dofs[5], 1.5, atol=1e-10)
 
 
 def test_newmark_integrates_a_time_dependent_source(make_unit_square):
@@ -101,14 +103,14 @@ def test_newmark_integrates_a_time_dependent_source(make_unit_square):
 
     constant = Wave(stiffness=1.0).problem(mesh, Conditions(Source(TimeDependent(lambda p, t: 2.0 + 0.0 * t))))
     solution = NewmarkMethod(dt=0.05, steps=20).solve(constant, zero, zero)
-    assert _mean(constant, solution.u[-1]) == pytest.approx(1.0, abs=1e-10)
+    assert _mean(constant, solution.dofs[-1]) == pytest.approx(1.0, abs=1e-10)
 
     forced = Wave(stiffness=1.0).problem(mesh, Conditions(Source(TimeDependent(lambda p, t: np.sin(t)))))
     T = 1.0
     errors = []
     for steps in (5, 10, 20):
         solution = NewmarkMethod(dt=T / steps, steps=steps).solve(forced, zero, zero)
-        errors.append(abs(_mean(forced, solution.u[-1]) - (T - np.sin(T))))
+        errors.append(abs(_mean(forced, solution.dofs[-1]) - (T - np.sin(T))))
     orders = np.log(np.array(errors[:-1]) / errors[1:]) / np.log(2)
     assert np.all(orders > 1.9), orders
 
@@ -132,10 +134,10 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
     assert isinstance(history, TransientSolution)
     step = history.at(2)
     assert isinstance(step, DiffusionSolution)
-    np.testing.assert_array_equal(step.u, history.u[2])
-    np.testing.assert_allclose(step.gradient, heat.space.gradient(history.u[2]))
+    np.testing.assert_array_equal(step.dofs, history.dofs[2])
+    np.testing.assert_allclose(step.gradient, heat.space.gradient(history.dofs[2]))
     assert isinstance(history.final, DiffusionSolution)
-    np.testing.assert_array_equal(history.final.u, history.u[-1])
+    np.testing.assert_array_equal(history.final.dofs, history.dofs[-1])
 
     bc = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))
     elastic = LinearElastic(E=10.0, nu=0.3).problem(mesh, bc + Source([0.0, -1.0]))
@@ -149,7 +151,7 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
     loaded = TransientSolution.load(str(path))
     assert isinstance(loaded, TransientSolution) and loaded.problem is None
     assert type(loaded.at(1)) is FieldSolution
-    np.testing.assert_array_equal(loaded.at(1).u, history.u[1])
+    np.testing.assert_array_equal(loaded.at(1).dofs, history.dofs[1])
 
 
 def test_snapshot_at_a_time_is_a_steady_problem(make_unit_square):
@@ -171,7 +173,7 @@ def test_snapshot_at_a_time_is_a_steady_problem(make_unit_square):
 
     with pytest.raises(ValueError, match='pass t='):
         problem.solve()
-    np.testing.assert_allclose(problem.solve(t=3.0).u, reference.solve().u, atol=1e-12)
+    np.testing.assert_allclose(problem.solve(t=3.0).dofs, reference.solve().dofs, atol=1e-12)
 
     solution = snapshot.solve()
     with pytest.raises(ValueError, match='problem.at'):

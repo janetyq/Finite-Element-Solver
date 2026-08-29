@@ -31,6 +31,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
+from fem.field import NodalField
 from fem.physics.forms import Form, MassForm
 from fem.mesh.mesh import Mesh
 from fem.regions import evaluate_field
@@ -42,7 +43,6 @@ from fem.typing import (
     FloatArray,
     IntArray,
     SparseMatrix,
-    NodalValues,
     Vertices,
 )
 
@@ -405,34 +405,19 @@ class FunctionSpace:
     def total_volume(self) -> float:
         return float(self.element_volumes.sum())
 
-    def interpolate(self, value: FieldValue) -> DofVector:
-        '''The nodal interpolant of a field as a DOF vector: `value` (a constant, a
-        per-component constant, or a callable of position) evaluated at every node of
-        the space, components interleaved per node.
+    def interpolate(self, value: FieldValue) -> NodalField:
+        '''The nodal interpolant of a field: `value` (a constant, a per-component
+        constant, or a callable of position) evaluated at every node of the space.
 
         The way to build an initial condition or a comparison field. A load that must
         resolve variation within an element is a `Source` over a callable.
         '''
-        return evaluate_field(value, self.node_coords, self.n_components).flatten()
+        return NodalField(self, evaluate_field(value, self.node_coords, self.n_components).flatten())
 
-    def integrate(self, u: NodalValues) -> float:
-        '''Integral of a nodal field over the domain: the entries of `M @ u` summed,
-        which is exact since the shape functions sum to 1.'''
-        return float((self.mass_matrix @ u).sum())
-
-    def mean_value(self, u: NodalValues) -> float:
-        '''Volume-weighted mean of a nodal field.'''
-        return self.integrate(u) / self.total_volume
-
-    def gradient(self, u: NodalValues) -> FloatArray:
-        '''(n_elements, spatial_dim) gradient of a nodal field, one value per element.
-
-        The volume-weighted mean over the element's rule: the exact constant for P1,
-        and the centroid value of a straight P2 element's linear gradient.
-        '''
-        geometry = self.geometry
-        weights = geometry.weight_detJ / geometry.weight_detJ.sum(axis=1, keepdims=True)
-        return np.einsum('eq,eqi->ei', weights, geometry.gradients(u[self.element_nodes]))
+    def gradient(self, u: DofVector | NodalField) -> FloatArray:
+        '''(n_elements, spatial_dim) gradient of a scalar DOF vector, one value per
+        element; `NodalField.gradient` for a field, which also takes a vector one.'''
+        return NodalField(self, np.asarray(u)).gradient()
 
     def element_hessian(self, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, spatial, spatial[, n_components]) physical Hessian of a field.

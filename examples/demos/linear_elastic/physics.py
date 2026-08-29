@@ -63,7 +63,7 @@ class CantileverStudy:
     @property
     def tip_3d(self) -> float:
         """The 3D solve's largest vertical deflection."""
-        return float(np.abs(self.solution_3d.u.reshape(-1, 3)[:, 2]).max())
+        return float(np.abs(self.solution_3d.dofs.reshape(-1, 3)[:, 2]).max())
 
     @property
     def invariants(self) -> list[tuple[str, np.ndarray]]:

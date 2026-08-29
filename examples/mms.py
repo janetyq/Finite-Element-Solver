@@ -127,7 +127,7 @@ class MMSSolve:
     """One solve of the manufactured problem, and how far off it came out."""
     h: float                   # grid spacing
     mesh: Mesh
-    u: NodalValues             # what the problem computed
+    dofs: NodalValues             # what the problem computed
     exact: NodalValues         # the manufactured solution at the same nodes
     l2_error: float            # ||u - exact||_L2, the number a study plots
     h1_error: float | None = None  # ||grad(u - exact)||_L2, where a closed-form gradient exists
@@ -136,7 +136,7 @@ class MMSSolve:
     def pointwise_error(self) -> NodalValues:
         """`u - exact` node by node. `l2_error` is the norm of this field, not of
         these numbers; see `l2_norm`."""
-        return self.u - self.exact
+        return self.dofs - self.exact
 
 
 @dataclass
@@ -183,13 +183,13 @@ def solve_poisson_mms(n: int) -> MMSSolve:
     bc = Conditions(Dirichlet(everywhere(), 0.0))
     problem = Poisson().problem(mesh, bc + Source(source_term))
     solution = problem.solve()
-    u = solution.u
+    u = solution.dofs
 
     exact = exact_solution(mesh.vertices)
     return MMSSolve(
         h=1.0 / (n - 1),
         mesh=mesh,
-        u=u,
+        dofs=u,
         exact=exact,
         l2_error=l2_norm(problem.space, u - exact),
         h1_error=h1_seminorm_error(problem.space, u, exact_gradient),
@@ -243,11 +243,11 @@ def solve_elastic_mms(n: int) -> MMSSolve:
     exact = elastic_exact(mesh.vertices)
     # The space's mass matrix is the scalar one repeated per component, so this is
     # the true vector L2 norm rather than the norm of component 0.
-    error = solution.u.reshape(exact.shape) - exact
+    error = solution.dofs.reshape(exact.shape) - exact
     return MMSSolve(
         h=1.0 / (n - 1),
         mesh=mesh,
-        u=solution.u,
+        dofs=solution.dofs,
         exact=exact.flatten(),
         l2_error=l2_norm(problem.space, error.flatten()),
     )
@@ -304,7 +304,7 @@ def solve_variable_coefficient_mms(n: int) -> MMSSolve:
     return MMSSolve(
         h=1.0 / (n - 1),
         mesh=mesh,
-        u=u,
+        dofs=u,
         exact=exact,
         l2_error=l2_norm(space, u - exact),
     )
@@ -342,7 +342,7 @@ def solve_poisson_mms_p2(n: int) -> MMSSolve:
     return MMSSolve(
         h=1.0 / (n - 1),
         mesh=mesh,
-        u=u,
+        dofs=u,
         exact=exact,
         l2_error=l2_norm(space, u - exact),
     )
@@ -374,7 +374,7 @@ def solve_elastic_mms_p2(n: int) -> MMSSolve:
     return MMSSolve(
         h=1.0 / (n - 1),
         mesh=mesh,
-        u=u,
+        dofs=u,
         exact=exact.flatten(),
         l2_error=l2_norm(space, error.flatten()),
     )
@@ -435,10 +435,10 @@ def solve_annulus_mms(
     return MMSSolve(
         h=(ANNULUS_OUTER - ANNULUS_INNER) / (n - 1),
         mesh=mesh,
-        u=solution.u,
+        dofs=solution.dofs,
         exact=exact,
-        l2_error=l2_norm(space, solution.u - exact),
-        h1_error=h1_seminorm_error(space, solution.u, annulus_gradient, degree=4),
+        l2_error=l2_norm(space, solution.dofs - exact),
+        h1_error=h1_seminorm_error(space, solution.dofs, annulus_gradient, degree=4),
     )
 
 
@@ -549,8 +549,8 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
 
     errors = []
     for steps in sorted(step_counts):
-        run = ThetaMethod(dt=T / steps, steps=steps, theta=theta).solve(problem, u0.copy())
-        u_h = run.u[-1]
+        run = ThetaMethod(dt=T / steps, steps=steps, theta=theta).solve(problem, u0)
+        u_h = run.dofs[-1]
         errors.append(l2_norm(problem.space, u_h - reference))
 
     return ConvergenceStudy(np.array([T / k for k in sorted(step_counts)]), np.array(errors))

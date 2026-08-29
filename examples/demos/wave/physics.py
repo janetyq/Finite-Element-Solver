@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.conditions import Conditions
+from fem.field import NodalField
 from fem.physics.equations import Wave
 from fem.algebra.integrators import NewmarkMethod
 from fem.mesh.mesh import Mesh
@@ -39,13 +40,13 @@ WALL_X, WALL_THICKNESS = 2.5, 0.15
 class HarborStudy:
     """Everything `run` computed, for the figures to read."""
     mesh: Mesh
-    u_initial: np.ndarray
-    dudt_initial: np.ndarray
+    u_initial: NodalField
+    dudt_initial: NodalField
     solution: TransientSolution
 
     @property
     def u_values(self) -> list[np.ndarray]:
-        return self.solution.u
+        return self.solution.dofs
 
     @property
     def t_values(self) -> np.ndarray:

@@ -76,7 +76,7 @@ class Source:
 
     def vector(self, space: 'FunctionSpace', t: float = 0.0) -> DofVector:
         if not self.is_sampled:
-            nodal = space.interpolate(field_at(self.field, t))
+            nodal = space.interpolate(field_at(self.field, t)).dofs
             return np.asarray(space.mass_matrix @ nodal).flatten()
         return space.assemble_load(self.at(t))
 

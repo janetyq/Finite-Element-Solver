@@ -50,7 +50,7 @@ def test_element_compliance_sums_to_the_strain_energy_form(make_unit_square):
 
     K = problem.tangent(None)
     np.testing.assert_allclose(
-        solution.compliance.sum(), solution.u @ (K @ solution.u), rtol=1e-10
+        solution.compliance.sum(), solution.dofs @ (K @ solution.dofs), rtol=1e-10
     )
 
 
@@ -76,7 +76,7 @@ def test_solver_and_design_model_recover_the_same_fields(make_unit_square):
     rho = np.ones(len(mesh.elements))
     design_solution = model.solution(rho, LinearSolve().solve(model.problem(rho)))
 
-    np.testing.assert_allclose(design_solution.u, solution.u, rtol=1e-10)
+    np.testing.assert_allclose(design_solution.dofs, solution.dofs, rtol=1e-10)
     np.testing.assert_allclose(design_solution.compliance, solution.compliance, rtol=1e-10)
 
 

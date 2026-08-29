@@ -47,7 +47,7 @@ def _poisson(mesh):
     bc = Conditions(Dirichlet(everywhere(), 0))
     solution = Poisson().problem(mesh, bc + Source(1)).solve()
     plotter = Plotter()
-    plotter.plot(mesh, solution.u, mode='colored')
+    plotter.plot(mesh, solution.dofs, mode='colored')
     return DemoResult([Figure(plotter, 'the dome')])
 
 

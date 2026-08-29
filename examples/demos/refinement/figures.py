@@ -18,7 +18,7 @@ def _error_clim(s: RefinementStudy) -> tuple[float, float]:
 
 def _before_figure(s: RefinementStudy) -> Figure:
     before = Plotter(1, 3, title=f'Before: uniform mesh ({s.n_coarse} elements)')
-    before.plot(s.coarse_mesh, s.coarse_solution.u, mode='surface', title='Solution',
+    before.plot(s.coarse_mesh, s.coarse_solution.dofs, mode='surface', title='Solution',
                 idx=(0, 0))
     before.plot(s.coarse_mesh, mode='mesh', title='Mesh', idx=(0, 1))
     before.plot(s.coarse_mesh, s.coarse_error, mode='colored',
@@ -34,7 +34,7 @@ def _before_figure(s: RefinementStudy) -> Figure:
 
 def _after_figure(s: RefinementStudy) -> Figure:
     after = Plotter(1, 3, title=f'After: adaptive refinement ({s.n_refined} elements)')
-    after.plot(s.refined_mesh, s.refined_solution.u, mode='surface', title='Solution',
+    after.plot(s.refined_mesh, s.refined_solution.dofs, mode='surface', title='Solution',
                idx=(0, 0))
     after.plot(s.refined_mesh, mode='mesh', title='Mesh', idx=(0, 1))
     after.plot(s.refined_mesh, s.refined_error, mode='colored',

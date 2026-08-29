@@ -74,7 +74,7 @@ def test_poisson_recovery_is_asymptotically_exact():
     for n in (11, 21, 41):
         problem, solution = _solved(POISSON, _square(n), 0.0, POISSON_SOURCE)
         eta = _global(RecoveryEstimator().estimate(problem, solution))
-        true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
+        true_error = h1_seminorm_error(problem.space, solution.dofs, exact_gradient)
         indices.append(eta / true_error)
 
     assert all(0.5 < i < 2.0 for i in indices)          # bounded everywhere

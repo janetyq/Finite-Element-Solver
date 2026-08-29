@@ -25,7 +25,7 @@ def test_partial_pin_leaves_the_other_component_free(make_unit_square):
     )
     solution = LinearElastic(E=200, nu=0.3).problem(mesh, bc).solve()
 
-    u = solution.u.reshape(-1, 2)
+    u = solution.dofs.reshape(-1, 2)
     left = np.flatnonzero(mesh.vertices[:, 0] == 0.0)
     assert np.allclose(u[left, 0], 0.0, atol=1e-12)
     assert not np.allclose(u[left, 1], 0.0, atol=1e-8), \

@@ -1,5 +1,7 @@
 """Solve tests asserting on physical and mathematical invariants."""
 import numpy as np
+
+from fem.field import NodalField
 import pytest
 
 from fem.numerics import bump_function
@@ -24,9 +26,9 @@ def test_heat_conserves_mean_temperature(make_unit_square):
     u0 = bump_function(mesh.vertices, corner, mag=50, size=0.3) + 300
 
     problem = _on(Heat(), mesh)  # no source, no BC -> natural (no-flux) boundaries
-    solution = ThetaMethod(dt=0.01, steps=5).solve(problem, u0.copy())
+    solution = ThetaMethod(dt=0.01, steps=5).solve(problem, u0)
 
-    means = [problem.space.mean_value(u) for u in solution.u]
+    means = [NodalField(problem.space, u).mean() for u in solution.dofs]
     assert np.allclose(means, means[0], rtol=1e-6), f"mean temperature drifted: {means}"
 
 
@@ -40,7 +42,7 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
 
     solution = Projection().problem(mesh, Conditions(Source(linear_field))).solve()
 
-    u = solution.u
+    u = solution.dofs
     expected = np.array([linear_field(v)[0] for v in mesh.vertices])
     assert np.allclose(u, expected, atol=1e-8), "linear field not reproduced exactly"
 
@@ -58,12 +60,12 @@ def test_wave_holds_static_equilibrium_under_load(make_unit_square):
     mesh, bc = _pinned_square(make_unit_square)
     source = 1.0
 
-    u_static = Poisson().problem(mesh, bc + Source(source)).solve().u
+    u_static = Poisson().problem(mesh, bc + Source(source)).solve().dofs
     assert np.abs(u_static).max() > 0, "static solution is trivial; test proves nothing"
 
     problem = _on(Wave(stiffness=1.0), mesh, bc + Source(source))
     v0 = np.zeros(len(u_static))
-    u_values = NewmarkMethod(dt=0.01, steps=20).solve(problem, u_static.copy(), v0).u
+    u_values = NewmarkMethod(dt=0.01, steps=20).solve(problem, u_static.copy(), v0).dofs
 
     assert np.allclose(u_values[-1], u_static, atol=1e-8), "equilibrium drifted"
 
@@ -75,7 +77,7 @@ def test_wave_honors_dirichlet_bcs(make_unit_square):
     u0[mesh.boundary_idxs] = 0.0
 
     problem = _on(Wave(stiffness=1.0), mesh, bc)
-    u_values = NewmarkMethod(dt=0.01, steps=20).solve(problem, u0.copy(), np.zeros(len(u0))).u
+    u_values = NewmarkMethod(dt=0.01, steps=20).solve(problem, u0, np.zeros(len(u0))).dofs
 
     for step, u in enumerate(u_values):
         assert np.allclose(u[mesh.boundary_idxs], 0.0, atol=1e-10), \
@@ -91,11 +93,11 @@ def test_wave_conserves_energy(make_unit_square):
     u0[mesh.boundary_idxs] = 0.0
 
     problem = _on(Wave(stiffness=4.0), mesh, bc)
-    solution = NewmarkMethod(dt=0.005, steps=40).solve(problem, u0.copy(), np.zeros(len(u0)))
+    solution = NewmarkMethod(dt=0.005, steps=40).solve(problem, u0, np.zeros(len(u0)))
 
     energies = [
         wave_energy(problem, u, v)
-        for u, v in zip(solution.u, solution.dudt)
+        for u, v in zip(solution.dofs, solution.dudt)
     ]
     drift = max(abs(e - energies[0]) for e in energies) / energies[0]
     assert drift < 1e-9, f"energy drifted by {drift:.2e}: {energies}"
@@ -128,7 +130,7 @@ def test_linear_elastic_stretches_under_tension(make_unit_square):
     bx = mesh.vertices[bidx, 0]
     left, right = bidx[np.isclose(bx, 0.0)], bidx[np.isclose(bx, 1.0)]
 
-    u = solution.u.reshape(-1, 2)
+    u = solution.dofs.reshape(-1, 2)
     assert np.all(np.isfinite(u)), "displacement field has non-finite entries"
     assert np.allclose(u[left], 0.0, atol=1e-10), "fixed edge moved"
     assert u[right, 0].mean() > 0, "right edge did not elongate in +x"
@@ -140,13 +142,13 @@ def test_density_scales_the_mass_side_of_a_transient_problem(make_unit_square):
     mesh = make_unit_square(8)
     u0 = bump_function(mesh.vertices, np.array([0.5, 0.5]), mag=1.0, size=0.2)
     v0 = np.zeros(len(u0))
-    heavy = NewmarkMethod(dt=0.01, steps=10).solve(_on(Wave(stiffness=1.0, density=4.0), mesh), u0.copy(), v0)
-    slow = NewmarkMethod(dt=0.01, steps=10).solve(_on(Wave(stiffness=0.25), mesh), u0.copy(), v0)
-    np.testing.assert_allclose(heavy.u[-1], slow.u[-1], atol=1e-12)
+    heavy = NewmarkMethod(dt=0.01, steps=10).solve(_on(Wave(stiffness=1.0, density=4.0), mesh), u0, v0)
+    slow = NewmarkMethod(dt=0.01, steps=10).solve(_on(Wave(stiffness=0.25), mesh), u0, v0)
+    np.testing.assert_allclose(heavy.dofs[-1], slow.dofs[-1], atol=1e-12)
 
-    dense = ThetaMethod(dt=0.01, steps=10, theta=1.0).solve(_on(Heat(capacity=2.0), mesh), u0.copy())
-    unit = ThetaMethod(dt=0.005, steps=10, theta=1.0).solve(_on(Heat(), mesh), u0.copy())
-    np.testing.assert_allclose(dense.u[-1], unit.u[-1], atol=1e-12)
+    dense = ThetaMethod(dt=0.01, steps=10, theta=1.0).solve(_on(Heat(capacity=2.0), mesh), u0)
+    unit = ThetaMethod(dt=0.005, steps=10, theta=1.0).solve(_on(Heat(), mesh), u0)
+    np.testing.assert_allclose(dense.dofs[-1], unit.dofs[-1], atol=1e-12)
 
 
 def test_algorithm_objects_are_frozen_configuration():

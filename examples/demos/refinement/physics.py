@@ -63,7 +63,7 @@ def solve(m):
 def error_of(solution) -> float:
     """The L2 error of `solution` against the exact peak."""
     space = solution.space
-    return l2_norm(space, solution.u - exact(space.node_coords))
+    return l2_norm(space, solution.dofs - exact(space.node_coords))
 
 
 def adapt(mesh, max_triangles=3000, max_iters=20) -> tuple[Mesh, DiffusionSolution, np.ndarray]:

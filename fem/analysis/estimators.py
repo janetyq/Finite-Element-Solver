@@ -321,7 +321,7 @@ class GoalOrientedEstimator:
         base = RecoveryEstimator()
         eta_primal = base.estimate(problem, solution)
 
-        z = SensitivityAnalysis(problem).adjoint(self.quantity_of_interest, solution.u)
+        z = SensitivityAnalysis(problem).adjoint(self.quantity_of_interest, solution.dofs)
         # The same typed solution a forward solve gives, so the recovery estimator can
         # read the dual flux like the primal's.
         eta_dual = base.estimate(problem, problem.solution(z))

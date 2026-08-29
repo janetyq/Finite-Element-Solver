@@ -299,6 +299,53 @@ class Mesh:
 
     # -- new meshes from this one ------------------------------------------------------
 
+    def locate(self, points: Vertices, tol: float = 1e-9) -> tuple[IntArray, FloatArray]:
+        '''The element containing each of `points`, and the point's reference coordinates
+        in it: `(elements (n_points,), reference (n_points, element_dim))`.
+
+        The reference coordinates are the barycentric weights of corners 1.. (corner 0
+        is the origin), the affine map every straight-sided element shares, so a P2
+        field evaluates through them as well. Candidates are the elements nearest by
+        centroid, falling back to every element for a point none of them holds; a
+        point outside the mesh (past `tol` in barycentric terms, shared edges and
+        corners included) is an error. A point on a shared facet belongs to whichever
+        of its elements is tested first.
+        '''
+        from scipy.spatial import KDTree
+
+        points = np.atleast_2d(np.asarray(points, dtype=float))
+        if points.shape[1] != self.spatial_dim:
+            raise ValueError(
+                f'points are {points.shape[1]}-dimensional, the mesh is {self.spatial_dim}')
+        corners = self._vertices[self._elements[:, :self.element_dim + 1]]   # (n_el, d+1, d)
+        # T[e, i, r] = corner_{r+1} - corner_0, so T lambda = p - corner_0.
+        edges = np.swapaxes(corners[:, 1:] - corners[:, :1], 1, 2)
+        inverse = np.linalg.inv(edges)                                       # (n_el, d, d)
+
+        def reference_in(candidates: IntArray, p: FloatArray) -> FloatArray:
+            '''(n_candidates, d) reference coordinates of `p` in each candidate element.'''
+            return np.einsum('eri,ei->er', inverse[candidates], p - corners[candidates, 0])
+
+        def inside(reference: FloatArray) -> np.ndarray:
+            return (reference >= -tol).all(axis=1) & (reference.sum(axis=1) <= 1 + tol)
+
+        k = min(self.n_elements, 2 * (self.element_dim + 1) ** 2)
+        _, nearest = KDTree(self.centroids).query(points, k=k)
+        nearest = np.atleast_2d(nearest).reshape(len(points), -1)
+        elements = np.full(len(points), -1)
+        reference = np.zeros((len(points), self.element_dim))
+        for i, p in enumerate(points):
+            for candidates in (nearest[i], np.arange(self.n_elements)):
+                ref = reference_in(candidates, p)
+                hits = np.flatnonzero(inside(ref))
+                if len(hits):
+                    elements[i] = candidates[hits[0]]
+                    reference[i] = ref[hits[0]]
+                    break
+            else:
+                raise ValueError(f'point {p} lies outside the mesh')
+        return elements, reference
+
     def displaced(self, displacement: FloatArray, scale: float = 1.0) -> 'Mesh':
         '''The mesh with every vertex moved by `scale * displacement`.
 

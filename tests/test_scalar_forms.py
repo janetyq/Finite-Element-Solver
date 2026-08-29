@@ -48,6 +48,6 @@ def test_the_named_equation_and_the_hand_composition_agree_on_a_varying_coeffici
     def kappa(p):
         return 1.0 + p[0] + p[1]
 
-    named = Poisson(coefficient=kappa).problem(mesh, bc + Source(1.0)).solve().u
-    composed = LinearProblem(FunctionSpace(mesh), DiffusionForm(kappa), bc + Source(1.0)).solve().u
+    named = Poisson(coefficient=kappa).problem(mesh, bc + Source(1.0)).solve().dofs
+    composed = LinearProblem(FunctionSpace(mesh), DiffusionForm(kappa), bc + Source(1.0)).solve().dofs
     np.testing.assert_allclose(named, composed, atol=1e-12)
