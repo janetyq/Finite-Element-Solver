@@ -111,7 +111,7 @@ def zoo_shapes(svg_tolerance=DEFAULT_SIMPLIFICATION_TOLERANCE) -> list[tuple[str
     """The outlines the zoo meshes, as (name, Outline) pairs.
 
     California and the cloud are traced from `files/*.svg` and simplified on the way in;
-    the star and gear are generated (`domains.py`). Each puts a different demand on the
+    the star and gear are generated (below). Each puts a different demand on the
     mesher: disconnected islands, a curved boundary, sharp reentrant corners, and
     repeated teeth around a circular bore.
     """

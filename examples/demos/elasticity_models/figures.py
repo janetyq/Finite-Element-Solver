@@ -9,7 +9,7 @@ from demo_registry import Demo, DemoResult, Figure
 from demos._charts import conditions_figure
 from demos.elasticity_models import physics
 from demos.elasticity_models.physics import StretchStudy, run
-from domains import square
+from fem.mesh.structured import box_mesh
 
 
 def _stress_figure(s: StretchStudy) -> Figure:
@@ -98,4 +98,4 @@ def demo(mesh, **kwargs) -> DemoResult:
 
 # A square keeps the deformed and undeformed shapes comparable at a glance.
 DEMO = Demo('elasticity_models', demo, section='Solids & structures',
-            domain=partial(square, 60), show_source=physics)
+            domain=partial(box_mesh, [[0.0, 0.0], [1.0, 1.0]], (60, 60)), show_source=physics)

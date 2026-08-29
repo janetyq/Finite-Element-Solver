@@ -7,7 +7,7 @@ from demo_registry import Demo, DemoResult, Figure
 from demos._charts import conditions_figure
 from demos.linear_elastic import physics
 from demos.linear_elastic.physics import CantileverStudy, run
-from domains import beam
+from fem.mesh.structured import box_mesh
 
 
 def _fields_figure(s: CantileverStudy) -> Figure:
@@ -69,5 +69,5 @@ def demo(mesh, **kwargs) -> DemoResult:
 
 # The 2D cantilever whose domain this is, plus a 3D box the demo builds for itself.
 DEMO = Demo('linear_elastic', demo, section='Solids & structures',
-            domain=partial(beam, 4.0, 1.0, 140), smoke_kwargs={'n_3d': 6},
+            domain=partial(box_mesh, [[0.0, 0.0], [4.0, 1.0]], (140, 35)), smoke_kwargs={'n_3d': 6},
             show_source=physics)

@@ -10,7 +10,7 @@ from demo_registry import Demo, DemoResult, Figure
 from demos._charts import conditions_figure
 from demos.topology_optimization import physics
 from demos.topology_optimization.physics import TopologyStudy, run
-from domains import beam
+from fem.mesh.structured import box_mesh
 
 
 def _comparison_figure(s: TopologyStudy) -> Figure:
@@ -74,5 +74,5 @@ def demo(mesh, **kwargs) -> DemoResult:
 
 # A 4:1 simply supported (MBB) beam, the aspect that optimizes into the classic arch.
 DEMO = Demo('topology_optimization', demo, section='Solids & structures',
-            domain=partial(beam, 4.0, 1.0, 160), smoke_kwargs={'iters': 3},
+            domain=partial(box_mesh, [[0.0, 0.0], [4.0, 1.0]], (160, 40)), smoke_kwargs={'iters': 3},
             show_source=physics)

@@ -8,14 +8,14 @@ from fem.plot.plotter import Plotter
 from demo_registry import Demo, DemoResult, Figure
 from demos.l2_projection import physics
 from demos.l2_projection.physics import ProjectionStudy, run
-from domains import square
+from fem.mesh.structured import box_mesh
 
 
 def _projection_figure(s: ProjectionStudy, reference_resolution) -> Figure:
     # The target sampled on a fine mesh, so the left panel is the function itself rather
     # than another coarse approximation of it. The projection (right) is on the demo's own
     # mesh, coarse enough that the fast outer rings outrun what P1 can represent.
-    fine = square(reference_resolution)
+    fine = box_mesh([[0.0, 0.0], [1.0, 1.0]], (reference_resolution, reference_resolution))
     xy = fine.vertices - np.array([0.5, 0.5])
     exact = np.sin(40 * (xy[:, 0]**2 + xy[:, 1]**2))
 
@@ -47,5 +47,5 @@ def demo(mesh, reference_resolution=120) -> DemoResult:
 # Meshed coarse, so sin(40 r^2)'s slow inner rings resolve but the fast
 # outer ones alias into the triangulation.
 DEMO = Demo('l2_projection', demo, section='Accuracy & performance',
-            domain=partial(square, 28), smoke_kwargs={'reference_resolution': 60},
+            domain=partial(box_mesh, [[0.0, 0.0], [1.0, 1.0]], (28, 28)), smoke_kwargs={'reference_resolution': 60},
             show_source=physics)

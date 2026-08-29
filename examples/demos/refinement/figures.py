@@ -1,10 +1,12 @@
 """The figures of the adaptive refinement demo, drawn from a `RefinementStudy`."""
+from functools import partial
+
+from fem.mesh.structured import box_mesh
 from fem.plot.plotter import Plotter
 
 from demo_registry import Demo, DemoResult, Figure
 from demos.refinement import physics
 from demos.refinement.physics import RefinementStudy, run
-from domains import square
 
 
 def _error_clim(s: RefinementStudy) -> tuple[float, float]:
@@ -89,6 +91,7 @@ def demo(_mesh, **kwargs) -> DemoResult:
     ])
 
 
-DEMO = Demo('refinement', demo, section='Accuracy & performance', domain=square,
+DEMO = Demo('refinement', demo, section='Accuracy & performance',
+            domain=partial(box_mesh, [[0.0, 0.0], [1.0, 1.0]], (40, 40)),
             show_source=physics,
             smoke_kwargs={'uniform_resolutions': (10, 20), 'adaptive_rounds': 2})
