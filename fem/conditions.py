@@ -37,7 +37,7 @@ from fem.boundary import (
 from fem.loads import BoundaryLoad, Load, PointLoad, Source, _EvaluatedLoad, total_load
 from fem.physics.forms import BoundaryMassForm, Form
 from fem.regions import TimeDependent, evaluate_field
-from fem.typing import Constraints, DofIndices, DofVector, FloatArray, NodalValues, VertexIndices
+from fem.typing import BoolArray, Constraints, DofIndices, DofVector, FloatArray, NodalValues, VertexIndices
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace
@@ -176,17 +176,23 @@ class Conditions:
         # component while a traction drives a different one (a roller carrying a
         # tangential load) is well-posed and allowed; the fixed component is eliminated
         # by `DiscreteSystem`, dropping its traction, and the free ones keep theirs.
-        loaded = np.zeros((n, n_components))
+        # "Loaded" is read off the specification, not the value at t = 0: a constant
+        # loads the components it writes nonzero, a callable of position those nonzero
+        # at the region's nodes, and a `TimeDependent` every component, since a value
+        # that happens to vanish at one instant is no statement about the rest.
+        loaded = np.zeros((n, n_components), dtype=bool)
         for contribution in neumann:
-            loaded += contribution.nodal_values
+            loaded |= _loaded_components(contribution)
         conflicts = [
             v for v, values in merged.items()
-            if np.any(~np.isnan(values) & (loaded[v] != 0.0))
+            if np.any(~np.isnan(values) & loaded[v])
         ]
         if conflicts:
             raise ValueError(
                 'vertices carry a Dirichlet and a Neumann condition on the same '
-                f'component: {sorted(conflicts)}'
+                f'component: {sorted(conflicts)}. A traction on a pinned component is '
+                'dropped by the elimination, so name only the free components in the '
+                'traction; a TimeDependent traction counts on every component.'
             )
         fixed_idxs, fixed_values, free_idxs = _partition(n, n_components, tuple(dirichlet))
 
@@ -301,6 +307,18 @@ class ResolvedConditions:
         fixed_idxs, fixed_values, free_idxs = _partition(self.n_nodes, self.n_components, dirichlet)
         return replace(self, fixed_idxs=fixed_idxs, free_idxs=free_idxs,
                        fixed_values=fixed_values, dirichlet=dirichlet)
+
+
+def _loaded_components(contribution: NeumannContribution) -> BoolArray:
+    '''(n_nodes, n_components): which components a Neumann condition loads, read off
+    its specification rather than its value at one time (see `Conditions.resolve`).'''
+    loaded = np.zeros(contribution.nodal_values.shape, dtype=bool)
+    idxs = contribution.node_idxs
+    if isinstance(contribution.value, TimeDependent):
+        loaded[idxs] = True
+    else:
+        loaded[idxs] = contribution.nodal_values[idxs] != 0.0
+    return loaded
 
 
 def _merge_dirichlet(

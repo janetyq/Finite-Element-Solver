@@ -111,3 +111,24 @@ def test_newmark_accepts_a_time_dependent_traction_but_not_a_moving_support(make
     moving = equation.problem(mesh, Conditions(Dirichlet(on_plane(0, 0.0), ramp)))
     with pytest.raises(NotImplementedError, match='Dirichlet'):
         NewmarkMethod(dt=0.05, steps=4).solve(moving, rest, rest)
+
+
+def test_a_traction_on_a_pinned_component_conflicts_whatever_its_value(make_unit_square):
+    """The conflict is read off the specification: a TimeDependent traction that is
+    zero at t = 0 on a pinned component is still a traction on that component."""
+    space = FunctionSpace(_plate(make_unit_square), n_components=2)
+    ramp = TimeDependent(lambda p, t: [t, 0.0])
+    clashing = Conditions(Dirichlet(on_plane(0, 0.0), [0, 0]), Neumann(on_plane(0, 0.0), ramp))
+    with pytest.raises(ValueError, match='Dirichlet and a Neumann'):
+        clashing.resolve(space)
+    # A constant that writes zero on the pinned component loads only the other.
+    roller = Conditions(Dirichlet(on_plane(0, 0.0), [0, None]), Neumann(on_plane(0, 0.0), [0, -1.0]))
+    assert len(roller.resolve(space).neumann) == 1
+    # A callable of position is read at the nodes, where its zeros are exact.
+    sheared = Conditions(Dirichlet(on_plane(0, 0.0), [0, None]),
+                         Neumann(on_plane(0, 0.0), lambda p: [0.0, p[1]]))
+    assert len(sheared.resolve(space).neumann) == 1
+    # A TimeDependent value cannot name a free component, so on a roller's own nodes
+    # it is rejected even when it only ever drives the free one.
+    with pytest.raises(ValueError, match='TimeDependent'):
+        Conditions(Dirichlet(on_plane(0, 0.0), [0, None]), Neumann(on_plane(0, 0.0), ramp)).resolve(space)
