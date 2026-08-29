@@ -178,11 +178,12 @@ class Conditions:
         # by `DiscreteSystem`, dropping its traction, and the free ones keep theirs.
         # "Loaded" is read off the specification, not the value at t = 0: a constant
         # loads the components it writes nonzero, a callable of position those nonzero
-        # at the region's nodes, and a `TimeDependent` every component, since a value
-        # that happens to vanish at one instant is no statement about the rest.
+        # at the region's nodes, and a `TimeDependent` those nonzero at any of a few
+        # log-spaced sample times (`_SAMPLE_TIMES`). The last is a sampled check: a
+        # value nonzero only at times outside the sample is not caught.
         loaded = np.zeros((n, n_components), dtype=bool)
         for contribution in neumann:
-            loaded |= _loaded_components(contribution)
+            loaded |= _loaded_components(contribution, nodes)
         conflicts = [
             v for v, values in merged.items()
             if np.any(~np.isnan(values) & loaded[v])
@@ -192,7 +193,7 @@ class Conditions:
                 'vertices carry a Dirichlet and a Neumann condition on the same '
                 f'component: {sorted(conflicts)}. A traction on a pinned component is '
                 'dropped by the elimination, so name only the free components in the '
-                'traction; a TimeDependent traction counts on every component.'
+                'traction.'
             )
         fixed_idxs, fixed_values, free_idxs = _partition(n, n_components, tuple(dirichlet))
 
@@ -309,13 +310,19 @@ class ResolvedConditions:
                        fixed_values=fixed_values, dirichlet=dirichlet)
 
 
-def _loaded_components(contribution: NeumannContribution) -> BoolArray:
+# Times a `TimeDependent` value is sampled at to decide which components it loads.
+_SAMPLE_TIMES = (0.0, 1e-3, 1e-1, 1.0, 10.0, 1e3)
+
+
+def _loaded_components(contribution: NeumannContribution, nodes: NodeGeometry) -> BoolArray:
     '''(n_nodes, n_components): which components a Neumann condition loads, read off
     its specification rather than its value at one time (see `Conditions.resolve`).'''
     loaded = np.zeros(contribution.nodal_values.shape, dtype=bool)
     idxs = contribution.node_idxs
     if isinstance(contribution.value, TimeDependent):
-        loaded[idxs] = True
+        points, n_components = nodes.vertices[idxs], contribution.nodal_values.shape[1]
+        for t in _SAMPLE_TIMES:
+            loaded[idxs] |= evaluate_field(contribution.value.at(t), points, n_components) != 0.0
     else:
         loaded[idxs] = contribution.nodal_values[idxs] != 0.0
     return loaded

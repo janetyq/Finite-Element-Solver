@@ -128,7 +128,7 @@ def test_a_traction_on_a_pinned_component_conflicts_whatever_its_value(make_unit
     sheared = Conditions(Dirichlet(on_plane(0, 0.0), [0, None]),
                          Neumann(on_plane(0, 0.0), lambda p: [0.0, p[1]]))
     assert len(sheared.resolve(space).neumann) == 1
-    # A TimeDependent value cannot name a free component, so on a roller's own nodes
-    # it is rejected even when it only ever drives the free one.
-    with pytest.raises(ValueError, match='TimeDependent'):
-        Conditions(Dirichlet(on_plane(0, 0.0), [0, None]), Neumann(on_plane(0, 0.0), ramp)).resolve(space)
+    # A TimeDependent value is sampled over time, so a ramp that only ever drives the
+    # free x component of a y-pinned roller resolves, on the roller's own nodes.
+    rolling = Conditions(Dirichlet(on_plane(0, 0.0), [None, 0]), Neumann(on_plane(0, 0.0), ramp))
+    assert len(rolling.resolve(space).neumann) == 1
