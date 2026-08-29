@@ -277,22 +277,25 @@ result is typed by the physics: `Poisson().problem(mesh, conditions).solve()` is
 ### What you choose at each step
 
 Every step of a solve is one choice among a few named objects, all importable from `fem`.
-`ARCHITECTURE.md` explains how they fit; this is the menu.
+Steps run top to bottom; a step with several parts lists each. `ARCHITECTURE.md` explains
+how they fit; this is the menu.
 
-| Step | Options | Default |
-|---|---|---|
-| Mesh | `box_mesh`, `annulus_mesh`; an `Outline` of `Line`, `Arc`, `Circle`, `CubicBezier` pieces (`Outline.from_polygons`, `Outline.from_svg`, then `Outline.simplified` and `Outline.mesh`); `Mesh(vertices, elements)`; refine with `RedGreenRefiner` | |
-| Element | `LinearTriangleElement`, `LinearTetrahedralElement`, `QuadraticTriangleElement`, `IsoparametricTriangleElement`, via `element_type=` | linear, read off the mesh |
-| Equation | `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`, `FiniteStrainElastic` (with `law=` `StVenantKirchhoff` or `NeohookeanEnergyDensity`) | |
-| Where | `everywhere`, `on_plane`, `in_box`, `on_tag`, `at_indices`, `union`, `intersect` | |
-| Conditions | a `Conditions` of `Dirichlet`, `Neumann`, `Robin` (on regions), a volume `Source`, `PointLoad`s, and the `Initial(u0, v0=)` state; a value is a constant, a callable of position, or `TimeDependent` | none |
-| Strategy | `LinearSolve`, `NewtonSolve` (with `BacktrackingLineSearch`, `TangentRegularization`), via `strategy=` | `default_strategy`: by the tangent |
-| Backend | `DirectBackend`, `IterativeBackend`, `MinresBackend`, via `backend=` | direct |
-| In time | `ThetaMethod`, `NewmarkMethod` (with `RayleighDamping`) | |
-| Analyses | `BucklingAnalysis`, `ModalAnalysis`, `AdaptiveRefinement` with `ResidualEstimator` / `RecoveryEstimator` / `GoalOrientedEstimator`, `SensitivityAnalysis`, `DesignOptimizer` over a `SIMPModel` | |
-| Result | `DiffusionSolution`, `ElasticSolution`, `FieldSolution` (each a `NodalField`), `TransientSolution`, `BucklingSolution`, `ModalSolution` | by the physics |
-| Plot | `Plotter.plot(target, values, mode=)` with `mesh`, `boundary`, `colored`, `surface`, `arrows`, `solid`, `bc`, `refinement` | |
-
+| Step | Part | Options | Default |
+|---|---|---|---|
+| **Mesh** | | `box_mesh`; an `Outline` of `Line`, `Arc`, `Circle`, `CubicBezier` pieces (`Outline.from_polygons`, `Outline.from_svg`, then `.simplified` and `.mesh`); `Mesh(vertices, elements)`; refine with `RedGreenRefiner` | |
+| **Equation** | physics | `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`, `FiniteStrainElastic` | |
+| | material law | `FiniteStrainElastic(law=)`: `StVenantKirchhoff`, `NeohookeanEnergyDensity` | St Venant-Kirchhoff |
+| | element | `LinearTriangleElement`, `LinearTetrahedralElement`, `QuadraticTriangleElement`, `IsoparametricTriangleElement`, via `.problem(mesh, conditions, element_type=)` | linear, by the mesh's dimension |
+| **Conditions** | where | `everywhere`, `on_plane`, `in_box`, `on_tag`, `union`, `intersect`; `at_indices` (index-bound, does not survive a remesh) | |
+| | what | `Dirichlet`, `Neumann`, `Robin` on a region; a volume `Source`; `PointLoad`s; collected by `Conditions(...)` | none |
+| | value | a constant, a callable of position, or `TimeDependent` | |
+| **Solve** | which solve | steady: `problem.solve()`; in time: `ThetaMethod` / `NewmarkMethod` (with `RayleighDamping`) `.solve(problem, u0, dt=, steps=)`; eigen: `BucklingAnalysis` / `ModalAnalysis` `.solve(problem)` | steady |
+| | strategy | `LinearSolve`, `NewtonSolve` (with `BacktrackingLineSearch`, `TangentRegularization`), via `strategy=` | by the tangent: linear if constant, else Newton |
+| | backend | `DirectBackend`, `IterativeBackend`, `MinresBackend`, via `backend=` | direct |
+| | initial data | `space.interpolate(value)`, for a transient solve | |
+| **Outer loop** | | `AdaptiveRefinement` with `ResidualEstimator` / `RecoveryEstimator` / `GoalOrientedEstimator`; `DesignOptimizer` over a `SIMPModel`; `SensitivityAnalysis` for the gradient behind both | none |
+| **Result** | | `DiffusionSolution`, `ElasticSolution`, `FieldSolution` (each a `NodalField`); `TransientSolution`, `BucklingSolution`, `ModalSolution`; `DesignHistory` | by the physics |
+| **Plot** | | `Plotter.plot(target, values, mode=)` on a solution, field, or mesh, with `mesh`, `boundary`, `colored`, `surface`, `arrows`, `solid`, `bc`, `refinement` | |
 
 A solution is a typed dataclass. An elastic solve returns an `ElasticSolution`, which
 carries the stress and strain as full tensors and derives the scalar measures on

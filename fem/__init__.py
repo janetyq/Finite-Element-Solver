@@ -25,7 +25,7 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.curves import Arc, Circle, CubicBezier, Curve, Line, Piece
 from fem.space import FunctionSpace
 from fem.field import NodalField
-from fem.mesh.structured import annulus_mesh, box_mesh
+from fem.mesh.structured import box_mesh
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.outline import Outline, douglas_peucker
@@ -165,7 +165,6 @@ __all__ = [
     "Piece",
     "FunctionSpace",
     "box_mesh",
-    "annulus_mesh",
     "RuppertsAlgorithm",
     "RedGreenRefiner",
     "Outline",

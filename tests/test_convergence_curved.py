@@ -23,6 +23,14 @@ RESOLUTIONS = (5, 9, 17, 33)
 TRUE_AREA = np.pi * (ANNULUS_OUTER**2 - ANNULUS_INNER**2)
 
 
+def test_annulus_rims_carry_their_circles():
+    mesh = annulus_mesh(1.0, 2.0, n_radial=4, n_theta=12)
+    assert mesh.boundary_curves is not None
+    radii = {round(float(np.hypot(*mesh.vertices[f[0]])), 6) for f in mesh.boundary}
+    assert radii == {1.0, 2.0}
+    assert all(curve is not None for curve in mesh.boundary_curves)
+
+
 def _observed_orders(hs, errors):
     hs, errors = np.asarray(hs), np.asarray(errors)
     return np.log(errors[:-1] / errors[1:]) / np.log(hs[:-1] / hs[1:])

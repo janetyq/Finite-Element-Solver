@@ -6,9 +6,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from mms import ANNULUS_INNER, ANNULUS_OUTER
+from mms import ANNULUS_INNER, ANNULUS_OUTER, annulus_mesh
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.mesh.structured import annulus_mesh, box_mesh
+from fem.mesh.structured import box_mesh
 from fem.plot.plotter import Plotter
 from fem.plot.tessellation import boundary_polylines, tessellate
 from fem.space import FunctionSpace

@@ -1,8 +1,8 @@
-"""The structured builders: a box in each dimension, and the annulus."""
+"""The structured builder: a box in each dimension."""
 import numpy as np
 import pytest
 
-from fem.mesh.structured import annulus_mesh, box_mesh
+from fem.mesh.structured import box_mesh
 
 
 def test_box_mesh_in_1d_is_a_chain_of_lines():
@@ -63,10 +63,3 @@ def test_box_mesh_refuses_mismatched_dimensions():
     with pytest.raises(ValueError):
         box_mesh(corners=[[0, 0, 0, 0], [1, 1, 1, 1]], resolution=(2, 2, 2, 2))
 
-
-def test_annulus_rims_carry_their_circles():
-    mesh = annulus_mesh(1.0, 2.0, n_radial=4, n_theta=12)
-    assert mesh.boundary_curves is not None
-    radii = {round(float(np.hypot(*mesh.vertices[f[0]])), 6) for f in mesh.boundary}
-    assert radii == {1.0, 2.0}
-    assert all(curve is not None for curve in mesh.boundary_curves)
