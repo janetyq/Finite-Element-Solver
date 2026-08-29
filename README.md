@@ -294,7 +294,7 @@ can be skipped. `ARCHITECTURE.md` explains how they fit; this is the menu.
 | **Solve** | which solve | a steady solve is `problem.solve()`; a solve in time is `ThetaMethod` or `NewmarkMethod` (with `RayleighDamping`) `.solve(problem, u0, dt=, steps=)`; an eigen-solve is `BucklingAnalysis` or `ModalAnalysis` `.solve(problem)` | steady |
 | | strategy | how the problem is iterated, via `strategy=`: `LinearSolve`, or `NewtonSolve` with a `BacktrackingLineSearch` and `TangentRegularization` | by the tangent: linear if constant, else Newton |
 | | backend | how each linear system is solved, via `backend=`: `DirectBackend`, `IterativeBackend`, or `MinresBackend` | direct |
-| | initial data (transient only) | the `u0` a solve in time starts from, built with `space.interpolate(value)` | |
+| | initial data (transient only) | the `u0=` a solve in time starts from, built with `space.interpolate(value)` | |
 | **Outer loop** (optional) | | a driver that re-solves: `AdaptiveRefinement` refines where a `ResidualEstimator`, `RecoveryEstimator`, or `GoalOrientedEstimator` finds error; `DesignOptimizer` moves the density of a `SIMPModel`; both use `SensitivityAnalysis` for gradients | none |
 | **Result** | | a steady solve returns a `DiffusionSolution`, `ElasticSolution`, or `FieldSolution`, each a `NodalField`; a solve in time a `TransientSolution`, an eigen-solve a `BucklingSolution` or `ModalSolution`, and the optimizer a `DesignHistory` | by the physics |
 | **Plot** | | `Plotter.plot(target, values, mode=)` draws a solution, field, or mesh in one of the modes `mesh`, `boundary`, `colored`, `surface`, `arrows`, `solid`, `bc`, `refinement` | |
