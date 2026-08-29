@@ -101,14 +101,21 @@ class PointValue:
     self_adjoint: bool = False
 
     def value(self, problem: Problem, u: DofVector) -> float:
+        self._check_component(problem.space)
         values = NodalField(problem.space, u).evaluate(self.point)   # (1,) or (1, n_components)
         return float(values.reshape(1, -1)[0, self.component])
 
     def dJ_du(self, problem: Problem, u: DofVector) -> DofVector:
         return self._weights(problem.space)
 
+    def _check_component(self, space: FunctionSpace) -> None:
+        if not 0 <= self.component < space.n_components:
+            raise IndexError(
+                f'component {self.component} of a field with {space.n_components} components')
+
     def _weights(self, space: FunctionSpace) -> DofVector:
         '''`dJ/du`: the shape functions at `point`, on the DOFs of the element holding it.'''
+        self._check_component(space)
         (element,), reference = space.mesh.locate(np.atleast_2d(np.asarray(self.point, dtype=float)))
         phi = space.element_type.shape_values(reference)[0]           # (N,)
         weights = np.zeros(space.n_dofs)
