@@ -176,7 +176,7 @@ def _setup_figure(s: ForkStudy) -> Figure:
     built = Plotter(1, 2, figsize=(6.0, 7.0), title='From an outline to a meshed fork')
     built.plot(s.mesh, mode='mesh', idx=(0, 0), title=f'{len(s.mesh.elements)} triangles')
     hide_x_ticks(built, (0, 0))
-    built.plot(s.mesh, mode='bc', bc=clamp, idx=(0, 1), title='Clamped at the stem base')
+    built.plot(s.mesh, mode='bc', conditions=clamp, idx=(0, 1), title='Clamped at the stem base')
     return Figure(
         built,
         'The fork is one non-convex outline (stem, base, two tines with a slot) '

@@ -3,7 +3,8 @@ update, and the optimizer over them."""
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.analysis.design import (
     DesignOptimizer, SIMPModel, TargetCompliance, calculate_smoothing_matrix,
     optimality_criteria_update,
@@ -19,7 +20,7 @@ from fem.space import FunctionSpace
 
 
 def _cantilever_bc():
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
         Neumann(on_plane(0, 1.0), [0.0, -1.0]),
     )
@@ -74,11 +75,7 @@ def test_diluted_problem_matches_one_built_from_the_scaled_material(make_unit_sq
     model = _model(make_unit_square(6))
     rho = np.linspace(0.3, 1.0, len(model.space.element_nodes))
 
-    reference = LinearProblem(
-        model.space,
-        LinearElasticForm(LinearElasticMaterial(model.scaled_modulus(rho), 0.3)),
-        None, model.template.bc,
-    )
+    reference = LinearProblem(model.space, LinearElasticForm(LinearElasticMaterial(model.scaled_modulus(rho), 0.3)), model.template.conditions)
     np.testing.assert_allclose(
         LinearSolve().solve(model.problem(rho)), LinearSolve().solve(reference), atol=1e-10)
 

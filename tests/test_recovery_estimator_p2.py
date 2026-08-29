@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from fem.analysis.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from mms import (
     exact_gradient,
     h1_seminorm_error,
@@ -17,6 +18,7 @@ from fem.analysis.estimators import RecoveryEstimator
 from fem.mesh.structured import box_mesh
 from fem.physics.derived import GradientField
 from fem.regions import everywhere
+from fem.loads import Source
 
 
 def _poisson_source(point):
@@ -27,10 +29,10 @@ def _global(eta):
     return float(np.sqrt((np.asarray(eta) ** 2).sum()))
 
 
-def _solve(equation, n, element_type, bc_value=0.0):
+def _solve(equation, n, element_type, bc_value=0.0, source=None):
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    bc = BoundaryConditions(Dirichlet(everywhere(), bc_value))
-    problem = equation.problem(mesh, bc, element_type=element_type)
+    bc = Conditions(Dirichlet(everywhere(), bc_value))
+    problem = equation.problem(mesh, bc if source is None else bc + source, element_type=element_type)
     return problem, problem.solve()
 
 
@@ -43,7 +45,7 @@ def test_sample_sees_within_element_variation_on_p2_but_not_p1():
     not. Estimating a P2 solution's error hangs on seeing that variation."""
     spreads = {}
     for element_type, name in [(LinearTriangleElement, 'P1'), (QuadraticTriangleElement, 'P2')]:
-        problem, solution = _solve(Poisson(source=_poisson_source), 4, element_type)
+        problem, solution = _solve(Poisson(), 4, element_type, source=Source(_poisson_source))
         geometry = problem.space.geometry_at(4)
         sampled = GradientField().sample(solution, geometry)   # (n_el, n_qp, 1, d)
         spreads[name] = np.ptp(sampled, axis=1).max()          # spread across qp
@@ -59,7 +61,7 @@ def test_p2_recovery_vanishes_on_a_quadratic_field():
     """The patch test for a P2 recovery estimator: a globally quadratic solution is
     represented exactly, so its recovered flux equals the discrete one and every
     indicator is zero. u = x^2 - y^2 is harmonic, so no source is needed."""
-    equation = Poisson(source=None)
+    equation = Poisson()
     problem, solution = _solve(equation, 5, QuadraticTriangleElement,
                                bc_value=lambda p: p[0]**2 - p[1]**2)
     eta = RecoveryEstimator().estimate(problem, solution)
@@ -71,10 +73,10 @@ def test_p2_recovery_effectivity_stays_bounded():
     effectivity index stays comfortably bounded around 1. L2-projection recovery on P2
     is not asymptotically exact the way P1 nodal averaging is, so this checks that it
     stays a faithful indicator, not that the index tends to 1."""
-    equation = Poisson(source=_poisson_source)
+    equation = Poisson()
     indices = []
     for n in (6, 11, 21):
-        problem, solution = _solve(equation, n, QuadraticTriangleElement)
+        problem, solution = _solve(equation, n, QuadraticTriangleElement, source=Source(_poisson_source))
         eta = _global(RecoveryEstimator().estimate(problem, solution))
         true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
         indices.append(eta / true_error)
@@ -89,12 +91,12 @@ def test_p2_recovery_drives_adaptive_refinement():
     """The full loop on a P2 space: recovery drives the refiner, the mesh grows and
     concentrates near a localised source, and the solve stays P2 across remeshes."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    equation = Poisson()
 
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
-        mesh, lambda m: equation.problem(m, bc, element_type=QuadraticTriangleElement),
+        mesh, lambda m: equation.problem(m, bc + Source(lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0), element_type=QuadraticTriangleElement),
         RecoveryEstimator(), max_triangles=300, max_iters=5,
     )
     solution = driver.run()

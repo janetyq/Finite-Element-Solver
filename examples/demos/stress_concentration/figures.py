@@ -12,7 +12,7 @@ def _pipeline_figure(s: PlateStudy) -> Figure:
     # One figure, three plots: mesh with outline and conditions, the stress, the chart.
     figure = Plotter(1, 3, figsize=(14.0, 3.6),
                      title='From an outline to a stress concentration')
-    figure.plot(s.mesh, mode='bc', bc=s.bc, idx=(0, 0),
+    figure.plot(s.mesh, mode='bc', conditions=s.bc, idx=(0, 0),
                 title=f'{len(s.mesh.elements)} triangles (refined from {s.n_initial}), '
                       'with conditions')
     ax0 = figure.get_ax((0, 0))

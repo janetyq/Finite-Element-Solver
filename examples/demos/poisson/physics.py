@@ -8,13 +8,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
 from fem.physics.equations import Poisson
 from fem.mesh.mesh import Mesh
 from fem.regions import on_plane
 from fem.post.solution import ScalarFieldSolution
 from fem.mesh.outline import Outline
+from fem.loads import Source
 
 
 def _naca4_outline(camber: float, camber_pos: float, thickness: float, n: int,
@@ -75,7 +77,7 @@ class FlowStudy:
     """Everything `run` computed, for the figures to read."""
     angle_of_attack: float
     mesh: Mesh
-    bc: BoundaryConditions
+    bc: Conditions
     solution: ScalarFieldSolution      # the velocity potential phi, on P2
 
     @property
@@ -101,14 +103,14 @@ def run(length=7.0, height=4.0, chord=3.0, angle_of_attack=12.0, n_points=80, mi
     outline = airfoil_channel_outline(length, height, chord, angle_of_attack, n_points=n_points)
     mesh = outline.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
 
-    equation = Poisson(source=0)   # Laplace: no sources in the flow
+    equation = Poisson()   # Laplace: no sources in the flow
     # phi rises from inlet to outlet, so v = grad(phi) runs left to right. The wing and
     # the walls take no condition, so they are no-flux streamlines.
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), 0.0),
         Dirichlet(on_plane(0, length), 1.0),
     )
 
-    problem = equation.problem(mesh, bc, element_type=QuadraticTriangleElement)
+    problem = equation.problem(mesh, bc + Source(0), element_type=QuadraticTriangleElement)
     solution = problem.solve()
     return FlowStudy(angle_of_attack, mesh, bc, solution)

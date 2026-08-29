@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from fem.post import invariants
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.physics.forms import LinearElasticForm, PrecomputedForm
 from fem.physics.materials import LinearElasticMaterial
@@ -18,7 +19,7 @@ from fem.space import FunctionSpace
 
 
 def _cantilever_bc(w):
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
         Neumann(on_plane(0, w), [0.0, -1.0]),
     )
@@ -27,7 +28,7 @@ def _cantilever_bc(w):
 
 def _modulus_problem(space, E, nu, bc):
     K0 = LinearElasticForm(LinearElasticMaterial(1.0, nu)).element_matrices(space.geometry)
-    return LinearProblem(space, PrecomputedForm(E[:, None, None] * K0), None, bc)
+    return LinearProblem(space, PrecomputedForm(E[:, None, None] * K0), bc)
 
 
 def _solved(space, nu):

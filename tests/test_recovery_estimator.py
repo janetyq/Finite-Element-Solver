@@ -5,7 +5,8 @@ error is available because the manufactured-solution machinery supplies an exact
 import numpy as np
 
 from fem.analysis.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from mms import (
     ELASTIC_E,
     ELASTIC_NU,
@@ -19,9 +20,12 @@ from fem.analysis.estimators import RecoveryEstimator
 from fem.physics.materials import Enu_to_Lame
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
+from fem.loads import Source
 
-POISSON = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
-ELASTIC = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
+POISSON = Poisson()
+POISSON_SOURCE = Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
+ELASTIC = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU)
+ELASTIC_SOURCE = Source(elastic_source)
 
 
 def _global(eta):
@@ -50,9 +54,9 @@ def _elastic_true_stress_error(problem, solution):
     return quadrature_l2(geometry, sigma_exact - sigma_h)
 
 
-def _solved(equation, mesh, bc_value):
-    bc = BoundaryConditions(Dirichlet(everywhere(), bc_value))
-    problem = equation.problem(mesh, bc)
+def _solved(equation, mesh, bc_value, source=None):
+    bc = Conditions(Dirichlet(everywhere(), bc_value))
+    problem = equation.problem(mesh, bc if source is None else bc + source)
     return problem, problem.solve()
 
 
@@ -68,7 +72,7 @@ def test_poisson_recovery_is_asymptotically_exact():
     the defining property of a good recovery estimator."""
     indices = []
     for n in (11, 21, 41):
-        problem, solution = _solved(POISSON, _square(n), 0.0)
+        problem, solution = _solved(POISSON, _square(n), 0.0, POISSON_SOURCE)
         eta = _global(RecoveryEstimator().estimate(problem, solution))
         true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
         indices.append(eta / true_error)
@@ -83,7 +87,7 @@ def test_elastic_recovery_is_asymptotically_exact():
     """The same effectivity check for the vector, coupled elastic path."""
     indices = []
     for n in (11, 21, 41):
-        problem, solution = _solved(ELASTIC, _square(n), [0.0, 0.0])
+        problem, solution = _solved(ELASTIC, _square(n), [0.0, 0.0], ELASTIC_SOURCE)
         eta = _global(RecoveryEstimator().estimate(problem, solution))
         true_error = _elastic_true_stress_error(problem, solution)
         indices.append(eta / true_error)
@@ -98,7 +102,7 @@ def test_elastic_recovery_is_asymptotically_exact():
 def test_recovery_of_a_linear_field_is_near_zero(make_unit_square):
     """A globally linear solution has constant gradient, so the estimate vanishes: the patch
     test for a recovery estimator."""
-    equation = Poisson(source=None)
+    equation = Poisson()
     problem, solution = _solved(equation, make_unit_square(6), lambda p: p[0])
 
     eta = RecoveryEstimator().estimate(problem, solution)
@@ -112,12 +116,12 @@ def test_recovery_drives_adaptive_refinement(make_unit_square):
     """The full loop, mirroring the residual estimator's: recovery drives the
     refiner, and the mesh grows and concentrates near a localised source."""
     mesh = make_unit_square(6)
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    equation = Poisson()
 
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
-        mesh, lambda m: equation.problem(m, bc),
+        mesh, lambda m: equation.problem(m, bc + Source(lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)),
         RecoveryEstimator(), max_triangles=300, max_iters=5,
     )
     driver.run()

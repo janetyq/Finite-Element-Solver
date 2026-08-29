@@ -18,6 +18,7 @@ from gallery import build_gallery  # noqa: E402
 
 from fem.mesh.structured import box_mesh  # noqa: E402
 from fem.plot.plotter import Plotter  # noqa: E402
+from fem.loads import Source
 
 # The smallest valid GIF: a 1x1 pixel. Enough to stand in for a demo's rendered output.
 ONE_PIXEL_GIF = (b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04'
@@ -38,12 +39,13 @@ def _text_only():
 
 def _poisson(mesh):
     """A cheap Poisson solve with one figure, standing in for a real demo."""
-    from fem.boundary import BoundaryConditions, Dirichlet
+    from fem.conditions import Conditions
+    from fem.boundary import Dirichlet
     from fem.physics.equations import Poisson
     from fem.regions import everywhere
 
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0))
-    solution = Poisson(source=1).problem(mesh, bc).solve()
+    bc = Conditions(Dirichlet(everywhere(), 0))
+    solution = Poisson().problem(mesh, bc + Source(1)).solve()
     plotter = Plotter()
     plotter.plot(mesh, solution.u, mode='colored')
     return DemoResult([Figure(plotter, 'the dome')])

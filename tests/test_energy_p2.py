@@ -7,7 +7,8 @@ and tangent share that rule, which a finite-difference gradient check pins.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.equations import FiniteStrainElastic
@@ -76,7 +77,7 @@ def test_a_p2_hyperelastic_solve_converges_and_carries_its_element_type():
     ElasticSolution, so it knows its space and its recovered stress reaches the edge
     nodes too."""
     mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, 2.0), [0.3, 0.15]),
     )

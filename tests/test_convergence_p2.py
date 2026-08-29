@@ -8,7 +8,8 @@ so a passing rate is strong evidence the whole P2 path is correct.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from mms import (
     ConvergenceStudy,
     elastic_p2_convergence,
@@ -23,6 +24,7 @@ from fem.regions import everywhere
 from fem.post.solution import ElasticSolution
 from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
+from fem.loads import Source
 
 
 @pytest.fixture(scope="module")
@@ -68,8 +70,8 @@ def test_p2_reproduces_a_linear_displacement_and_its_constant_stress():
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
 
-    bc = BoundaryConditions(Dirichlet(everywhere(), lambda p: [a * p[0], 0.0]))
-    problem = LinearProblem(space, LinearElasticForm(LinearElasticMaterial(E, nu)), None, bc)
+    bc = Conditions(Dirichlet(everywhere(), lambda p: [a * p[0], 0.0]))
+    problem = LinearProblem(space, LinearElasticForm(LinearElasticMaterial(E, nu)), bc)
     u = LinearSolve().solve(problem)
 
     # The interior reproduces u = (a x, 0) exactly, edge nodes included.
@@ -91,9 +93,9 @@ def test_p2_is_reachable_through_the_solver_facade():
     from fem.physics.equations import Poisson
 
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
     source = lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]  # noqa: E731
-    problem = Poisson(source=source).problem(mesh, bc, element_type=QuadraticTriangleElement)
+    problem = Poisson().problem(mesh, bc + Source(source), element_type=QuadraticTriangleElement)
     solution = problem.solve()
 
     exact = np.sin(np.pi * problem.space.node_coords[:, 0]) * np.sin(np.pi * problem.space.node_coords[:, 1])

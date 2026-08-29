@@ -4,12 +4,14 @@ where the physics does not apply.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.physics.equations import Equation, LinearElastic, Poisson, Projection, FiniteStrainElastic
 from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
 from fem.regions import everywhere
 from fem.problem import LinearProblem, Problem
 from fem.space import FunctionSpace
+from fem.loads import Source
 
 
 def test_projection_assembles_a_mass_matrix(make_unit_square):
@@ -78,7 +80,7 @@ def test_solves_refuse_a_time_order_the_equation_has_no_meaning_for(make_unit_sq
     from fem.analysis.modal import ModalAnalysis
 
     mesh = make_unit_square(4)
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
     heat, wave, poisson = Heat().problem(mesh, bc), Wave().problem(mesh, bc), Poisson().problem(mesh, bc)
     zero = np.zeros(heat.space.n_dofs)
 
@@ -117,19 +119,20 @@ def test_equation_resolves_its_space_and_problem(make_unit_square):
     """`space` sizes the discretization from the field (one component for Poisson, one
     per spatial dimension for elasticity), and `problem` composes the equation's own
     operator, source, and the given constraints on it."""
-    from fem.boundary import BoundaryConditions, Dirichlet
+    from fem.conditions import Conditions
+    from fem.boundary import Dirichlet
     from fem.elements import QuadraticTriangleElement
     from fem.regions import everywhere
 
     mesh = make_unit_square(4)
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
 
     assert Poisson().space(mesh).n_components == 1
     assert LinearElastic(E=1.0, nu=0.3).space(mesh).n_components == 2
     assert Poisson().space(mesh, QuadraticTriangleElement).element_type is QuadraticTriangleElement
 
-    space = Poisson(source=2.0).space(mesh)
-    problem = Poisson(source=2.0).problem(space, bc)
+    space = Poisson().space(mesh)
+    problem = Poisson().problem(space, bc + Source(2.0))
     assert isinstance(problem.operator, DiffusionForm)
     assert problem.space is space
     np.testing.assert_allclose(problem.load, 2.0 * space.mass_matrix @ np.ones(space.n_dofs))

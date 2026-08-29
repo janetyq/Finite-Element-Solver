@@ -12,12 +12,14 @@ from pathlib import Path
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.physics.equations import Poisson
 from fem.mesh.mesh import Mesh
 from fem.mesh.outline import Outline, douglas_peucker
 from fem.regions import everywhere
 from fem.mesh.curves import Circle
+from fem.loads import Source
 
 
 def star_outline(points: int = 5, outer_radius: float = 1.0, inner_radius: float = 0.42,
@@ -72,8 +74,8 @@ DEFAULT_SIMPLIFICATION_TOLERANCE = 0.005
 
 # The Poisson "dome": a unit source pinned to zero on every boundary, so the field is a
 # picture of the domain itself, tallest where it is widest.
-dome_bc = BoundaryConditions(Dirichlet(everywhere(), 0))
-dome_equation = Poisson(source=1.0)
+dome_bc = Conditions(Dirichlet(everywhere(), 0), Source(1.0))
+dome_equation = Poisson()
 
 
 def get_curve_from_svg(svg_file):

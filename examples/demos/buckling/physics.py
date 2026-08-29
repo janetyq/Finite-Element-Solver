@@ -14,7 +14,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.analysis.buckling import BucklingAnalysis
 from fem.elements import QuadraticTriangleElement
 from fem.physics.equations import LinearElastic
@@ -61,14 +62,14 @@ def euler_load(span, height, K=1.0):
 # along an edge holds it transversely without touching its rotation. The column
 # stands along y, so the ends are at y = 0 and y = span and the load pushes in -y.
 def cantilever(span, height):   # fixed-free, K = 2
-    return BoundaryConditions(
+    return Conditions(
         Dirichlet(on_plane(1, 0.0), [0, 0]),
         Neumann(on_plane(1, span), [0, -1.0]),
     )
 
 
 def pinned(span, height):       # pinned-pinned, K = 1
-    return BoundaryConditions(
+    return Conditions(
         Dirichlet(on_plane(1, 0.0), [0, None]),
         Dirichlet(intersect(on_plane(1, 0.0), on_plane(0, height / 2)), [0, 0]),
         Dirichlet(on_plane(1, span), [0, None]),
@@ -77,14 +78,14 @@ def pinned(span, height):       # pinned-pinned, K = 1
 
 
 def fixed(span, height):        # fixed-fixed, K = 1/2
-    return BoundaryConditions(
+    return Conditions(
         Dirichlet(on_plane(1, 0.0), [0, 0]),
         Dirichlet(on_plane(1, span), [0, -0.02 * span]),
     )
 
 
 def fixed_pinned(span, height):  # fixed-pinned, K ~ 0.7
-    return BoundaryConditions(
+    return Conditions(
         Dirichlet(on_plane(1, 0.0), [0, 0]),
         Dirichlet(on_plane(1, span), [0, None]),
         Neumann(on_plane(1, span), [0, -1.0]),
@@ -120,7 +121,7 @@ def solve_buckling(mesh, bc, span, height, n_modes) -> tuple[BucklingSolution, n
 class EndCondition:
     """One way of holding the column's ends, solved for its first buckling mode."""
     name: str
-    bc: BoundaryConditions
+    bc: Conditions
     solution: BucklingSolution
     load: float                     # the first critical load
     K_ideal: float                  # Euler's effective-length factor
@@ -133,7 +134,7 @@ class BucklingStudy:
     length: float
     height: float
     mesh: Mesh
-    pinned_bc: BoundaryConditions
+    pinned_bc: Conditions
     pinned: BucklingSolution        # the pinned column's first modes
     pinned_loads: np.ndarray        # their critical loads
     ends: list[EndCondition]        # the same column held four ways

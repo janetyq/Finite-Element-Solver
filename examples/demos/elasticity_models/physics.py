@@ -9,7 +9,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.physics.energies import NeohookeanEnergyDensity
 from fem.physics.equations import FiniteStrainElastic, LinearElastic
 from fem.physics.forms import EnergyForm
@@ -22,16 +23,16 @@ from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
 E, NU = 200.0, 0.4
 
 
-def stretch_bc(width, stretch) -> BoundaryConditions:
+def stretch_bc(width, stretch) -> Conditions:
     """Both ends Dirichlet: the left held at zero, the right displaced to `stretch` of
     the width. Nothing is loaded."""
-    return BoundaryConditions(
+    return Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, width), [stretch*width, 0]),
     )
 
 
-def stretch_four_ways(mesh: Mesh, bc: BoundaryConditions):
+def stretch_four_ways(mesh: Mesh, bc: Conditions):
     """Solve the stretch as a linear system, as an energy minimisation, and under the
     St-Venant-Kirchhoff and Neo-Hookean finite-strain laws.
 
@@ -60,7 +61,7 @@ def stretch_four_ways(mesh: Mesh, bc: BoundaryConditions):
     neohookean = FiniteStrainElastic(E=E, nu=NU, law=NeohookeanEnergyDensity)
     # The second solve states small strain as an energy and minimises it: the same
     # density the linear stiffness is the Hessian of, under Newton.
-    energy_problem = Problem(linear.space(mesh), EnergyForm(linear.energy_density()), bc=bc)
+    energy_problem = Problem(linear.space(mesh), EnergyForm(linear.energy_density()), bc)
     energy_u = NewtonSolve(line_search=BacktrackingLineSearch()).solve(energy_problem)
     linear_solution = linear.problem(mesh, bc).solve()
     newton = NewtonSolve(line_search=BacktrackingLineSearch())
@@ -80,7 +81,7 @@ class StretchStudy:
     """Everything `run` computed, for the figures and the summary to read."""
     mesh: Mesh
     stretch: float
-    bc: BoundaryConditions
+    bc: Conditions
     solutions: list[tuple[str, ElasticSolution]]   # (panel name, solution)
     energy_problem: Problem
     energy_u: np.ndarray

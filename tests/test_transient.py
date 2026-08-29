@@ -8,11 +8,13 @@ isolates how they treat a time-dependent load.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
+from fem.boundary import Dirichlet, Neumann, Robin
+from fem.conditions import Conditions
 from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod
 from fem.regions import TimeDependent, everywhere, evaluate_field, field_at, on_plane
 from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution, TransientSolution
+from fem.loads import Source
 
 
 def test_time_dependent_field_is_evaluated_at_a_time():
@@ -25,7 +27,7 @@ def test_time_dependent_field_is_evaluated_at_a_time():
 
 
 def test_a_time_independent_problem_has_one_load(make_unit_square):
-    problem = Poisson(source=lambda p: 1.0).problem(make_unit_square(4))
+    problem = Poisson().problem(make_unit_square(4), Conditions(Source(lambda p: 1.0)))
     assert not problem.is_time_dependent
     assert problem.load_at(5.0) is problem.load
     assert problem.constraints_at(5.0) == problem.constraints
@@ -33,8 +35,8 @@ def test_a_time_independent_problem_has_one_load(make_unit_square):
 
 def test_constant_time_dependent_source_matches_the_steady_load(make_unit_square):
     mesh = make_unit_square(5)
-    steady = Poisson(source=lambda p: 1.0).problem(mesh)
-    transient = Poisson(source=TimeDependent(lambda p, t: 1.0 + 0.0 * t)).problem(mesh)
+    steady = Poisson().problem(mesh, Conditions(Source(lambda p: 1.0)))
+    transient = Poisson().problem(mesh, Conditions(Source(TimeDependent(lambda p, t: 1.0 + 0.0 * t))))
     assert transient.is_time_dependent
     np.testing.assert_allclose(transient.load_at(7.0), steady.load, atol=1e-14)
 
@@ -42,11 +44,11 @@ def test_constant_time_dependent_source_matches_the_steady_load(make_unit_square
 def test_time_dependent_traction_and_robin_values_are_taken_at_the_time(make_unit_square):
     """The boundary integrals are held; only the values are re-evaluated per time."""
     mesh = make_unit_square(5)
-    at_two = BoundaryConditions(
+    at_two = Conditions(
         Neumann(on_plane(0, 1.0), 2.0),
         Robin(on_plane(1, 1.0), kappa=0.5, g=4.0),
     )
-    varying = BoundaryConditions(
+    varying = Conditions(
         Neumann(on_plane(0, 1.0), TimeDependent(lambda p, t: t)),
         Robin(on_plane(1, 1.0), kappa=0.5, g=TimeDependent(lambda p, t: 2 * t)),
     )
@@ -64,7 +66,7 @@ def test_theta_method_integrates_a_time_dependent_source_to_second_order(make_un
     """With natural boundaries and a uniform source sin(t), the mean of u is 1 - cos(t)
     exactly; Crank-Nicolson's trapezoid on the source converges at second order."""
     mesh = make_unit_square(6)
-    problem = Heat(source=TimeDependent(lambda p, t: np.sin(t))).problem(mesh)
+    problem = Heat().problem(mesh, Conditions(Source(TimeDependent(lambda p, t: np.sin(t)))))
     T = 1.0
     errors = []
     for steps in (5, 10, 20):
@@ -78,8 +80,8 @@ def test_theta_method_follows_time_dependent_dirichlet_data(make_unit_square):
     """Boundary held at g(t) = 1 + t with source g'(t) = 1: u(x, t) = 1 + t is the exact
     discrete solution for every theta, since K annihilates constants."""
     mesh = make_unit_square(5)
-    bc = BoundaryConditions(Dirichlet(everywhere(), TimeDependent(lambda p, t: 1.0 + t)))
-    problem = Heat(source=TimeDependent(lambda p, t: 1.0)).problem(mesh, bc)
+    bc = Conditions(Dirichlet(everywhere(), TimeDependent(lambda p, t: 1.0 + t)))
+    problem = Heat().problem(mesh, bc + Source(TimeDependent(lambda p, t: 1.0)))
     assert problem.is_time_dependent
     np.testing.assert_allclose(problem.constraints_at(2.0)[2], 3.0)
     u0 = problem.space.interpolate(1.0)
@@ -97,11 +99,11 @@ def test_newmark_integrates_a_time_dependent_source(make_unit_square):
     n = Wave(stiffness=1.0).space(mesh).n_dofs
     zero = np.zeros(n)
 
-    constant = Wave(stiffness=1.0, source=TimeDependent(lambda p, t: 2.0 + 0.0 * t)).problem(mesh)
+    constant = Wave(stiffness=1.0).problem(mesh, Conditions(Source(TimeDependent(lambda p, t: 2.0 + 0.0 * t))))
     solution = NewmarkMethod(dt=0.05, steps=20).solve(constant, zero, zero)
     assert _mean(constant, solution.u[-1]) == pytest.approx(1.0, abs=1e-10)
 
-    forced = Wave(stiffness=1.0, source=TimeDependent(lambda p, t: np.sin(t))).problem(mesh)
+    forced = Wave(stiffness=1.0).problem(mesh, Conditions(Source(TimeDependent(lambda p, t: np.sin(t)))))
     T = 1.0
     errors = []
     for steps in (5, 10, 20):
@@ -113,7 +115,7 @@ def test_newmark_integrates_a_time_dependent_source(make_unit_square):
 
 def test_newmark_refuses_time_dependent_dirichlet_data(make_unit_square):
     mesh = make_unit_square(4)
-    bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: t)))
+    bc = Conditions(Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: t)))
     problem = Wave(stiffness=1.0).problem(mesh, bc)
     n = problem.space.n_dofs
     with pytest.raises(NotImplementedError, match='Dirichlet'):
@@ -124,7 +126,7 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
     """A heat step carries the flux, an elastic step the stress; a loaded series, which
     has no problem, packages a bare field."""
     mesh = make_unit_square(4)
-    heat = Heat(source=1.0).problem(mesh)
+    heat = Heat().problem(mesh, Conditions(Source(1.0)))
     u0 = heat.space.interpolate(0.0)
     history = ThetaMethod(dt=0.1, steps=3).solve(heat, u0)
     assert isinstance(history, TransientSolution)
@@ -135,8 +137,8 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
     assert isinstance(history.final, ScalarFieldSolution)
     np.testing.assert_array_equal(history.final.u, history.u[-1])
 
-    bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))
-    elastic = LinearElastic(E=10.0, nu=0.3, source=[0.0, -1.0]).problem(mesh, bc)
+    bc = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))
+    elastic = LinearElastic(E=10.0, nu=0.3).problem(mesh, bc + Source([0.0, -1.0]))
     zero = np.zeros(elastic.space.n_dofs)
     waves = NewmarkMethod(dt=0.01, steps=2).solve(elastic, zero, zero)
     assert isinstance(waves.final, ElasticSolution)
@@ -155,11 +157,11 @@ def test_snapshot_at_a_time_is_a_steady_problem(make_unit_square):
     an estimator takes the snapshot."""
     from fem.analysis.estimators import RecoveryEstimator
     mesh = make_unit_square(5)
-    bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: t)))
-    problem = Poisson(source=TimeDependent(lambda p, t: 2.0 * t)).problem(mesh, bc)
+    bc = Conditions(Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: t)))
+    problem = Poisson().problem(mesh, bc + Source(TimeDependent(lambda p, t: 2.0 * t)))
 
-    reference_bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), 3.0))
-    reference = Poisson(source=lambda p: 6.0).problem(mesh, reference_bc)
+    reference_bc = Conditions(Dirichlet(on_plane(0, 0.0), 3.0))
+    reference = Poisson().problem(mesh, reference_bc + Source(lambda p: 6.0))
 
     snapshot = problem.at(3.0)
     assert not snapshot.is_time_dependent and problem.is_time_dependent
@@ -179,7 +181,7 @@ def test_snapshot_at_a_time_is_a_steady_problem(make_unit_square):
 
 def test_bc_plot_labels_a_time_dependent_value(make_unit_square):
     from fem.plot.bc import _classify
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: 1.0 + t)),
         Neumann(on_plane(0, 1.0), 2.0),
     )

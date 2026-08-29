@@ -3,11 +3,13 @@ import numpy as np
 import pytest
 
 from fem.numerics import bump_function
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.regions import everywhere, on_plane
 from fem.physics.equations import Heat, Projection, Poisson, LinearElastic, Wave
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod, wave_energy
 from fem.algebra.solve import EigenSolve, LinearSolve, NewtonSolve
+from fem.loads import Source
 
 
 def _on(equation, mesh, bc=None):
@@ -36,7 +38,7 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
     def linear_field(p):
         return [2.0 * p[0] + 3.0 * p[1] - 1.0]
 
-    solution = Projection(source=linear_field).problem(mesh).solve()
+    solution = Projection().problem(mesh, Conditions(Source(linear_field))).solve()
 
     u = solution.u
     expected = np.array([linear_field(v)[0] for v in mesh.vertices])
@@ -46,7 +48,7 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
 def _pinned_square(make_unit_square, n=12):
     """Unit square with every boundary node pinned at u = 0."""
     mesh = make_unit_square(n)
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
     return mesh, bc
 
 
@@ -56,10 +58,10 @@ def test_wave_holds_static_equilibrium_under_load(make_unit_square):
     mesh, bc = _pinned_square(make_unit_square)
     source = 1.0
 
-    u_static = Poisson(source=source).problem(mesh, bc).solve().u
+    u_static = Poisson().problem(mesh, bc + Source(source)).solve().u
     assert np.abs(u_static).max() > 0, "static solution is trivial; test proves nothing"
 
-    problem = _on(Wave(stiffness=1.0, source=source), mesh, bc)
+    problem = _on(Wave(stiffness=1.0), mesh, bc + Source(source))
     v0 = np.zeros(len(u_static))
     u_values = NewmarkMethod(dt=0.01, steps=20).solve(problem, u_static.copy(), v0).u
 
@@ -114,7 +116,7 @@ def test_linear_elastic_stretches_under_tension(make_unit_square):
     """A bar fixed on the left and pulled right elongates in +x, with the left edge unmoved."""
     mesh = make_unit_square(20)
 
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [50, 0]),
     )

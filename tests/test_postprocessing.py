@@ -7,7 +7,8 @@ exactly, tying the recovered fields to the operator without a magic number.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.elements import LinearTriangleElement
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.equations import LinearElastic
@@ -27,9 +28,9 @@ def _geometry_and_nodal(A):
     return geometry, nodal[None]
 
 
-def _cantilever_bc() -> BoundaryConditions:
+def _cantilever_bc() -> Conditions:
     """Left edge pinned, right edge pulled down."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
         Neumann(on_plane(0, 1.0), [0.0, -1.0]),
     )

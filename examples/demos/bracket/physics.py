@@ -12,7 +12,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.physics.equations import LinearElastic
 from fem.analysis.estimators import RecoveryEstimator
@@ -57,9 +58,9 @@ def l_bracket_outline(arm: float = 4.0, width: float = 1.2,
     return Outline([pieces])
 
 
-def make_bc(arm, traction) -> BoundaryConditions:
+def make_bc(arm, traction) -> Conditions:
     """Clamped at the top of the upright limb, pulled down at the horizontal tip."""
-    return BoundaryConditions(
+    return Conditions(
         Dirichlet(on_plane(1, arm), [0, 0]),
         Neumann(on_plane(0, arm), [0, -traction]),
     )
@@ -124,7 +125,7 @@ def refine_and_track(fillet, element_type, equation, bc, arm, width, min_angle,
 class BracketStudy:
     """Everything `run` computed, for the figures and the summary to read."""
     fillet_radius: float
-    bc: BoundaryConditions
+    bc: Conditions
     sharp: Bracket
     rounded: Bracket
 

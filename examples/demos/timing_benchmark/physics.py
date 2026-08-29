@@ -19,12 +19,14 @@ import logging
 import time
 from dataclasses import dataclass
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.algebra.backends import DirectBackend, IterativeBackend
 from fem.mesh.structured import box_mesh
 from fem.physics.equations import LinearElastic
 from fem.regions import everywhere
 from fem.algebra.system import DiscreteSystem
+from fem.loads import Source
 
 logging.disable(logging.CRITICAL)  # silence per-solve logging for clean timing
 
@@ -56,11 +58,11 @@ class Timing:
 
 def benchmark(n: int) -> Timing:
     mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
-    bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0, 0.0]))
-    equation = LinearElastic(E=200.0, nu=0.3, source=lambda p: [1.0, 0.0, 0.0])
+    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0, 0.0]))
+    equation = LinearElastic(E=200.0, nu=0.3)
 
     # Building the LinearProblem assembles the stiffness and the load.
-    problem, t_assemble = _time(lambda: equation.problem(mesh, bc))
+    problem, t_assemble = _time(lambda: equation.problem(mesh, bc + Source(lambda p: [1.0, 0.0, 0.0])))
     A, b = problem.tangent(None), problem.load
 
     # Each backend factors/preconditions in DiscreteSystem's constructor and solves

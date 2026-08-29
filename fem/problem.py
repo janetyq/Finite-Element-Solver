@@ -11,16 +11,16 @@ elasticity, flux for Poisson).
 
 The operator is one `Form`, a sum of terms: the physics form the problem was stated
 with plus, for each Robin condition, `kappa` times the boundary mass over that
-region's facets. The load is a tuple of `fem.loads.Load` terms: the volume source, one
-`BoundaryLoad` per Neumann condition, one per Robin value, and any extra terms (a
-`PointLoad`). Energy, residual, and tangent then read
+region's facets. The load is the sum of the resolution's `fem.loads.Load` terms: the
+volume source, one `BoundaryLoad` per Neumann condition, one per Robin value, and any
+`PointLoad`. Energy, residual, and tangent then read
 
     term        energy         residual      tangent
     operator    Π(u)           R(u)          ∂R/∂u
     load        -fᵀ u          -f            0
 
 with the operator's terms handled by the space (`assemble`, `assemble_residual`,
-`assemble_tangent`, `total_energy`) and the load's by `fem.loads.total_load`.
+`assemble_tangent`, `total_energy`) and the load's by `ResolvedConditions.load_at`.
 
 A transient problem also has a mass side, `mass` = density times the space's consistent
 mass matrix, and optionally a `damping` matrix (`RayleighDamping`), which the
@@ -33,7 +33,7 @@ step. `at(t)` is the steady snapshot with every value fixed at `t`, which a stea
 `LinearProblem` is the case whose operator has a constant tangent (every term a
 `BilinearForm`): the matrix is assembled once and held, and the residual is affine.
 Everything that needs one fixed operator (a direct solve, the integrators, an
-eigenproblem, SIMP) requires it. Both own their constraints, resolved from the BC spec
+eigenproblem, SIMP) requires it. Both own their `Conditions`, resolved on the space
 once; a driver that remeshes builds a new `Problem`. Named PDEs are `Equation`s
 (`fem.physics.equations`), whose `problem` builds one of these.
 
@@ -44,12 +44,12 @@ import copy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from fem.boundary import BoundaryConditions, ResolvedBC
-from fem.physics.forms import BoundaryMassForm, Form
-from fem.loads import BoundaryLoad, EvaluatedLoad, Load, NodalSource, Source, VolumeSource, as_source, total_load
+from fem.conditions import Conditions, ResolvedConditions
+from fem.physics.forms import Form
+from fem.loads import Load, Source
 from fem.post.solution import FieldSolution
 from fem.space import FunctionSpace
-from fem.typing import Constraints, DofVector, FieldValue, FloatArray, Operator
+from fem.typing import Constraints, DofVector, FloatArray, Operator
 
 S = TypeVar('S', bound=FieldSolution)     # the solution the operator packages
 S2 = TypeVar('S2', bound=FieldSolution)
@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from fem.algebra.backends import Backend
     from fem.algebra.solve import SolveStrategy
 
-__all__ = ['Problem', 'LinearProblem', 'RayleighDamping', 'Source', 'NodalSource']
+__all__ = ['Problem', 'LinearProblem', 'RayleighDamping']
 
 
 @dataclass(frozen=True)
@@ -79,15 +79,14 @@ class RayleighDamping:
 
 
 class Problem(Generic[S]):
-    '''R(u) = 0: an operator, a load, and boundary conditions on one space.
+    '''R(u) = 0: an operator with conditions on one space.
 
-    `source` is the volume load: a field or a `Source`, kept as the normalized load
-    term beside the assembled load so a residual estimator can read the pointwise
-    source it needs. `loads` are extra load terms (a `PointLoad`) added
-    to those the boundary conditions supply. `bc` is the mesh-independent spec the
-    constraints were resolved from, and `resolved` that resolution on this space.
-    `density` scales the mass matrix (`mass`); it is the coefficient on the
-    time-derivative term. `damping` is the `RayleighDamping` a second-order integrator
+    `conditions` is the mesh-independent `Conditions` (boundary conditions, the volume
+    source, point loads) and `resolved` its resolution on this space: the constraints,
+    the operator terms a Robin condition adds, and the load terms, whose sum is `load`.
+    `source` and `loads` are the resolution's; the source is kept as a pointwise field
+    so a residual estimator can read it. `density` scales the mass matrix (`mass`); it is the
+    coefficient on the time-derivative term. `damping` is the `RayleighDamping` a second-order integrator
     reads, or None. `time_orders` is the set of time-derivative orders the problem has
     a meaning for (an `Equation`'s; every order for a problem composed by hand), which
     `solve` and the integrators check.
@@ -100,10 +99,9 @@ class Problem(Generic[S]):
         self,
         space: FunctionSpace,
         operator: Form[S],
-        source: FieldValue | VolumeSource = None,
-        bc: BoundaryConditions | None = None,
+        conditions: Conditions | None = None,
+        *,
         density: float = 1.0,
-        loads: tuple[Load, ...] = (),
         damping: RayleighDamping | None = None,
         time_orders: frozenset[int] = frozenset({0, 1, 2}),
     ) -> None:
@@ -113,36 +111,16 @@ class Problem(Generic[S]):
         self.density = density
         self.damping = damping
         self.time_orders = frozenset(time_orders)
-        self.bc = bc if bc is not None else BoundaryConditions()
-        self._resolved = self.bc.resolve(space.nodes, space.n_components)
+        self.conditions = conditions if conditions is not None else Conditions()
+        self._resolved = self.conditions.resolve(space)
 
-        # A Robin condition contributes to both sides: κ∫_Γ u·v on the operator and
-        # ∫_Γ g·v on the load, each over the region's facets. The operator half is a
-        # term of the operator, so every consumer of `operator` sees it; `physics` is
-        # the form the problem was stated with, for a driver that rebuilds it.
+        # The Robin terms are part of the operator, so every consumer of `operator`
+        # sees them; `physics` is the form the problem was stated with, for a driver
+        # that rebuilds it.
         self.physics: Form[S] = operator
-        self._boundary_terms: tuple[Form, ...] = tuple(
-            robin.kappa * BoundaryMassForm(space.n_components, robin.facet_mask)
-            for robin in self._resolved.robin
-        )
+        self._boundary_terms: tuple[Form, ...] = self._resolved.operator_terms
         self.operator: Form[S] = self._with_boundary_terms(operator)
-
-        # Callers pass only the volume source; the BC resolution supplies the traction
-        # terms, one masked boundary integral per condition so a traction stays on its
-        # own facets instead of spreading through a shared corner node.
-        self.source = as_source(source, space.n_components)
-        boundary_loads: list[Load] = []
-        for neumann in self._resolved.neumann:
-            boundary_loads.append(
-                BoundaryLoad.over(space, neumann.facet_mask, neumann.node_idxs, neumann.value))
-        for robin in self._resolved.robin:
-            boundary_loads.append(BoundaryLoad.over(space, robin.facet_mask, robin.node_idxs, robin.value))
-        self.loads: tuple[Load, ...] = (
-            (() if self.source is None else (self.source,)) + tuple(boundary_loads) + tuple(loads)
-        )
-        # Set by `at(t)`: a snapshot answers no time-dependent question.
-        self._frozen = False
-        self._b = total_load(self.loads, space, 0.0)
+        self._b = self._resolved.load_at(0.0)
         # A constant tangent is assembled on first use, not here. Stating a problem
         # is cheap; assembling its operator is the expensive half, and a problem can
         # be built without ever being solved: a topology optimization iteration
@@ -153,11 +131,9 @@ class Problem(Generic[S]):
 
     @property
     def is_time_dependent(self) -> bool:
-        '''Whether the source, an extra load, or any boundary value is a
-        `TimeDependent` field. A snapshot from `at(t)` is not.'''
-        if self._frozen:
-            return False
-        return any(term.is_time_dependent for term in self.loads) or self.bc.is_time_dependent
+        '''Whether the source, a load, or any boundary value is a `TimeDependent`
+        field. A snapshot from `at(t)` is not.'''
+        return self._resolved.is_time_dependent
 
     def at(self: P, t: float) -> P:
         '''This problem with every time-dependent value fixed at time `t`: a steady
@@ -165,31 +141,20 @@ class Problem(Generic[S]):
         if not self.is_time_dependent:
             return self
         snapshot = copy.copy(self)
-        snapshot._frozen = True
-        snapshot.loads = tuple(
-            EvaluatedLoad(term.vector(self.space, t)) if term.is_time_dependent else term
-            for term in self.loads
-        )
-        # The source stays a pointwise field (an estimator reads it), fixed at `t`.
-        if self.source is not None:
-            snapshot.source = self.source.at(t)
         snapshot._resolved = self._resolved.at(t)
-        snapshot._b = total_load(snapshot.loads, self.space, t)
+        snapshot._b = snapshot._resolved.load_at(t)
         return snapshot
 
     def load_at(self, t: float) -> DofVector:
         '''The load at time `t`; `load` itself when nothing depends on time.'''
         if not self.is_time_dependent:
             return self._b
-        return total_load(self.loads, self.space, t)
+        return self._resolved.load_at(t)
 
     def constraints_at(self, t: float) -> Constraints:
         '''The Dirichlet partition at time `t`: the same DOFs as `constraints`, with
         the prescribed values of a `TimeDependent` condition taken at `t`.'''
-        if self._frozen:
-            return self.constraints
-        r = self._resolved.at(t)
-        return (r.free_idxs, r.fixed_idxs, r.fixed_values)
+        return self._resolved.constraints_at(t)
 
     @property
     def mass(self) -> Operator:
@@ -223,13 +188,22 @@ class Problem(Generic[S]):
         return self.operator.has_energy
 
     @property
-    def resolved(self) -> ResolvedBC:
+    def resolved(self) -> ResolvedConditions:
         return self._resolved
 
     @property
+    def source(self) -> Source | None:
+        '''The volume source as a pointwise field, or None.'''
+        return self._resolved.source
+
+    @property
+    def loads(self) -> tuple[Load, ...]:
+        '''The load terms whose sum is `load`.'''
+        return self._resolved.loads
+
+    @property
     def constraints(self) -> Constraints:
-        r = self._resolved
-        return (r.free_idxs, r.fixed_idxs, r.fixed_values)
+        return self._resolved.constraints
 
     @property
     def load(self) -> DofVector:
@@ -241,7 +215,7 @@ class Problem(Generic[S]):
         Which DOFs are constrained and what the load is follow from the boundary
         conditions and the source, neither of which the operator enters, so a driver
         re-solving under a rebuilt operator (a topology optimization iteration
-        rescaling the stiffness) keeps them rather than resolving the BCs and
+        rescaling the stiffness) keeps them rather than resolving the conditions and
         reassembling the load per solve. The Robin terms of the operator are kept
         alongside the new physics.
 
@@ -364,10 +338,9 @@ class LinearProblem(Problem[S]):
         self,
         space: FunctionSpace,
         operator: Form[S],
-        source: FieldValue | VolumeSource = None,
-        bc: BoundaryConditions | None = None,
+        conditions: Conditions | None = None,
+        *,
         density: float = 1.0,
-        loads: tuple[Load, ...] = (),
         damping: RayleighDamping | None = None,
         time_orders: frozenset[int] = frozenset({0, 1, 2}),
     ) -> None:
@@ -376,7 +349,8 @@ class LinearProblem(Problem[S]):
                 f'{type(operator).__name__} has a state-dependent tangent; state it as a '
                 'Problem and solve it with NewtonSolve.'
             )
-        super().__init__(space, operator, source, bc, density, loads, damping, time_orders)
+        super().__init__(space, operator, conditions, density=density, damping=damping,
+                         time_orders=time_orders)
 
     def with_operator(self, operator: Form[S2]) -> 'LinearProblem[S2]':
         if not operator.constant_tangent:

@@ -87,7 +87,7 @@ if TYPE_CHECKING:
 # `TimeDependent` function of position and time (fixed at a time by
 # `fem.regions.field_at` before use). `fem.regions.evaluate_field` normalizes the
 # first three to (n_points, n_components). A component may itself be `None`,
-# meaningful only for a Dirichlet value (BoundaryConditions' own resolver leaves it
+# meaningful only for a Dirichlet value (the Dirichlet resolver leaves it
 # free rather than pinned); `evaluate_field` rejects it for every other use (a load
 # has no free component).
 FieldValue: TypeAlias = Union[

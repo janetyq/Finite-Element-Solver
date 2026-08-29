@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 
 from fem.analysis.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from mms import exact_gradient, h1_seminorm_error
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.physics.energies import StVenantKirchhoff
@@ -22,6 +23,7 @@ from fem.physics.derived import GradientField
 from fem.regions import everywhere, on_plane
 from fem.post.solution import ElasticSolution, ScalarFieldSolution
 from fem.space import FunctionSpace
+from fem.loads import Source
 
 
 def _poisson_source(point):
@@ -37,10 +39,10 @@ def _solved(equation, mesh, bc, element_type=QuadraticTriangleElement):
     return problem, problem.solve()
 
 
-def _solve(equation, n, bc_value=0.0):
+def _solve(equation, n, bc_value=0.0, source=None):
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    bc = BoundaryConditions(Dirichlet(everywhere(), bc_value))
-    return _solved(equation, mesh, bc)
+    bc = Conditions(Dirichlet(everywhere(), bc_value))
+    return _solved(equation, mesh, bc if source is None else bc + source)
 
 
 # -- the new primitives: shape Hessians, field Hessian, the divergences -------
@@ -135,7 +137,7 @@ def test_p2_residual_vanishes_on_a_quadratic_field():
     residual (f + laplacian u = 0), its edge jumps (a globally continuous linear
     gradient), and its boundary term (Dirichlet everywhere, so every edge is skipped) all
     vanish, and every indicator is zero."""
-    equation = Poisson(source=None)
+    equation = Poisson()
     problem, solution = _solve(equation, 5, bc_value=lambda p: p[0]**2 - p[1]**2)
     eta = ResidualEstimator().estimate(problem, solution)
     assert np.all(eta < 1e-10)
@@ -144,7 +146,7 @@ def test_p2_residual_vanishes_on_a_quadratic_field():
 def test_p2_residual_interior_term_is_active():
     """A guard that the interior div term is really carried: the P2 Laplacian of a
     non-harmonic solve is not identically zero, so dropping it would change the estimate."""
-    _, solution = _solve(Poisson(source=_poisson_source), 8)
+    _, solution = _solve(Poisson(), 8, source=Source(_poisson_source))
     laplacian = GradientField().divergence(solution)
     assert np.abs(laplacian).max() > 1.0
 
@@ -157,10 +159,10 @@ def test_p2_residual_reliability_is_bounded_and_stable():
     sequence: the effectivity index is bounded and does not drift up. A residual estimator
     over-estimates (its constant is looser than a recovery estimator's), so this checks
     boundedness and stability, not that the index tends to 1."""
-    equation = Poisson(source=_poisson_source)
+    equation = Poisson()
     indices = []
     for n in (6, 11, 21):
-        problem, solution = _solve(equation, n)
+        problem, solution = _solve(equation, n, source=Source(_poisson_source))
         eta = _global(ResidualEstimator().estimate(problem, solution))
         true_error = h1_seminorm_error(problem.space, solution.u, exact_gradient)
         indices.append(eta / true_error)
@@ -172,7 +174,7 @@ def test_p2_residual_reliability_is_bounded_and_stable():
 def test_p2_residual_concentrates_near_a_peaked_source():
     """The indicator is largest where the solution is hardest to resolve."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(10, 10))
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
 
     def peaked_source(point):
         a = 50
@@ -180,8 +182,8 @@ def test_p2_residual_concentrates_near_a_peaked_source():
         r2 = x**2 + y**2
         return 4 * a * a * (1 - a * r2) * np.exp(-a * r2)
 
-    equation = Poisson(source=peaked_source)
-    problem, solution = _solved(equation, mesh, bc)
+    equation = Poisson()
+    problem, solution = _solved(equation, mesh, bc + Source(peaked_source))
 
     eta = ResidualEstimator().estimate(problem, solution)
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
@@ -193,12 +195,12 @@ def test_p2_residual_drives_adaptive_refinement():
     """The full loop on a P2 space: the mesh grows, concentrates near a localised source,
     and the solve stays P2 across remeshes."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    equation = Poisson(source=lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    equation = Poisson()
 
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
-        mesh, lambda m: equation.problem(m, bc, element_type=QuadraticTriangleElement),
+        mesh, lambda m: equation.problem(m, bc + Source(lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0), element_type=QuadraticTriangleElement),
         ResidualEstimator(), max_triangles=300, max_iters=5,
     )
     solution = driver.run()
@@ -216,7 +218,7 @@ def test_p2_elastic_residual_runs_end_to_end():
     """A P2 elastic solve with a Neumann edge produces a finite, non-negative estimate,
     exercising the stress divergence and the masked boundary term together."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [1.0, 0]),
     )
@@ -232,8 +234,8 @@ def test_residual_estimator_refuses_curved_elements():
     """The interior term's divergence assumes a constant Jacobian, so a curved element
     is refused."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(4, 4))
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    equation = Poisson(source=1.0)
-    problem, solution = _solved(equation, mesh, bc, IsoparametricTriangleElement)
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    equation = Poisson()
+    problem, solution = _solved(equation, mesh, bc + Source(1.0), IsoparametricTriangleElement)
     with pytest.raises(NotImplementedError, match='RecoveryEstimator'):
         ResidualEstimator().estimate(problem, solution)

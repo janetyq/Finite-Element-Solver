@@ -12,7 +12,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.analysis.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.elements import IsoparametricTriangleElement
 from fem.physics.equations import LinearElastic
 from fem.analysis.estimators import RecoveryEstimator
@@ -72,7 +73,7 @@ def mesh_plate(length, height, radius, rim_chords, min_angle,
     return graph, graph.mesh(min_angle=min_angle, max_area_fraction=max_area_fraction)
 
 
-def plate_bc(length, traction) -> BoundaryConditions:
+def plate_bc(length, traction) -> Conditions:
     """A roller on the left, tension on the right, and nothing on the rim.
 
     The rim takes no condition: a free surface is the natural boundary condition of
@@ -86,14 +87,14 @@ def plate_bc(length, traction) -> BoundaryConditions:
     The conditions are written against coordinates, so they resolve against whatever
     triangulation arrives, including the ones adaptive refinement rebuilds.
     """
-    return BoundaryConditions(
+    return Conditions(
         Dirichlet(on_plane(0, 0.0), [0, None]),
         Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0]),
         Neumann(on_plane(0, length), [traction, 0]),
     )
 
 
-def refine_to_the_rim(mesh: Mesh, bc: BoundaryConditions, refinement_iters,
+def refine_to_the_rim(mesh: Mesh, bc: Conditions, refinement_iters,
                       refinement_budget) -> tuple[Mesh, ElasticSolution]:
     """Solve on the curved quadratic element, adaptively refined by the recovery
     estimator, which reads the curved rim's stress correctly.
@@ -119,7 +120,7 @@ class PlateStudy:
     traction: float
     min_angle: float
     pslg: PSLG
-    bc: BoundaryConditions
+    bc: Conditions
     n_initial: int                  # triangles before adaptive refinement
     initial_worst_angle: float
     initial_rim_facets: int

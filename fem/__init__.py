@@ -6,14 +6,14 @@ optimization.
 
 Common entry points are re-exported here, so typical use is:
 
-    from fem import box_mesh, BoundaryConditions, Dirichlet, Poisson
+    from fem import box_mesh, Conditions, Dirichlet, Poisson, Source
     from fem.regions import everywhere
 
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))
     # Conditions are described geometrically, so one spec holds on any mesh.
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    conditions = Conditions(Dirichlet(everywhere(), 0.0), Source(1.0))
 
-    solution = Poisson(source=lambda p: 1.0).problem(mesh, bc).solve()
+    solution = Poisson().problem(mesh, conditions).solve()
 """
 
 __version__ = "0.1.0"
@@ -37,7 +37,8 @@ from fem.elements import (
     IsoparametricLineElement,
     IsoparametricTriangleElement,
 )
-from fem.boundary import BoundaryConditions, Condition, Dirichlet, Neumann, ResolvedBC, Robin
+from fem.boundary import Condition, Dirichlet, Neumann, Robin
+from fem.conditions import Conditions, ResolvedConditions
 from fem.regions import (
     everywhere,
     on_plane,
@@ -71,7 +72,7 @@ from fem.physics.forms import (
     SumForm,
     rigid_body_modes,
 )
-from fem.loads import BoundaryLoad, Load, NodalSource, PointLoad, Source
+from fem.loads import Load, PointLoad, Source
 from fem.physics.materials import LinearElasticMaterial
 from fem.physics.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
 from fem.physics.derived import DerivedField
@@ -173,12 +174,12 @@ __all__ = [
     "QuadraticTriangleElement",
     "IsoparametricLineElement",
     "IsoparametricTriangleElement",
-    "BoundaryConditions",
     "Condition",
+    "Conditions",
+    "ResolvedConditions",
     "Dirichlet",
     "Neumann",
     "Robin",
-    "ResolvedBC",
     "everywhere",
     "on_plane",
     "in_box",
@@ -199,9 +200,7 @@ __all__ = [
     "Problem",
     "RayleighDamping",
     "Source",
-    "NodalSource",
     "Load",
-    "BoundaryLoad",
     "PointLoad",
     "Form",
     "BilinearForm",

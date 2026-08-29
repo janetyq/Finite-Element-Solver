@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions
+from fem.conditions import Conditions
 from fem.physics.equations import Wave
 from fem.algebra.integrators import NewmarkMethod
 from fem.mesh.mesh import Mesh
@@ -69,7 +69,7 @@ def run(c=1.0, front_x=1.0, front_width=0.25, dt=0.02, steps=400, min_angle=28, 
 
     # No conditions, so every edge is a wall: the natural du/dn = 0 reflects a wave
     # the same way up.
-    bc = BoundaryConditions()
+    bc = Conditions()
     wave = Wave(stiffness=c**2).problem(mesh, bc)
 
     # A straight front on the open side, travelling toward the wall. Given d'Alembert's

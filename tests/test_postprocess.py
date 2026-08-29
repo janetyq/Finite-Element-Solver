@@ -5,7 +5,8 @@ import numpy as np
 import pytest
 
 from fem.post import invariants
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.physics.energies import StVenantKirchhoff
 from fem.physics.equations import LinearElastic, Poisson, Projection
@@ -17,6 +18,7 @@ from fem.post.recovery import nodal_gradient, recover_nodal
 from fem.regions import everywhere, on_plane
 from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
 from fem.space import FunctionSpace
+from fem.loads import Source
 
 
 @pytest.mark.parametrize('element_type', [LinearTriangleElement, QuadraticTriangleElement])
@@ -40,11 +42,11 @@ def test_a_poisson_solve_carries_its_flux_and_recovers_it_to_the_nodes():
     """Poisson comes back as a ScalarFieldSolution: a per-element flux plus its nodal
     recovery, aligned with the solution's own space (here P2, so edge nodes too)."""
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [7, 7])
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(everywhere(), 0.0),
     )
 
-    solution = Poisson(source=1.0).problem(mesh, bc, element_type=QuadraticTriangleElement).solve()
+    solution = Poisson().problem(mesh, bc + Source(1.0), element_type=QuadraticTriangleElement).solve()
 
     assert isinstance(solution, ScalarFieldSolution)
     assert solution.flux.shape == (len(mesh.elements), 2)
@@ -59,10 +61,10 @@ def test_nodal_flux_takes_a_recovery_method():
     """The `method` argument threads from the solution's nodal accessor to the space's
     recovery, so a caller can ask for the L2 projection instead of the average."""
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [8, 8])
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(everywhere(), 0.0),
     )
-    solution = Poisson(source=1.0).problem(mesh, bc).solve()  # varying flux (curved u)
+    solution = Poisson().problem(mesh, bc + Source(1.0)).solve()  # varying flux (curved u)
 
     average = solution.nodal_flux(method='average')
     l2 = solution.nodal_flux(method='l2')
@@ -74,7 +76,7 @@ def test_nodal_flux_takes_a_recovery_method():
 def test_a_projection_stays_a_bare_field_solution():
     """A projection names no derived field, so it is not upgraded to a ScalarFieldSolution."""
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
-    solution = Projection(source=2.0).problem(mesh, BoundaryConditions()).solve()
+    solution = Projection().problem(mesh, Conditions() + Source(2.0)).solve()
     assert type(solution) is FieldSolution
 
 
@@ -83,7 +85,7 @@ def test_nodal_von_mises_recovers_the_tensor_then_reduces():
     Reducing to von Mises per element and averaging that scalar is a different, less
     faithful number, because the reduction is nonlinear."""
     mesh = box_mesh([[0.0, 0.0], [4.0, 1.0]], [12, 4])
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 4.0), [0, -0.3]),
     )
@@ -103,7 +105,7 @@ def test_solution_carries_its_space_and_deformed_mesh_uses_only_vertex_dofs():
     warps by the vertex DOFs alone, dropping the edge-node displacements the mesh has no
     vertices for."""
     mesh = box_mesh([[0.0, 0.0], [4.0, 1.0]], [10, 4])
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 4.0), [0, -0.2]),
     )
@@ -120,7 +122,7 @@ def test_solution_carries_its_space_and_deformed_mesh_uses_only_vertex_dofs():
 
 def test_scalar_solution_nodal_values_are_one_per_node():
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [4, 4])
-    solution = Poisson(source=1.0).problem(mesh).solve()
+    solution = Poisson().problem(mesh, Conditions(Source(1.0))).solve()
     assert solution.nodal_values.shape == (len(mesh.vertices),)
     np.testing.assert_array_equal(solution.nodal_values, solution.u)
 
@@ -153,10 +155,10 @@ def test_element_type_round_trips_through_save_and_load(tmp_path):
     """A P2 solution reloads as P2, its flux intact, so nodal recovery works after load
     with no live space to lean on."""
     mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [5, 5])
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(everywhere(), 0.0),
     )
-    solution = Poisson(source=1.0).problem(mesh, bc, element_type=QuadraticTriangleElement).solve()
+    solution = Poisson().problem(mesh, bc + Source(1.0), element_type=QuadraticTriangleElement).solve()
 
     path = str(tmp_path / 'solution.npz')
     solution.save(path)

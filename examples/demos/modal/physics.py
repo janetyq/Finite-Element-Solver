@@ -9,7 +9,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
 from fem.physics.equations import LinearElastic
 from fem.algebra.integrators import NewmarkMethod
@@ -72,7 +73,7 @@ BETA1_SQ = 1.875104**2                        # first fixed-free beam root, squa
 
 # Grounded at the stem base: the fork's node, held without damping the voice. A free
 # body has rigid-body modes the shift-invert eigensolve cannot factor through.
-clamp = BoundaryConditions(Dirichlet(on_plane(1, 0.0), [0, 0]))
+clamp = Conditions(Dirichlet(on_plane(1, 0.0), [0, 0]))
 
 
 def cantilever_hz(length, thickness):
@@ -144,10 +145,9 @@ def strike(fork: ModalSolution, voice, ring_periods, steps_per_period,
         inward = -np.sign(p[0])      # each tip pushed toward the other
         return [inward * np.sin(np.pi * t / tap_length) if t < tap_length else 0.0, 0.0]
 
-    equation = LinearElastic(E, NU, density=RHO, damping=damping,
-                             loads=(PointLoad(at_indices([left_tip, right_tip]),
-                                              TimeDependent(pinch)),))
-    problem = equation.problem(fork.mesh, clamp, element_type=QuadraticTriangleElement)
+    equation = LinearElastic(E, NU, density=RHO, damping=damping)
+    problem = equation.problem(fork.mesh, clamp + PointLoad(at_indices([left_tip, right_tip]),
+                                              TimeDependent(pinch)), element_type=QuadraticTriangleElement)
     rest = np.zeros(problem.space.n_dofs)
     ringing = NewmarkMethod(dt=period / steps_per_period,
                             steps=int(ring_periods * steps_per_period)).solve(problem, rest, rest)

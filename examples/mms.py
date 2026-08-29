@@ -22,7 +22,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.elements import (
     Element,
     ElementGeometry,
@@ -35,7 +36,7 @@ from fem.algebra.integrators import ThetaMethod
 from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import annulus_mesh, box_mesh
-from fem.loads import NodalSource, Source
+from fem.loads import Source
 from fem.problem import LinearProblem
 from fem.regions import everywhere
 from fem.algebra.solve import LinearSolve
@@ -179,8 +180,8 @@ def solve_poisson_mms(n: int) -> MMSSolve:
     """Solve the manufactured problem on an `n` x `n` unit-square grid."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    problem = Poisson(source=source_term).problem(mesh, bc)
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    problem = Poisson().problem(mesh, bc + Source(source_term))
     solution = problem.solve()
     u = solution.u
 
@@ -234,9 +235,9 @@ def solve_elastic_mms(n: int) -> MMSSolve:
     """Solve the manufactured elasticity problem on an `n` x `n` unit-square grid."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
-    bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
-    equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, source=elastic_source)
-    problem = equation.problem(mesh, bc)
+    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0]))
+    equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU)
+    problem = equation.problem(mesh, bc + Source(elastic_source))
     solution = problem.solve()
 
     exact = elastic_exact(mesh.vertices)
@@ -293,10 +294,10 @@ def solve_variable_coefficient_mms(n: int) -> MMSSolve:
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, n_components=1)
 
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
     # The source is a callable, so it is sampled at the quadrature points like the
     # coefficient; its nodal interpolant would also converge, at a larger constant.
-    problem = Poisson(coefficient=variable_coefficient, source=Source(variable_source)).problem(space, bc)
+    problem = Poisson(coefficient=variable_coefficient).problem(space, bc + Source(variable_source))
     u = LinearSolve().solve(problem)
 
     exact = exact_solution(mesh.vertices)
@@ -328,13 +329,11 @@ def solve_poisson_mms_p2(n: int) -> MMSSolve:
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=1)
 
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
     # The P2 stiffness integrand is degree 2, integrated exactly by the space's
     # default rule; the load int f phi is degree-4-ish, so the Source samples f
     # at a degree-4 rule to keep quadrature error below the O(h^3) discretization error.
-    problem = LinearProblem(
-        space, DiffusionForm(), Source(source_term, quadrature_degree=4), bc,
-    )
+    problem = LinearProblem(space, DiffusionForm(), bc + Source(source_term, quadrature_degree=4))
     u = LinearSolve().solve(problem)
 
     # Sampled at the P2 nodes, not just the vertices: the L2 norm needs the edge-node
@@ -364,10 +363,10 @@ def solve_elastic_mms_p2(n: int) -> MMSSolve:
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
 
-    bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
+    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0]))
     operator = LinearElasticForm(LinearElasticMaterial(ELASTIC_E, ELASTIC_NU))
-    load = Source(elastic_source, n_components=2, quadrature_degree=4)
-    problem = LinearProblem(space, operator, load, bc)
+    load = Source(elastic_source, quadrature_degree=4)
+    problem = LinearProblem(space, operator, bc + load)
     u = LinearSolve().solve(problem)
 
     exact = elastic_exact(space.node_coords)   # (n_nodes, 2)
@@ -427,8 +426,8 @@ def solve_annulus_mms(
     """
     mesh = annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
 
-    bc = BoundaryConditions(Dirichlet(everywhere(), lambda p: [float(annulus_exact(np.asarray(p)))]))
-    problem = Poisson(source=annulus_source).problem(mesh, bc, element_type=element_type)
+    bc = Conditions(Dirichlet(everywhere(), lambda p: [float(annulus_exact(np.asarray(p)))]))
+    problem = Poisson().problem(mesh, bc + Source(annulus_source), element_type=element_type)
     solution = problem.solve()
     space = problem.space
 
@@ -500,13 +499,12 @@ def solve_load_comparison(n: int, quadrature_degree: int = 4) -> LoadComparison:
     """
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     space = FunctionSpace(mesh, n_components=1)
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
 
     nodal = LinearSolve().solve(
-        LinearProblem(space, DiffusionForm(), NodalSource(oscillatory_source), bc))
+        LinearProblem(space, DiffusionForm(), bc + Source(oscillatory_source, nodal=True)))
     sampled = LinearSolve().solve(
-        LinearProblem(space, DiffusionForm(),
-                      Source(oscillatory_source, quadrature_degree=quadrature_degree), bc))
+        LinearProblem(space, DiffusionForm(), bc + Source(oscillatory_source, quadrature_degree=quadrature_degree)))
 
     exact = oscillatory_exact(mesh.vertices)
     return LoadComparison(
@@ -538,7 +536,7 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
     from scipy.linalg import expm
 
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
     u0 = exact_solution(mesh.vertices)   # an eigenmode, and zero on the boundary
 
     problem = Heat().problem(mesh, bc)

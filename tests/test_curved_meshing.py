@@ -7,7 +7,8 @@ isoparametric solve reads a round boundary. The Kirsch test is the physical payo
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.physics.forms import LinearElasticForm
 from fem.physics.materials import LinearElasticMaterial
@@ -103,13 +104,13 @@ def _kirsch_rim_sigma_xx(element_type, segments):
     mesh = RuppertsAlgorithm(pslg, min_angle=28, max_area=0.02 * pslg.area()).refine()
 
     space = FunctionSpace(mesh, element_type, n_components=2)
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, None]),
         Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0]),
         Neumann(on_plane(0, length), [1.0, 0]),
     )
     operator = LinearElasticForm(LinearElasticMaterial(200.0, 0.3))
-    u = LinearSolve().solve(LinearProblem(space, operator, None, bc))
+    u = LinearSolve().solve(LinearProblem(space, operator, bc))
     solution = ElasticSolution.from_solve(space, u, operator)
 
     xy = space.node_coords

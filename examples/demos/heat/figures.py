@@ -123,7 +123,7 @@ def _animation_figure(s: HeatsinkStudy) -> Figure:
 
 def _setup_figure(s: HeatsinkStudy) -> Figure:
     setup = Plotter(1, 2, title='How the heatsink is posed')
-    setup.plot(s.mesh, mode='bc', bc=s.bc, title='Boundary conditions', idx=(0, 0))
+    setup.plot(s.mesh, mode='bc', conditions=s.bc, title='Boundary conditions', idx=(0, 0))
     schedule = setup.chart_ax(idx=(0, 1), xlabel='t', ylabel='base temperature')
     t_dense = np.linspace(0.0, float(s.t_values[-1]), 400)
     schedule.plot(t_dense, [s.base_temperature(t) for t in t_dense], color='tab:red',

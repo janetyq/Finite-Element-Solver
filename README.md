@@ -243,16 +243,16 @@ starts from, and refining the mesh is what lowers it.
 ## Quick Start
 
 ```python
-from fem import box_mesh, BoundaryConditions, Dirichlet, Poisson, Plotter
+from fem import box_mesh, Conditions, Dirichlet, Poisson, Plotter, Source
 from fem.regions import everywhere
 
 mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(40, 40))
 
-# Conditions are geometric, so the same `bc` is valid on any mesh of this domain.
-equation = Poisson(source=1)
-bc = BoundaryConditions(Dirichlet(everywhere(), 0))
+# Conditions are geometric, so the same ones are valid on any mesh of this domain:
+# what is applied to the domain (supports, loads, a source) all in one object.
+conditions = Conditions(Dirichlet(everywhere(), 0), Source(1))
 
-solution = equation.problem(mesh, bc).solve()
+solution = Poisson().problem(mesh, conditions).solve()
 
 plotter = Plotter(title="Poisson")
 plotter.plot(mesh, solution.u, mode="surface")
@@ -265,13 +265,13 @@ The equation builds a problem from the parts, which compose directly. The same s
 from fem import FunctionSpace, LinearProblem, DiffusionForm
 
 space = FunctionSpace(mesh, n_components=1)
-problem = LinearProblem(space, DiffusionForm(), source=1, bc=bc)
+problem = LinearProblem(space, DiffusionForm(), conditions)
 solution = problem.solve()
 ```
 
 `problem.solve()` picks `LinearSolve` for a constant tangent and Newton otherwise; `strategy=`
 chooses how it iterates and `backend=` how each linear system is solved, independently. The
-result is typed by the physics: `Poisson(...).problem(mesh, bc).solve()` is a
+result is typed by the physics: `Poisson().problem(mesh, conditions).solve()` is a
 `ScalarFieldSolution`, an elastic one an `ElasticSolution`, with no narrowing at the call.
 
 ### What you choose at each step
@@ -285,8 +285,7 @@ Every step of a solve is one choice among a few named objects, all importable fr
 | Element | `LinearTriangleElement`, `LinearTetrahedralElement`, `QuadraticTriangleElement`, `IsoparametricTriangleElement`, via `element_type=` | linear, read off the mesh |
 | Equation | `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`, `FiniteStrainElastic` (with `law=` `StVenantKirchhoff` or `NeohookeanEnergyDensity`) | |
 | Where | `everywhere`, `on_plane`, `in_box`, `on_tag`, `at_indices`, `union`, `intersect` | |
-| Conditions | `Dirichlet`, `Neumann`, `Robin`; a value is a constant, a callable of position, or `TimeDependent` | none |
-| Loads | `source=`, `PointLoad`, `BoundaryLoad` | none |
+| Conditions | a `Conditions` of `Dirichlet`, `Neumann`, `Robin` (on regions), a volume `Source`, and `PointLoad`s; a value is a constant, a callable of position, or `TimeDependent` | none |
 | Strategy | `LinearSolve`, `NewtonSolve` (with `BacktrackingLineSearch`, `TangentRegularization`), via `strategy=` | `default_strategy`: by the tangent |
 | Backend | `DirectBackend`, `IterativeBackend`, `MinresBackend`, via `backend=` | direct |
 | In time | `ThetaMethod`, `NewmarkMethod` (with `RayleighDamping`) | |
@@ -300,7 +299,7 @@ carries the stress and strain as full tensors and derives the scalar measures on
 demand:
 
 ```python
-solution = LinearElastic(E=200, nu=0.3).problem(mesh, bc).solve()
+solution = LinearElastic(E=200, nu=0.3).problem(mesh, conditions).solve()
 
 solution.u                 # (n_vertices * n_components,) displacement
 solution.stress            # (n_elements, 3, 3) Cauchy stress tensors
@@ -357,8 +356,9 @@ fem/                 # the solver package; grouped by layer, everything re-expor
 ├── quadrature.py    # reference-simplex Gauss rules, wired into assembly
 ├── space.py         # FunctionSpace: DOF numbering, geometry, assembly
 ├── regions.py       # position-based regions and fields (on_plane, in_box, on_tag, ...)
-├── boundary.py      # BoundaryConditions spec -> ResolvedBC for one mesh
-├── loads.py         # Source, BoundaryLoad, PointLoad
+├── boundary.py      # Dirichlet, Neumann, Robin, each resolving itself on a node set
+├── loads.py         # Source, PointLoad (and the BoundaryLoad the resolution builds)
+├── conditions.py    # Conditions: everything applied to a domain -> ResolvedConditions on a space
 ├── problem.py       # Problem: space + operator + load + constraints; the narrow waist
 │
 ├── physics/         # what equation, what material

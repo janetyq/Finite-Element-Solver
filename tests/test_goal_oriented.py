@@ -4,14 +4,17 @@ concentrates near the quantity of interest, more strongly than the global estima
 import numpy as np
 
 from fem.analysis.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.physics.equations import Poisson
 from fem.analysis.estimators import GoalOrientedEstimator, RecoveryEstimator
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
 from fem.analysis.sensitivity import PointValue
+from fem.loads import Source
 
-EQUATION = Poisson(source=lambda p: 1.0)
+EQUATION = Poisson()
+SOURCE = Source(lambda p: 1.0)
 
 
 def _nearest_node(space, point):
@@ -19,8 +22,8 @@ def _nearest_node(space, point):
 
 
 def _problem_for(mesh):
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    return EQUATION.problem(mesh, bc)
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    return EQUATION.problem(mesh, bc + SOURCE)
 
 
 def _square(n):

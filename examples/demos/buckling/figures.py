@@ -107,7 +107,7 @@ def _laws_figure(s: BucklingStudy) -> Figure:
 
 def _conditions_figure(s: BucklingStudy) -> Figure:
     conditions = Plotter(panel_aspect=0.7)   # tall and narrow, matching the upright column
-    conditions.plot(s.mesh, mode='bc', bc=s.pinned_bc)
+    conditions.plot(s.mesh, mode='bc', conditions=s.pinned_bc)
     return Figure(
         conditions,
         'A pinned-pinned column: both ends held across their width (u_y = 0) so they '
