@@ -66,7 +66,7 @@ Two approaches measured and rejected, so they are not proposed again:
 - 💡 **Finish P2: 3D, deformed geometry, adaptivity.** The 2D P2 path shipped; three pieces are
   still open. **3D P2** wants a `QuadraticTetrahedralElement` (ten nodes) and the edge/face numbering
   to match. The `Element` base and the `FunctionSpace` node set generalize, but the 3D shape functions
-  and connectivity are not written. **`Mesh.displaced`** (behind `deformed_mesh` and `mode_mesh`) reads the vertex DOFs and drops the
+  and connectivity are not written. **`Mesh.displaced`** (behind `NodalField.deformed_mesh`) reads the vertex DOFs and drops the
   edge-midpoint displacements, so a P2 displacement warp draws as its P1 restriction (field plotting
   itself is P2-aware via `fem.plot.tessellation`). **Adaptive refinement** drives a P2 solve
   through either estimator: the recovery one samples the flux per quadrature point and recovers by L2
@@ -149,7 +149,7 @@ their derived fields through one seam: `Form.flux` names the field (Poisson's gr
 elasticity's stress, `fem.physics.derived.Flux`), the typed `Solution` carries it per element
 (`DiffusionSolution.gradient`, `ElasticSolution.stress`), and `fem.post.recovery.recover_nodal` turns it into
 a continuous per-node field for smooth output, P2 plotting, and the recovery estimator; a
-`TransientSolution` packages any step the same way through `at(i)`.
+`TransientSolution` packages any step the same way through `history[i]`.
 
 - 💡 **Plane stress as an alternative 2D reduction.** 2D elasticity is plane strain throughout, now
   named rather than implicit (`LinearElasticMaterial.out_of_plane_stress`, and the matching

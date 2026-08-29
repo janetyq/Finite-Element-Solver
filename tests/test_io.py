@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from fem.algebra.integrators import ThetaMethod
-from fem.post.io import load_mesh, save_mesh, save_solution
+from fem.post.io import load_mesh, save_mesh
 from fem.mesh.mesh import Mesh
 from fem.space import FunctionSpace
 from fem.numerics import bump_function
@@ -90,8 +90,8 @@ def test_loading_a_pre_tensor_elastic_solution_fails_loudly(make_unit_square):
 
 
 def test_buckling_solution_round_trip(make_unit_square, tmp_path):
-    """Load factors and mode vectors (a 2-D array) survive the npz round-trip, and
-    mode_mesh still deforms the geometry afterwards."""
+    """Load factors and mode vectors (a 2-D array) survive the npz round-trip, and a
+    mode still deforms the geometry afterwards."""
     mesh = make_unit_square(6)
     n_dofs = len(mesh.vertices) * 2
     rng = np.random.default_rng(1)
@@ -109,7 +109,8 @@ def test_buckling_solution_round_trip(make_unit_square, tmp_path):
     assert np.allclose(loaded.load_factors, solution.load_factors)
     assert np.allclose(loaded.modes, solution.modes)
     assert loaded.critical_load_factor == pytest.approx(1.5)
-    assert loaded.mode_mesh(0).vertices.shape == mesh.vertices.shape
+    assert loaded.n_modes == 3
+    assert loaded.mode(0).deformed_mesh().vertices.shape == mesh.vertices.shape
 
 
 def test_transient_solution_round_trip_after_solve(make_unit_square, tmp_path):
@@ -141,12 +142,3 @@ def test_solution_load_does_not_unpickle(make_unit_square, tmp_path):
     with np.load(path, allow_pickle=False) as data:
         assert "value.dofs" in data.files
 
-
-def test_saving_a_ragged_field_fails_loudly(make_unit_square, tmp_path):
-    """A ragged field can only be stored as an object array (i.e. pickle), so it
-    must raise at save time."""
-    mesh = make_unit_square(6)
-    ragged = TransientSolution(FunctionSpace(mesh), np.array([0.0, 1.0]), [np.zeros(3), np.zeros(5)])
-
-    with pytest.raises(ValueError):
-        save_solution(ragged, tmp_path / "ragged.npz")

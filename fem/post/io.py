@@ -6,8 +6,7 @@
 
 Solutions avoid ``pickle``, which executes arbitrary code on load and breaks when a
 class moves. The npz path reads plain numeric arrays (``allow_pickle=False``) and
-reconstructs a known class by name. Value arrays must be numeric and non-ragged; a
-ragged value fails at save time. The archive stores the solution's class name and
+reconstructs a known class by name. The archive stores the solution's class name and
 reflects over its dataclass fields, with ``mesh`` and ``n_components`` as the header.
 """
 import dataclasses
@@ -97,14 +96,7 @@ def save_solution(solution, path='solution.npz'):
     for f in dataclasses.fields(solution):
         if not _persisted(f):
             continue
-        value = np.asarray(getattr(solution, f.name))
-        if value.dtype == object:
-            # A ragged field (e.g. unequal-length time steps) can only be stored as
-            # an object array, which means pickle; refuse it rather than degrade.
-            raise ValueError(
-                f'solution field {f.name!r} is ragged and cannot be saved without pickle'
-            )
-        arrays[_VALUE_PREFIX + f.name] = value
+        arrays[_VALUE_PREFIX + f.name] = np.asarray(getattr(solution, f.name))
     # Pass a handle rather than the path so numpy doesn't append its own .npz.
     with open(path, 'wb') as f:
         np.savez(f, **arrays)

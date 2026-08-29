@@ -255,7 +255,7 @@ class Plotter:
     def plot_animation(
         self,
         target: "Mesh | Solution",
-        values: Sequence[FloatArray],
+        values: "Sequence[FloatArray] | FloatArray",
         mode: PlotMode | str = PlotMode.COLORED,
         idx: tuple[int, int] = (0, 0),
         titles: Sequence[str] | None = None,

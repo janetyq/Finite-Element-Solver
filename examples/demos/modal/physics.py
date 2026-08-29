@@ -113,7 +113,7 @@ def voice_index(fork: ModalSolution, tine_length) -> int:
 
 def transverse_motion(fork: ModalSolution, i) -> np.ndarray:
     """The sideways (x) displacement of mode `i` at the mesh vertices."""
-    return fork.modes[i].reshape(-1, 2)[:len(fork.mesh.vertices), 0]
+    return fork.mode(i).component(0)[:len(fork.mesh.vertices)]
 
 
 def strike(fork: ModalSolution, voice, ring_periods, steps_per_period,
@@ -195,7 +195,7 @@ class ForkStudy:
     @property
     def tip_trace(self) -> np.ndarray:
         """The struck tip's sideways displacement at every step."""
-        return np.array([u.reshape(-1, 2)[self.tip, 0] for u in self.ringing.dofs])
+        return np.array([step.component(0)[self.tip] for step in self.ringing])
 
 
 def run(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_angle=27, n_modes=6,

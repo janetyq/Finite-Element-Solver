@@ -328,7 +328,7 @@ constant effective operator from `problem.mass`, `problem.tangent()`, and (for `
 position and time) is re-evaluated each step through `problem.load_at(t)`; `ThetaMethod` also
 prescribes a time-dependent Dirichlet value per step through `problem.constraints_at(t)`, while
 `NewmarkMethod` refuses one (prescribed motion needs its velocity and acceleration too). Both
-return a `TransientSolution` whose `at(i)` packages a step as the typed steady solution. A
+return a `TransientSolution`, a series whose `history[i]` is a step as the typed steady solution. A
 steady solve or an estimator works on the snapshot `problem.at(t)`; `problem.solve(t=...)`
 takes that step itself. `ThetaMethod` (Crank-Nicolson by default, backward Euler at θ=1)
 and `NewmarkMethod` (average acceleration, solving for the acceleration against the SPD
@@ -359,7 +359,9 @@ caller's strategy, else the default), hands `(problem, solution)` to the estimat
 and refines. `DesignOptimizer` owns a `SIMPModel` (a small-strain elastic `LinearProblem` as
 the template, whose material, supports, and load every density shares) and each iteration
 derives the diluted `LinearProblem` from the current density with `with_operator`, solves it
-through `SensitivityAnalysis`, and moves the density by the optimality-criteria update.
+through `SensitivityAnalysis`, and moves the density by the optimality-criteria update. `run`
+returns a `DesignHistory`, a series like `TransientSolution`: `history[i]` is iterate `i` as an
+`ElasticSolution` with the diluted material's stress, beside its `rho` and `objective`.
 
 ### Extension seams
 
@@ -385,9 +387,9 @@ forward factorization; `fem/analysis/design.py` drives an optimality-criteria up
 
 One dataclass per shape, each holding the `FunctionSpace` it was solved on: `FieldSolution` (the
 field `u`), `DiffusionSolution` (adds the gradient), `ElasticSolution` (adds strain, stress,
-compliance), `TransientSolution` / `WaveSolution` (time series; `at(i)` is one step as a steady
-solution, flux or stress included), `BucklingSolution` (adds the
-prestress `reference` solve) / `ModalSolution`. `ElasticSolution` stores the full tensors and derives
+compliance), `TransientSolution` / `WaveSolution` (time series indexed by step, `history[i]` a
+steady solution with its gradient or stress, `velocity(i)` a field), `BucklingSolution` (adds the
+prestress `reference` solve) / `ModalSolution` (eigenpairs; `mode(i)` is a `NodalField`). `ElasticSolution` stores the full tensors and derives
 `von_mises`, `pressure`, and `principal_stress` on demand; `nodal_stress` re-evaluates the form at
 the nodes so a P2 stress keeps its within-element variation. `save` / `load` round-trip any of them
 through `fem/post/io.py`. A solution is also what a plot takes: `Plotter.plot(solution, values)`
@@ -415,7 +417,7 @@ documented back-edges, each named in the importing module's docstring:
 
 Construction: `from_*` builds from another representation (`ElasticSolution.from_solve`,
 `Outline.from_polygons`); `with_*` returns a copy with one thing changed (`LinearProblem.with_operator`,
-`Mesh.with_topology`); `at(t)` / `at(i)` fixes a time-dependent object at one instant or step;
+`Mesh.with_topology`); `at(t)` fixes a time-dependent object at one instant, `history[i]` picks a step;
 `sample(geometry)` evaluates a field at a rule's points; `*_for(x)` resolves a choice against `x`
 (`element_type_for`, `backend_for`, `problem_for`).
 

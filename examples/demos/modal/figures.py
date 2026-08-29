@@ -13,7 +13,7 @@ def _mode_shape(s: ForkStudy, i):
     """Mode `i` as a deformed mesh, and the signed transverse motion colouring it."""
     transverse = transverse_motion(s.fork, i)
     scale = 0.12 * s.tine_length / np.abs(transverse).max()
-    return s.fork.mode_mesh(i, scale), scale * transverse
+    return s.fork.mode(i).deformed_mesh(scale), scale * transverse
 
 
 
@@ -64,8 +64,8 @@ def _struck_figure(s: ForkStudy, shown_periods, frames_per_period) -> Figure:
     half_slot = float(np.abs(verts[verts[:, 1] > verts[:, 1].max() - 1e-9, 0]).min())
     scale = 0.8 * half_slot / np.abs(tip_x).max()
     n_v = len(verts)
-    sideways = [1e9 * s.ringing.dofs[i].reshape(-1, 2)[:n_v, 0] for i in shown]   # nm
-    frames = [s.mesh.displaced(s.ringing.dofs[i], scale) for i in shown]
+    sideways = [1e9 * s.ringing[i].component(0)[:n_v] for i in shown]   # nm
+    frames = [s.ringing[i].deformed_mesh(scale) for i in shown]
     lim = float(np.abs(sideways).max())
     # The title counts two things that should agree: the periods elapsed at the voice's
     # frequency, and the swings the tip has actually made (its upward zero crossings).

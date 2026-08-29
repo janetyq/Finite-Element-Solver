@@ -45,7 +45,7 @@ class HarborStudy:
     solution: TransientSolution
 
     @property
-    def u_values(self) -> list[np.ndarray]:
+    def u_values(self) -> np.ndarray:
         return self.solution.dofs
 
     @property
