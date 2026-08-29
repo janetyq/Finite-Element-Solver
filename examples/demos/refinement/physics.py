@@ -12,7 +12,8 @@ from math import e
 import numpy as np
 
 from fem.analysis.adaptivity import AdaptiveRefinement
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from mms import l2_norm
 from fem.physics.equations import Poisson
 from fem.analysis.estimators import ResidualEstimator
@@ -21,6 +22,7 @@ from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
 from fem.post.solution import ScalarFieldSolution
+from fem.loads import Source
 
 W, H = 1.0, 1.0
 A = 300      # the peak's sharpness: its width is about 1/sqrt(2a)
@@ -40,8 +42,8 @@ def exact(points):
     return A * np.exp(-A * r2)
 
 
-bc = BoundaryConditions(Dirichlet(everywhere(), 0))
-equation = Poisson(source=peaked_source)
+bc = Conditions(Dirichlet(everywhere(), 0), Source(peaked_source))
+equation = Poisson()
 estimator = ResidualEstimator()
 
 

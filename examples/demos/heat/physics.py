@@ -9,7 +9,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
+from fem.boundary import Dirichlet, Neumann, Robin
+from fem.conditions import Conditions
 from fem.physics.equations import Heat, Poisson
 from fem.physics.forms import BoundaryMassForm
 from fem.algebra.integrators import ThetaMethod
@@ -18,6 +19,7 @@ from fem.mesh.structured import box_mesh
 from fem.regions import TimeDependent, in_box, on_plane, union
 from fem.post.solution import TransientSolution
 from fem.mesh.outline import Outline
+from fem.loads import Source
 
 
 def heatsink_outline(width: float = 3.0, base_height: float = 0.5, fin_height: float = 1.4,
@@ -56,7 +58,7 @@ def heatsink_film(mesh):
 
 def heatsink_bc(mesh, base, kappa, u_ambient):
     """The boundary spec: `base` on the bottom edge, a Robin film everywhere else."""
-    return BoundaryConditions(base, Robin(heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient))
+    return Conditions(base, Robin(heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient))
 
 
 def steady_heatsink(mesh, bc, kappa, u_ambient):
@@ -66,11 +68,11 @@ def steady_heatsink(mesh, bc, kappa, u_ambient):
     kappa * integral_film (u - u_ambient). At steady state that equals the heat entering
     the base, so it is the sink's dissipation.
     """
-    problem = Poisson(source=0).problem(mesh, bc)
+    problem = Poisson().problem(mesh, bc + Source(0))
     u = problem.solve().u
     # The convective loss, read off the same region-restricted boundary mass a Robin
     # condition assembles, so it is the exact discrete integral of (u - u_ambient).
-    resolved = bc.resolve(problem.space.nodes, 1)
+    resolved = problem.resolved
     film_mass = problem.space.assemble(
         BoundaryMassForm(1, resolved.robin[0].facet_mask), boundary=True)
     heat_shed = kappa * float(np.asarray(film_mass @ (u - u_ambient)).sum())
@@ -126,7 +128,7 @@ def warm_up(mesh, dt, steps, kappa, u_ambient, u_hot, ramp):
     def base_temperature(p, t):
         return u_ambient + (u_hot - u_ambient) * min(t / ramp, 1.0)
 
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(1, 0.0), TimeDependent(base_temperature)),
         Robin(heatsink_film(mesh), kappa=kappa, g=kappa * u_ambient),
     )
@@ -178,7 +180,7 @@ class HeatsinkStudy:
     flux: float
     mesh: Mesh                      # the finned sink
     block: Mesh                     # the solid block of the same bounding box
-    bc: BoundaryConditions          # the transient's conditions
+    bc: Conditions          # the transient's conditions
     solution: TransientSolution     # the warm-up
     flux_values: list[np.ndarray]   # |grad u| at each step
     shed_values: list[float]        # heat shed through the film at each step

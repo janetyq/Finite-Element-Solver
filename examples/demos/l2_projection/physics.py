@@ -12,6 +12,8 @@ from fem.elements import QuadraticTriangleElement
 from fem.physics.equations import Projection
 from fem.mesh.mesh import Mesh
 from fem.post.solution import FieldSolution
+from fem.loads import Source
+from fem.conditions import Conditions
 
 
 def target(point):
@@ -22,7 +24,7 @@ def target(point):
 
 def project(mesh, element_type=None) -> FieldSolution:
     """The L2 projection of `target` onto the mesh's space of the given element."""
-    return Projection(source=target).problem(mesh, element_type=element_type).solve()
+    return Projection().problem(mesh, Conditions(Source(target)), element_type=element_type).solve()
 
 
 @dataclass

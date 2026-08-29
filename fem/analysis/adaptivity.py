@@ -75,7 +75,7 @@ class AdaptiveRefinement(Generic[S]):
         refined each round.
         '''
         self.problem = self.problem_for(self.mesh)
-        self.problem.bc.check_remeshable()
+        self.problem.conditions.check_remeshable()
         solution = self._solve()
 
         # RedGreenRefiner is stateful (it tracks the current mesh and returns the

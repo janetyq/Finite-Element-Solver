@@ -39,7 +39,7 @@ from fem.regions import evaluate_field
 _REFERENCE_EDGE_MIDPOINTS = np.array([[0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
 if TYPE_CHECKING:
-    from fem.boundary import ResolvedBC
+    from fem.conditions import ResolvedConditions
     from fem.physics.derived import DerivedField
     from fem.problem import Problem
     from fem.analysis.sensitivity import QuantityOfInterest
@@ -62,7 +62,7 @@ class Solved:
     '''
     space: FunctionSpace
     solution: FieldSolution
-    resolved: ResolvedBC
+    resolved: ResolvedConditions
     is_fixed: BoolArray   # (n_vertices, n_components)
 
 
@@ -96,14 +96,10 @@ def _flux(problem: Problem) -> DerivedField:
 
 def _source(problem: Problem) -> FieldValue:
     '''The problem's volume source as a pointwise field; None for no source.'''
-    from fem.loads import NodalSource, Source
-
+    # The interior residual reads the source pointwise at centroids; the Source is that
+    # field wrapped as a load term.
     source = problem.source
-    # The interior residual reads the source pointwise at centroids; a Source is that
-    # field wrapped for one of the two load paths.
-    if isinstance(source, (Source, NodalSource)):
-        return source.field
-    return None
+    return None if source is None else source.field
 
 
 # -- the outer seam every estimator satisfies ---------------------------------

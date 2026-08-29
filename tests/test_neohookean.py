@@ -10,7 +10,8 @@ end-to-end solve through the existing Newton path.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
 from fem.physics.energies import NeohookeanEnergyDensity
 from fem.physics.equations import FiniteStrainElastic, LinearElastic
@@ -76,7 +77,7 @@ def test_neohookean_is_frame_indifferent(make_unit_square):
 
 def _stretched(make_unit_square, model, stretch, n=8, **kw):
     mesh = make_unit_square(n)
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, 1.0), [stretch, 0]),
     )
@@ -103,7 +104,7 @@ def test_neohookean_solve_converges_and_reports_stress(make_unit_square):
     ElasticSolution whose recovered von Mises is finite and positive, exercising the
     plane-strain out-of-plane stress reconstruction."""
     mesh = make_unit_square(10)
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, 1.0), [0.3, 0.1]),
     )
@@ -125,7 +126,7 @@ def test_neohookean_on_p2_converges(make_unit_square):
     """The material carries its own quadrature hint (degree 4), so it also assembles and
     converges on quadratic elements."""
     mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, 2.0), [0.3, 0.15]),
     )

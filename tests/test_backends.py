@@ -7,7 +7,8 @@ full Poisson/elasticity solves, and through the MMS convergence net.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.physics.forms import LinearElasticForm
 from fem.algebra.backends import DirectBackend, IterativeBackend, MinresBackend
 from fem.physics.forms import rigid_body_modes
@@ -17,6 +18,7 @@ from fem.regions import everywhere, on_plane
 from fem.physics.equations import Heat, LinearElastic, Poisson
 from fem.space import FunctionSpace
 from fem.algebra.system import DiscreteSystem
+from fem.loads import Source
 
 
 def _spd(n, seed=0):
@@ -38,9 +40,9 @@ def _symmetric_indefinite(n, seed=0):
 def _poisson_mms(n, backend):
     """Solve the manufactured sin*sin Poisson problem; return (h, L2 error)."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    eq = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    problem = eq.problem(mesh, bc)
+    eq = Poisson()
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    problem = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]))
     u = problem.solve(backend=backend).u
     exact = np.sin(np.pi * mesh.vertices[:, 0]) * np.sin(np.pi * mesh.vertices[:, 1])
     error = u - exact
@@ -50,18 +52,18 @@ def _poisson_mms(n, backend):
 def test_iterative_matches_direct_on_poisson():
     """AMG-CG reproduces the direct Poisson solution to problem tolerance."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(41, 41))
-    eq = Poisson(source=lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    eq = Poisson()
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
 
-    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).u
-    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).u
+    direct = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])).solve(backend=DirectBackend()).u
+    iterative = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])).solve(backend=IterativeBackend()).u
     np.testing.assert_allclose(iterative, direct, atol=1e-8)
 
 
 def test_iterative_matches_direct_on_elasticity():
     """AMG-CG reproduces the direct elasticity solution (vector field, SPD K)."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(31, 31))
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [50, 0]),
     )
@@ -90,7 +92,7 @@ def test_iterative_matches_direct_on_3d_elasticity():
     """The direct/iterative equivalence holds for 3D vector elasticity, where the rigid-body
     near-kernel and the tet assembly both differ from 2D."""
     mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(7, 7, 7))
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0, 0]),
         Neumann(on_plane(0, 1.0), [0, -5, 0]),
     )
@@ -137,7 +139,7 @@ def test_rigid_body_modes_are_in_the_stiffness_kernel():
 
 def _cantilever():
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(25, 25))
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [0, -20]),
     )
@@ -162,7 +164,7 @@ def test_linear_solve_gives_elasticity_its_rigid_body_modes():
     # A near-kernel the caller set is kept; a scalar problem and a direct backend get none.
     preset = IterativeBackend(near_null_space=np.ones((len(free), 1)))
     assert backend_for(problem, preset) is preset
-    scalar_bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
+    scalar_bc = Conditions(Dirichlet(everywhere(), 0.0))
     scalar = backend_for(Poisson(1.0).problem(mesh, scalar_bc), IterativeBackend())
     assert isinstance(scalar, IterativeBackend) and scalar.near_null_space is None
     direct = DirectBackend()

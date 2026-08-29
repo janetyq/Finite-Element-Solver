@@ -163,7 +163,7 @@ def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -
 
     Mechanical only: a `None` found among a value's components becomes `np.nan`,
     with no judgment about whether that is meaningful. `evaluate_field` and
-    `BoundaryConditions`' Dirichlet resolver both build on this and differ only in
+    `Dirichlet`'s resolver both build on this and differ only in
     what a `NaN` component means to each of them.
     '''
     if value is None:
@@ -193,7 +193,7 @@ def evaluate_field(value: FieldValue, points: Vertices, n_components: int) -> Fl
 
     Every component must be a real number: `None` has no meaning for a source,
     a traction, or a Robin `g`: there is nothing "left free" about a load. Use
-    `BoundaryConditions`' own Dirichlet resolver for a value that may leave a
+    `Dirichlet`'s own resolver for a value that may leave a
     component unconstrained.
     '''
     values = _coerce_components(value, points, n_components)

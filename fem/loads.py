@@ -7,11 +7,11 @@ rather than four branches in one function.
 
 - `Source`: the volume load `∫ f·v`. A constant or a nodal array is integrated exactly
   through the mass matrix; a callable is sampled at the quadrature points, which captures
-  variation within an element.
-- `NodalSource`: the volume load of `f`'s nodal interpolant, for a callable that should
-  be read at the nodes only (a comparison against the sampled path).
+  variation within an element, or, with `nodal=True`, read at the nodes only and
+  integrated as its interpolant (the comparison the convergence study draws).
 - `BoundaryLoad`: a boundary integral over a region's facets, for a Neumann value or a
-  Robin `g`, masked to those facets so a load stays on its own edge.
+  Robin `g`, masked to those facets so a load stays on its own edge. Built by
+  `Conditions.resolve`, not by a caller.
 - `PointLoad`: a force applied at every node a region selects, no integral.
 
 A field may be `TimeDependent`; each term fixes it at `t` before evaluating.
@@ -43,36 +43,21 @@ class Load(Protocol):
 
 
 @dataclass(frozen=True)
-class NodalSource:
-    '''Volume load L(v) = ∫ f·v integrated as f's nodal interpolant through the mass
-    matrix: exact for a constant or a nodal array, an approximation for a callable.'''
-    field: FieldValue = None
-
-    @property
-    def is_time_dependent(self) -> bool:
-        return isinstance(self.field, TimeDependent)
-
-    def at(self, t: float) -> 'NodalSource':
-        return NodalSource(field_at(self.field, t)) if self.is_time_dependent else self
-
-    def vector(self, space: 'FunctionSpace', t: float = 0.0) -> DofVector:
-        nodal = space.interpolate(field_at(self.field, t))
-        return np.asarray(space.mass_matrix @ nodal).flatten()
-
-
-@dataclass(frozen=True)
 class Source:
     '''Volume load L(v) = ∫ f(x)·v.
 
     A constant, a per-component constant, or a nodal array integrates exactly through
-    the mass matrix (`NodalSource`); a callable of position is sampled at the quadrature
-    points of a rule of `quadrature_degree`, one element vector per element that
+    the mass matrix; a callable of position is sampled at the quadrature points of a
+    rule of `quadrature_degree`, one element vector per element that
     `FunctionSpace.assemble_load` scatters, so variation within an element is kept.
-    `field` may be `TimeDependent`.
+    `nodal=True` reads a callable at the nodes instead and integrates its interpolant,
+    an approximation kept for comparison against the sampled path. `field` may be
+    `TimeDependent`. `n_components` is filled in by `Conditions.resolve` from the space.
     '''
     field: FieldValue
     n_components: int = 1
     quadrature_degree: int = 2
+    nodal: bool = False
 
     @property
     def is_time_dependent(self) -> bool:
@@ -80,19 +65,20 @@ class Source:
 
     @property
     def is_sampled(self) -> bool:
-        '''Whether `field` is read at the quadrature points (a callable) rather than
-        integrated as its interpolant.'''
-        return callable(self.field) or self.is_time_dependent
+        '''Whether `field` is read at the quadrature points (a callable, unless
+        `nodal`) rather than integrated as its interpolant.'''
+        return not self.nodal and (callable(self.field) or self.is_time_dependent)
 
     def at(self, t: float) -> 'Source':
         '''This source with a time-dependent field fixed at `t`; itself otherwise.'''
         if not self.is_time_dependent:
             return self
-        return Source(field_at(self.field, t), self.n_components, self.quadrature_degree)
+        return Source(field_at(self.field, t), self.n_components, self.quadrature_degree, self.nodal)
 
     def vector(self, space: 'FunctionSpace', t: float = 0.0) -> DofVector:
         if not self.is_sampled:
-            return NodalSource(self.field).vector(space, t)
+            nodal = space.interpolate(field_at(self.field, t))
+            return np.asarray(space.mass_matrix @ nodal).flatten()
         return space.assemble_load(self.at(t))
 
     def element_vectors(self, geometry: ElementGeometry) -> FloatArray:
@@ -170,8 +156,9 @@ class PointLoad:
 
 
 @dataclass(frozen=True)
-class EvaluatedLoad:
-    '''A load vector already evaluated: the snapshot of a time-dependent term at one time.'''
+class _EvaluatedLoad:
+    '''A load vector already evaluated: the snapshot of a time-dependent term at one time,
+    which `Problem.at` builds.'''
     values: DofVector
 
     @property
@@ -180,23 +167,6 @@ class EvaluatedLoad:
 
     def vector(self, space: 'FunctionSpace', t: float = 0.0) -> DofVector:
         return self.values
-
-
-VolumeSource = Source | NodalSource
-
-
-def as_source(source: 'FieldValue | VolumeSource', n_components: int) -> 'VolumeSource | None':
-    '''Normalize a `Problem` source into its volume load term, or None for no source.
-
-    A `Source` or `NodalSource` is taken as it is; any other value is wrapped as a
-    `Source`, which integrates a constant exactly and samples a callable. Any other load
-    term (a `PointLoad`) is a `Problem` `loads` entry, not a source.
-    '''
-    if source is None:
-        return None
-    if isinstance(source, (Source, NodalSource)):
-        return source
-    return Source(source, n_components=n_components)
 
 
 def total_load(terms: 'tuple[Load, ...]', space: 'FunctionSpace', t: float = 0.0) -> DofVector:

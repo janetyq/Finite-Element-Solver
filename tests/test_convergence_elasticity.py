@@ -15,12 +15,14 @@ component of f nonzero, so this exercises the coupled vector path. P1, so O(h^2)
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
 from fem.algebra.backends import IterativeBackend
 from fem.physics.materials import Enu_to_Lame
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
 from fem.physics.equations import LinearElastic
+from fem.loads import Source
 
 E, NU = 200.0, 0.3
 MU, LAMB = Enu_to_Lame(E, NU)
@@ -57,8 +59,8 @@ def _solve_2d(n):
             -(MU + LAMB) * PI**2 * np.cos(PI * x) * np.cos(PI * y),
         ]
 
-    bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0]))
-    problem = LinearElastic(E=E, nu=NU, source=source).problem(mesh, bc)
+    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0]))
+    problem = LinearElastic(E=E, nu=NU).problem(mesh, bc + Source(source))
     solution = problem.solve()
 
     exact = np.zeros((len(mesh.vertices), 2))
@@ -96,12 +98,12 @@ def _solve_3d(n):
             -(MU + LAMB) * PI**2 * np.cos(PI * x) * np.sin(PI * y) * np.cos(PI * z),
         ]
 
-    bc = BoundaryConditions(Dirichlet(everywhere(), [0.0, 0.0, 0.0]))
+    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0, 0.0]))
     # AMG-preconditioned CG, not the direct factorization: it solves the same SPD
     # system (proven equivalent in test_linalg) but stays cheap on the fine meshes
     # this sequence needs, and it is what the convergence measures -- the assembly --
     # regardless of how the block is solved.
-    problem = LinearElastic(E=E, nu=NU, source=source).problem(mesh, bc)
+    problem = LinearElastic(E=E, nu=NU).problem(mesh, bc + Source(source))
     solution = problem.solve(backend=IterativeBackend())
 
     v = mesh.vertices

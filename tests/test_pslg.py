@@ -3,7 +3,8 @@ boundary tags a mesh of it carries."""
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.outline import Outline
@@ -144,7 +145,7 @@ def test_on_tag_selects_the_rim_nodes_and_nothing_else():
 
 def test_on_tag_resolves_a_neumann_condition_on_the_rim_facets_only():
     mesh = _plate_with_hole().mesh(min_angle=25, max_area_fraction=0.02)
-    resolved = BoundaryConditions(Neumann(on_tag(1), [1.0, 0.0])).resolve(mesh, 2)
+    resolved = Conditions(Neumann(on_tag(1), [1.0, 0.0])).resolve(FunctionSpace(mesh, n_components=2))
     mask = resolved.neumann[0].facet_mask
     assert mask.sum() == int(np.sum(mesh.boundary_tags == 1))
 

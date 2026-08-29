@@ -5,7 +5,8 @@ self-adjoint and a non-self-adjoint quantity of interest.
 """
 import numpy as np
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.physics.forms import LinearElasticForm, PrecomputedForm
 from fem.physics.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
@@ -23,7 +24,7 @@ from fem.space import FunctionSpace
 def _cantilever_bc():
     """Clamp the left edge, pull the right edge down: homogeneous supports, so the
     compliance shortcut (lambda = u) is exact."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
         Neumann(on_plane(0, 1.0), [0.0, -1.0]),
     )
@@ -34,7 +35,7 @@ def _density_problem(space, rho, base_E, nu, penalty):
     """The elastic problem at density `rho`, stiffness rescaled by rho^p (as SIMP does)."""
     K0 = LinearElasticForm(LinearElasticMaterial(base_E, nu)).element_matrices(space.geometry)
     stiffness = PrecomputedForm((rho**penalty)[:, None, None] * K0)
-    return LinearProblem(space, stiffness, None, _cantilever_bc())
+    return LinearProblem(space, stiffness, _cantilever_bc())
 
 
 def test_compliance_density_gradient_matches_the_hand_written_sensitivity(make_unit_square):
@@ -120,7 +121,7 @@ def test_point_displacement_gradient_matches_finite_differences(make_unit_square
     def modulus_problem(E):
         K0 = LinearElasticForm(LinearElasticMaterial(1.0, nu)).element_matrices(space.geometry)
         stiffness = PrecomputedForm(E[:, None, None] * K0)
-        return LinearProblem(space, stiffness, None, _cantilever_bc())
+        return LinearProblem(space, stiffness, _cantilever_bc())
 
     def objective(E):
         problem = modulus_problem(E)

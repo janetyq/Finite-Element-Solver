@@ -9,7 +9,8 @@ from matplotlib.colors import to_rgba
 from matplotlib.patches import Polygon
 from matplotlib.quiver import Quiver
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
+from fem.boundary import Dirichlet, Neumann, Robin
+from fem.conditions import Conditions
 from fem.mesh.structured import box_mesh
 from fem.plot.bc import overlay_supports, plot_bc
 from fem.regions import everywhere, intersect, on_plane
@@ -30,7 +31,7 @@ def _labels(mesh, bc):
 
 def test_robin_conditions_are_drawn(mesh):
     """A Robin condition is drawn."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Robin(everywhere(), kappa=2.0, g=1.0),
     )
     assert any(label.startswith('Robin') for label in _labels(mesh, bc))
@@ -39,7 +40,7 @@ def test_robin_conditions_are_drawn(mesh):
 def test_a_robin_label_gives_the_coefficient_and_the_ambient_value(mesh):
     """A Robin condition's two numbers, how freely it exchanges and with what, appear in the
     legend."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Robin(everywhere(), kappa=0.5, g=0.5*300.0),
     )
     assert 'Robin: du/dn + 0.5(u - 300) = 0' in _labels(mesh, bc)
@@ -47,7 +48,7 @@ def test_a_robin_label_gives_the_coefficient_and_the_ambient_value(mesh):
 
 def test_a_dirichlet_label_gives_the_value_it_pins_to(mesh):
     """A clamp and an imposed 50% stretch were the same picture: two rows of red dots."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, 1.0), [0.5, 0]),
     )
@@ -61,7 +62,7 @@ def test_a_displacement_pinned_away_from_zero_is_drawn_as_arrows(mesh):
     from matplotlib.quiver import Quiver
 
     def arrows(value):
-        bc = BoundaryConditions(
+        bc = Conditions(
             Dirichlet(on_plane(0, 1.0), value),
         )
         fig, ax = plt.subplots()
@@ -76,7 +77,7 @@ def test_a_displacement_pinned_away_from_zero_is_drawn_as_arrows(mesh):
 
 def test_a_scalar_flux_is_drawn_as_a_run_not_an_arrow(mesh):
     """A scalar Neumann acts along a normal this panel does not draw, so it is a run."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), 0.0),
         Neumann(on_plane(0, 1.0), 3.0),
     )
@@ -91,7 +92,7 @@ def test_a_scalar_flux_is_drawn_as_a_run_not_an_arrow(mesh):
 
 
 def test_a_vector_traction_still_gets_arrows(mesh):
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [50, 0]),
     )
@@ -105,7 +106,7 @@ def test_a_vector_traction_still_gets_arrows(mesh):
 
 def test_boundary_carrying_no_condition_is_drawn_as_natural(mesh):
     """Saying nothing about an edge is the natural condition of the weak form, and it is drawn."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
     )
     assert 'Natural: t = 0' in _labels(mesh, bc)
@@ -113,7 +114,7 @@ def test_boundary_carrying_no_condition_is_drawn_as_natural(mesh):
 
 def test_a_fully_constrained_boundary_claims_nothing_is_natural(mesh):
     """The free run is self-suppressing: it must not appear where every facet is spoken for."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(everywhere(), 0.0),
     )
     assert not any(label.startswith('Natural') for label in _labels(mesh, bc))
@@ -125,7 +126,7 @@ def test_repeated_conditions_of_one_kind_get_one_legend_entry(mesh):
     conditions = []
     for side in (0.0, 1.0):
         conditions.append(Dirichlet(on_plane(0, side), 0.0))
-    bc = BoundaryConditions(*conditions)
+    bc = Conditions(*conditions)
     assert _labels(mesh, bc).count('Dirichlet: u = 0') == 1
 
 
@@ -133,7 +134,7 @@ def test_a_roller_reads_as_free_rather_than_nan(mesh):
     """A roller's free component reads as 'free', not the literal NaN it is internally."""
     from matplotlib.quiver import Quiver
 
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, None]),
     )
     fig, ax = plt.subplots()
@@ -175,7 +176,7 @@ def _triangles(ax):
 
 def test_a_clamp_overlays_as_a_hatched_wall(mesh):
     """A fully-fixed edge is a built-in end: a hatched wall, and no load arrow."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
     )
     fig, ax = _overlay(mesh, bc)
@@ -186,7 +187,7 @@ def test_a_clamp_overlays_as_a_hatched_wall(mesh):
 
 def test_a_pin_overlays_as_triangles_not_a_wall(mesh):
     """A roller edge (a component left free) is a pin: support triangles, no wall."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [None, 0]),
     )
     fig, ax = _overlay(mesh, bc)
@@ -197,7 +198,7 @@ def test_a_pin_overlays_as_triangles_not_a_wall(mesh):
 
 
 def test_a_traction_overlays_as_load_arrows(mesh):
-    bc = BoundaryConditions(
+    bc = Conditions(
         Neumann(on_plane(0, 1.0), [-1.0, 0]),
     )
     fig, ax = _overlay(mesh, bc)
@@ -207,7 +208,7 @@ def test_a_traction_overlays_as_load_arrows(mesh):
 
 def test_a_driven_end_overlays_as_a_wall_and_an_arrow(mesh):
     """An imposed nonzero displacement both clamps and pushes: a wall with a load arrow."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 1.0), [-0.3, 0]),
     )
     fig, ax = _overlay(mesh, bc)
@@ -219,7 +220,7 @@ def test_a_driven_end_overlays_as_a_wall_and_an_arrow(mesh):
 def test_a_single_anchor_point_overlays_as_a_dot_not_a_support(mesh):
     """The lone point that ties off a pinned column's axial slide is a small marker, not a
     wall or triangles."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.5)), [0, 0]),
     )
     fig, ax = _overlay(mesh, bc)
@@ -233,7 +234,7 @@ def test_a_single_anchor_point_overlays_as_a_dot_not_a_support(mesh):
 
 def test_colour_encodes_the_weak_form_type(mesh):
     """Colour is the weak-form type: Dirichlet blue, Neumann red, in the panel and the overlay."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [1.0, 0]),
     )
@@ -252,14 +253,14 @@ def test_colour_encodes_the_weak_form_type(mesh):
 def test_shape_is_the_role_only_where_the_components_allow(mesh):
     """Shape is the mechanical role, as specific as the field permits: a vector clamp on an
     edge is a wall; the same edge in a scalar field stays a row of dots."""
-    vector = BoundaryConditions(
+    vector = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
     )
     fig, ax = _overlay(mesh, vector)
     assert _walls(ax)
     plt.close(fig)
 
-    scalar = BoundaryConditions(
+    scalar = Conditions(
         Dirichlet(on_plane(0, 0.0), 0.0),
     )
     fig, ax = _overlay(mesh, scalar)

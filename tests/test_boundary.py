@@ -6,9 +6,11 @@ meaningless (a load has no free component).
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann, Robin
+from fem.boundary import Dirichlet, Neumann, Robin
+from fem.conditions import Conditions
 from fem.physics.equations import LinearElastic
 from fem.regions import at_indices, intersect, on_plane
+from fem.space import FunctionSpace
 
 
 def test_partial_pin_leaves_the_other_component_free(make_unit_square):
@@ -16,7 +18,7 @@ def test_partial_pin_leaves_the_other_component_free(make_unit_square):
     to remove the last rigid-body mode. x must hold at 0 everywhere on that edge;
     y must vary elsewhere on it (a full clamp would hold it at 0 too)."""
     mesh = make_unit_square(10)
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, None]),
         Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, 0]),
         Neumann(on_plane(0, 1.0), [1.0, 0]),
@@ -35,12 +37,12 @@ def test_two_conditions_merge_different_components_at_one_vertex(make_unit_squar
     calls, each naming one component, both land in `fixed_idxs`; they do not
     conflict, since they never disagree."""
     mesh = make_unit_square(6)
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0.0, None]),
         Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, 0.0)), [None, -3.0]),
     )
 
-    resolved = bc.resolve(mesh, n_components=2)
+    resolved = bc.resolve(FunctionSpace(mesh, n_components=2))
     origin = np.flatnonzero((mesh.vertices[:, 0] == 0.0) & (mesh.vertices[:, 1] == 0.0))[0]
     assert 2*origin in resolved.fixed_idxs
     assert 2*origin + 1 in resolved.fixed_idxs
@@ -54,13 +56,13 @@ def test_conflicting_component_still_raises(make_unit_square):
     """Two conditions naming the same component of the same vertex with different values
     is a real conflict."""
     mesh = make_unit_square(6)
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0.0, None]),
         Dirichlet(at_indices([0]), [1.0, None]),
     )
 
     with pytest.raises(ValueError, match='conflicting Dirichlet'):
-        bc.resolve(mesh, n_components=2)
+        bc.resolve(FunctionSpace(mesh, n_components=2))
 
 
 @pytest.mark.parametrize('condition', [
@@ -77,6 +79,6 @@ def test_a_callable_load_with_a_free_component_is_caught_at_resolve(make_unit_sq
     """A callable's components are only seen at the nodes, so a None among them is
     caught at resolve()."""
     mesh = make_unit_square(6)
-    bc = BoundaryConditions(Neumann(on_plane(0, 1.0), lambda p: [1.0, None]))
+    bc = Conditions(Neumann(on_plane(0, 1.0), lambda p: [1.0, None]))
     with pytest.raises(ValueError, match='None'):
-        bc.resolve(mesh, n_components=2)
+        bc.resolve(FunctionSpace(mesh, n_components=2))

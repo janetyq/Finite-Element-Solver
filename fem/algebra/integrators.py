@@ -107,7 +107,7 @@ class NewmarkMethod:
         '''Step from `(u0, v0)`; `backend` solves the factored-once effective operator.'''
         _require_order(problem, 2, 'NewmarkMethod integrates a second-order system',
                        'Wave or an elastic equation')
-        if problem.bc.is_time_dependent:
+        if problem.conditions.has_time_dependent_dirichlet:
             raise NotImplementedError(
                 'NewmarkMethod takes a time-dependent load but not time-dependent '
                 'Dirichlet data, which would need the prescribed velocity and acceleration'

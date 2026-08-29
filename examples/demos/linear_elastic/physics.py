@@ -9,7 +9,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.algebra.backends import IterativeBackend
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.physics.equations import LinearElastic
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
@@ -19,9 +20,9 @@ from fem.post.solution import ElasticSolution
 E, NU = 200.0, 0.4
 
 
-def clamp_and_tip_load(width) -> BoundaryConditions:
+def clamp_and_tip_load(width) -> Conditions:
     """Clamped on the left, pulled down over the middle of the right edge."""
-    return BoundaryConditions(
+    return Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         # Transverse, so the beam bends. Sized for a tip deflection near 9% of the span,
         # inside the small-strain regime.
@@ -29,7 +30,7 @@ def clamp_and_tip_load(width) -> BoundaryConditions:
     )
 
 
-def bend_2d(mesh: Mesh, bc: BoundaryConditions) -> ElasticSolution:
+def bend_2d(mesh: Mesh, bc: Conditions) -> ElasticSolution:
     """The 2D cantilever solve."""
     return LinearElastic(E, NU).problem(mesh, bc).solve()
 
@@ -42,7 +43,7 @@ def bend_3d(n_3d) -> tuple[Mesh, ElasticSolution]:
     """
     box = box_mesh(corners=[[0, 0, 0], [4, 1, 1]],
                           resolution=(4 * n_3d // 2, n_3d // 2, n_3d // 2))
-    bc_3d = BoundaryConditions(
+    bc_3d = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0, 0]),
         Neumann(on_plane(0, 4.0), [0, 0, -0.5]),
     )
@@ -54,7 +55,7 @@ def bend_3d(n_3d) -> tuple[Mesh, ElasticSolution]:
 class CantileverStudy:
     """Everything `run` computed, for the figures and the summary to read."""
     mesh: Mesh
-    bc: BoundaryConditions
+    bc: Conditions
     solution: ElasticSolution
     box: Mesh
     solution_3d: ElasticSolution

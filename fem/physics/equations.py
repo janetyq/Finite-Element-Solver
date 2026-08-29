@@ -9,13 +9,17 @@ for, and the solves check it: a steady solve needs order 0, `ThetaMethod` order 
 
 | PDE                          | class                                   | then                                   |
 |------------------------------|-----------------------------------------|----------------------------------------|
-| Laplace / Poisson, any κ(x)  | `Poisson(coefficient, source)`          | `.problem(mesh, bc).solve()`           |
-| heat                         | `Heat(conductivity, capacity, source)`  | `ThetaMethod(dt, steps).solve(p, u0)`  |
-| wave                         | `Wave(stiffness, density, source)`      | `NewmarkMethod(dt, steps).solve(p, u0, v0)` |
+| Laplace / Poisson, any κ(x)  | `Poisson(coefficient)`                  | `.problem(mesh, conditions).solve()`   |
+| heat                         | `Heat(conductivity, capacity)`          | `ThetaMethod(dt, steps).solve(p, u0)`  |
+| wave                         | `Wave(stiffness, density)`              | `NewmarkMethod(dt, steps).solve(p, u0, v0)` |
 | linear elasticity, static    | `LinearElastic(E, nu)`                  | `.solve()`, `BucklingAnalysis`, `ModalAnalysis` |
 | elastodynamics               | `LinearElastic(E, nu, density, damping)`| `NewmarkMethod`                        |
 | finite strain                | `FiniteStrainElastic(E, nu)`            | `.solve()` (Newton)                    |
-| L2 projection                | `Projection(source)`                    | `.solve()`                             |
+| L2 projection                | `Projection()`                          | `.solve()` with a `Source` to project  |
+
+What is applied to the domain (the boundary conditions, the volume source, point loads)
+is a `Conditions`, given to `problem`; the equation carries only the law and its
+material.
 """
 from __future__ import annotations
 
@@ -28,7 +32,6 @@ from fem.physics.fields import FieldShape, Scalar, Vector
 from fem.physics.forms import DiffusionForm, EnergyDensity, EnergyForm, Form, LinearElasticForm, MassForm
 from fem.physics.materials import LinearElasticMaterial
 from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
-from fem.loads import Load, VolumeSource
 from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.space import FunctionSpace
 from fem.typing import ElementField, FieldValue
@@ -40,7 +43,7 @@ from fem.mesh.mesh import Mesh
 P = TypeVar('P', bound=Problem[Any])
 
 if TYPE_CHECKING:
-    from fem.boundary import BoundaryConditions
+    from fem.conditions import Conditions
     from fem.elements import Element
 
 
@@ -53,29 +56,20 @@ class Equation(ABC, Generic[P]):
     the PDE has a meaning for (0 steady, 1 first order, 2 second order), which
     `Problem.solve` and the integrators check.
 
-    `source` is the PDE's right-hand side f (a body force for elasticity): a constant,
-    a callable of position, or a `Source`. `density` is the coefficient on the
-    time-derivative term (mass density for elasticity and the wave equation, volumetric
-    heat capacity for heat), read by the integrators and modal analysis through
-    `Problem.mass`. `damping` is the `RayleighDamping` a second-order integrator
-    applies, and `loads` are load terms beyond the source (a `PointLoad`).
+    `density` is the coefficient on the time-derivative term (mass density for
+    elasticity and the wave equation, volumetric heat capacity for heat), read by the
+    integrators and modal analysis through `Problem.mass`. `damping` is the
+    `RayleighDamping` a second-order integrator applies. The forcing (a source, a
+    traction, a point load) is not the equation's: it is a `Conditions`.
     '''
     field: FieldShape = Scalar()
     time_orders: ClassVar[frozenset[int]] = frozenset({0})
 
-    def __init__(
-        self,
-        source: FieldValue | VolumeSource = None,
-        density: float = 1.0,
-        damping: RayleighDamping | None = None,
-        loads: tuple[Load, ...] = (),
-    ) -> None:
+    def __init__(self, density: float = 1.0, damping: RayleighDamping | None = None) -> None:
         if density <= 0:
             raise ValueError(f'density must be positive, got {density}')
-        self.source = source
         self.density = density
         self.damping = damping
-        self.loads = tuple(loads)
 
     def space(self, mesh: Mesh, element_type: type[Element] | None = None) -> FunctionSpace:
         '''The discretization of this equation's unknown on `mesh`.
@@ -90,10 +84,10 @@ class Equation(ABC, Generic[P]):
     def problem(
         self,
         domain: Mesh | FunctionSpace,
-        bc: BoundaryConditions | None = None,
+        conditions: Conditions | None = None,
         element_type: type[Element] | None = None,
     ) -> P:
-        '''The composition on `domain`: this operator, this source, `bc`. A
+        '''The composition on `domain`: this operator under `conditions`. A
         `LinearProblem` when the operator has a constant tangent, which is what each
         equation's `P` states.
 
@@ -117,8 +111,8 @@ class Equation(ABC, Generic[P]):
         # The class follows the operator's tangent, which is what the subclass's `P`
         # declares; the one cast in the package, checked by the LinearProblem constructor.
         cls = LinearProblem if operator.constant_tangent else Problem
-        return cast(P, cls(space, operator, self.source, bc, density=self.density,
-                           loads=self.loads, damping=self.damping, time_orders=self.time_orders))
+        return cast(P, cls(space, operator, conditions, density=self.density,
+                           damping=self.damping, time_orders=self.time_orders))
 
     @abstractmethod
     def operator(self, space: FunctionSpace) -> Form[Any]:
@@ -130,8 +124,8 @@ class Projection(Equation[LinearProblem[FieldSolution]]):
     putting a field on the mesh, not a PDE.'''
     time_orders = frozenset({0})
 
-    def __init__(self, source: FieldValue | VolumeSource = None, loads: tuple[Load, ...] = ()) -> None:
-        super().__init__(source, loads=loads)
+    def __init__(self) -> None:
+        super().__init__()
 
     def operator(self, space: FunctionSpace) -> MassForm:
         return MassForm(space.n_components)
@@ -147,10 +141,8 @@ class Poisson(Equation[LinearProblem[ScalarFieldSolution]]):
     def __init__(
         self,
         coefficient: FieldValue = 1.0,
-        source: FieldValue | VolumeSource = None,
-        loads: tuple[Load, ...] = (),
     ) -> None:
-        super().__init__(source, loads=loads)
+        super().__init__()
         self.coefficient = coefficient
 
     def operator(self, space: FunctionSpace) -> DiffusionForm:
@@ -168,10 +160,8 @@ class Heat(Equation[LinearProblem[ScalarFieldSolution]]):
         self,
         conductivity: FieldValue = 1.0,
         capacity: float = 1.0,
-        source: FieldValue | VolumeSource = None,
-        loads: tuple[Load, ...] = (),
     ) -> None:
-        super().__init__(source, density=capacity, loads=loads)
+        super().__init__(density=capacity)
         self.conductivity = conductivity
 
     @property
@@ -193,11 +183,9 @@ class Wave(Equation[LinearProblem[ScalarFieldSolution]]):
         self,
         stiffness: FieldValue = 1.0,
         density: float = 1.0,
-        source: FieldValue | VolumeSource = None,
         damping: RayleighDamping | None = None,
-        loads: tuple[Load, ...] = (),
     ) -> None:
-        super().__init__(source, density, damping, loads)
+        super().__init__(density, damping)
         self.stiffness = stiffness
 
     def operator(self, space: FunctionSpace) -> DiffusionForm:
@@ -216,12 +204,10 @@ class Elasticity(Equation[P]):
         self,
         E: float | ElementField,
         nu: float,
-        source: FieldValue | VolumeSource = None,
         density: float = 1.0,
         damping: RayleighDamping | None = None,
-        loads: tuple[Load, ...] = (),
     ) -> None:
-        super().__init__(source, density, damping, loads)
+        super().__init__(density, damping)
         self.E = E
         self.nu = nu
 
@@ -266,13 +252,11 @@ class FiniteStrainElastic(Elasticity[Problem[ElasticSolution]]):
         self,
         E: float,
         nu: float,
-        source: FieldValue | VolumeSource = None,
         density: float = 1.0,
         law: Callable[[float, float], EnergyDensity] = StVenantKirchhoff,
         damping: RayleighDamping | None = None,
-        loads: tuple[Load, ...] = (),
     ) -> None:
-        super().__init__(E, nu, source, density, damping, loads)
+        super().__init__(E, nu, density, damping)
         self.law = law
 
     def operator(self, space: FunctionSpace) -> EnergyForm:

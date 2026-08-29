@@ -186,7 +186,7 @@ class NodeSet:
     For P1 the mesh itself serves. For P2 the space builds one of these whose
     `vertices` include the edge-midpoint nodes and whose `boundary` facets carry them,
     so a condition written against coordinates pins the edge DOFs too. Duck-types
-    `Mesh` for the attributes `BoundaryConditions.resolve` reads.
+    `Mesh` for the attributes `Conditions.resolve` reads.
     '''
     vertices: Vertices          # (n_nodes, spatial) all node coordinates
     boundary: Elements          # (n_boundary_facets, facet_N) boundary facets as node indices

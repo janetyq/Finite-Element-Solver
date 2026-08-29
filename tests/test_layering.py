@@ -30,7 +30,7 @@ ORDER = [
     # the typed solutions, which everything above the physics packages
     'post.recovery', 'post.solution', 'physics.derived',
     # physics, the space that assembles it, and the problem that composes it
-    'physics.forms', 'space', 'loads', 'problem', 'physics.equations', 'physics',
+    'physics.forms', 'space', 'loads', 'conditions', 'problem', 'physics.equations', 'physics',
     # algebra
     'algebra.backends', 'algebra.system', 'algebra.solve', 'algebra.integrators', 'algebra',
     # analyses and drivers

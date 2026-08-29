@@ -13,12 +13,14 @@ locks in bending. Tolerances are headroom over the observed 1-2% error.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
 from fem.physics.equations import LinearElastic, FiniteStrainElastic
 from fem.mesh.structured import box_mesh
 from fem.regions import intersect, on_plane
 from fem.analysis.buckling import BucklingAnalysis
+from fem.loads import Source
 
 E, NU = 200.0, 0.3
 E_STAR = E / (1 - NU**2)   # plane-strain effective modulus for bending
@@ -58,7 +60,7 @@ def euler_load(length, factor_K, height=1.0):
 
 def cantilever_bc(length):
     """Fixed-free: the one end condition needing no support on the loaded edge."""
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, length), [-1.0, 0]),
     )
@@ -119,7 +121,7 @@ def test_effective_length_factors_across_end_conditions():
 
     # Pinned-pinned (K=1): both edges held transversely (u_y=0) with the axial DOF free
     # so each end rotates; one point anchors the rigid axial slide; traction compresses.
-    pinned = BoundaryConditions(
+    pinned = Conditions(
         Dirichlet(on_plane(0, 0.0), [None, 0]),
         Dirichlet(mid_left, [0, 0]),
         Dirichlet(on_plane(0, length), [None, 0]),
@@ -128,13 +130,13 @@ def test_effective_length_factors_across_end_conditions():
 
     # Fixed-fixed (K=0.5): clamp one end; drive the other by an imposed uniform axial
     # displacement with u_y=0 -- rotation clamped at both ends.
-    fixed = BoundaryConditions(
+    fixed = Conditions(
         clamp_left,
         Dirichlet(on_plane(0, length), [-delta, 0]),
     )
 
     # Fixed-pinned (K≈0.7): clamp one end, pin (u_y=0 edge, u_x free) and compress the other.
-    fixed_pinned = BoundaryConditions(
+    fixed_pinned = Conditions(
         clamp_left,
         Dirichlet(on_plane(0, length), [None, 0]),
         Neumann(on_plane(0, length), [-1.0, 0]),
@@ -168,9 +170,9 @@ def test_scalar_problem_is_rejected():
     from fem.physics.equations import Poisson
 
     mesh = column(12.0, n_length=12, n_across=3)
-    scalar = Poisson(source=1.0)
+    scalar = Poisson()
     with pytest.raises(TypeError, match='recovered stress'):
-        BucklingAnalysis().solve(scalar.problem(mesh))
+        BucklingAnalysis().solve(scalar.problem(mesh, Conditions(Source(1.0))))
 
 
 def test_degenerate_parameters_are_rejected():
@@ -182,6 +184,6 @@ def test_no_compression_means_no_buckling():
     """With no load there is no prestress, K_g vanishes, and the analysis reports no
     buckling mode rather than handing the eigensolver an all-zero K_g."""
     mesh = column(12.0, n_length=12, n_across=4)
-    bc = BoundaryConditions(Dirichlet(on_plane(0, 0.0), [0, 0]))
+    bc = Conditions(Dirichlet(on_plane(0, 0.0), [0, 0]))
     with pytest.raises(ValueError, match='compressive prestress'):
         BucklingAnalysis().solve(_problem(mesh, bc))

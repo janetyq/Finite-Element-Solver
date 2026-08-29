@@ -8,7 +8,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.analysis.design import DesignHistory, DesignOptimizer, SIMPModel, calculate_smoothing_matrix
 from fem.physics.equations import LinearElastic
 from fem.mesh.mesh import Mesh
@@ -19,14 +20,14 @@ E, NU = 200.0, 0.4
 equation = LinearElastic(E, NU)
 
 
-def mbb_conditions(mesh) -> BoundaryConditions:
+def mbb_conditions(mesh) -> Conditions:
     """A simply supported (MBB) beam, the classic topology-optimization test: pinned at
     one bottom corner, a vertical roller at the other, a downward load at the top
     centre."""
     w = np.max(mesh.vertices[:, 0])
     h = np.max(mesh.vertices[:, 1])
     bottom, top = on_plane(1, 0.0), on_plane(1, h)
-    return BoundaryConditions(
+    return Conditions(
         Dirichlet(intersect(bottom, in_box([None, None], [0.04 * w, None])), [0, 0]),
         Dirichlet(intersect(bottom, in_box([0.96 * w, None], [None, None])), [None, 0]),
         # A load over the central fifth of the top rather than a point, so it lands on a
@@ -56,7 +57,7 @@ def optimize(mesh, bc, iters, smoothing_radius=0.05) -> tuple[DesignOptimizer, D
 class TopologyStudy:
     """Everything `run` computed, for the figures and the summary to read."""
     mesh: Mesh
-    bc: BoundaryConditions
+    bc: Conditions
     solid: ElasticSolution
     optimized: ElasticSolution
     history: DesignHistory

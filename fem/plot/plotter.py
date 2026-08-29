@@ -11,7 +11,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from fem.typing import FloatArray
 
 if TYPE_CHECKING:
-    from fem.boundary import BoundaryConditions
+    from fem.conditions import Conditions
     from fem.mesh.mesh import Mesh
     from fem.post.solution import Solution
     from fem.space import FunctionSpace
@@ -117,7 +117,7 @@ class Plotter:
         mode: PlotMode | str = PlotMode.MESH,
         idx: tuple[int, int] = (0, 0),
         title: str | None = None,
-        bc: 'BoundaryConditions | None' = None,
+        bc: 'Conditions | None' = None,
         clear: bool = False,
         empty: bool = False,
         label: str | None = None,
@@ -220,7 +220,7 @@ class Plotter:
     def overlay_supports(
         self,
         mesh: 'Mesh',
-        bc: 'BoundaryConditions',
+        bc: 'Conditions',
         idx: tuple[int, int] = (0, 0),
         coords: FloatArray | None = None,
     ) -> None:

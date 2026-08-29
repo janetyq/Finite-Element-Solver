@@ -7,25 +7,27 @@ shared shape is asserted.
 import numpy as np
 import pytest
 
-from fem.boundary import BoundaryConditions, Dirichlet, Neumann
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
 from fem.physics.equations import LinearElastic, Poisson
 from fem.analysis.estimators import GoalOrientedEstimator, RecoveryEstimator, ResidualEstimator
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere, on_plane
 from fem.analysis.sensitivity import PointValue
+from fem.loads import Source
 
 
 def _poisson(element_type):
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(8, 8))
-    bc = BoundaryConditions(Dirichlet(everywhere(), 0.0))
-    equation = Poisson(source=1.0)
-    return equation, equation.problem(mesh, bc, element_type=element_type)
+    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    equation = Poisson()
+    return equation, equation.problem(mesh, bc + Source(1.0), element_type=element_type)
 
 
 def _elastic(element_type):
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(8, 8))
-    bc = BoundaryConditions(
+    bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Neumann(on_plane(0, 1.0), [1.0, 0]),
     )

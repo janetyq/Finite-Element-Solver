@@ -6,7 +6,7 @@ fit together. Anchored on symbol names rather than line numbers. Open work lives
 ## The idea
 
 A solve is a composition assembled from parts, not a method looked up by PDE. The package has the
-parts (`FunctionSpace`, `Form`, `Material`, `DiscreteSystem`, `ResolvedBC`), the object that holds
+parts (`FunctionSpace`, `Form`, `Material`, `DiscreteSystem`, `ResolvedConditions`), the object that holds
 a composition (`Problem`), the strategies that consume one (`LinearSolve`, `NewtonSolve`, the time
 integrators), and the drivers that wrap a strategy to re-solve (`AdaptiveRefinement`,
 `DesignOptimizer`). A transient problem is a steady operator paired with a time integrator, not a
@@ -48,19 +48,19 @@ The two agree exactly: `Equation.problem` and `Problem.solve` hold no policy of 
 anything they can do can be composed, and anything composed (a different form, a hand-built load,
 a custom strategy) needs neither. There is no third way: the equation builds, the problem solves.
 
-The load is a sum of `Load` terms (`fem/loads.py`), each answering `vector(space, t)`. The volume
-source is a `Source`: a constant or a nodal array is integrated exactly through the mass matrix, a
-callable is sampled at the quadrature points, which captures variation within an element
-(`NodalSource` is the explicit interpolant path); a Neumann value or a Robin value is a
-`BoundaryLoad` over its region's facets; a nodal force is a `PointLoad`, passed through `Equation(loads=...)` or `Problem(loads=...)`. A DOF vector built by
-hand (an initial condition, a comparison field) is `space.interpolate(value)`, nodal on P2 as well.
-
-Boundary conditions are objects: `Dirichlet(region, value)`, `Neumann(region, value)`, and
-`Robin(region, kappa, g)`, collected by `BoundaryConditions(*conditions)` or `bc + condition`,
-both frozen. Each condition resolves itself against a node set (`condition.resolve`), and a
-`Dirichlet` value may leave a component `None` (free) for a roller. A region is geometric
-(`on_plane`, `in_box`, a callable of points) or, for a mesh with `boundary_tags`, `on_tag(k)`,
-which resolves from the facets rather than the coordinates.
+Everything applied to the domain is a `Conditions` (`fem/conditions.py`): the boundary conditions
+`Dirichlet(region, value)`, `Neumann(region, value)`, `Robin(region, kappa, g)` (`fem/boundary.py`),
+the volume `Source`, and any `PointLoad` (`fem/loads.py`), collected by `Conditions(*items)` or
+`conditions + item`, both frozen. The equation carries only the law and its material; the forcing is
+the conditions'. `conditions.resolve(space)` is a `ResolvedConditions`: the Dirichlet DOF partition,
+one `kappa * BoundaryMassForm` operator term per Robin condition, and the load terms, each a `Load`
+answering `vector(space, t)`: the source (a constant or a nodal array integrated exactly through the
+mass matrix, a callable sampled at the quadrature points, or with `nodal=True` its interpolant), one
+`BoundaryLoad` over its region's facets per Neumann or Robin value, and the point loads. A `Dirichlet`
+value may leave a component `None` (free) for a roller. A region is geometric (`on_plane`, `in_box`,
+a callable of points) or, for a mesh with `boundary_tags`, `on_tag(k)`, which resolves from the
+facets rather than the coordinates. A DOF vector built by hand (an initial condition, a comparison
+field) is `space.interpolate(value)`, nodal on P2 as well.
 
 Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
 names the `domain` it integrates over (the elements or the boundary facets), so a Robin condition
@@ -106,7 +106,7 @@ refined mesh (1) without re-resolving constraints by hand (5).
 
 | Tier | Role | Objects |
 |---|---|---|
-| 1. Primitives | the parts a composition is built from | `Form` (the `BilinearForm`s, `EnergyForm`; combinators `SumForm`, `ScaledForm`; `BoundaryMassForm`, `PrecomputedForm`), `Load` (`Source`, `NodalSource`, `BoundaryLoad`, `PointLoad`), `Material`, `FunctionSpace`, `BoundaryConditions` / `ResolvedBC`, `DiscreteSystem` + `Backend` |
+| 1. Primitives | the parts a composition is built from | `Form` (the `BilinearForm`s, `EnergyForm`; combinators `SumForm`, `ScaledForm`; `BoundaryMassForm`, `PrecomputedForm`), `Load` (`Source`, `PointLoad`, and the `BoundaryLoad` a resolution builds), `Material`, `FunctionSpace`, `Conditions` / `ResolvedConditions`, `DiscreteSystem` + `Backend` |
 | 2. `Problem` | a composition: space + operator + load + constraints | `Problem`, and `LinearProblem` for a constant tangent; `Equation.problem` builds one from a named PDE |
 | 3. Solve strategy | consumes a `Problem`, returns the solution | `LinearSolve`, `NewtonSolve`, `EigenSolve`; integrators `ThetaMethod`, `NewmarkMethod` |
 | 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
@@ -144,7 +144,7 @@ two elastic forms share with `ElasticSolution` and `StressField`.
 | `Form` (`BilinearForm`s, `EnergyForm`) | | | █ | ▒ | | | | | ▒ |
 | `Material` / energy densities | | | █ | | | | | | |
 | `Equation` | | | █ | | | | | | |
-| `BoundaryConditions` / `ResolvedBC` | | | | | █ | | | | |
+| `Conditions` / `ResolvedConditions` | | | | | █ | | | | |
 | `Problem` / `LinearProblem` | | | ▒ | ▒ | █ | | | | ▒ |
 | `DiscreteSystem` | | | | | ▒ | █ | | | |
 | `Backend` (`Direct`, `Iterative`, `Minres`) | | | | | | █ | | | |
@@ -197,7 +197,7 @@ max_area_fraction, resolution)` samples it into a `PSLG` (the straight-line grap
 `outline.sample(resolution)`) and runs Ruppert's refinement on that; `simplified(tolerance)` is
 Douglas-Peucker over a loop's straight runs. This is the spec / resolution split again:
 `Outline` is the description and `PSLG` its resolution at one chord length, the way
-`BoundaryConditions` resolves to `ResolvedBC`. `RuppertsAlgorithm` takes the `PSLG`, kept public
+`Conditions` resolves to `ResolvedConditions`. `RuppertsAlgorithm` takes the `PSLG`, kept public
 for a caller that wants the refinement state. Every chord of a curved piece carries the piece as
 its `Curve`, so Ruppert's split points, red-green midpoints, and an isoparametric element's edge
 nodes all project onto the true shape; the mesh's `boundary_curves` carry it and `boundary_tags`
@@ -215,7 +215,7 @@ the whole mesh; a `Form` contracts that into element matrices in one vectorized 
 
 DOFs are numbered by the space, never read off the mesh: `element_nodes`, `node_coords`, and
 `boundary_nodes` are the mesh's own arrays for P1, and for P2 the `NodeSet` that `p2_connectivity`
-builds (vertices, then one edge-midpoint node per edge). `BoundaryConditions.resolve` takes either,
+builds (vertices, then one edge-midpoint node per edge). `Condition.resolve` takes either,
 so a geometric condition pins the edge DOFs too. An `IsoparametricTriangleElement` raises the
 geometry map to quadratic as well, placing its edge nodes on the mesh's curves so the boundary
 follows the true curve.
@@ -421,10 +421,10 @@ ran and failed (a singular factorization, a backend that rejected every shift).
 
 ## The recurring pattern
 
-`fem/regions.py` + `fem/boundary.py` is the model: a mesh-independent specification
-(`BoundaryConditions`, a frozen tuple of `Condition`s) separated from its resolution against one
-discretization (`ResolvedBC`, frozen, keyed by node set and component count), with the
-time-dependent values a second, cheaper step on the resolution (`ResolvedBC.at(t)`). The same
+`fem/regions.py` + `fem/conditions.py` is the model: a mesh-independent specification
+(`Conditions`, a frozen tuple of conditions and loads) separated from its resolution against one
+space (`ResolvedConditions`, frozen), with the time-dependent values a second, cheaper step on the
+resolution (`ResolvedConditions.at(t)`). The same
 shape recurs: `FunctionSpace` is the resolved
 discretization, `Form` the resolved view of an `Equation`'s physics, `Problem` the resolved
 composition, and `Factorization` a `Backend` resolved against one matrix.
