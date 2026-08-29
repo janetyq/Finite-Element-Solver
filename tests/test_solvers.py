@@ -7,6 +7,7 @@ from fem.boundary import BoundaryConditions, Dirichlet, Neumann
 from fem.regions import everywhere, on_plane
 from fem.physics.equations import Heat, Projection, Poisson, LinearElastic, Wave
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod, wave_energy
+from fem.algebra.solve import EigenSolve, LinearSolve, NewtonSolve
 
 
 def _on(equation, mesh, bc=None):
@@ -144,3 +145,18 @@ def test_density_scales_the_mass_side_of_a_transient_problem(make_unit_square):
     dense = ThetaMethod(dt=0.01, steps=10, theta=1.0).solve(_on(Heat(capacity=2.0), mesh), u0.copy())
     unit = ThetaMethod(dt=0.005, steps=10, theta=1.0).solve(_on(Heat(), mesh), u0.copy())
     np.testing.assert_allclose(dense.u[-1], unit.u[-1], atol=1e-12)
+
+
+def test_algorithm_objects_are_frozen_configuration():
+    """A strategy, an eigen-solve, or an integrator is an immutable bundle of its
+    parameters with one `solve`: assigning to one raises, equal parameters compare
+    equal, and it can be a dict key. What varies per call is an argument."""
+    from dataclasses import FrozenInstanceError
+    objects = [LinearSolve(), NewtonSolve(tol=1e-8), EigenSolve(2),
+               ThetaMethod(0.1, 3), NewmarkMethod(0.1, 3)]
+    for obj in objects:
+        with pytest.raises(FrozenInstanceError):
+            setattr(obj, 'tol', 1.0)
+        assert hash(obj) == hash(obj)
+    assert NewtonSolve(tol=1e-8) == NewtonSolve(tol=1e-8)
+    assert NewtonSolve(tol=1e-8) != NewtonSolve()

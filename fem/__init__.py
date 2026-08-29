@@ -90,7 +90,7 @@ from fem.algebra.backends import (
     Backend,
     DirectBackend,
     IterativeBackend,
-    LinearSolver,
+    Factorization,
     MinresBackend,
 )
 from fem.algebra.integrators import ThetaMethod, NewmarkMethod
@@ -224,7 +224,7 @@ __all__ = [
     "TangentRegularization",
     "EigenSolve",
     "Backend",
-    "LinearSolver",
+    "Factorization",
     "DirectBackend",
     "IterativeBackend",
     "MinresBackend",

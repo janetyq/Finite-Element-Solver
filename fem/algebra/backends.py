@@ -7,7 +7,7 @@ Newton, a `Backend` picks direct vs. iterative, and they compose.
 What a caller touches, versus what is plumbing:
 
     Use:       DirectBackend() | IterativeBackend() | MinresBackend()  <- the public choice
-    Extend:    Backend, LinearSolver                  <- implement these to add one
+    Extend:    Backend, Factorization                  <- implement these to add one
     Internal:  _CGSolver, _MinresSolver, _pyamg_csr   <- never named outside here
 
 `DirectBackend` LU-factors the block (`splu`) and back-substitutes: robust for any
@@ -22,11 +22,11 @@ factorization is not.
 cannot take: a harmonic operator `K - w^2 M` above the first natural frequency, or a
 Newton tangent away from a convex minimum.
 
-Both `prepare` an operator into a `LinearSolver`, an object that has factored or
+Both `prepare` an operator into a `Factorization`, an object that has factored or
 preconditioned one matrix and solves it against many right-hand sides.
 `DiscreteSystem` builds one per operator and reuses it, so a time-stepper or Newton
 loop with a constant operator pays the setup once. The `Backend` is the recipe and
-the `LinearSolver` the bound solver, since the matrix actually solved (the eliminated
+the `Factorization` the bound solver, since the matrix actually solved (the eliminated
 free-free block) is built inside `DiscreteSystem`.
 
 The AMG preconditioner is `pyamg`'s smoothed aggregation (see BACKLOG.md for a
@@ -42,22 +42,22 @@ from scipy.sparse.linalg import cg, minres, splu
 from fem.typing import DofVector, FloatArray, Operator
 
 __all__ = [
-    'Backend', 'LinearSolver', 'DirectBackend', 'IterativeBackend', 'MinresBackend',
+    'Backend', 'Factorization', 'DirectBackend', 'IterativeBackend', 'MinresBackend',
 ]
 
 
 # -- the two contracts: implement both to add a backend ------------------------
 
-class LinearSolver(Protocol):
-    '''A matrix that has been factored/preconditioned once and solves many b's.'''
+class Factorization(Protocol):
+    '''A matrix factored or preconditioned once, solving many right-hand sides.'''
 
     def solve(self, b: DofVector) -> DofVector: ...
 
 
 class Backend(Protocol):
-    '''A strategy for turning an assembled operator into a reusable `LinearSolver`.'''
+    '''The recipe for turning an assembled operator into a reusable `Factorization`.'''
 
-    def prepare(self, A: Operator) -> LinearSolver: ...
+    def prepare(self, A: Operator) -> Factorization: ...
 
 
 # -- the backends a caller picks from ------------------------------------------
@@ -65,8 +65,8 @@ class Backend(Protocol):
 class DirectBackend:
     '''Sparse LU factorization via `splu`. The default: robust for any operator.'''
 
-    def prepare(self, A: Operator) -> LinearSolver:
-        # splu wants CSC; the SuperLU it returns already satisfies LinearSolver
+    def prepare(self, A: Operator) -> Factorization:
+        # splu wants CSC; the SuperLU it returns already satisfies Factorization
         # (its .solve reuses the factorization), so no wrapper is needed.
         return splu(csc_array(A))
 
@@ -99,7 +99,7 @@ class IterativeBackend:
         '''
         return IterativeBackend(self.rtol, self.maxiter, B)
 
-    def prepare(self, A: Operator) -> LinearSolver:
+    def prepare(self, A: Operator) -> Factorization:
         A_csr = _pyamg_csr(A)
         ml = pyamg.smoothed_aggregation_solver(A_csr, B=self.near_null_space)
         return _CGSolver(A_csr, ml.aspreconditioner(), self.rtol, self.maxiter)
@@ -131,7 +131,7 @@ class MinresBackend:
         self.maxiter = maxiter
         self.preconditioner = preconditioner
 
-    def prepare(self, A: Operator) -> LinearSolver:
+    def prepare(self, A: Operator) -> Factorization:
         return _MinresSolver(csr_array(A), self.preconditioner, self.rtol, self.maxiter)
 
 

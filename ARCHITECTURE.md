@@ -18,6 +18,7 @@ solve" is the `Problem`; "how" is the strategy.
 
 The chain is the same for every problem. Each step has one required object and a few options with
 defaults; `Equation.problem` is this chain with the defaults filled in from the equation.
+The README's "What you choose at each step" table is the menu of options; this is the chain.
 
 | Step | Required | Options (default) |
 |---|---|---|
@@ -287,7 +288,7 @@ is handed to decide its regularization (`'auto'`: a `TangentRegularization` unde
 backend, none under the direct one).
 
 `DiscreteSystem` eliminates the Dirichlet DOFs and hands the free-free block to a `Backend`, which
-prepares it into a `LinearSolver` solved against many right-hand sides. `DirectBackend` is sparse
+prepares it into a `Factorization` solved against many right-hand sides. `DirectBackend` is sparse
 LU; `IterativeBackend` is AMG-preconditioned CG, SPD-only and opt-in; `MinresBackend` handles
 symmetric indefinite systems. `backend_for(problem, backend)` hands an `IterativeBackend` the
 problem's near-kernel (`LinearElasticForm.near_null_space`, the rigid-body modes, restricted to
@@ -343,7 +344,7 @@ through `SensitivityAnalysis`, and moves the density by the optimality-criteria 
 
 Each seam is a protocol, exported from `fem`, and the classes beside it are the implementations
 to copy: `Form` (`BilinearForm` by `element_matrices`, `EnergyForm` by an `EnergyDensity`);
-`SolveStrategy` (`LinearSolve`, `NewtonSolve`); `Backend` and `LinearSolver` (`DirectBackend`,
+`SolveStrategy` (`LinearSolve`, `NewtonSolve`); `Backend` and `Factorization` (`DirectBackend`,
 `IterativeBackend`, `MinresBackend`); `ErrorEstimator` (the three estimators, or any callable of
 `(problem, solution)`); `QuantityOfInterest` and `Parameterization` (`Compliance`, `PointValue`,
 `DensityField`, `ModulusField`); `DerivedField` (`GradientField`, `StressField`); `FieldShape`
@@ -396,6 +397,12 @@ Construction: `from_*` builds from another representation (`ElasticSolution.from
 `sample(geometry)` evaluates a field at a rule's points; `*_for(x)` resolves a choice against `x`
 (`element_type_for`, `backend_for`, `problem_for`).
 
+Algorithm objects: a `SolveStrategy` (`LinearSolve`, `NewtonSolve`), an integrator
+(`ThetaMethod`, `NewmarkMethod`), and `EigenSolve` are frozen dataclasses of their parameters with
+one `solve`. What varies per call (the problem, a seed, initial conditions, the `backend`) is an
+argument, never a field, so one configured object serves many solves. Only the drivers
+(`AdaptiveRefinement`, `DesignOptimizer`) hold state.
+
 Exceptions: `NotImplementedError` for a capability an object does not have, naming the
 alternative (`'Use NewtonSolve.'`); `TypeError` for the wrong kind of object (a state-dependent
 form handed to `LinearSolve` or `SIMPModel`, an abstract base instantiated); `ValueError` for bad
@@ -410,4 +417,4 @@ discretization (`ResolvedBC`, frozen, keyed by node set and component count), wi
 time-dependent values a second, cheaper step on the resolution (`ResolvedBC.at(t)`). The same
 shape recurs: `FunctionSpace` is the resolved
 discretization, `Form` the resolved view of an `Equation`'s physics, `Problem` the resolved
-composition, and `LinearSolver` a `Backend` resolved against one matrix.
+composition, and `Factorization` a `Backend` resolved against one matrix.

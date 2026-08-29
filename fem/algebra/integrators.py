@@ -11,6 +11,7 @@ come in through `solve`, as DOF vectors (`FunctionSpace.interpolate`). The resul
 The wave path uses Newmark rather than a 2N first-order block: its effective operator
 `M + β dt² K` is SPD and N-sized, so it stays inside the CG/preconditioning path.
 """
+from dataclasses import dataclass
 from typing import TypeVar
 
 import numpy as np
@@ -41,6 +42,7 @@ def _history(problem: Problem[S], t_values: list[float], u_values: list[DofVecto
     return TransientSolution(problem.space, t, u_values, problem=problem)
 
 
+@dataclass(frozen=True)
 class ThetaMethod:
     '''First-order integrator for M u' + K u = b.
 
@@ -50,10 +52,9 @@ class ThetaMethod:
     value is prescribed at each step's end time.
     '''
 
-    def __init__(self, dt: float, steps: int, theta: float = 0.5) -> None:
-        self.dt = dt
-        self.steps = steps
-        self.theta = theta
+    dt: float
+    steps: int
+    theta: float = 0.5
 
     def solve(self, problem: Problem[S], u0: DofVector, *,
               backend: Backend | None = None) -> TransientSolution[S]:
@@ -81,6 +82,7 @@ class ThetaMethod:
         return _history(problem, t_values, u_values)
 
 
+@dataclass(frozen=True)
 class NewmarkMethod:
     '''Second-order integrator for M u'' + C u' + K u = b, with C the problem's
     `damping_matrix` (none by default).
@@ -95,11 +97,10 @@ class NewmarkMethod:
     supported, since it needs the prescribed velocity and acceleration as well.
     '''
 
-    def __init__(self, dt: float, steps: int, beta: float = 0.25, gamma: float = 0.5) -> None:
-        self.dt = dt
-        self.steps = steps
-        self.beta = beta
-        self.gamma = gamma
+    dt: float
+    steps: int
+    beta: float = 0.25
+    gamma: float = 0.5
 
     def solve(self, problem: Problem[S], u0: DofVector, v0: DofVector, *,
               backend: Backend | None = None) -> WaveSolution[S]:
