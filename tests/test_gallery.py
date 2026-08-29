@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from demos import l2_projection, timing_benchmark, topology_optimization  # noqa: E402
+from demos import l2_projection, modal, timing_benchmark, topology_optimization  # noqa: E402
 from demo_registry import Demo, DemoResult, Figure  # noqa: E402
 from gallery import build_gallery  # noqa: E402
 
@@ -93,6 +93,11 @@ def _registry():
                       section='Solids & structures'),
         # Declares no section, so it also stands for a demo the index has no heading for.
         'gif_maker': Demo('gif_maker', _writes_a_gif),
+        # A `physics.py` / `figures.py` demo, skipped so its source is shown without a
+        # solve: the notes, table of contents, and fold come from the source alone.
+        'fork': Demo('fork', modal.DEMO.func, show_source=modal.DEMO.show_source,
+                     section='Solids & structures',
+                     smoke_requires='a_module_that_is_not_installed'),
     }
 
 
@@ -205,12 +210,26 @@ def test_text_output_is_carried_onto_the_page(gallery):
     assert 'amg_cg' in (out / 'backends.html').read_text(encoding='utf-8')
 
 
-def test_source_is_shown_on_the_page(gallery):
+def test_source_is_shown_on_the_page_highlighted(gallery):
     """The figures are what a demo produced; the code is what a reader came for."""
     out, entries = gallery
     page = (out / 'poisson.html').read_text(encoding='utf-8')
-    assert 'def _poisson' in page
-    assert 'Dirichlet(' in page
+    assert '<span class="nf">_poisson</span>' in page
+    assert 'Dirichlet' in page
+    assert '<span class="k">def</span>' in page
+    assert '/blob/' in page and 'fem/boundary.py' in page    # the import links out
+
+
+def test_a_module_demo_gets_its_notes_and_a_table_of_contents(gallery):
+    """A demo showing a whole physics module reads as prose, an index, then code."""
+    out, entries = gallery
+    page = (out / 'fork.html').read_text(encoding='utf-8')
+    assert entries['fork'].source_notes[0].startswith('A steel tuning fork')
+    assert '<div class="source-notes">' in page
+    assert '<ul class="toc">' in page
+    target = re.search(r'<a href="#(src-\d+)"><code>fork_modes</code>', page).group(1)
+    assert f'id="{target}"' in page
+    assert '<details class="fold">' in page
 
 
 def test_source_survives_a_partial(gallery):
@@ -222,7 +241,7 @@ def test_source_survives_a_partial(gallery):
 def test_a_skipped_demo_still_shows_its_source(gallery):
     """Nothing about a missing optional dependency makes the code less worth reading."""
     out, _entries = gallery
-    assert 'def _poisson' in (out / 'absent.html').read_text(encoding='utf-8')
+    assert '<span class="nf">_poisson</span>' in (out / 'absent.html').read_text(encoding='utf-8')
 
 
 def test_index_is_grouped_by_section_not_alphabetically(gallery):

@@ -27,7 +27,8 @@ dependencies = [
 
 # Development tooling (installed by default with `uv sync`)
 [dependency-groups]
-dev = ["pytest", "ruff", "pyright"]
+# pygments highlights the gallery's source listings (examples/source_html.py).
+dev = ["pytest", "ruff", "pyright", "pygments"]
 
 [tool.ruff]
 line-length = 120

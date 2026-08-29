@@ -15,6 +15,7 @@ them lazily and cache them.
 """
 import html
 import os
+import re
 import shutil
 import tempfile
 from collections.abc import Iterable
@@ -27,6 +28,7 @@ import matplotlib
 matplotlib.use('Agg')  # render to buffers; a gallery run opens no windows
 
 from demo_registry import Demo, DemoResult
+from source_html import STYLE_DARK, STYLE_LIGHT, highlight, toc_html
 
 IMAGES = 'img'
 
@@ -71,6 +73,7 @@ class Entry:
     artifacts: list[str] = field(default_factory=list)
     skipped: str | None = None
     source: str = ''
+    source_notes: list[str] = field(default_factory=list)  # prose above it; see `Demo.source_notes`
     full_source: str = ''          # the whole module, offered behind a fold; see `Demo.show_source`
     section: str = ''              # which heading of the index it belongs under
 
@@ -125,7 +128,8 @@ def run_demo(demo: Demo, out_dir: Path) -> Entry:
     """
     out_dir = Path(out_dir)
     entry = Entry(demo.name, demo.description(), source=demo.source(),
-                  full_source=demo.full_source(), section=demo.section)
+                  source_notes=demo.source_notes(), full_source=demo.full_source(),
+                  section=demo.section)
 
     skip = _missing_dependency(demo)
     if skip is not None:
@@ -206,16 +210,30 @@ figcaption { color: var(--muted); font-size: .9rem; margin-top: .5rem; }
 .player .count { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
 pre { overflow-x: auto; padding: .9rem 1rem; border: 1px solid var(--line);
       border-radius: 8px; font-size: .85rem; }
-pre.source { line-height: 1.45; tab-size: 4; }
+.source pre { line-height: 1.45; tab-size: 4; }
+/* Pygments' line anchors: a target for the table of contents, invisible otherwise. */
+.source pre > a { text-decoration: none; }
+.source pre > a:target { scroll-margin-top: 1rem; }
+.toc { list-style: none; padding: 0; margin: 0 0 1rem; columns: 2; column-gap: 2rem;
+       font-size: .9rem; }
+.toc li { break-inside: avoid; margin: 0 0 .2rem; }
+.toc code { font-size: .85rem; }
+.toc .summary { color: var(--muted); }
+.source-notes { margin: 0 0 1rem; max-width: 54rem; }
+.source-notes p { margin: 0 0 .85rem; }
 .heading { font-size: 1rem; margin: 2.5rem 0 .6rem; text-transform: uppercase;
            letter-spacing: .06em; color: var(--muted); }
 .run { margin: 0 0 2rem; }
 details.fold { margin-top: 1rem; }
 details.fold summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
-details.fold pre { margin-top: .6rem; }
+details.fold .source { margin-top: .6rem; }
 .run code { font-size: .85rem; background: var(--code); border: 1px solid var(--line);
             border-radius: 6px; padding: .25rem .5rem; }
 .note { border-left: 3px solid var(--line); padding-left: .9rem; color: var(--muted); }
+""" + STYLE_LIGHT + """
+@media (prefers-color-scheme: dark) {
+""" + STYLE_DARK + """
+}
 """
 
 PLAYER_JS = """
@@ -259,18 +277,23 @@ def _page(title: str, body: str, script: str = '') -> str:
     )
 
 
-def _figure_note(body: list[str]) -> str:
-    """Render a figure's longer explanation, one <p> per provided paragraph."""
+def _note(body: list[str], css_class: str = 'figure-note') -> str:
+    """Prose beside a figure or a listing, one <p> per provided paragraph."""
     paragraphs = [p.strip() for p in body if p.strip()]
     if not paragraphs:
         return ''
-    inner = '\n'.join(f'<p>{html.escape(p)}</p>' for p in paragraphs)
-    return f'\n<div class="figure-note">\n{inner}\n</div>'
+    # Docstrings name code in backticks; the page sets those as code.
+    inner = '\n'.join(f'<p>{_backticks(html.escape(p))}</p>' for p in paragraphs)
+    return f'\n<div class="{css_class}">\n{inner}\n</div>'
+
+
+def _backticks(text: str) -> str:
+    return re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
 
 
 def _panel_html(panel: Panel, index: int) -> str:
     caption = html.escape(panel.caption)
-    note = _figure_note(panel.body)
+    note = _note(panel.body)
     if not panel.frames:
         return (f'<figure>\n<img src="{panel.src}" alt="{caption}">\n'
                 f'<figcaption>{caption}</figcaption>\n</figure>{note}')
@@ -322,13 +345,16 @@ def _demo_page(entry: Entry) -> str:
     # was otherwise making only in pictures.
     if entry.source:
         parts.append('<h2 class="heading">Source</h2>')
-        if entry.full_source:
+        if entry.source_notes:
+            parts.append(_note(entry.source_notes, 'source-notes'))
+        elif entry.full_source:
             parts.append('<p class="sub">The functions that pose and solve the problem. '
                          'The figures are below the fold.</p>')
-        parts.append(f'<pre class="source">{html.escape(entry.source)}</pre>')
+        parts.append(toc_html(entry.source, 'src'))
+        parts.append(highlight(entry.source, 'src'))
     if entry.full_source:
         parts.append('<details class="fold"><summary>The figures, and the demo that assembles them</summary>'
-                     f'<pre class="source">{html.escape(entry.full_source)}</pre></details>')
+                     f'{highlight(entry.full_source, "full")}</details>')
 
     return _page(f'{entry.name} - FEM demos', '\n'.join(parts), PLAYER_JS)
 

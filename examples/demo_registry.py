@@ -5,6 +5,7 @@ split matters: a demo never shows, saves, or prints anything itself, it returns 
 produced and the caller decides, so `run`, the gallery, and `tests/test_demos.py`
 treat every demo the same way.
 """
+import ast
 import functools
 import importlib
 import inspect
@@ -92,6 +93,27 @@ def _source_of(obj: Callable[..., Any] | ModuleType) -> str:
         return ''
 
 
+def _split_docstring(module_source: str) -> tuple[list[str], str]:
+    """A module's docstring as paragraphs, and its source from the line after it.
+
+    The docstring is what the module says about itself, and the gallery renders it as
+    prose above the code rather than as the first thing inside the code block.
+    """
+    try:
+        tree = ast.parse(module_source)
+    except SyntaxError:
+        return [], module_source
+    doc = ast.get_docstring(tree)
+    if doc is None or not tree.body:
+        return [], module_source
+    paragraphs = [' '.join(p.split()) for p in doc.split('\n\n') if p.strip()]
+    end = tree.body[0].end_lineno or 0
+    lines = module_source.splitlines(keepends=True)[end:]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    return paragraphs, ''.join(lines)
+
+
 @dataclass
 class Demo:
     name: str
@@ -155,8 +177,16 @@ class Demo:
         if self.show_source is None:
             return _source_of(self._unwrapped())
         if isinstance(self.show_source, ModuleType):
-            return _source_of(self.show_source)
+            return _split_docstring(_source_of(self.show_source))[1]
         return '\n\n'.join(filter(None, (_source_of(f) for f in self.show_source)))
+
+    def source_notes(self) -> list[str]:
+        """What the shown module says about itself, as paragraphs: its docstring, which
+        `source` leaves out so it reads once, as prose. Empty unless `show_source` is a
+        module."""
+        if isinstance(self.show_source, ModuleType):
+            return _split_docstring(_source_of(self.show_source))[0]
+        return []
 
     def full_source(self) -> str:
         """The module the demo function lives in, plotting included, for a demo whose

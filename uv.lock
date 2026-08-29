@@ -213,6 +213,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pygments" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
@@ -229,6 +230,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "pygments" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
