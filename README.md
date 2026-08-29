@@ -276,17 +276,17 @@ result is typed by the physics: `Poisson(...).problem(mesh, bc).solve()` is a
 
 ### How the pieces fit
 
-The same chain for every solve: geometry and conditions go into an equation, which
-builds a `Problem`; the problem is solved, stepped in time, or analysed; every path ends
-in a typed solution the plotter draws.
+The same chain for every solve. A mesh (from an outline or a box), the boundary
+conditions, and the loads go into an equation, which builds a `Problem` on the element
+you choose; the problem is solved with a strategy over a backend, or stepped in time, or
+analysed; every path ends in a typed solution the plotter draws.
 
 ```
-Outline ──► Mesh ────────────┐
-                             ├──► equation.problem(mesh, bc, element_type=) ──► Problem ──► problem.solve(strategy=, backend=) ──► Solution ──► Plotter
-Regions ──► Conditions ──────┤                                                   │
-Loads ───────────────────────┘                                                   ├── Integrator.solve(problem, u0)  ──► TransientSolution
-                                                                                 ├── Analysis.solve(problem)        ──► Buckling / ModalSolution
-                                                                                 └── Driver (re-solves in a loop)    ──► the final Solution
+Outline ──► Mesh ──► equation.problem(mesh, bc, element_type=) ──► Problem ──► .solve(strategy=, backend=) ──► Solution ──► Plotter
+                       ▲ Equation, Conditions (on Regions), Loads          │
+                                                                           ├── Integrator.solve(problem, u0)   ──► TransientSolution
+                                                                           ├── Analysis.solve(problem)         ──► Buckling / ModalSolution
+                                                                           └── Driver (re-solves in a loop)    ──► the final Solution
 ```
 
 ### What you choose at each step
