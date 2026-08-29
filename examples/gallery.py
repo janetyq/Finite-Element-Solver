@@ -28,7 +28,7 @@ import matplotlib
 matplotlib.use('Agg')  # render to buffers; a gallery run opens no windows
 
 from demo_registry import Demo, DemoResult
-from source_html import STYLE_DARK, STYLE_LIGHT, highlight, toc_html
+from source_html import STYLE_DARK, STYLE_LIGHT, highlight
 
 IMAGES = 'img'
 
@@ -209,14 +209,6 @@ figcaption { color: var(--muted); font-size: .9rem; margin-top: .5rem; }
 pre { overflow-x: auto; padding: .9rem 1rem; border: 1px solid var(--line);
       border-radius: 8px; font-size: .85rem; }
 .source pre { line-height: 1.45; tab-size: 4; }
-/* Pygments' line anchors: a target for the table of contents, invisible otherwise. */
-.source pre > a { text-decoration: none; }
-.source pre > a:target { scroll-margin-top: 1rem; }
-.toc { list-style: none; padding: 0; margin: 0 0 1rem; columns: 2; column-gap: 2rem;
-       font-size: .9rem; }
-.toc li { break-inside: avoid; margin: 0 0 .2rem; }
-.toc code { font-size: .85rem; }
-.toc .summary { color: var(--muted); }
 .heading { font-size: 1rem; margin: 2.5rem 0 .6rem; text-transform: uppercase;
            letter-spacing: .06em; color: var(--muted); }
 .run { margin: 0 0 2rem; }
@@ -344,11 +336,10 @@ def _demo_page(entry: Entry) -> str:
         if entry.full_source:
             parts.append('<p class="sub">The functions that pose and solve the problem. '
                          'The figures are below the fold.</p>')
-        parts.append(toc_html(entry.source, 'src'))
-        parts.append(highlight(entry.source, 'src'))
+        parts.append(highlight(entry.source))
     if entry.full_source:
         parts.append('<details class="fold"><summary>The figures, and the demo that assembles them</summary>'
-                     f'{highlight(entry.full_source, "full")}</details>')
+                     f'{highlight(entry.full_source)}</details>')
 
     return _page(f'{entry.name} - FEM demos', '\n'.join(parts), PLAYER_JS)
 
