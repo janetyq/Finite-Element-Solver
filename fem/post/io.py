@@ -31,12 +31,8 @@ _ELEMENT_TYPE = '__element_type__'
 _MESH_VERTICES = '__mesh_vertices__'
 _MESH_ELEMENTS = '__mesh_elements__'
 _MESH_BOUNDARY = '__mesh_boundary__'
-# The on-disk key keeps its original spelling: renaming the Python name is free,
-# renaming the archive key would strand every .npz already written.
-_N_COMPONENTS = '__dim__'
+_N_COMPONENTS = '__n_components__'
 _SOLUTION_CLASS = '__solution_class__'
-# Class names archives were written under before a rename, so they still load.
-_LEGACY_SOLUTION_CLASSES = {'ScalarFieldSolution': 'DiffusionSolution'}
 
 
 # --- meshes -----------------------------------------------------------------
@@ -78,10 +74,7 @@ def _mesh_from_arrays(data):
 
     geometry = (data[_MESH_VERTICES], data[_MESH_ELEMENTS], data[_MESH_BOUNDARY])
     mesh_class = str(data[_MESH_CLASS])
-    # 'FEMesh' still appears in archives written before the element data moved to
-    # FunctionSpace. Geometry is all that was ever stored, so those load as a Mesh
-    # and a solve rebuilds the rest.
-    if mesh_class not in ('Mesh', 'FEMesh'):
+    if mesh_class != 'Mesh':
         raise ValueError(f'Unknown mesh class in saved solution: {mesh_class}')
     return Mesh(*geometry)
 
@@ -99,9 +92,8 @@ def save_solution(solution, path='solution.npz'):
     arrays[_N_COMPONENTS] = np.asarray(solution.n_components)
     arrays[_SOLUTION_CLASS] = np.array(type(solution).__name__)
     # A class cannot live in an array, so the element type is stored by name and
-    # resolved back through `fem.elements` on load; '' means the linear default.
-    arrays[_ELEMENT_TYPE] = np.array(
-        solution.element_type.__name__ if solution.element_type is not None else '')
+    # resolved back through `fem.elements` on load.
+    arrays[_ELEMENT_TYPE] = np.array(solution.element_type.__name__)
     for f in dataclasses.fields(solution):
         if not _persisted(f):
             continue
@@ -128,12 +120,8 @@ def load_solution(path='solution.npz'):
     with np.load(path) as data:
         mesh = _mesh_from_arrays(data)
         n_components = int(data[_N_COMPONENTS])
-        class_name = str(data[_SOLUTION_CLASS])
-        cls = getattr(solution_module, _LEGACY_SOLUTION_CLASSES.get(class_name, class_name))
-        # Resolve the element type stored by name (older archives predate it, so a
-        # missing key means the linear default).
-        type_name = str(data[_ELEMENT_TYPE]) if _ELEMENT_TYPE in data else ''
-        element_type = getattr(elements_module, type_name) if type_name else None
+        cls = getattr(solution_module, str(data[_SOLUTION_CLASS]))
+        element_type = getattr(elements_module, str(data[_ELEMENT_TYPE]))
         # The space's node numbering is deterministic, so the rebuilt one matches the
         # space the solve used.
         space = FunctionSpace(mesh, element_type, n_components=n_components)
