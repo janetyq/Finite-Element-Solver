@@ -73,7 +73,6 @@ class Entry:
     artifacts: list[str] = field(default_factory=list)
     skipped: str | None = None
     source: str = ''
-    source_notes: list[str] = field(default_factory=list)  # prose above it; see `Demo.source_notes`
     full_source: str = ''          # the whole module, offered behind a fold; see `Demo.show_source`
     section: str = ''              # which heading of the index it belongs under
 
@@ -128,8 +127,7 @@ def run_demo(demo: Demo, out_dir: Path) -> Entry:
     """
     out_dir = Path(out_dir)
     entry = Entry(demo.name, demo.description(), source=demo.source(),
-                  source_notes=demo.source_notes(), full_source=demo.full_source(),
-                  section=demo.section)
+                  full_source=demo.full_source(), section=demo.section)
 
     skip = _missing_dependency(demo)
     if skip is not None:
@@ -219,8 +217,6 @@ pre { overflow-x: auto; padding: .9rem 1rem; border: 1px solid var(--line);
 .toc li { break-inside: avoid; margin: 0 0 .2rem; }
 .toc code { font-size: .85rem; }
 .toc .summary { color: var(--muted); }
-.source-notes { margin: 0 0 1rem; max-width: 54rem; }
-.source-notes p { margin: 0 0 .85rem; }
 .heading { font-size: 1rem; margin: 2.5rem 0 .6rem; text-transform: uppercase;
            letter-spacing: .06em; color: var(--muted); }
 .run { margin: 0 0 2rem; }
@@ -277,14 +273,14 @@ def _page(title: str, body: str, script: str = '') -> str:
     )
 
 
-def _note(body: list[str], css_class: str = 'figure-note') -> str:
-    """Prose beside a figure or a listing, one <p> per provided paragraph."""
+def _note(body: list[str]) -> str:
+    """A figure's longer explanation, one <p> per provided paragraph."""
     paragraphs = [p.strip() for p in body if p.strip()]
     if not paragraphs:
         return ''
     # Docstrings name code in backticks; the page sets those as code.
     inner = '\n'.join(f'<p>{_backticks(html.escape(p))}</p>' for p in paragraphs)
-    return f'\n<div class="{css_class}">\n{inner}\n</div>'
+    return f'\n<div class="figure-note">\n{inner}\n</div>'
 
 
 def _backticks(text: str) -> str:
@@ -345,9 +341,7 @@ def _demo_page(entry: Entry) -> str:
     # was otherwise making only in pictures.
     if entry.source:
         parts.append('<h2 class="heading">Source</h2>')
-        if entry.source_notes:
-            parts.append(_note(entry.source_notes, 'source-notes'))
-        elif entry.full_source:
+        if entry.full_source:
             parts.append('<p class="sub">The functions that pose and solve the problem. '
                          'The figures are below the fold.</p>')
         parts.append(toc_html(entry.source, 'src'))

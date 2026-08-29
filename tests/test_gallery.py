@@ -94,7 +94,7 @@ def _registry():
         # Declares no section, so it also stands for a demo the index has no heading for.
         'gif_maker': Demo('gif_maker', _writes_a_gif),
         # A `physics.py` / `figures.py` demo, skipped so its source is shown without a
-        # solve: the notes, table of contents, and fold come from the source alone.
+        # solve: the table of contents and fold come from the source alone.
         'fork': Demo('fork', modal.DEMO.func, show_source=modal.DEMO.show_source,
                      section='Solids & structures',
                      smoke_requires='a_module_that_is_not_installed'),
@@ -220,12 +220,10 @@ def test_source_is_shown_on_the_page_highlighted(gallery):
     assert '/blob/' in page and 'fem/boundary.py' in page    # the import links out
 
 
-def test_a_module_demo_gets_its_notes_and_a_table_of_contents(gallery):
-    """A demo showing a whole physics module reads as prose, an index, then code."""
+def test_a_module_demo_gets_a_table_of_contents(gallery):
+    """A demo showing a whole physics module gets an index of it above the code."""
     out, entries = gallery
     page = (out / 'fork.html').read_text(encoding='utf-8')
-    assert entries['fork'].source_notes[0].startswith('A steel tuning fork')
-    assert '<div class="source-notes">' in page
     assert '<ul class="toc">' in page
     target = re.search(r'<a href="#(src-\d+)"><code>fork_modes</code>', page).group(1)
     assert f'id="{target}"' in page

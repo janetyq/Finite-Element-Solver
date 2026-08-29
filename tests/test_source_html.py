@@ -1,7 +1,6 @@
 """The gallery's source listings: highlighted, outlined, and linked to the library."""
 import re
 
-from demos import modal  # noqa: E402
 from source_html import REPO, highlight, link_imports, outline, toc_html  # noqa: E402
 
 SNIPPET = '''\
@@ -72,13 +71,3 @@ def test_toc_links_to_anchors_the_listing_carries():
 
 def test_no_toc_for_a_listing_with_one_definition():
     assert toc_html('def only():\n    pass\n', 'src') == ''
-
-
-def test_a_module_demo_reads_its_docstring_as_notes_and_not_as_code():
-    """The real modal demo: its physics module's docstring becomes prose, once."""
-    notes = modal.DEMO.source_notes()
-    code = modal.DEMO.source()
-    assert notes and notes[0].startswith('A steel tuning fork')
-    assert not code.startswith('"""')
-    assert code.startswith('from dataclasses import dataclass')
-    assert 'def fork_modes' in code
