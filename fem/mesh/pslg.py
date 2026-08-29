@@ -176,7 +176,7 @@ class PSLG:
 
     # -- queries -----------------------------------------------------------------------
 
-    def loops(self) -> list[FloatArray]:
+    def _loops(self) -> list[FloatArray]:
         '''The vertices of each closed outline, in order.'''
         return [self.vertices[self.segments[self.loop_ids == loop_id, 0]]
                 for loop_id in np.unique(self.loop_ids)]
@@ -189,7 +189,7 @@ class PSLG:
         would count a hole twice over: once as the plate it is cut from, once as
         itself.
         '''
-        loops = self.loops()
+        loops = self._loops()
         total = 0.0
         for i, loop in enumerate(loops):
             depth = sum(point_in_polygon(loop[0], other)

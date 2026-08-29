@@ -14,8 +14,60 @@ from fem.physics.equations import Poisson
 from fem.mesh.mesh import Mesh
 from fem.regions import on_plane
 from fem.post.solution import ScalarFieldSolution
+from fem.mesh.outline import Outline
 
-from domains import airfoil_channel_outline
+
+def _naca4_outline(camber: float, camber_pos: float, thickness: float, n: int,
+                   te_trim: float = 0.05) -> np.ndarray:
+    """A NACA 4-digit airfoil as a closed loop of points, unit chord along +x.
+
+    `camber` (m), `camber_pos` (p), and `thickness` (t) are the usual fractions: a NACA
+    2412 is (0.02, 0.4, 0.12). Cosine node spacing clusters points at the leading and
+    trailing edges, where the curvature is highest.
+
+    `te_trim` cuts that fraction of the chord off the trailing edge, leaving a blunt
+    edge in place of the near-cusp a full 4-digit section tapers to, which the mesher
+    would chase with unboundedly many tiny triangles.
+    """
+    beta = np.linspace(0, np.pi, n)
+    x = 0.5 * (1 - np.cos(beta)) * (1 - te_trim)    # cosine spacing, 0 (LE) to 1-te_trim (TE)
+    yt = 5 * thickness * (0.2969 * np.sqrt(x) - 0.1260 * x - 0.3516 * x**2
+                          + 0.2843 * x**3 - 0.1015 * x**4)
+    if camber > 0 and 0 < camber_pos < 1:
+        m, p = camber, camber_pos
+        yc = np.where(x < p, m / p**2 * (2 * p * x - x**2),
+                      m / (1 - p)**2 * ((1 - 2 * p) + 2 * p * x - x**2))
+        dyc = np.where(x < p, 2 * m / p**2 * (p - x), 2 * m / (1 - p)**2 * (p - x))
+    else:
+        yc = dyc = np.zeros_like(x)                 # symmetric section (m = 0)
+    theta = np.arctan(dyc)
+    upper = np.column_stack([x - yt * np.sin(theta), yc + yt * np.cos(theta)])
+    lower = np.column_stack([x + yt * np.sin(theta), yc - yt * np.cos(theta)])
+    # Trailing edge over the top to the leading edge, then back under; the shared leading
+    # edge is dropped so it is not duplicated.
+    return np.vstack([upper[::-1], lower[1:]])
+
+
+def airfoil_channel_outline(length: float = 7.0, height: float = 4.0, chord: float = 3.0,
+                         angle_of_attack: float = 6.0, camber: float = 0.02,
+                         camber_pos: float = 0.4, thickness: float = 0.12,
+                            n_points: int = 100) -> Outline:
+    """A rectangular channel with a NACA 4-digit airfoil obstacle in it.
+
+    The airfoil is generated analytically (no data file needed), scaled to `chord`,
+    pitched `angle_of_attack` degrees nose-up into a left-to-right flow, and placed in
+    the channel. The default is a NACA 2412. Under the even-odd rule the airfoil loop is
+    a hole, so a mesh covers the fluid and stops at the wing, making its surface a
+    boundary the solver sees (and, taking no condition, a streamline).
+    """
+    foil = _naca4_outline(camber, camber_pos, thickness, n_points)
+    foil = foil * chord - [0.35 * chord, 0.0]       # pivot near the quarter-chord
+    a = np.deg2rad(angle_of_attack)
+    c, s = np.cos(a), np.sin(a)
+    foil = foil @ np.array([[c, -s], [s, c]])       # nose up into the +x flow
+    foil = foil + [0.42 * length, 0.5 * height]
+    channel = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
+    return Outline.from_polygons([channel, foil])
 
 
 @dataclass

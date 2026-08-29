@@ -27,7 +27,6 @@ from fem.space import FunctionSpace
 from fem.mesh.structured import annulus_mesh, box_mesh
 from fem.mesh.ruppert import RuppertsAlgorithm
 from fem.mesh.refinement import RedGreenRefiner
-from fem.mesh.pslg import PSLG
 from fem.mesh.outline import Outline, douglas_peucker
 from fem.elements import (
     LinearLineElement,
@@ -165,7 +164,6 @@ __all__ = [
     "annulus_mesh",
     "RuppertsAlgorithm",
     "RedGreenRefiner",
-    "PSLG",
     "Outline",
     "douglas_peucker",
     "LinearLineElement",

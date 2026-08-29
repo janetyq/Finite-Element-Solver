@@ -20,8 +20,21 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.pslg import PSLG
 from fem.regions import intersect, on_plane
 from fem.post.solution import ElasticSolution
+from fem.mesh.curves import Circle
+from fem.mesh.outline import Outline
 
-from domains import plate_with_hole_outline
+
+def plate_with_hole_outline(length: float = 6.0, height: float = 3.0,
+                            radius: float = 0.3) -> Outline:
+    """A `length` x `height` plate with a circular hole at its centre.
+
+    Two loops: the outline and the hole, which under the even-odd rule is a hole rather
+    than a second region. The hole is a `Circle`, so refinement rounds it and an
+    isoparametric solve places its boundary nodes on the true rim.
+    """
+    plate = np.array([[0.0, 0.0], [length, 0.0], [length, height], [0.0, height]])
+    return Outline([Outline.from_polygons([plate]).loops[0],
+                    Circle([length / 2, height / 2], radius)])
 
 equation = LinearElastic(E=200, nu=0.3)
 

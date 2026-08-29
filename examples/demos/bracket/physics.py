@@ -20,8 +20,41 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.regions import on_plane
 from fem.post.solution import ElasticSolution
+from fem.mesh.curves import Arc, Line
+from fem.mesh.outline import Outline
 
-from domains import l_bracket_outline
+
+def l_bracket_outline(arm: float = 4.0, width: float = 1.2,
+                      fillet_radius: float = 0.0) -> Outline:
+    """An L-shaped bracket, with an optional fillet at the inner corner.
+
+    Two limbs of thickness `width` and length `arm`: the vertical one up the left edge,
+    the horizontal one along the bottom, meeting at a re-entrant (inner) corner at
+    `(width, width)`. A sharp corner there is a stress singularity; `fillet_radius > 0`
+    rounds it with a concave `Arc`, so an isoparametric solve reads a true circular
+    fillet.
+
+    Clamp the top of the vertical limb (`on_plane(1, arm)`) and load the tip of the
+    horizontal one (`on_plane(0, arm)`); the concentration then sits at the inner corner.
+    """
+    corners = [np.array(p) for p in [(0.0, 0.0), (arm, 0.0), (arm, width)]]
+    pieces = [Line(corners[0], corners[1]), Line(corners[1], corners[2])]
+    if fillet_radius > 0:
+        # Round the re-entrant corner: an arc of radius r centred at (width+r, width+r),
+        # bulging into the notch to add material. It runs from A = (width+r, width) on the
+        # bottom limb's top edge (theta = 3pi/2) to B = (width, width+r) on the vertical
+        # limb's right edge (theta = pi), replacing the sharp point between them: the
+        # arc reversed, since the outline is traced clockwise through it.
+        r = fillet_radius
+        fillet = Arc([width + r, width + r], r, np.pi, 1.5 * np.pi).reversed()
+        pieces += [Line(corners[2], fillet.start), fillet]
+        inner_end = fillet.end
+    else:
+        pieces.append(Line(corners[2], [width, width]))
+        inner_end = np.array([width, width])
+    top = [np.array(p) for p in [(width, arm), (0.0, arm)]]
+    pieces += [Line(inner_end, top[0]), Line(top[0], top[1]), Line(top[1], corners[0])]
+    return Outline([pieces])
 
 
 def make_bc(arm, traction) -> BoundaryConditions:
