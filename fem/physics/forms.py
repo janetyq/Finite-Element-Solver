@@ -351,8 +351,11 @@ class MassForm(BilinearForm[FieldSolution]):
 
         `det J` varies within a curved element, so the reference-matrix-times-volume
         shortcut no longer holds; the consistent mass `int phi_i phi_j det J` is summed
-        at the quadrature points instead. The n-component block is the same per-node
-        interleaving as `np.kron(scalar, I)`, entry `(c*a+d, c*b+e)` carrying the scalar
+        at the quadrature points instead, at the element's default rule. That rule is
+        one degree short of the curved integrand, an error of the same order as the
+        geometry's own; no rule makes a curved element's mass exact. The n-component
+        block is the same per-node interleaving as `np.kron(scalar, I)`, entry
+        `(c*a+d, c*b+e)` carrying the scalar
         `M[a, b]` when `d == e`.
         '''
         scalar = np.einsum(

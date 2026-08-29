@@ -73,6 +73,16 @@ def segment_angles(vertices, segments):
 # `_split_point` and `_spans_a_sharp_corner`.
 SAFE_INPUT_ANGLE = 60.0
 
+# The largest `min_angle` accepted. Ruppert's proof covers bounds to about 20.7 degrees
+# and refinement terminates in practice to roughly 30; past the mid thirties it can
+# run forever on any input, so the bound is refused rather than tried.
+MAX_MIN_ANGLE = 33.0
+
+# `refine` is capped at this many insertions per input vertex (plus a floor), a
+# backstop for a run that will not terminate inside the accepted angle range.
+INSERTIONS_PER_INPUT_VERTEX = 500
+MIN_INSERTION_CAP = 20_000
+
 # Encroachment is tested in the Thales form (a - p).(b - p) < 0, which is exactly zero
 # for a segment's own endpoints and so never reports one inside its own circle (see
 # `_circles_containing`). This relative tolerance shrinks the test slightly so a vertex
@@ -150,20 +160,35 @@ class RuppertsAlgorithm:
     (`fem.mesh.svg.douglas_peucker`) before handing it over.
     '''
 
-    def __init__(self, pslg, min_angle: float = 30, max_area: float | None = None):
+    def __init__(self, pslg, min_angle: float = 30, max_area: float | None = None,
+                 max_insertions: int | None = None):
         '''Refine `pslg` until every triangle clears both bounds.
 
         `min_angle` is in degrees: the smallest interior angle any output triangle
         may have, bar the triangles across input corners already sharper than
-        `SAFE_INPUT_ANGLE`, which no refinement can improve. Ruppert's proof covers
-        bounds up to about 20.7 degrees and it holds in practice to roughly 30;
-        above that refinement can fail to terminate however blunt the input.
+        `SAFE_INPUT_ANGLE`, which no refinement can improve. Bounds above
+        `MAX_MIN_ANGLE` are refused: past it refinement can fail to terminate
+        however blunt the input.
 
         `max_area` is an absolute area, not a fraction of the region; callers
         wanting a fraction scale it themselves. None leaves element size
         unbounded, so a large region comes back as a handful of big triangles.
+
+        `max_insertions` caps the points `refine` may insert before giving up with a
+        `RuntimeError`; None is `INSERTIONS_PER_INPUT_VERTEX` per input vertex, at
+        least `MIN_INSERTION_CAP`, generous for any run that terminates.
         '''
+        if not 0 <= min_angle <= MAX_MIN_ANGLE:
+            raise ValueError(
+                f'min_angle must be between 0 and {MAX_MIN_ANGLE} degrees, got {min_angle}; '
+                f'Ruppert refinement is not guaranteed to terminate above it'
+            )
         self.vertices = np.array(pslg.vertices)
+        self.n_input_vertices = len(self.vertices)
+        self.max_insertions = (
+            max(MIN_INSERTION_CAP, INSERTIONS_PER_INPUT_VERTEX * self.n_input_vertices)
+            if max_insertions is None else max_insertions
+        )
         self.segments = np.array([sorted(seg) for seg in pslg.segments])
         self.segment_loops = np.array(pslg.loop_ids)
         # Per-segment analytic curve, aligned with `self.segments`. A split point on a
@@ -616,6 +641,13 @@ class RuppertsAlgorithm:
                     self.add_vertex(centre)
                     new_vertex = len(self.vertices) - 1
             if new_vertex is not None:
+                if len(self.vertices) - self.n_input_vertices > self.max_insertions:
+                    raise RuntimeError(
+                        f'Ruppert refinement inserted {self.max_insertions} points without '
+                        f'clearing the bounds (min_angle={self.min_angle}, '
+                        f'max_area={self.max_area}); lower the angle bound, or raise '
+                        f'max_insertions if the mesh is meant to be this fine'
+                    )
                 self._retriangulate()
                 self._refill_bad_queue(self._bad_triangles_created_by(new_vertex),
                                        replace=False)

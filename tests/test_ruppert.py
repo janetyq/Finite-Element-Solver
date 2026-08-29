@@ -13,7 +13,7 @@ from scipy.spatial import Delaunay, QhullError
 from fem.mesh.mesh import triangle_min_angle
 from fem.mesh.pslg import point_in_polygon, polygon_area
 from fem.mesh.ruppert import circumcenter
-from fem.mesh.ruppert import ENCROACHMENT_TOLERANCE, RuppertsAlgorithm
+from fem.mesh.ruppert import ENCROACHMENT_TOLERANCE, MAX_MIN_ANGLE, RuppertsAlgorithm
 from fem.mesh.outline import Outline
 from fem.mesh.pslg import PSLG
 
@@ -62,6 +62,27 @@ def _thin_slab() -> PSLG:
     """A convex outline whose plain triangulation has ~14 degree angles, so the
     angle bound is what drives refinement here rather than the area cap."""
     return PSLG(SLAB_OUTLINE.copy())
+
+
+def test_an_angle_bound_past_the_terminating_range_is_refused():
+    """Refinement can run forever above `MAX_MIN_ANGLE` on any input, so the bound is
+    rejected up front rather than tried."""
+    with pytest.raises(ValueError, match='min_angle'):
+        RuppertsAlgorithm(_l_shape(), min_angle=MAX_MIN_ANGLE + 1)
+    with pytest.raises(ValueError, match='min_angle'):
+        RuppertsAlgorithm(_l_shape(), min_angle=-1)
+    RuppertsAlgorithm(_l_shape(), min_angle=MAX_MIN_ANGLE)
+
+
+def test_refinement_gives_up_past_its_insertion_cap():
+    """A run that keeps inserting past the cap raises rather than running on; the
+    default cap is far above what a terminating run needs."""
+    with pytest.raises(RuntimeError, match='inserted 3 points'):
+        RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA, max_insertions=3).refine()
+    algo = RuppertsAlgorithm(_l_shape(), min_angle=20, max_area=REFINING_AREA)
+    mesh = algo.refine()
+    assert len(algo.vertices) - algo.n_input_vertices < algo.max_insertions / 10
+    assert len(mesh.elements) > 0
 
 
 def _min_angles(mesh) -> np.ndarray:
