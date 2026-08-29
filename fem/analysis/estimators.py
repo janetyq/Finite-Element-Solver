@@ -299,7 +299,7 @@ class RecoveryEstimator:
 
 @dataclass(frozen=True)
 class GoalOrientedEstimator:
-    '''Dual-weighted-residual refinement: reduce the error in a quantity of interest.
+    '''Goal-oriented refinement: reduce the error in a quantity of interest.
 
     A global estimator refines wherever the solution is rough; this refines where
     refinement most improves a specific output `J(u)` (a point value, a reaction, an
@@ -307,11 +307,15 @@ class GoalOrientedEstimator:
 
         eta_K = eta_K^primal(u_h) * eta_K^dual(z_h),
 
-    the standard DWR energy-norm bound on `|J(u) - J(u_h)|`: `eta^primal` measures where
-    the primal solution is inaccurate, `eta^dual` where the goal is sensitive to that
-    inaccuracy. The dual (adjoint) solution `z` solves `Kᵀ z = ∂J/∂u` through
-    `SensitivityAnalysis`. Built on the recovery estimator, so it is dimension-general;
-    the dual solve refactors the operator once per round.
+    from the error representation `J(u) - J(u_h) = a(e, z - z_h)` localized by
+    Cauchy-Schwarz element by element: `|J(u) - J(u_h)| <= sum_K eta_K^primal eta_K^dual`,
+    with `eta^primal` measuring where the primal solution is inaccurate and `eta^dual`
+    where the goal is sensitive to that inaccuracy. This is a common goal-oriented
+    heuristic, not the dual-weighted-residual estimate, which weights the primal element
+    residual by the dual's interpolation error and can be much sharper. The dual (adjoint)
+    solution `z` solves `Kᵀ z = ∂J/∂u` through `SensitivityAnalysis`. Built on the
+    recovery estimator, so it is dimension-general; the dual solve refactors the
+    operator once per round.
     '''
     quantity_of_interest: 'QuantityOfInterest'
 

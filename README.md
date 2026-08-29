@@ -424,8 +424,8 @@ uv run python examples/make_readme_figures.py   # rewrites the figures in images
   a geometric-stiffness or mass pencil and a sparse generalized eigensolve
 - Derived fields: Cauchy stress and strain tensors, von Mises, principal stresses,
   compliance
-- Error estimation: residual, Zienkiewicz-Zhu recovery, and goal-oriented (dual-weighted
-  residual) estimators, driving closed-loop adaptive refinement
+- Error estimation: residual, Zienkiewicz-Zhu recovery, and goal-oriented (adjoint-weighted)
+  estimators, driving closed-loop adaptive refinement
 - Sensitivity and optimization: adjoint gradients of a quantity of interest;
   Newton-Raphson with an optional backtracking line search; optimality criteria (SIMP
   topology and design optimization)
