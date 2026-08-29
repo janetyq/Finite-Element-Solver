@@ -36,7 +36,7 @@ import numpy as np
 from fem.elements import ElementGeometry
 from fem.physics.energies import StrainEnergyDerivatives
 from fem.physics.materials import LinearElasticMaterial
-from fem.physics.derived import Flux, GradientFlux, StressFlux
+from fem.physics.derived import Flux, GradientFlux, ScaledFlux, StressFlux
 from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
 from fem.regions import evaluate_field
 from fem.typing import BoolArray, ElementValues, FieldValue, FloatArray, Vertices
@@ -431,7 +431,7 @@ class DiffusionForm(BilinearForm[DiffusionSolution]):
             'eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ * kappa)
 
     def flux(self) -> Flux:
-        return GradientFlux()
+        return GradientFlux(self.coefficient)
 
     def solution(self, space: 'FunctionSpace', u: FloatArray) -> 'DiffusionSolution':
         return DiffusionSolution.from_solve(space, u)
@@ -596,7 +596,7 @@ class ScaledForm(Form[S]):
     '''A form scaled by a constant: `factor * form`, such as c² times the Laplacian for
     the wave operator, or κ times a boundary mass for a Robin term.
 
-    Every hook is the wrapped form's; the energy, residual, and tangent are scaled. A
+    Every hook is the wrapped form's; the energy, residual, tangent, and flux are scaled. A
     sum is never wrapped: `factor * (a + b)` distributes into a sum of scaled terms.
     '''
     factor: float
@@ -634,7 +634,8 @@ class ScaledForm(Form[S]):
         return self.factor * self.form.element_energies(geometry, u_elements)
 
     def flux(self) -> Flux | None:
-        return self.form.flux()
+        flux = self.form.flux()
+        return None if flux is None else ScaledFlux(self.factor, flux)
 
     def near_null_space(self, space: 'FunctionSpace') -> FloatArray | None:
         return self.form.near_null_space(space)

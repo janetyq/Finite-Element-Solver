@@ -82,21 +82,24 @@ class FieldSolution(Solution):
 
 @dataclass(frozen=True, eq=False)
 class DiffusionSolution(FieldSolution):
-    '''A scalar field plus its recovered per-element flux `grad u` (Poisson's solution).
+    '''A scalar field plus its recovered per-element gradient: the solution of
+    `DiffusionForm` (Poisson, heat, wave).
 
-    `flux` is one gradient per element (the element mean). `nodal_flux` gives the
-    continuous per-node field a P2 plot or a nodal consumer wants, re-evaluated from `u`
-    at the nodes so a P2 gradient's variation within the element is kept.
+    `gradient` is one `grad u` per element (the element mean). The diffusive flux
+    `kappa grad u` is the form's `GradientFlux`, which applies the coefficient.
+    `nodal_gradient` gives the continuous per-node field a P2 plot or a nodal consumer
+    wants, re-evaluated from `u` at the nodes so a P2 gradient's variation within the
+    element is kept.
     '''
-    flux: ElementValues   # (n_elements, spatial_dim) per-element grad u
+    gradient: ElementValues   # (n_elements, spatial_dim) per-element grad u
 
     @classmethod
     def from_solve(cls, space: 'FunctionSpace', u: DofVector) -> 'DiffusionSolution':
-        '''Package a scalar solve, recovering its per-element diffusion flux grad u.'''
-        return cls(space, u, flux=space.gradient(u))
+        '''Package a scalar solve, recovering its per-element gradient.'''
+        return cls(space, u, gradient=space.gradient(u))
 
-    def nodal_flux(self, method: str = 'average') -> FloatArray:
-        '''(n_nodes, spatial_dim) continuous flux at the nodes.
+    def nodal_gradient(self, method: str = 'average') -> FloatArray:
+        '''(n_nodes, spatial_dim) continuous gradient at the nodes.
 
         `method` is the recovery (`'average'` or `'l2'`); see `fem.post.recovery`.
         '''

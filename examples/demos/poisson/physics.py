@@ -83,7 +83,7 @@ class FlowStudy:
     @property
     def speed(self) -> np.ndarray:
         """|v| = |grad(phi)|, read at the nodes so the P2 tessellation draws it smoothly."""
-        return np.linalg.norm(self.solution.nodal_flux(), axis=1)   # (n_nodes,)
+        return np.linalg.norm(self.solution.nodal_gradient(), axis=1)   # (n_nodes,)
 
     @property
     def speed_cap(self) -> float:

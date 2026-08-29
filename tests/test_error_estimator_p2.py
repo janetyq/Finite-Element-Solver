@@ -90,7 +90,7 @@ def test_p2_poisson_divergence_is_the_laplacian():
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=1)
     x, y = space.node_coords[:, 0], space.node_coords[:, 1]
     u = x**2 + 2 * y**2
-    solution = DiffusionSolution(space, u, flux=np.zeros((len(mesh.elements), 2)))
+    solution = DiffusionSolution(space, u, gradient=np.zeros((len(mesh.elements), 2)))
 
     div = DiffusionForm().flux().divergence(solution)
     assert np.allclose(div, 6.0)

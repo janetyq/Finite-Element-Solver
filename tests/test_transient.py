@@ -133,7 +133,7 @@ def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_un
     step = history.at(2)
     assert isinstance(step, DiffusionSolution)
     np.testing.assert_array_equal(step.u, history.u[2])
-    np.testing.assert_allclose(step.flux, heat.space.gradient(history.u[2]))
+    np.testing.assert_allclose(step.gradient, heat.space.gradient(history.u[2]))
     assert isinstance(history.final, DiffusionSolution)
     np.testing.assert_array_equal(history.final.u, history.u[-1])
 

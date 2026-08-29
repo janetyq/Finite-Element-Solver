@@ -448,7 +448,7 @@ def _p2_scalar_solution(n=5):
     from fem.post.solution import DiffusionSolution
     mesh, space = _p2_square(n)
     u = space.node_coords[:, 0] ** 2
-    return DiffusionSolution(space, u, flux=np.zeros((len(mesh.elements), 2))), space
+    return DiffusionSolution(space, u, gradient=np.zeros((len(mesh.elements), 2))), space
 
 
 def test_a_solution_supplies_its_own_space():

@@ -147,7 +147,7 @@ Two approaches measured and rejected, so they are not proposed again:
 The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3). Steady solves now recover
 their derived fields through one seam: `Form.flux` names the field (Poisson's gradient,
 elasticity's stress, `fem.physics.derived.Flux`), the typed `Solution` carries it per element
-(`DiffusionSolution.flux`, `ElasticSolution.stress`), and `fem.post.recovery.recover_nodal` turns it into
+(`DiffusionSolution.gradient`, `ElasticSolution.stress`), and `fem.post.recovery.recover_nodal` turns it into
 a continuous per-node field for smooth output, P2 plotting, and the recovery estimator; a
 `TransientSolution` packages any step the same way through `at(i)`.
 

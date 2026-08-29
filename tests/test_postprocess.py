@@ -33,7 +33,7 @@ def test_nodal_flux_of_a_linear_field_is_its_exact_constant_gradient(element_typ
 
     solution = DiffusionSolution.from_solve(space, u)
 
-    nodal = solution.nodal_flux()
+    nodal = solution.nodal_gradient()
     assert nodal.shape == (space.n_nodes, 2)
     assert np.allclose(nodal, gradient)
 
@@ -49,12 +49,12 @@ def test_a_poisson_solve_carries_its_flux_and_recovers_it_to_the_nodes():
     solution = Poisson().problem(mesh, bc + Source(1.0), element_type=QuadraticTriangleElement).solve()
 
     assert isinstance(solution, DiffusionSolution)
-    assert solution.flux.shape == (len(mesh.elements), 2)
-    nodal = solution.nodal_flux()
+    assert solution.gradient.shape == (len(mesh.elements), 2)
+    nodal = solution.nodal_gradient()
     assert nodal.shape == (solution.space.n_nodes, 2)
     assert np.allclose(nodal, nodal_gradient(solution.space, solution.u))
     # Read at the nodes, not averaged from the per-element values: on P2 the two differ.
-    assert not np.allclose(nodal, recover_nodal(solution.space, solution.flux))
+    assert not np.allclose(nodal, recover_nodal(solution.space, solution.gradient))
 
 
 def test_nodal_flux_takes_a_recovery_method():
@@ -66,10 +66,10 @@ def test_nodal_flux_takes_a_recovery_method():
     )
     solution = Poisson().problem(mesh, bc + Source(1.0)).solve()  # varying flux (curved u)
 
-    average = solution.nodal_flux(method='average')
-    l2 = solution.nodal_flux(method='l2')
+    average = solution.nodal_gradient(method='average')
+    l2 = solution.nodal_gradient(method='l2')
     assert l2.shape == average.shape == (solution.space.n_nodes, 2)
-    assert np.allclose(l2, recover_nodal(solution.space, solution.flux, method='l2'))
+    assert np.allclose(l2, recover_nodal(solution.space, solution.gradient, method='l2'))
     assert not np.allclose(l2, average)
 
 
@@ -145,7 +145,7 @@ def test_derived_field_reads_the_stored_field_and_checks_its_solution():
 
     field = GradientFlux().evaluate(solution)
     assert field.shape == (len(mesh.elements), 1, 2)
-    assert np.allclose(field[:, 0, :], solution.flux)
+    assert np.allclose(field[:, 0, :], solution.gradient)
 
     with pytest.raises(TypeError, match='scalar solution'):
         GradientFlux().evaluate(FieldSolution(space, space.node_coords[:, 0]))
@@ -166,4 +166,4 @@ def test_element_type_round_trips_through_save_and_load(tmp_path):
 
     assert isinstance(loaded, DiffusionSolution)
     assert loaded.element_type is QuadraticTriangleElement
-    assert np.allclose(loaded.nodal_flux(), solution.nodal_flux())
+    assert np.allclose(loaded.nodal_gradient(), solution.nodal_gradient())

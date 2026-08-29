@@ -372,7 +372,7 @@ forward factorization; `fem/analysis/design.py` drives an optimality-criteria up
 ### `Solution`
 
 One dataclass per shape, each holding the `FunctionSpace` it was solved on: `FieldSolution` (the
-field `u`), `DiffusionSolution` (adds the flux), `ElasticSolution` (adds strain, stress,
+field `u`), `DiffusionSolution` (adds the gradient), `ElasticSolution` (adds strain, stress,
 compliance), `TransientSolution` / `WaveSolution` (time series; `at(i)` is one step as a steady
 solution, flux or stress included), `BucklingSolution` (adds the
 prestress `reference` solve) / `ModalSolution`. `ElasticSolution` stores the full tensors and derives

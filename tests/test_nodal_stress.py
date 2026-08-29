@@ -167,7 +167,7 @@ def _quadratic_scalar_solution(element_type):
 @pytest.mark.parametrize('method', ['average', 'l2'])
 def test_p2_nodal_flux_is_exact_for_a_linear_gradient(method):
     solution, exact_gradient = _quadratic_scalar_solution(QuadraticTriangleElement)
-    np.testing.assert_allclose(solution.nodal_flux(method=method),
+    np.testing.assert_allclose(solution.nodal_gradient(method=method),
                                exact_gradient(solution.space.node_coords), atol=1e-9)
 
 
@@ -175,14 +175,14 @@ def test_p2_per_element_flux_is_the_centroid_gradient():
     solution, exact_gradient = _quadratic_scalar_solution(QuadraticTriangleElement)
     mesh = solution.mesh
     centroids = mesh.vertices[mesh.elements].mean(axis=1)
-    np.testing.assert_allclose(solution.flux, exact_gradient(centroids), atol=1e-9)
+    np.testing.assert_allclose(solution.gradient, exact_gradient(centroids), atol=1e-9)
     for e in (0, len(mesh.elements) - 1):
         u_e = solution.u[solution.space.element_nodes[e]]
-        np.testing.assert_allclose(solution.space.element_gradient(e, u_e), solution.flux[e])
+        np.testing.assert_allclose(solution.space.element_gradient(e, u_e), solution.gradient[e])
 
 
 @pytest.mark.parametrize('method', ['average', 'l2'])
 def test_p1_nodal_flux_is_unchanged(method):
     solution, _ = _quadratic_scalar_solution(LinearTriangleElement)
-    np.testing.assert_allclose(solution.nodal_flux(method=method),
-                               recover_nodal(solution.space, solution.flux, method=method))
+    np.testing.assert_allclose(solution.nodal_gradient(method=method),
+                               recover_nodal(solution.space, solution.gradient, method=method))
