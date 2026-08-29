@@ -276,34 +276,23 @@ result is typed by the physics: `Poisson(...).problem(mesh, bc).solve()` is a
 
 ### How the pieces fit
 
-The same chain for every solve. The geometry and the conditions go into an equation,
-which builds a `Problem`; the problem is solved, stepped in time, or analysed; every
-path ends in a typed solution the plotter draws.
+The same chain for every solve: geometry and conditions go into an equation, which
+builds a `Problem`; the problem is solved, stepped in time, or analysed; every path ends
+in a typed solution the plotter draws.
 
-```mermaid
-flowchart LR
-    Outline --> Mesh
-    Mesh --> Equation
-    Element --> Equation
-    Regions --> Conditions --> Equation
-    Loads --> Equation
-    Equation -- "problem(mesh, bc)" --> Problem
-    Problem -- "solve(strategy, backend)" --> Solution
-    Strategy -.-> Problem
-    Backend -.-> Problem
-    Problem --> Integrator --> Solution
-    Problem --> Analysis --> Solution
-    Problem --> Driver -- "re-solves" --> Solution
-    Solution --> Plotter
 ```
-
-Solid arrows are what is built from what; dotted ones are the two choices a solve takes
-as arguments. The menu for each step:
+Outline ──► Mesh ────────────┐
+                             ├──► equation.problem(mesh, bc, element_type=) ──► Problem ──► problem.solve(strategy=, backend=) ──► Solution ──► Plotter
+Regions ──► Conditions ──────┤                                                   │
+Loads ───────────────────────┘                                                   ├── Integrator.solve(problem, u0)  ──► TransientSolution
+                                                                                 ├── Analysis.solve(problem)        ──► Buckling / ModalSolution
+                                                                                 └── Driver (re-solves in a loop)    ──► the final Solution
+```
 
 ### What you choose at each step
 
-Every step is one choice among a few named objects, all importable from `fem`.
-`ARCHITECTURE.md` explains how they fit.
+Every step of the chain is one choice among a few named objects, all importable from
+`fem`. `ARCHITECTURE.md` explains how they fit; this is the menu.
 
 | Step | Options | Default |
 |---|---|---|
