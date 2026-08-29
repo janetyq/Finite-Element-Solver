@@ -200,6 +200,12 @@ def test_design_optimizer_keeps_the_last_iterates_solution(make_unit_square):
     assert design.solution is not None
     np.testing.assert_allclose(design.solution.dofs, history.dofs[-1])
     assert design.solution.stress.shape == (len(model.space.element_nodes), 3, 3)
+    # The history is a series of those solutions, one per iterate.
+    assert len(history) == 2 and history.dofs.shape == (2, model.space.n_dofs)
+    last = history[-1]
+    np.testing.assert_allclose(last.dofs, design.solution.dofs)
+    np.testing.assert_allclose(last.stress, design.solution.stress)
+    assert all(step.stress.shape == last.stress.shape for step in history)
 
 
 def test_target_compliance_scores_the_squared_miss(make_unit_square):

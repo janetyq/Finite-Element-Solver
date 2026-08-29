@@ -12,6 +12,7 @@ solver over `scipy.optimize` is noted in `attic/fem-adjoint-sensitivity-design-2
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -194,10 +195,50 @@ class SIMPModel:
 
 @dataclass(frozen=True, eq=False)
 class DesignHistory:
-    '''The per-iteration series a design optimization produces.'''
-    rho: list[ElementValues]
-    dofs: list[DofVector]
-    objective: list[float]
+    '''The per-iteration series a design optimization produces, one row per iterate:
+    the density `rho (n_iters, n_elements)` each iterate solved at, its displacement
+    `dofs (n_iters, n_dofs)`, and the `objective (n_iters,)` it scored.
+
+    A sequence of solutions, like a `TransientSolution`: `history[i]` is the
+    `ElasticSolution` of iterate `i` (its displacement with the diluted material's
+    stress, packaged by `model`), `len` the iteration count, and iterating yields
+    every iterate.
+    '''
+    model: SIMPModel
+    rho: FloatArray
+    dofs: FloatArray
+    objective: FloatArray
+
+    def __post_init__(self) -> None:
+        rho = np.asarray(self.rho, dtype=float)
+        dofs = np.asarray(self.dofs, dtype=float)
+        objective = np.asarray(self.objective, dtype=float)
+        n_elements, n_dofs = len(self.model.space.element_nodes), self.model.space.n_dofs
+        if (rho.shape[1:] != (n_elements,) or dofs.shape[1:] != (n_dofs,)
+                or not len(rho) == len(dofs) == len(objective)):
+            raise ValueError(
+                f'a design history needs rho (n_iters, {n_elements}), dofs (n_iters, '
+                f'{n_dofs}), and one objective per iterate; got {rho.shape}, '
+                f'{dofs.shape}, {objective.shape}'
+            )
+        for name, value in (('rho', rho), ('dofs', dofs), ('objective', objective)):
+            object.__setattr__(self, name, value)
+
+    @property
+    def space(self) -> FunctionSpace:
+        return self.model.space
+
+    def __len__(self) -> int:
+        return len(self.objective)
+
+    def __getitem__(self, i: int) -> ElasticSolution:
+        '''Iterate `i` as the elastic solution of its density.'''
+        if not isinstance(i, (int, np.integer)):
+            raise TypeError(f'a history is indexed by iterate, got {type(i).__name__}')
+        return self.model.solution(self.rho[i], self.dofs[i])
+
+    def __iter__(self) -> Iterator[ElasticSolution]:
+        return (self[i] for i in range(len(self)))
 
 
 class DesignOptimizer:
@@ -265,5 +306,6 @@ class DesignOptimizer:
                         float((self.model.volumes * rho_before).sum() / self.model.volumes.sum()))
             if on_iteration is not None:
                 on_iteration(i, rho_before, objective_value)
-        self.history = DesignHistory(rho_series, u_series, objective_series)
+        self.history = DesignHistory(
+            self.model, np.array(rho_series), np.array(u_series), np.array(objective_series))
         return self.history

@@ -359,7 +359,9 @@ caller's strategy, else the default), hands `(problem, solution)` to the estimat
 and refines. `DesignOptimizer` owns a `SIMPModel` (a small-strain elastic `LinearProblem` as
 the template, whose material, supports, and load every density shares) and each iteration
 derives the diluted `LinearProblem` from the current density with `with_operator`, solves it
-through `SensitivityAnalysis`, and moves the density by the optimality-criteria update.
+through `SensitivityAnalysis`, and moves the density by the optimality-criteria update. `run`
+returns a `DesignHistory`, a series like `TransientSolution`: `history[i]` is iterate `i` as an
+`ElasticSolution` with the diluted material's stress, beside its `rho` and `objective`.
 
 ### Extension seams
 
