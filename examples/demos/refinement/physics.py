@@ -21,7 +21,7 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
-from fem.post.solution import ScalarFieldSolution
+from fem.post.solution import DiffusionSolution
 from fem.loads import Source
 
 W, H = 1.0, 1.0
@@ -66,7 +66,7 @@ def error_of(solution) -> float:
     return l2_norm(space, solution.u - exact(space.node_coords))
 
 
-def adapt(mesh, max_triangles=3000, max_iters=20) -> tuple[Mesh, ScalarFieldSolution, np.ndarray]:
+def adapt(mesh, max_triangles=3000, max_iters=20) -> tuple[Mesh, DiffusionSolution, np.ndarray]:
     """Refine `mesh` where the estimator points, half the worst elements each round,
     until the mesh reaches `max_triangles` or `max_iters` rounds. Returns the refined
     mesh, its solution, and the estimated error per element."""
@@ -131,10 +131,10 @@ def red_green_example() -> tuple[Mesh, Mesh, list[str]]:
 class RefinementStudy:
     """Everything `run` computed, for the figures to read."""
     coarse_mesh: Mesh
-    coarse_solution: ScalarFieldSolution
+    coarse_solution: DiffusionSolution
     coarse_error: np.ndarray        # the estimator's eta per element
     refined_mesh: Mesh
-    refined_solution: ScalarFieldSolution
+    refined_solution: DiffusionSolution
     refined_error: np.ndarray
     uniform_dofs: list[int]
     uniform_errors: list[float]

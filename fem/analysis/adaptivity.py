@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from fem.problem import Problem
-    from fem.typing import ElementField
+    from fem.typing import ElementValues
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class AdaptiveRefinement(Generic[S]):
         self,
         mesh: Mesh,
         problem_for: Callable[[Mesh], Problem[S]],
-        estimator: ErrorEstimator | Callable[[Problem, FieldSolution], ElementField],
+        estimator: ErrorEstimator | Callable[[Problem, FieldSolution], ElementValues],
         strategy: SolveStrategy | None = None,
         backend: Backend | None = None,
         max_triangles: int = 1000,

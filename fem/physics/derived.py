@@ -12,12 +12,12 @@ value per element: exact for P1, the element mean for P2. Two consumers want mor
 - **Error estimation** jumps the field across interior edges and checks its boundary
   residual against the applied traction, sampling it at quadrature points on P2.
 
-`DerivedField` is the one equation-specific seam both share: it names which stored field
+`Flux` is the one equation-specific seam both share: it names which stored field
 is the recoverable flux for a given physics, and how that flux behaves on a boundary edge.
 Poisson's is the gradient; elasticity's is the stress. The operator names it
-(`Form.derived_field`), so an estimator reads it off `problem.operator`.
+(`Form.flux`), so an estimator reads it off `problem.operator`.
 
-`StressField.divergence` imports `fem.physics.forms` and `fem.physics.materials` lazily:
+`StressFlux.divergence` imports `fem.physics.forms` and `fem.physics.materials` lazily:
 `forms` imports this module at top level, so the reverse edge stays function-local.
 """
 from __future__ import annotations
@@ -26,17 +26,17 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
-from fem.post.solution import ElasticSolution, ScalarFieldSolution
+from fem.post.solution import ElasticSolution, DiffusionSolution
 
 if TYPE_CHECKING:
     from fem.elements import ElementGeometry
-    from fem.physics.forms import RecoversElasticFields
+    from fem.physics.forms import RecoversElasticState
     from fem.post.solution import FieldSolution
     from fem.typing import BoolArray, FloatArray
 
 
 @runtime_checkable
-class DerivedField(Protocol):
+class Flux(Protocol):
     '''The recoverable flux a physics reads off a solved system.
 
     `evaluate` returns it as `(n_elements, n_components, spatial_dim)`, reading the
@@ -82,7 +82,7 @@ class DerivedField(Protocol):
         ...
 
 
-class GradientField:
+class GradientFlux:
     '''The scalar diffusion flux: the stored gradient `grad u`, and no boundary term.
 
     Poisson's estimator jumps the normal gradient across interior edges; its boundary
@@ -91,7 +91,7 @@ class GradientField:
     '''
 
     def evaluate(self, solution: FieldSolution) -> FloatArray:
-        if not isinstance(solution, ScalarFieldSolution):
+        if not isinstance(solution, DiffusionSolution):
             raise TypeError(
                 'the diffusion flux needs a scalar solution carrying grad u; '
                 f'got {type(solution).__name__}'
@@ -99,7 +99,7 @@ class GradientField:
         return solution.flux[:, None, :]            # (n_el, 1, d)
 
     def sample(self, solution: FieldSolution, geometry: ElementGeometry) -> FloatArray:
-        if not isinstance(solution, ScalarFieldSolution):
+        if not isinstance(solution, DiffusionSolution):
             raise TypeError(
                 'the diffusion flux needs a scalar solution carrying grad u; '
                 f'got {type(solution).__name__}'
@@ -109,13 +109,13 @@ class GradientField:
         return grad[:, :, None, :]                             # (n_el, n_qp, 1, d)
 
     def divergence(self, solution: FieldSolution) -> FloatArray:
-        if not isinstance(solution, ScalarFieldSolution):
+        if not isinstance(solution, DiffusionSolution):
             raise TypeError(
                 'the diffusion flux needs a scalar solution carrying grad u; '
                 f'got {type(solution).__name__}'
             )
         space = solution.space
-        hessian = space.element_field_hessian(solution.u[space.element_nodes])   # (n_el, d, d)
+        hessian = space.element_hessian(solution.u[space.element_nodes])   # (n_el, d, d)
         laplacian = np.einsum('eii->e', hessian)               # div(grad u)
         return laplacian[:, None]                              # (n_el, 1)
 
@@ -126,7 +126,7 @@ class GradientField:
         return 0.0
 
 
-class StressField:
+class StressFlux:
     '''The elastic flux: the stored in-plane Cauchy stress `sigma`, with a Neumann residual.
 
     The recovered or jumped field is the `(n_el, d, d)` in-plane stress. On a boundary edge
@@ -140,7 +140,7 @@ class StressField:
     needs a `LinearElasticForm` and refuses a finite-strain form.
     '''
 
-    def __init__(self, form: 'RecoversElasticFields | None' = None) -> None:
+    def __init__(self, form: 'RecoversElasticState | None' = None) -> None:
         self.form = form
 
     def evaluate(self, solution: FieldSolution) -> FloatArray:
@@ -157,8 +157,8 @@ class StressField:
             )
         if self.form is None:
             raise ValueError(
-                'StressField needs its elastic form to sample stress at quadrature points; '
-                'build it through the form\'s derived_field'
+                'StressFlux needs its elastic form to sample stress at quadrature points; '
+                'build it through the form\'s flux'
             )
         space = solution.space
         u_elements = solution.u.reshape(-1, space.n_components)[space.element_nodes]
@@ -182,7 +182,7 @@ class StressField:
             )
         space = solution.space
         u_elements = solution.u.reshape(-1, space.n_components)[space.element_nodes]
-        hessian = space.element_field_hessian(u_elements)      # (n_el, d, d, n_comp)
+        hessian = space.element_hessian(u_elements)      # (n_el, d, d, n_comp)
         # Navier form of div(sigma): (lambda + mu) grad(div u) + mu laplacian(u).
         # grad(div u)_i = sum_k d2 u_k / dx_i dx_k = sum_k H[i, k, k];
         # laplacian(u)_i = sum_j H[j, j, i]. Both read off the per-component Hessian.

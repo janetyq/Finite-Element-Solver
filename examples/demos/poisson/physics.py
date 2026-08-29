@@ -14,7 +14,7 @@ from fem.elements import QuadraticTriangleElement
 from fem.physics.equations import Poisson
 from fem.mesh.mesh import Mesh
 from fem.regions import on_plane
-from fem.post.solution import ScalarFieldSolution
+from fem.post.solution import DiffusionSolution
 from fem.mesh.outline import Outline
 from fem.loads import Source
 
@@ -78,7 +78,7 @@ class FlowStudy:
     angle_of_attack: float
     mesh: Mesh
     bc: Conditions
-    solution: ScalarFieldSolution      # the velocity potential phi, on P2
+    solution: DiffusionSolution      # the velocity potential phi, on P2
 
     @property
     def speed(self) -> np.ndarray:

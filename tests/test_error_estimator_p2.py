@@ -19,9 +19,9 @@ from fem.analysis.estimators import ResidualEstimator
 from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm
 from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.structured import box_mesh
-from fem.physics.derived import GradientField
+from fem.physics.derived import GradientFlux
 from fem.regions import everywhere, on_plane
-from fem.post.solution import ElasticSolution, ScalarFieldSolution
+from fem.post.solution import ElasticSolution, DiffusionSolution
 from fem.space import FunctionSpace
 from fem.loads import Source
 
@@ -77,7 +77,7 @@ def test_element_field_hessian_recovers_a_quadratic_fields_curvature():
     x, y = space.node_coords[:, 0], space.node_coords[:, 1]
     u = a * x**2 + b * x * y + c * y**2
 
-    hessian = space.element_field_hessian(u[space.element_nodes])   # (n_el, 2, 2)
+    hessian = space.element_hessian(u[space.element_nodes])   # (n_el, 2, 2)
 
     expected = np.array([[2 * a, b], [b, 2 * c]])
     assert np.allclose(hessian, expected)
@@ -90,9 +90,9 @@ def test_p2_poisson_divergence_is_the_laplacian():
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=1)
     x, y = space.node_coords[:, 0], space.node_coords[:, 1]
     u = x**2 + 2 * y**2
-    solution = ScalarFieldSolution(space, u, flux=np.zeros((len(mesh.elements), 2)))
+    solution = DiffusionSolution(space, u, flux=np.zeros((len(mesh.elements), 2)))
 
-    div = DiffusionForm().derived_field().divergence(solution)
+    div = DiffusionForm().flux().divergence(solution)
     assert np.allclose(div, 6.0)
 
 
@@ -110,7 +110,7 @@ def test_p2_elastic_divergence_is_the_navier_operator():
     solution = ElasticSolution(space, u.ravel(), strain=np.zeros((n_el, 3, 3)),
                                stress=np.zeros((n_el, 3, 3)), compliance=np.zeros(n_el))
 
-    div = LinearElasticForm(LinearElasticMaterial(E, nu)).derived_field().divergence(solution)
+    div = LinearElasticForm(LinearElasticMaterial(E, nu)).flux().divergence(solution)
     assert np.allclose(div, [2 * lamb + 4 * mu, 0.0])
 
 
@@ -124,7 +124,7 @@ def test_stress_divergence_refuses_a_finite_strain_form():
     solution = ElasticSolution(space, np.zeros(space.n_dofs), strain=np.zeros((n_el, 3, 3)),
                                stress=np.zeros((n_el, 3, 3)), compliance=np.zeros(n_el))
 
-    field = EnergyForm(StVenantKirchhoff(E, nu)).derived_field()
+    field = EnergyForm(StVenantKirchhoff(E, nu)).flux()
     with pytest.raises(NotImplementedError, match='small-strain'):
         field.divergence(solution)
 
@@ -147,7 +147,7 @@ def test_p2_residual_interior_term_is_active():
     """A guard that the interior div term is really carried: the P2 Laplacian of a
     non-harmonic solve is not identically zero, so dropping it would change the estimate."""
     _, solution = _solve(Poisson(), 8, source=Source(_poisson_source))
-    laplacian = GradientField().divergence(solution)
+    laplacian = GradientFlux().divergence(solution)
     assert np.abs(laplacian).max() > 1.0
 
 

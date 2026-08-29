@@ -31,10 +31,10 @@ from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.fields import FieldShape, Scalar, Vector
 from fem.physics.forms import DiffusionForm, EnergyDensity, EnergyForm, Form, LinearElasticForm, MassForm
 from fem.physics.materials import LinearElasticMaterial
-from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
+from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
 from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.space import FunctionSpace
-from fem.typing import ElementField, FieldValue
+from fem.typing import ElementValues, FieldValue
 
 from fem.mesh.mesh import Mesh
 
@@ -131,7 +131,7 @@ class Projection(Equation[LinearProblem[FieldSolution]]):
         return MassForm(space.n_components)
 
 
-class Poisson(Equation[LinearProblem[ScalarFieldSolution]]):
+class Poisson(Equation[LinearProblem[DiffusionSolution]]):
     '''Poisson's equation −∇·(κ∇u) = f, Laplace's at f = 0: the steady scalar
     conservation law. `coefficient` is κ, a constant or a callable of position (a
     conductivity, a permittivity, a permeability). Its transient relatives are `Heat`
@@ -149,7 +149,7 @@ class Poisson(Equation[LinearProblem[ScalarFieldSolution]]):
         return DiffusionForm(self.coefficient)
 
 
-class Heat(Equation[LinearProblem[ScalarFieldSolution]]):
+class Heat(Equation[LinearProblem[DiffusionSolution]]):
     '''The heat equation ρ ∂u/∂t − ∇·(κ∇u) = f, stepped by a `ThetaMethod`.
     `conductivity` is κ (a constant or a callable of position) and `capacity` the
     volumetric heat capacity ρ on the time derivative. Its steady state is
@@ -172,7 +172,7 @@ class Heat(Equation[LinearProblem[ScalarFieldSolution]]):
         return DiffusionForm(self.conductivity)
 
 
-class Wave(Equation[LinearProblem[ScalarFieldSolution]]):
+class Wave(Equation[LinearProblem[DiffusionSolution]]):
     '''The wave equation ρ ∂²u/∂t² − ∇·(T∇u) = f, stepped by a `NewmarkMethod`.
     `stiffness` is T (a membrane's tension, a constant or a callable of position) and
     `density` ρ, so the wave speed is √(T/ρ). Its steady state is
@@ -202,7 +202,7 @@ class Elasticity(Equation[P]):
 
     def __init__(
         self,
-        E: float | ElementField,
+        E: float | ElementValues,
         nu: float,
         density: float = 1.0,
         damping: RayleighDamping | None = None,

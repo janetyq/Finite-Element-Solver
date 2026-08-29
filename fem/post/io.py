@@ -35,6 +35,8 @@ _MESH_BOUNDARY = '__mesh_boundary__'
 # renaming the archive key would strand every .npz already written.
 _N_COMPONENTS = '__dim__'
 _SOLUTION_CLASS = '__solution_class__'
+# Class names archives were written under before a rename, so they still load.
+_LEGACY_SOLUTION_CLASSES = {'ScalarFieldSolution': 'DiffusionSolution'}
 
 
 # --- meshes -----------------------------------------------------------------
@@ -126,7 +128,8 @@ def load_solution(path='solution.npz'):
     with np.load(path) as data:
         mesh = _mesh_from_arrays(data)
         n_components = int(data[_N_COMPONENTS])
-        cls = getattr(solution_module, str(data[_SOLUTION_CLASS]))
+        class_name = str(data[_SOLUTION_CLASS])
+        cls = getattr(solution_module, _LEGACY_SOLUTION_CLASSES.get(class_name, class_name))
         # Resolve the element type stored by name (older archives predate it, so a
         # missing key means the linear default).
         type_name = str(data[_ELEMENT_TYPE]) if _ELEMENT_TYPE in data else ''

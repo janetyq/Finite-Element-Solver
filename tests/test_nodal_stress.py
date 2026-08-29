@@ -149,13 +149,13 @@ def test_average_to_nodal_agrees_with_recover_nodal_for_an_element_constant_fiel
 # --- the scalar flux: same recipe for a Poisson gradient ---
 
 def _quadratic_scalar_solution(element_type):
-    """A `ScalarFieldSolution` whose field is a known quadratic, so its gradient is
+    """A `DiffusionSolution` whose field is a known quadratic, so its gradient is
     exactly linear and a P2 space carries it exactly."""
-    from fem.post.solution import ScalarFieldSolution
+    from fem.post.solution import DiffusionSolution
     mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
     space = FunctionSpace(mesh, element_type)
     x, y = space.node_coords.T
-    solution = ScalarFieldSolution.from_solve(space, x**2 + x * y - 0.5 * y**2)
+    solution = DiffusionSolution.from_solve(space, x**2 + x * y - 0.5 * y**2)
 
     def exact_gradient(points):
         px, py = np.asarray(points).T

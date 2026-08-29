@@ -1,5 +1,5 @@
 """Low-level matplotlib drawing helpers used by the Plotter class: mesh, boundary,
-highlights, colored fields, surfaces, arrows, and colorbars. Each draws a `FieldView`
+highlights, colored fields, surfaces, arrows, and colorbars. Each draws a `PanelView`
 (`fem.plot.tessellation`), the triangulation and field a panel shows on the true
 geometry, so nothing here reads a `FunctionSpace` or an element type. Boundary
 conditions are a picture with a vocabulary of their own and live in `fem.plot.bc`.
@@ -18,7 +18,7 @@ from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.tri import Triangulation
 from mpl_toolkits.mplot3d import Axes3D
 
-from fem.plot.tessellation import FieldView, field_view
+from fem.plot.tessellation import PanelView, panel_view
 
 if TYPE_CHECKING:
     from fem.mesh.mesh import Mesh
@@ -38,16 +38,16 @@ class ColorbarInfo:
     bar: Colorbar | None
 
 
-def _as_view(target: Mesh | FieldView) -> FieldView:
+def _as_view(target: Mesh | PanelView) -> PanelView:
     """A bare mesh drawn directly gets the plain P1 view."""
-    return target if isinstance(target, FieldView) else field_view(target)
+    return target if isinstance(target, PanelView) else panel_view(target)
 
 
-def _triangulation(view: FieldView) -> Triangulation:
+def _triangulation(view: PanelView) -> Triangulation:
     return Triangulation(view.points[:, 0], view.points[:, 1], triangles=view.triangles)
 
 
-def plot_mesh(ax, target: Mesh | FieldView, color='black', linewidth=0.2):
+def plot_mesh(ax, target: Mesh | PanelView, color='black', linewidth=0.2):
     """The mesh wireframe. On a curved view, interior edges stay straight while the
     boundary edges bow to follow their true curve."""
     view = _as_view(target)
@@ -69,7 +69,7 @@ def plot_mesh(ax, target: Mesh | FieldView, color='black', linewidth=0.2):
     plot_boundary(ax, view, color=color, linewidth=linewidth)
 
 
-def plot_boundary(ax, target: Mesh | FieldView, color='black', linewidth=1.0):
+def plot_boundary(ax, target: Mesh | PanelView, color='black', linewidth=1.0):
     """The domain outline, as the view's polylines: along the true curve where the
     geometry has one, else the facet chords."""
     view = _as_view(target)
@@ -112,13 +112,13 @@ def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False, c
     return ColorbarInfo(cmap, norm, cbar)
 
 
-def plot_colored(ax, view: FieldView, cbar_info=None, label=None, cmap_name='viridis',
+def plot_colored(ax, view: PanelView, cbar_info=None, label=None, cmap_name='viridis',
                  log_scale=False, colorbar=True, contour=None):
     """Colour the view's triangulation by its field, per point or per face.
 
     Returns the collection so an animation can recolour it in place across frames
     rather than clearing the axes and rebuilding it; its array is per-face, which
-    `FieldView.face_values` matches for either a per-point or a per-element field.
+    `PanelView.face_values` matches for either a per-point or a per-element field.
     """
     values = view._require_values()
     if cbar_info is None:
@@ -146,7 +146,7 @@ def change_ax_to_ax3d(ax, fig, ax_shape, ax_idx):
     return ax
 
 
-def plot_surface(ax, view: FieldView, clim=None):
+def plot_surface(ax, view: PanelView, clim=None):
     """Lift the view's field over its 2D triangulation into the z direction.
 
     `clim` fixes both the colour mapping and the z axis, so a grid of surfaces can be
@@ -154,7 +154,7 @@ def plot_surface(ax, view: FieldView, clim=None):
     losing amplitude looks exactly like one that is not.
 
     A surface interpolates between points, so a per-element field is projected to the
-    points first (`FieldView.point_values`); on a P2 or curved view the surface is lifted
+    points first (`PanelView.point_values`); on a P2 or curved view the surface is lifted
     over the element tessellation, so it shows the within-element curvature.
     """
     vmin, vmax = clim if clim is not None else (None, None)
@@ -164,7 +164,7 @@ def plot_surface(ax, view: FieldView, clim=None):
         ax.set_zlim(*clim)
 
 
-def plot_solid(ax, view: FieldView, cbar_info=None):
+def plot_solid(ax, view: PanelView, cbar_info=None):
     """Draw a 3D mesh as its boundary surface, coloured by the view's field.
 
     Only the boundary facets are drawn: the interior of a solid is not visible, and
@@ -228,7 +228,7 @@ def _spread_sample(points, target):
     return first
 
 
-def plot_arrows(ax, view: FieldView, values, max_arrows=MAX_ARROWS):
+def plot_arrows(ax, view: PanelView, values, max_arrows=MAX_ARROWS):
     """A vector field as arrows: at the view's nodes for a per-node field (a recovered
     flux, on the deformed configuration if the view is warped), else one arrow per
     element at its centroid."""

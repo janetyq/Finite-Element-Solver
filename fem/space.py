@@ -42,7 +42,7 @@ from fem.typing import (
     FloatArray,
     IntArray,
     SparseMatrix,
-    VertexField,
+    NodalValues,
     Vertices,
 )
 
@@ -415,16 +415,16 @@ class FunctionSpace:
         '''
         return evaluate_field(value, self.node_coords, self.n_components).flatten()
 
-    def integrate(self, u: VertexField) -> float:
+    def integrate(self, u: NodalValues) -> float:
         '''Integral of a nodal field over the domain: the entries of `M @ u` summed,
         which is exact since the shape functions sum to 1.'''
         return float((self.mass_matrix @ u).sum())
 
-    def mean_value(self, u: VertexField) -> float:
+    def mean_value(self, u: NodalValues) -> float:
         '''Volume-weighted mean of a nodal field.'''
         return self.integrate(u) / self.total_volume
 
-    def gradient(self, u: VertexField) -> FloatArray:
+    def gradient(self, u: NodalValues) -> FloatArray:
         '''(n_elements, spatial_dim) gradient of a nodal field, one value per element.
 
         The volume-weighted mean over the element's rule: the exact constant for P1,
@@ -434,7 +434,7 @@ class FunctionSpace:
         weights = geometry.weight_detJ / geometry.weight_detJ.sum(axis=1, keepdims=True)
         return np.einsum('eq,eqi->ei', weights, geometry.gradients(u[self.element_nodes]))
 
-    def element_field_hessian(self, u_elements: FloatArray) -> FloatArray:
+    def element_hessian(self, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, spatial, spatial[, n_components]) physical Hessian of a field.
 
         The second derivatives `d2u / dx_i dx_j`, constant per element for a straight

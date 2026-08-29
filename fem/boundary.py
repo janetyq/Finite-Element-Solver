@@ -22,7 +22,7 @@ from fem.typing import (
     IntArray,
     Region,
     VertexIndices,
-    VertexField,
+    NodalValues,
     Vertices,
 )
 
@@ -107,7 +107,7 @@ class NeumannContribution:
     facet_mask: BoolArray       # one entry per boundary facet
     node_idxs: VertexIndices    # the region's boundary nodes
     value: FieldValue           # the spec's value, possibly TimeDependent
-    nodal_values: VertexField   # (n_nodes, n_components) at the resolution time
+    nodal_values: NodalValues   # (n_nodes, n_components) at the resolution time
 
 
 @dataclass(frozen=True)

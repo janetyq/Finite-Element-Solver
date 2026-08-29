@@ -41,10 +41,10 @@ from fem.problem import LinearProblem
 from fem.regions import everywhere
 from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
-from fem.typing import FloatArray, Vertices, VertexField
+from fem.typing import FloatArray, Vertices, NodalValues
 
 
-def exact_solution(vertices: Vertices) -> VertexField:
+def exact_solution(vertices: Vertices) -> NodalValues:
     """The manufactured `u`, sampled at `vertices`."""
     x, y = vertices[:, 0], vertices[:, 1]
     return np.sin(np.pi * x) * np.sin(np.pi * y)
@@ -71,7 +71,7 @@ def source_term(point: FloatArray) -> list[float]:
     return [2 * np.pi**2 * np.sin(np.pi * point[0]) * np.sin(np.pi * point[1])]
 
 
-def l2_norm(space: FunctionSpace, values: VertexField) -> float:
+def l2_norm(space: FunctionSpace, values: NodalValues) -> float:
     """The discrete L2 norm of a nodal field: `sqrt(v^T M v)` with `M` the mass matrix.
 
     Not the Euclidean norm of the same numbers, which has no mesh in it, so it drifts
@@ -101,7 +101,7 @@ def quadrature_l2(geometry: ElementGeometry, diff: FloatArray) -> float:
 
 
 def h1_seminorm_error(
-    space: FunctionSpace, u: VertexField, exact_gradient: Callable[[FloatArray], FloatArray],
+    space: FunctionSpace, u: NodalValues, exact_gradient: Callable[[FloatArray], FloatArray],
     degree: int = 2,
 ) -> float:
     """The H1 seminorm error `||grad(u_h) - grad(u_exact)||_L2`.
@@ -127,13 +127,13 @@ class MMSSolve:
     """One solve of the manufactured problem, and how far off it came out."""
     h: float                   # grid spacing
     mesh: Mesh
-    u: VertexField             # what the problem computed
-    exact: VertexField         # the manufactured solution at the same nodes
+    u: NodalValues             # what the problem computed
+    exact: NodalValues         # the manufactured solution at the same nodes
     l2_error: float            # ||u - exact||_L2, the number a study plots
     h1_error: float | None = None  # ||grad(u - exact)||_L2, where a closed-form gradient exists
 
     @property
-    def pointwise_error(self) -> VertexField:
+    def pointwise_error(self) -> NodalValues:
         """`u - exact` node by node. `l2_error` is the norm of this field, not of
         these numbers; see `l2_norm`."""
         return self.u - self.exact
@@ -464,7 +464,7 @@ def annulus_convergence(
 LOAD_MMS_FREQUENCY = 3   # source wavelengths across the unit square
 
 
-def oscillatory_exact(vertices: Vertices) -> VertexField:
+def oscillatory_exact(vertices: Vertices) -> NodalValues:
     """u = sin(k pi x) sin(k pi y): the manufactured solution, zero on the boundary."""
     k = LOAD_MMS_FREQUENCY
     x, y = vertices[:, 0], vertices[:, 1]
@@ -483,9 +483,9 @@ class LoadComparison:
     n: int                    # grid resolution (n x n nodes), for slicing a row of it
     h: float
     mesh: Mesh
-    exact: VertexField
-    nodal: VertexField        # source integrated as its P1 interpolant
-    sampled: VertexField      # source sampled at the quadrature points (Source)
+    exact: NodalValues
+    nodal: NodalValues        # source integrated as its P1 interpolant
+    sampled: NodalValues      # source sampled at the quadrature points (Source)
     nodal_error: float
     sampled_error: float
 

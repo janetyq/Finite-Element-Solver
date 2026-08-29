@@ -15,13 +15,13 @@ import numpy as np
 
 from fem.post import invariants
 from fem.post import recovery
-from fem.typing import DofVector, ElementField, FloatArray
+from fem.typing import DofVector, ElementValues, FloatArray
 
 S = TypeVar('S', bound='FieldSolution')   # the steady solution a step packages
 
 if TYPE_CHECKING:
     from fem.elements import Element
-    from fem.physics.forms import RecoversElasticFields
+    from fem.physics.forms import RecoversElasticState
     from fem.mesh.mesh import Mesh
     from fem.problem import Problem
     from fem.space import FunctionSpace
@@ -81,17 +81,17 @@ class FieldSolution(Solution):
 
 
 @dataclass(frozen=True, eq=False)
-class ScalarFieldSolution(FieldSolution):
+class DiffusionSolution(FieldSolution):
     '''A scalar field plus its recovered per-element flux `grad u` (Poisson's solution).
 
     `flux` is one gradient per element (the element mean). `nodal_flux` gives the
     continuous per-node field a P2 plot or a nodal consumer wants, re-evaluated from `u`
     at the nodes so a P2 gradient's variation within the element is kept.
     '''
-    flux: ElementField   # (n_elements, spatial_dim) per-element grad u
+    flux: ElementValues   # (n_elements, spatial_dim) per-element grad u
 
     @classmethod
-    def from_solve(cls, space: 'FunctionSpace', u: DofVector) -> 'ScalarFieldSolution':
+    def from_solve(cls, space: 'FunctionSpace', u: DofVector) -> 'DiffusionSolution':
         '''Package a scalar solve, recovering its per-element diffusion flux grad u.'''
         return cls(space, u, flux=space.gradient(u))
 
@@ -116,8 +116,8 @@ class ElasticSolution(FieldSolution):
     '''
     strain: FloatArray       # (n_elements, 3, 3)
     stress: FloatArray       # (n_elements, 3, 3)
-    compliance: ElementField  # (n_elements,)
-    form: 'RecoversElasticFields | None' = field(
+    compliance: ElementValues  # (n_elements,)
+    form: 'RecoversElasticState | None' = field(
         default=None, kw_only=True, repr=False, metadata={'persist': False})
 
     def __post_init__(self) -> None:
@@ -135,18 +135,18 @@ class ElasticSolution(FieldSolution):
         cls,
         space: 'FunctionSpace',
         u: DofVector,
-        form: 'RecoversElasticFields',
+        form: 'RecoversElasticState',
     ) -> 'ElasticSolution':
         '''Recover the elastic fields for `u` and package them.'''
-        # (n_elements, N, n_components): the layout RecoversElasticFields takes,
+        # (n_elements, N, n_components): the layout RecoversElasticState takes,
         # and the same one FunctionSpace.assemble_residual gathers. Indexed by the
         # space's element nodes, not the mesh triangles: a P2 element has six nodes.
         u_elements = np.asarray(u).reshape(-1, space.n_components)[space.element_nodes]
-        fields = form.derived_fields(space.geometry, u_elements)
+        fields = form.recover(space.geometry, u_elements)
         return cls(space, u, fields.strain, fields.stress, fields.compliance, form=form)
 
     @property
-    def von_mises(self) -> ElementField:
+    def von_mises(self) -> ElementValues:
         '''Von Mises equivalent stress per element: the usual scalar to plot.'''
         return invariants.von_mises(self.stress)
 
@@ -192,7 +192,7 @@ class ElasticSolution(FieldSolution):
         return invariants.von_mises(self.nodal_stress(method=method))
 
     @property
-    def pressure(self) -> ElementField:
+    def pressure(self) -> ElementValues:
         '''Hydrostatic pressure per element, positive in compression.'''
         return invariants.pressure(self.stress)
 
@@ -202,7 +202,7 @@ class ElasticSolution(FieldSolution):
         return invariants.principal(self.stress)
 
     @property
-    def max_shear(self) -> ElementField:
+    def max_shear(self) -> ElementValues:
         '''Maximum shear stress per element.'''
         return invariants.max_shear(self.stress)
 

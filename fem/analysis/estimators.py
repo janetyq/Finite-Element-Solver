@@ -16,8 +16,8 @@ decision. Three are provided:
   recovery indicators, refining toward a quantity of interest.
 
 An estimator has no physics of its own. The one physics-specific input, the
-`DerivedField` (which field to jump or recover, and what its boundary residual is),
-is read off the problem's operator (`Form.derived_field`), and the source off the
+`Flux` (which field to jump or recover, and what its boundary residual is),
+is read off the problem's operator (`Form.flux`), and the source off the
 problem, at `estimate` time. A custom estimate is any callable of `(problem, solution)`.
 
 `GoalOrientedEstimator` imports `fem.analysis.sensitivity` lazily to solve the dual;
@@ -40,12 +40,12 @@ _REFERENCE_EDGE_MIDPOINTS = np.array([[0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
 if TYPE_CHECKING:
     from fem.conditions import ResolvedConditions
-    from fem.physics.derived import DerivedField
+    from fem.physics.derived import Flux
     from fem.problem import Problem
     from fem.analysis.sensitivity import QuantityOfInterest
     from fem.post.solution import FieldSolution
     from fem.space import FunctionSpace
-    from fem.typing import BoolArray, ElementField, FieldValue, FloatArray, IntArray
+    from fem.typing import BoolArray, ElementValues, FieldValue, FloatArray, IntArray
 
 
 # -- the solved-system view the flux hooks read -------------------------------
@@ -83,12 +83,12 @@ def _solved(problem: Problem, solution: FieldSolution) -> Solved:
     return Solved(space, solution, resolved, is_fixed)
 
 
-def _flux(problem: Problem) -> DerivedField:
+def _flux(problem: Problem) -> Flux:
     '''The recoverable flux the problem's operator names.'''
-    flux = problem.operator.derived_field()
+    flux = problem.operator.flux()
     if flux is None:
         raise NotImplementedError(
-            f'{type(problem.operator).__name__} names no derived field, so an error '
+            f'{type(problem.operator).__name__} names no flux, so an error '
             'estimate is not defined for it.'
         )
     return flux
@@ -110,7 +110,7 @@ class ErrorEstimator(Protocol):
     '''A per-element error indicator over a solved problem: the one method
     `AdaptiveRefinement` drives.'''
 
-    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
+    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementValues:
         '''(n_elements,) non-negative error indicator for `solution` of `problem`.'''
         ...
 
@@ -139,7 +139,7 @@ class ResidualEstimator:
     the problem's own: its operator's derived field and its volume source.
     '''
 
-    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
+    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementValues:
         space = problem.space
         mesh = space.mesh
         flux_field = _flux(problem)
@@ -147,7 +147,7 @@ class ResidualEstimator:
         if mesh.spatial_dim != 2:
             raise NotImplementedError('the residual error estimator needs face normals (2D only)')
         if space.element_type.GEOMETRY_DEGREE > 1:
-            # The interior term's divergence comes from `element_field_hessian`, which is
+            # The interior term's divergence comes from `element_hessian`, which is
             # exact only on straight elements; a curved Jacobian adds a first-derivative
             # term it omits.
             raise NotImplementedError(
@@ -221,7 +221,7 @@ class ResidualEstimator:
 
     @staticmethod
     def _per_side_edge_flux(
-        flux: DerivedField, space: FunctionSpace, solution: FieldSolution,
+        flux: Flux, space: FunctionSpace, solution: FieldSolution,
         edges: IntArray, edge_elements: IntArray,
     ) -> FloatArray:
         '''(n_edges, 2, k, d) the flux each side carries at each edge's midpoint.
@@ -274,7 +274,7 @@ class RecoveryEstimator:
     is the problem's operator's derived field.
     '''
 
-    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
+    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementValues:
         space = problem.space
         flux = _flux(problem)
         ctx = _solved(problem, solution)
@@ -315,7 +315,7 @@ class GoalOrientedEstimator:
     '''
     quantity_of_interest: 'QuantityOfInterest'
 
-    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementField:
+    def estimate(self, problem: Problem, solution: FieldSolution) -> ElementValues:
         from fem.analysis.sensitivity import SensitivityAnalysis
 
         base = RecoveryEstimator()

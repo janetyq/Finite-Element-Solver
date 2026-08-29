@@ -75,7 +75,7 @@ from fem.physics.forms import (
 from fem.loads import Load, PointLoad, Source
 from fem.physics.materials import LinearElasticMaterial
 from fem.physics.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
-from fem.physics.derived import DerivedField
+from fem.physics.derived import Flux
 from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.algebra.solve import (
     BacktrackingLineSearch,
@@ -97,7 +97,7 @@ from fem.algebra.integrators import ThetaMethod, NewmarkMethod
 from fem.post.solution import (
     Solution,
     FieldSolution,
-    ScalarFieldSolution,
+    DiffusionSolution,
     ElasticSolution,
     BucklingSolution,
     ModalSolution,
@@ -114,8 +114,8 @@ from fem.analysis.sensitivity import (
     PointValue,
     MeanStress,
     SoftMaxStress,
-    DensityField,
-    ModulusField,
+    DensityParameterization,
+    ModulusParameterization,
 )
 from fem.analysis.design import (
     DesignOptimizer,
@@ -216,7 +216,7 @@ __all__ = [
     "StVenantKirchhoff",
     "SmallStrain",
     "NeohookeanEnergyDensity",
-    "DerivedField",
+    "Flux",
     "SolveStrategy",
     "LinearSolve",
     "NewtonSolve",
@@ -234,7 +234,7 @@ __all__ = [
     "NewmarkMethod",
     "Solution",
     "FieldSolution",
-    "ScalarFieldSolution",
+    "DiffusionSolution",
     "ElasticSolution",
     "BucklingSolution",
     "ModalSolution",
@@ -249,8 +249,8 @@ __all__ = [
     "PointValue",
     "MeanStress",
     "SoftMaxStress",
-    "DensityField",
-    "ModulusField",
+    "DensityParameterization",
+    "ModulusParameterization",
     "DesignOptimizer",
     "SIMPModel",
     "DesignHistory",

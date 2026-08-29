@@ -281,7 +281,7 @@ class Problem(Generic[S]):
 
     def solution(self, u: DofVector) -> S:
         '''The typed `Solution` the operator recovers: an `ElasticSolution` for an
-        operator that recovers stress, a `ScalarFieldSolution` for one naming a flux
+        operator that recovers stress, a `DiffusionSolution` for one naming a flux
         (Poisson's gradient), else a bare `FieldSolution` (a projection).'''
         return self.operator.solution(self.space, u)
 

@@ -90,7 +90,7 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     """`Problem.solve` packages by physics: stress for an elastic operator, flux for
     a diffusion one, a bare field for a projection. The facade returns the same typed
     result."""
-    from fem.post.solution import ElasticSolution, FieldSolution, ScalarFieldSolution
+    from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
 
     mesh = make_unit_square(8)
     bc = Conditions(
@@ -105,7 +105,7 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     np.testing.assert_allclose(solution.stress, facade.stress, atol=1e-12)
 
     scalar = _poisson_problem(mesh)
-    assert isinstance(scalar.solve(), ScalarFieldSolution)
+    assert isinstance(scalar.solve(), DiffusionSolution)
 
     projected = _problem(Projection(), mesh, Conditions(Source(2.0)))
     assert type(projected.solve()) is FieldSolution

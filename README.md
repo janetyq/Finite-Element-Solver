@@ -272,7 +272,7 @@ solution = problem.solve()
 `problem.solve()` picks `LinearSolve` for a constant tangent and Newton otherwise; `strategy=`
 chooses how it iterates and `backend=` how each linear system is solved, independently. The
 result is typed by the physics: `Poisson().problem(mesh, conditions).solve()` is a
-`ScalarFieldSolution`, an elastic one an `ElasticSolution`, with no narrowing at the call.
+`DiffusionSolution`, an elastic one an `ElasticSolution`, with no narrowing at the call.
 
 ### What you choose at each step
 
@@ -290,7 +290,7 @@ Every step of a solve is one choice among a few named objects, all importable fr
 | Backend | `DirectBackend`, `IterativeBackend`, `MinresBackend`, via `backend=` | direct |
 | In time | `ThetaMethod`, `NewmarkMethod` (with `RayleighDamping`) | |
 | Analyses | `BucklingAnalysis`, `ModalAnalysis`, `AdaptiveRefinement` with `ResidualEstimator` / `RecoveryEstimator` / `GoalOrientedEstimator`, `SensitivityAnalysis`, `DesignOptimizer` over a `SIMPModel` | |
-| Result | `ScalarFieldSolution`, `ElasticSolution`, `FieldSolution`, `TransientSolution`, `BucklingSolution`, `ModalSolution` | by the physics |
+| Result | `DiffusionSolution`, `ElasticSolution`, `FieldSolution`, `TransientSolution`, `BucklingSolution`, `ModalSolution` | by the physics |
 | Plot | `Plotter.plot(target, values, mode=)` with `mesh`, `boundary`, `colored`, `surface`, `arrows`, `solid`, `bc`, `refinement` | |
 
 
@@ -367,7 +367,7 @@ fem/                 # the solver package; grouped by layer, everything re-expor
 │   ├── materials.py #   Hooke's law, Lame conversions (2D is plane strain)
 │   ├── energies.py  #   hyperelastic strain-energy densities and their derivatives
 │   ├── fields.py    #   Scalar/Vector: components per node, resolved against the mesh
-│   └── derived.py   #   DerivedField: the flux or stress a form recovers
+│   └── derived.py   #   Flux: the flux or stress a form recovers
 │
 ├── algebra/         # how Ax = b and F(x) = 0 are solved
 │   ├── system.py    #   DiscreteSystem: Dirichlet elimination, factor once
@@ -389,7 +389,7 @@ fem/                 # the solver package; grouped by layer, everything re-expor
 │   ├── invariants.py #  rotation-invariant tensor reductions (von Mises, ...)
 │   └── io.py        #   mesh JSON, solution npz (no pickle)
 │
-├── plot/            # matplotlib only, loaded on first use: Plotter, FieldView tessellation, BC glyphs
+├── plot/            # matplotlib only, loaded on first use: Plotter, PanelView tessellation, BC glyphs
 └── numerics.py, typing.py   # helpers and semantic array aliases
 tests/               # pytest suite (test_layering.py holds the module order)
 examples/            # the CLI, the gallery builder, mms.py (manufactured-solution studies),
