@@ -4,7 +4,8 @@ Every backticked name in that section must resolve: an attribute chain from `fem
 (`Outline.from_svg`, `Plotter.plot`), a call on a named instance (`problem.solve()`,
 where `problem` is a `Problem`), a bare method (`.simplified(tolerance)`, on some
 exported class), a `PlotMode` value, or a keyword argument the table quotes. A rename
-that forgets the table fails here.
+that forgets the table fails here. The "Where" column names files under `fem/`, which must
+exist.
 """
 import re
 from pathlib import Path
@@ -32,7 +33,28 @@ def _section() -> str:
 def _names() -> list[str]:
     rows = [line for line in _section().splitlines() if line.startswith('|')]
     names = re.findall(r'`([^`]+)`', '\n'.join(rows))
-    return sorted({n for n in names if n not in KEYWORDS})
+    return sorted({n for n in names if n not in KEYWORDS and not _is_path(n)})
+
+
+def _is_path(name: str) -> bool:
+    return name.endswith('.py') or name.endswith('/')
+
+
+def _paths() -> list[str]:
+    '''The files the "Where" column names, each resolved against the row's `fem/...` prefix.'''
+    rows = [line for line in _section().splitlines() if line.startswith('|')][2:]
+    paths = []
+    for row in rows:
+        prefix = 'fem/'
+        for name in re.findall(r'`([^`]+)`', row.rsplit('|', 2)[-2]):
+            if not _is_path(name):
+                continue
+            if name.startswith('fem/'):
+                prefix = name.rsplit('/', 1)[0] + '/'
+                paths.append(name)
+            else:
+                paths.append(prefix + name)
+    return paths
 
 
 def _resolves(name: str) -> bool:
@@ -65,3 +87,8 @@ def test_the_table_exists():
 @pytest.mark.parametrize('name', _names())
 def test_every_name_in_the_table_resolves(name):
     assert _resolves(name), f'`{name}` is in the README table but not in fem'
+
+
+@pytest.mark.parametrize('path', _paths())
+def test_every_file_in_the_where_column_exists(path):
+    assert (README.parent / path).exists(), f'`{path}` is in the README table but not in the repo'
