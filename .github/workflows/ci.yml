@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the diff-coverage gate can compare a PR against main.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -29,7 +32,22 @@ jobs:
         run: uv run pyright
 
       - name: Test (pytest)
-        # Coverage is reported for visibility, not gated on a threshold; a
-        # no-decrease gate is a follow-up once a baseline is stored. pytest-randomly
-        # shuffles the order each run and prints its seed for reproduction.
-        run: uv run pytest --cov=fem --cov-report=term-missing
+        # term-missing for the log; xml for the diff-coverage gate below. The
+        # --cov-fail-under floor is a whole-suite backstop that the per-diff gate
+        # cannot give: it catches a total collapse (e.g. tests deleted without
+        # touching source), which leaves no diff for diff-cover to measure. Set well
+        # under the current ~97% so it fires only on a real regression, not on noise.
+        # pytest-randomly shuffles the order each run and prints its seed.
+        run: uv run pytest --cov=fem --cov-report=term-missing --cov-report=xml --cov-fail-under=90
+
+      - name: Coverage of changed lines (diff-cover)
+        # New and changed lines must be covered: a patch-coverage gate that needs no
+        # stored baseline, since it compares against the PR's merge base. Together with
+        # the whole-suite floor above, new code is tested and the total cannot decay.
+        # Skipped on pushes to main, where there is no diff to measure.
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags origin '+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}'
+          uv run diff-cover coverage.xml \
+            --compare-branch=origin/${{ github.base_ref }} \
+            --fail-under=85

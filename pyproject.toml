@@ -30,8 +30,9 @@ dependencies = [
 # pygments highlights the gallery's source listings (examples/source_html.py).
 # pytest-cov reports library coverage in CI; hypothesis drives the property tests
 # (tests/test_properties.py); pytest-randomly shuffles test order to surface any
-# ordering dependence between the module-scoped fixtures.
-dev = ["pytest", "ruff", "pyright", "pygments", "pytest-cov", "hypothesis", "pytest-randomly"]
+# ordering dependence between the module-scoped fixtures; diff-cover gates a PR on
+# the coverage of the lines it changed.
+dev = ["pytest", "ruff", "pyright", "pygments", "pytest-cov", "hypothesis", "pytest-randomly", "diff-cover"]
 
 [tool.ruff]
 line-length = 120
