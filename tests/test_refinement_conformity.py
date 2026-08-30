@@ -6,6 +6,7 @@ import itertools
 from collections import Counter
 
 import numpy as np
+import pytest
 
 from fem.mesh.refinement import RedGreenRefiner
 
@@ -139,3 +140,16 @@ def test_boundary_edges_are_subset_of_mesh_edges(make_unit_square):
         assert tuple(sorted(edge)) in mesh_edges, (
             f"boundary edge {tuple(edge)} not found in element edges"
         )
+
+
+# ---------------------------------------------------------------------------
+# Conservation
+# ---------------------------------------------------------------------------
+
+def test_refinement_conserves_area(make_unit_square):
+    """Red and green splits tile their parent exactly, so the mesh keeps its area whether
+    one element, an adjacent pair, or every element is refined."""
+    mesh = make_unit_square(4)
+    for targets in ([0], [0, 1], list(range(len(mesh.elements)))):
+        refined = RedGreenRefiner(mesh).refine(targets)
+        assert refined.area == pytest.approx(mesh.area, rel=1e-12)

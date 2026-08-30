@@ -208,9 +208,15 @@ def test_green_lagrange_strain_vanishes_under_rigid_rotation():
     assert np.abs(linearised.strain).max() > 1e-3
 
 
-@pytest.mark.parametrize('n', [4, 6])
-def test_compliance_is_mesh_convergent(n, make_unit_square):
-    """Total compliance is a physical quantity, so refining the mesh must not move it wildly."""
-    _, coarse = _solved(make_unit_square(n))
-    _, fine = _solved(make_unit_square(n + 4))
-    assert coarse.compliance.sum() == pytest.approx(fine.compliance.sum(), rel=0.5)
+def test_compliance_rises_monotonically_under_nested_refinement(make_unit_square):
+    """Galerkin minimises the potential energy J over the trial space, and at the minimum
+    the compliance is -2J. Uniform red refinement nests the spaces (every coarse function
+    is still representable), so the minimum can only fall and the compliance only rise:
+    C_h < C_{h/2} < C. The increments shrink too, since the sequence converges."""
+    meshes = [make_unit_square(4)]
+    for _ in range(2):
+        meshes.append(meshes[-1].refined())
+    compliance = [_solved(mesh)[1].compliance.sum() for mesh in meshes]
+
+    assert compliance[0] < compliance[1] < compliance[2], compliance
+    assert compliance[2] - compliance[1] < compliance[1] - compliance[0], compliance

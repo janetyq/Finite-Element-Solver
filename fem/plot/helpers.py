@@ -79,18 +79,6 @@ def plot_boundary(ax, target: Mesh | PanelView, color='black', linewidth=1.0):
         ax.plot(line[:, 0], line[:, 1], color=color, linewidth=linewidth)
 
 
-def plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode='vertices'):
-    for idxs, color, label in zip(idxs_list, color_list, label_list):
-        if mode == 'vertices':
-            ax.scatter(mesh.vertices[idxs, 0], mesh.vertices[idxs, 1], color=color, s=5, label=label)
-        elif mode == 'elements':
-            first = True  # Handle the label only for the first element
-            for e_idx in idxs:
-                vertices = mesh.vertices[mesh.elements[e_idx]]
-                ax.fill(vertices[:, 0], vertices[:, 1], color=color, alpha=0.2, label=label if first else None)
-                first = False
-
-
 def setup_colorbar(ax, vlim, label=None, cmap_name='viridis', log_scale=False, colorbar=True):
     cmap = matplotlib.colormaps[cmap_name]
     if log_scale:

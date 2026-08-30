@@ -127,13 +127,15 @@ def test_iterative_solver_reuses_its_setup_across_right_hand_sides():
         np.testing.assert_allclose(system.solve(b), np.linalg.solve(A, b), atol=1e-8)
 
 
-def test_rigid_body_modes_are_in_the_stiffness_kernel():
-    """Translations and rotations produce no strain: K @ mode == 0 unconstrained."""
-    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
-    space = FunctionSpace(mesh, n_components=2)
+@pytest.mark.parametrize('dim', [2, 3])
+def test_rigid_body_modes_are_in_the_stiffness_kernel(dim):
+    """Translations and rotations produce no strain: K @ mode == 0 unconstrained, for
+    the 3 modes of a plane body and the 6 of a solid."""
+    mesh = box_mesh(corners=[[0] * dim, [1] * dim], resolution=(9, 9) if dim == 2 else (4, 4, 4))
+    space = FunctionSpace(mesh, n_components=dim)
     K = space.assemble(LinearElasticForm(LinearElasticMaterial(E=200, nu=0.3)))
-    modes = rigid_body_modes(mesh.vertices, 2)
-    assert modes.shape == (space.n_dofs, 3)
+    modes = rigid_body_modes(mesh.vertices, dim)
+    assert modes.shape == (space.n_dofs, 3 if dim == 2 else 6)
     residual = K @ modes
     assert np.abs(residual).max() < 1e-8, "a rigid-body mode strained the body"
 

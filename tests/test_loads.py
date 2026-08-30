@@ -14,6 +14,7 @@ from fem.algebra.integrators import NewmarkMethod
 from fem.loads import BoundaryLoad, PointLoad, Source
 from fem.physics.materials import LinearElasticMaterial
 from fem.analysis.modal import ModalAnalysis
+from fem.mesh.structured import box_mesh
 from fem.problem import LinearProblem, RayleighDamping
 from fem.regions import TimeDependent, at_indices, everywhere, on_plane
 from fem.space import FunctionSpace
@@ -208,3 +209,36 @@ def test_with_operator_resets_the_damping_matrix(make_unit_square):
     derived = problem.with_operator(2.0 * problem.physics)
     np.testing.assert_allclose(derived.damping_matrix.toarray(), 2.0 * C.toarray(), atol=1e-12)
     assert isinstance(derived, LinearProblem)
+
+
+# -- resultants -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize('dim', [2, 3])
+def test_a_uniform_source_sums_to_the_source_times_the_volume(dim):
+    """The load is int f phi_i and the shape functions sum to one, so its total is f
+    times the measure, per component, in any dimension. The unit box has unit measure."""
+    mesh = box_mesh(corners=[[0] * dim, [1] * dim], resolution=(4,) * dim)
+    scalar = FunctionSpace(mesh).assemble_load(Source(3.0))
+    np.testing.assert_allclose(scalar.sum(), 3.0, atol=1e-12)
+
+    f = [1.0, -2.0, 0.5][:dim]
+    vector = FunctionSpace(mesh, n_components=dim).assemble_load(Source(f))
+    np.testing.assert_allclose(vector.reshape(-1, dim).sum(axis=0), f, atol=1e-12)
+
+
+@pytest.mark.parametrize('dim', [2, 3])
+def test_a_uniform_traction_sums_to_the_traction_times_the_loaded_measure(dim):
+    """The face x = 1 of the unit box has unit measure (an edge in 2D, a square in 3D),
+    so the traction's resultant is the traction itself, per component, and nothing
+    lands on a node off that face."""
+    mesh = box_mesh(corners=[[0] * dim, [1] * dim], resolution=(4,) * dim)
+    traction = [0.0, -1.0, 0.5][:dim]
+    space = FunctionSpace(mesh, n_components=dim)
+    bc = Conditions(Neumann(on_plane(0, 1.0), traction))
+    operator = LinearElasticForm(LinearElasticMaterial(1.0, 0.3))
+    load = LinearProblem(space, operator, bc).load.reshape(-1, dim)
+
+    np.testing.assert_allclose(load.sum(axis=0), traction, atol=1e-12)
+    off_face = mesh.vertices[:, 0] < 1.0 - 1e-9
+    np.testing.assert_allclose(load[off_face], 0.0, atol=1e-12)

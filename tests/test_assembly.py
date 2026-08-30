@@ -4,7 +4,9 @@
 this pins the scatter that joins them. Small meshes get exact golden matrices; the 3D
 meshes get invariants (a mass matrix sums to the domain measure, a Laplacian
 annihilates constants, an elastic stiffness annihilates rigid translations) plus
-scalar fingerprints (nnz, trace, Frobenius norm, row sums).
+scalar fingerprints (nnz, trace, Frobenius norm, row sums). Of the fingerprints, `nnz`
+follows from the connectivity and `trace` and `sum` from the element formulas; `fro` is
+a regression pin recorded from the implementation, there to catch drift.
 """
 import numpy as np
 import pytest
