@@ -24,3 +24,15 @@ def test_theta_method_converges_at_its_order(theta, step_counts, order, band):
     low, high = band
     for p in study.orders:
         assert low < p < high, f'expected order ~{order} in dt, got {study.orders}'
+
+
+def test_forward_euler_is_first_order_and_stable():
+    """theta = 0 is explicit (forward) Euler: the effective operator is the mass matrix
+    alone, with no stiffness on the left. On a coarse mesh (so the stiffness eigenvalues
+    stay inside the explicit stability limit at these steps) it is cleanly first order in
+    dt, the same rate as backward Euler from the other end of the theta family."""
+    study = theta_convergence(0.0, (8, 16, 32), n=5)
+    for coarse, fine in zip(study.error[:-1], study.error[1:]):
+        assert fine < coarse, f'error grew under dt refinement (unstable?): {study.error}'
+    for p in study.orders:
+        assert 0.85 < p < 1.2, f'expected order ~1 in dt, got {study.orders}'
