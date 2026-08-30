@@ -132,6 +132,7 @@ def test_hole_stress_concentration_is_read_from_the_rim(element_type):
     reference = 3.14
     rim = _kirsch_rim_sigma_xx(element_type, 16)
     for method in ('average', 'l2'):
+        # 0.12: just above the observed 11.9% coarse-mesh (16-gon) discretization error.
         assert abs(rim[method] - reference) < 0.12 * reference, (method, rim[method])
     assert abs(rim['average'] - rim['l2']) < 0.05 * reference
     assert rim['element'] < rim['average'] - 0.3
