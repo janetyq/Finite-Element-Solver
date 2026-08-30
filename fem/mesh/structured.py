@@ -5,34 +5,69 @@ element-quality variation an unstructured generator introduces. Distinct in inte
 from `ruppert`, whose Delaunay refinement meshes arbitrary outlines.
 """
 from collections.abc import Sequence
+from typing import Literal
 
 import numpy as np
 
 from fem.mesh.mesh import Mesh
-from fem.typing import FloatArray
+from fem.typing import FloatArray, IntArray
 
-# The six tets of Kuhn's decomposition of a cube, over corners indexed by the bits of
-# (di, dj, dk): corner 5 is (1, 0, 1). Every tet contains the main diagonal (corner
-# 000 to 111), one per permutation of the three axes. Because every cell splits along
-# the same diagonal direction, neighbouring cells agree on their shared faces and the
-# mesh is conforming, which is what makes it usable for convergence studies.
+# Cube corners are indexed by the bits of (di, dj, dk): corner c has di = c >> 2, dj =
+# c >> 1, dk = c & 1, so corner 5 is (1, 0, 1). Two corners are cube-edge-adjacent when
+# their indices differ in one bit.
+
+# Kuhn's decomposition: six tets sharing the main diagonal (corner 0 to corner 7), one
+# per permutation of the three axes. Every cell splits the same way, so neighbours agree
+# on shared faces with no orientation bookkeeping. All six tets are congruent, and the
+# decomposition generalises to any dimension and refines through a bounded number of
+# similarity classes (Bey's bisection), which is what makes it the right base for 3D
+# adaptive refinement or multigrid. Its drawback is shape: the shared tet has edges of
+# length 1, sqrt(2), and sqrt(3), far from regular, which inflates the error constant on
+# a fixed mesh. Kept selectable (`tet_split='kuhn'`) for a future 3D adaptive path.
 _KUHN_TETS = [
     (0, 1, 3, 7), (0, 1, 5, 7), (0, 2, 3, 7),
     (0, 2, 6, 7), (0, 4, 5, 7), (0, 4, 6, 7),
 ]
 
+# The five-tetrahedron decomposition: a central tet on the four corners of one parity
+# (all its edges are face diagonals, so it is a regular tetrahedron) plus four corner
+# tets. Every cube has one of two mirror forms, chosen so the diagonal each cuts on a
+# shared face matches its neighbour's; the (i + j + k) checkerboard below alternates
+# them. This is the default: on a fixed mesh its near-regular tets give a much smaller
+# error constant (about 4x lower L2 error, and a clean second-order rate from the
+# coarsest mesh, where Kuhn's is still pre-asymptotic). It has no clean uniform-
+# refinement rule, so it is a static-mesh choice, not an adaptive one.
+_TET5_EVEN = [
+    (0, 3, 5, 6),   # the central regular tet, corners of even parity
+    (0, 1, 3, 5), (0, 2, 3, 6), (0, 4, 5, 6), (3, 5, 6, 7),   # caps at 1, 2, 4, 7
+]
+_TET5_ODD = [
+    (1, 2, 4, 7),   # the mirror form's central tet, corners of odd parity
+    (0, 1, 2, 4), (1, 2, 3, 7), (1, 4, 5, 7), (2, 4, 6, 7),   # caps at 0, 3, 5, 6
+]
+
+TetSplit = Literal['regular', 'kuhn']
+
 
 def box_mesh(
     corners: Sequence[Sequence[float]] | FloatArray,
     resolution: Sequence[int],
+    *,
+    tet_split: TetSplit = 'regular',
 ) -> Mesh:
     '''A structured simplex mesh of the axis-aligned box spanned by `corners`, with
     `resolution` nodes along each axis.
 
     The dimension is the corners': `((x0,), (x1,))` is a line of `LinearLineElement`s,
     `((x0, y0), (x1, y1))` a rectangle of triangles, `((x0, y0, z0), (x1, y1, z1))` a box
-    of tets. Grid cells split into two triangles (alternating diagonals) or six tets
-    (Kuhn's decomposition), so the mesh is conforming.
+    of tets. Grid cells split into two triangles (alternating diagonals) or, in 3D, into
+    tets, so the mesh is conforming.
+
+    `tet_split` (3D only) chooses the tetrahedral decomposition. `'regular'` (the
+    default) is the five-tet split, whose near-regular elements give a smaller error
+    constant and a clean second-order rate from a coarse mesh. `'kuhn'` is the six-tet
+    Kuhn split, which is worse-shaped but refines cleanly, for an adaptive or multigrid
+    3D path; see the module comments.
     '''
     lower, upper = np.asarray(corners, dtype=float)
     dim = len(lower)
@@ -43,7 +78,7 @@ def box_mesh(
     if dim == 2:
         return _rect(lower, upper, resolution)
     if dim == 3:
-        return _box(lower, upper, resolution)
+        return _box(lower, upper, resolution, tet_split)
     raise ValueError(f'box_mesh meshes 1D, 2D, or 3D boxes, got {dim}D corners')
 
 
@@ -73,7 +108,7 @@ def _rect(lower, upper, resolution) -> Mesh:
     return Mesh(vertices, elements)
 
 
-def _box(lower, upper, resolution) -> Mesh:
+def _box(lower, upper, resolution, tet_split: TetSplit) -> Mesh:
     nx, ny, nz = resolution
     x_range = np.linspace(lower[0], upper[0], nx)
     y_range = np.linspace(lower[1], upper[1], ny)
@@ -86,11 +121,27 @@ def _box(lower, upper, resolution) -> Mesh:
     ])
 
     # Every cell at once, i-major, k fastest, so the element order is the cell order
-    # with its six Kuhn tets in sequence.
+    # with its tets in sequence.
     i, j, k = (axis.ravel() for axis in np.meshgrid(
         np.arange(nx - 1), np.arange(ny - 1), np.arange(nz - 1), indexing='ij'))
     c = np.arange(8)
     # The cell's eight corners by the bits of c: (di, dj, dk) = (c >> 2 & 1, c >> 1 & 1, c & 1).
     corners = ((i[:, None] + (c >> 2 & 1)) * ny + (j[:, None] + (c >> 1 & 1))) * nz + (k[:, None] + (c & 1))
-    elements = corners[:, np.array(_KUHN_TETS)].reshape(-1, 4)
+    elements = _tets_per_cell(corners, i + j + k, tet_split)
     return Mesh(vertices, elements)
+
+
+def _tets_per_cell(corners: IntArray, cell_sum: IntArray, tet_split: TetSplit) -> IntArray:
+    '''Turn each cell's eight corner indices into its tets, `(n_cells * n_tets, 4)`.
+
+    Kuhn splits every cell the same way; the regular five-tet split alternates its two
+    mirror forms on the `(i + j + k)` checkerboard so neighbours agree on shared faces.
+    '''
+    if tet_split == 'kuhn':
+        return corners[:, np.array(_KUHN_TETS)].reshape(-1, 4)
+    if tet_split != 'regular':
+        raise ValueError(f"tet_split must be 'regular' or 'kuhn', got {tet_split!r}")
+    even = corners[:, np.array(_TET5_EVEN)]        # (n_cells, 5, 4)
+    odd = corners[:, np.array(_TET5_ODD)]
+    picked = np.where((cell_sum % 2 == 0)[:, None, None], even, odd)
+    return picked.reshape(-1, 4)

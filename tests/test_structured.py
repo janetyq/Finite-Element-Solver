@@ -22,9 +22,12 @@ def test_box_mesh_in_2d_covers_the_rectangle():
     assert np.allclose(mesh.bounds[0], [0, 0]) and np.allclose(mesh.bounds[1], [2, 1])
 
 
-def test_box_mesh_in_3d_is_conforming():
-    """Every face belongs to one element (boundary) or two (interior), never more."""
-    mesh = box_mesh(corners=[[0, 0, 0], [1, 2, 1]], resolution=(3, 4, 3))
+@pytest.mark.parametrize('tet_split', ['regular', 'kuhn'])
+def test_box_mesh_in_3d_is_conforming(tet_split):
+    """Every face belongs to one element (boundary) or two (interior), never more. The
+    regular split alternates two mirror forms, so this also checks its checkerboard
+    keeps neighbours agreeing on shared faces."""
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 2, 1]], resolution=(3, 4, 3), tet_split=tet_split)
     assert mesh.element_dim == 3
     faces = np.sort(mesh.elements[:, [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]]]
                     .reshape(-1, 3), axis=1)
@@ -33,14 +36,20 @@ def test_box_mesh_in_3d_is_conforming():
 
 
 @pytest.mark.parametrize('n', [2, 3, 5])
-def test_box_mesh_tiles_the_cube_exactly(n):
-    """Kuhn's decomposition gives 6 tets per cell, and they must partition the
-    cube: element volumes summing to 1 catches a mis-numbered corner, which
-    would otherwise produce overlapping or inverted tets."""
-    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
+@pytest.mark.parametrize('tet_split, per_cell', [('regular', 5), ('kuhn', 6)])
+def test_box_mesh_tiles_the_cube_exactly(n, tet_split, per_cell):
+    """Each decomposition partitions the cube: element volumes summing to 1 catches a
+    mis-numbered corner, which would otherwise produce overlapping or inverted tets. The
+    regular split gives five tets per cell, Kuhn six."""
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n), tet_split=tet_split)
     assert mesh.n_vertices == n**3
-    assert mesh.n_elements == 6 * (n - 1)**3
+    assert mesh.n_elements == per_cell * (n - 1)**3
     assert mesh.measure == pytest.approx(1.0)
+
+
+def test_box_mesh_rejects_an_unknown_tet_split():
+    with pytest.raises(ValueError, match='tet_split'):
+        box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(3, 3, 3), tet_split='banana')  # type: ignore[arg-type]
 
 
 def test_box_mesh_boundary_is_the_cube_surface():
@@ -65,19 +74,29 @@ def test_box_mesh_refuses_mismatched_dimensions():
 
 
 
-def _cell_loop_box(nx, ny, nz):
-    """The Kuhn decomposition written as the loop over cells it describes, the readable
-    form the vectorized `box_mesh` must reproduce vertex for vertex and tet for tet."""
+_KUHN = [(0, 1, 3, 7), (0, 1, 5, 7), (0, 2, 3, 7), (0, 2, 6, 7), (0, 4, 5, 7), (0, 4, 6, 7)]
+_TET5_EVEN = [(0, 3, 5, 6), (0, 1, 3, 5), (0, 2, 3, 6), (0, 4, 5, 6), (3, 5, 6, 7)]
+_TET5_ODD = [(1, 2, 4, 7), (0, 1, 2, 4), (1, 2, 3, 7), (1, 4, 5, 7), (2, 4, 6, 7)]
+
+
+def _cell_loop_box(nx, ny, nz, tet_split):
+    """A decomposition written as the loop over cells it describes, the readable form the
+    vectorized `box_mesh` must reproduce vertex for vertex and tet for tet. Kuhn splits
+    every cell the same way; the regular split alternates its two mirror forms on the
+    (i + j + k) checkerboard."""
     def node(i, j, k):
         return (i * ny + j) * nz + k
 
-    kuhn = [(0, 1, 3, 7), (0, 1, 5, 7), (0, 2, 3, 7), (0, 2, 6, 7), (0, 4, 5, 7), (0, 4, 6, 7)]
     elements = []
     for i in range(nx - 1):
         for j in range(ny - 1):
             for k in range(nz - 1):
                 corner = [node(i + (c >> 2 & 1), j + (c >> 1 & 1), k + (c & 1)) for c in range(8)]
-                elements.extend([[corner[c] for c in tet] for tet in kuhn])
+                if tet_split == 'kuhn':
+                    tets = _KUHN
+                else:
+                    tets = _TET5_EVEN if (i + j + k) % 2 == 0 else _TET5_ODD
+                elements.extend([[corner[c] for c in tet] for tet in tets])
     return np.array(elements)
 
 
@@ -96,7 +115,8 @@ def _cell_loop_rect(nx, ny):
     return np.array(elements)
 
 
-def test_box_mesh_connectivity_is_the_cell_loop_written_out():
+@pytest.mark.parametrize('tet_split', ['regular', 'kuhn'])
+def test_box_mesh_connectivity_is_the_cell_loop_written_out(tet_split):
     """The vectorized builders reproduce the per-cell loops exactly: the same vertex
     order (x fastest in 2D, z fastest in 3D) and the same element order, so a mesh
     fingerprint recorded on one is valid on the other."""
@@ -104,6 +124,6 @@ def test_box_mesh_connectivity_is_the_cell_loop_written_out():
     np.testing.assert_array_equal(rect.elements, _cell_loop_rect(6, 4))
     np.testing.assert_array_equal(rect.vertices[:6, 1], 0.0)          # the first row is y = 0, x varying
 
-    box = box_mesh(corners=[[0, 0, 0], [2, 1, 1]], resolution=(5, 4, 3))
-    np.testing.assert_array_equal(box.elements, _cell_loop_box(5, 4, 3))
+    box = box_mesh(corners=[[0, 0, 0], [2, 1, 1]], resolution=(5, 4, 3), tet_split=tet_split)
+    np.testing.assert_array_equal(box.elements, _cell_loop_box(5, 4, 3, tet_split))
     np.testing.assert_array_equal(box.vertices[:3, :2], 0.0)          # the first column is x = y = 0, z varying
