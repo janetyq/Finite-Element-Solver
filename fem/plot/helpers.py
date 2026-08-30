@@ -18,6 +18,7 @@ from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.tri import Triangulation
 from mpl_toolkits.mplot3d import Axes3D
 
+from fem.mesh.mesh import unique_rows
 from fem.plot.tessellation import PanelView, panel_view
 
 if TYPE_CHECKING:
@@ -212,7 +213,7 @@ def _spread_sample(points, target):
     # A grid of about `target` cells, shaped like the domain.
     side = max(1, int(np.sqrt(target * span[0] / span[1])))
     cells = np.floor((points - lower) / span * [side, max(1, target // side)]).astype(int)
-    _, first = np.unique(cells, axis=0, return_index=True)
+    _, first = unique_rows(cells, return_index=True)
     return first
 
 

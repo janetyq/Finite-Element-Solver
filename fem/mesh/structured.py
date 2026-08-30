@@ -58,20 +58,18 @@ def _rect(lower, upper, resolution) -> Mesh:
     nx, ny = resolution
     x_range = np.linspace(lower[0], upper[0], nx)
     y_range = np.linspace(lower[1], upper[1], ny)
-    vertices = np.array([[x, y] for y in y_range for x in x_range])
+    # x varies fastest: vertex (i, j) is at j * nx + i.
+    vertices = np.column_stack([np.tile(x_range, ny), np.repeat(y_range, nx)])
 
-    def node(i, j):
-        return j * nx + i
-
-    elements = []
-    for i in range(nx - 1):
-        for j in range(ny - 1):
-            if (i + j) % 2 == 0:
-                elements.append([node(i, j), node(i+1, j), node(i+1, j+1)])
-                elements.append([node(i, j), node(i+1, j+1), node(i, j+1)])
-            else:
-                elements.append([node(i, j), node(i+1, j), node(i, j+1)])
-                elements.append([node(i+1, j), node(i+1, j+1), node(i, j+1)])
+    # Every cell at once, i-major so the element order is the cell order.
+    i, j = (axis.ravel() for axis in np.meshgrid(np.arange(nx - 1), np.arange(ny - 1), indexing='ij'))
+    n00, n10 = j * nx + i, j * nx + i + 1
+    n01, n11 = (j + 1) * nx + i, (j + 1) * nx + i + 1
+    even = ((i + j) % 2 == 0)[:, None]
+    # Alternating diagonals: an even cell splits along 00-11, an odd one along 10-01.
+    first = np.where(even, np.column_stack([n00, n10, n11]), np.column_stack([n00, n10, n01]))
+    second = np.where(even, np.column_stack([n00, n11, n01]), np.column_stack([n10, n11, n01]))
+    elements = np.stack([first, second], axis=1).reshape(-1, 3)
     return Mesh(vertices, elements)
 
 
@@ -80,19 +78,19 @@ def _box(lower, upper, resolution) -> Mesh:
     x_range = np.linspace(lower[0], upper[0], nx)
     y_range = np.linspace(lower[1], upper[1], ny)
     z_range = np.linspace(lower[2], upper[2], nz)
-    vertices = np.array([[x, y, z] for x in x_range for y in y_range for z in z_range])
+    # z varies fastest: vertex (i, j, k) is at (i * ny + j) * nz + k.
+    vertices = np.column_stack([
+        np.repeat(x_range, ny * nz),
+        np.tile(np.repeat(y_range, nz), nx),
+        np.tile(z_range, nx * ny),
+    ])
 
-    def node(i, j, k):
-        return (i * ny + j) * nz + k
-
-    elements = []
-    for i in range(nx - 1):
-        for j in range(ny - 1):
-            for k in range(nz - 1):
-                corner = [
-                    node(i + (c >> 2 & 1), j + (c >> 1 & 1), k + (c & 1))
-                    for c in range(8)
-                ]
-                elements.extend([[corner[c] for c in tet] for tet in _KUHN_TETS])
+    # Every cell at once, i-major, k fastest, so the element order is the cell order
+    # with its six Kuhn tets in sequence.
+    i, j, k = (axis.ravel() for axis in np.meshgrid(
+        np.arange(nx - 1), np.arange(ny - 1), np.arange(nz - 1), indexing='ij'))
+    c = np.arange(8)
+    # The cell's eight corners by the bits of c: (di, dj, dk) = (c >> 2 & 1, c >> 1 & 1, c & 1).
+    corners = ((i[:, None] + (c >> 2 & 1)) * ny + (j[:, None] + (c >> 1 & 1))) * nz + (k[:, None] + (c & 1))
+    elements = corners[:, np.array(_KUHN_TETS)].reshape(-1, 4)
     return Mesh(vertices, elements)
-

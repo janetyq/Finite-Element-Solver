@@ -174,3 +174,24 @@ def test_rejects_boundary_facet_of_wrong_width():
             elements=[[0, 1, 2]],
             boundary=[[0, 1, 2]],  # a triangle's facet is an edge (2 nodes), not 3
         )
+
+
+@pytest.mark.parametrize('extras', [
+    {}, {'return_index': True}, {'return_inverse': True}, {'return_counts': True},
+    {'return_index': True, 'return_inverse': True, 'return_counts': True},
+], ids=lambda e: '+'.join(k.removeprefix('return_') for k in e) or 'plain')
+def test_unique_rows_is_np_unique_over_rows(extras):
+    """The packed-key fast path returns exactly what `np.unique(axis=0)` returns: the
+    same rows in the same order, and the same index, inverse, and counts."""
+    from fem.mesh.mesh import unique_rows
+
+    rng = np.random.default_rng(0)
+    for shape in [(500, 2), (2000, 3), (9, 4), (0, 3)]:
+        rows = rng.integers(0, 30, size=shape)
+        expected = np.unique(rows, axis=0, **extras)
+        actual = unique_rows(rows, **extras)
+        expected = expected if isinstance(expected, tuple) else (expected,)
+        actual = actual if isinstance(actual, tuple) else (actual,)
+        assert len(expected) == len(actual)
+        for want, got in zip(expected, actual):
+            np.testing.assert_array_equal(np.asarray(got).reshape(np.asarray(want).shape), want)
