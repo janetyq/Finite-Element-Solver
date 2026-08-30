@@ -8,13 +8,12 @@ import numpy as np
 import pytest
 from scipy.linalg import expm
 
-from fem.boundary import Dirichlet
-from fem.conditions import Conditions, Initial
+from fem.conditions import Initial
 from fem.field import NodalField
 from fem.algebra.integrators import ThetaMethod
 from fem.mesh.structured import box_mesh
 from fem.physics.equations import Heat
-from fem.regions import everywhere
+from helpers import pinned
 
 
 def _semidiscrete_exact(problem, u0, T):
@@ -52,7 +51,7 @@ def _orders(mesh, bc, u0, T, theta, n_steps):
 @pytest.fixture(scope="module")
 def setup():
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(11, 11))
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
     x, y = mesh.vertices[:, 0], mesh.vertices[:, 1]
     u0 = np.sin(np.pi * x) * np.sin(np.pi * y)  # an eigenmode; zero on the boundary
     return mesh, bc, u0

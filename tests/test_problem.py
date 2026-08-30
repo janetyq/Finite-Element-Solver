@@ -18,6 +18,7 @@ from fem.algebra.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
 from fem.physics.equations import Heat, LinearElastic, Poisson, Projection, FiniteStrainElastic
 from fem.space import FunctionSpace
 from fem.loads import Source
+from helpers import pinned
 
 
 def _mms_source(p):
@@ -29,7 +30,7 @@ def _problem(equation, mesh, bc=None):
 
 
 def _poisson_problem(mesh):
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
     return _problem(Poisson(), mesh, bc + Source(_mms_source))
 
 
@@ -67,7 +68,7 @@ def test_line_search_is_a_noop_on_a_linear_problem(make_unit_square):
 
 def test_composed_poisson_matches_the_solver_facade(make_unit_square):
     mesh = make_unit_square(15)
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
     equation = Poisson()
 
     u_composed = LinearSolve().solve(_problem(equation, mesh, bc + Source(_mms_source)))
@@ -192,7 +193,7 @@ def test_traction_stays_on_its_own_edge(make_unit_square):
 def test_derived_problem_does_not_answer_with_the_parents_operator(make_unit_square):
     """A derived problem must not keep the parent's already-assembled tangent."""
     space = FunctionSpace(make_unit_square(6), n_components=1)
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
     parent = LinearProblem(space, DiffusionForm(), bc + Source(1.0))
     parent.tangent()   # populate the parent's cache *before* deriving
 
@@ -237,7 +238,7 @@ def test_with_operator_leaves_the_original_alone(make_unit_square):
     """The derived problem is a new one; the operator it was derived from still
     answers with its own tangent."""
     space = FunctionSpace(make_unit_square(6), n_components=1)
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
     original = LinearProblem(space, DiffusionForm(), bc + Source(1.0))
     before = original.tangent().toarray()
 

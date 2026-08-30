@@ -10,20 +10,11 @@ from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
 from fem.post.recovery import recover_nodal
 from fem.space import FunctionSpace
-
-
-def _two_triangle_square() -> Mesh:
-    """The unit square as two equal triangles sharing the diagonal 0-2, so vertices 0 and 2
-    belong to both elements and 1 and 3 to one each."""
-    return Mesh(
-        vertices=[[0, 0], [1, 0], [1, 1], [0, 1]],
-        elements=[[0, 1, 2], [0, 2, 3]],
-        boundary=[[0, 1], [1, 2], [2, 3], [3, 0]],
-    )
+from helpers import two_triangle_square
 
 
 def test_shared_vertex_combines_the_values_of_its_elements():
-    space = FunctionSpace(_two_triangle_square())
+    space = FunctionSpace(two_triangle_square())
     values = recover_nodal(space, np.array([10.0, 20.0]))
 
     # Both triangles have the same area, so the weighting reduces to the mean.
@@ -36,7 +27,7 @@ def test_shared_vertex_combines_the_values_of_its_elements():
 def test_projection_does_not_depend_on_element_ordering():
     """A shared vertex accumulates every element's contribution, so reversing the elements
     leaves the result unchanged."""
-    mesh = _two_triangle_square()
+    mesh = two_triangle_square()
     reversed_mesh = Mesh(
         vertices=mesh.vertices, elements=mesh.elements[::-1], boundary=mesh.boundary,
     )

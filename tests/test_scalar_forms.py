@@ -4,13 +4,11 @@ integrates a constant exactly and samples a callable.
 """
 import numpy as np
 
-from fem.boundary import Dirichlet
-from fem.conditions import Conditions
 from fem.physics.equations import Poisson
 from fem.physics.forms import DiffusionForm
 from fem.loads import Source
-from fem.regions import everywhere
 from fem.space import FunctionSpace
+from helpers import pinned
 
 
 def test_a_constant_coefficient_takes_the_elements_rule_and_scales_the_laplacian(make_unit_square):
@@ -43,7 +41,7 @@ def test_a_source_integrates_a_constant_exactly_and_samples_a_callable(make_unit
 def test_the_named_equation_and_the_hand_composition_agree_on_a_varying_coefficient(make_unit_square):
     from fem.problem import LinearProblem
     mesh = make_unit_square(6)
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
 
     def kappa(p):
         return 1.0 + p[:, 0] + p[:, 1]

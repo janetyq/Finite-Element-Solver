@@ -23,6 +23,7 @@ from fem.mesh.structured import box_mesh
 from fem.regions import everywhere
 from fem.physics.equations import LinearElastic
 from fem.loads import Source
+from helpers import pinned
 
 E, NU = 200.0, 0.3
 MU, LAMB = Enu_to_Lame(E, NU)
@@ -59,7 +60,7 @@ def _solve_2d(n):
             -(MU + LAMB) * PI**2 * np.cos(PI * x) * np.cos(PI * y),
         ]
 
-    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0]))
+    bc = pinned(2)
     problem = LinearElastic(E=E, nu=NU).problem(mesh, bc + Source(source))
     solution = problem.solve()
 
@@ -98,7 +99,7 @@ def _solve_3d(n):
             -(MU + LAMB) * PI**2 * np.cos(PI * x) * np.sin(PI * y) * np.cos(PI * z),
         ]
 
-    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0, 0.0]))
+    bc = pinned(3)
     # AMG-preconditioned CG, not the direct factorization: it solves the same SPD
     # system (proven equivalent in test_linalg) but stays cheap on the fine meshes
     # this sequence needs, and it is what the convergence measures -- the assembly --

@@ -4,8 +4,6 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_array
 
-from fem.boundary import Dirichlet, Neumann
-from fem.conditions import Conditions
 from fem.analysis.design import (
     DesignOptimizer, SIMPModel, TargetCompliance, calculate_smoothing_matrix,
     filter_sensitivity, optimality_criteria_update,
@@ -14,24 +12,16 @@ from fem.physics.equations import LinearElastic, Poisson
 from fem.physics.forms import LinearElasticForm, PrecomputedForm
 from fem.physics.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
-from fem.regions import on_plane
 from fem.analysis.sensitivity import Compliance
 from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
-
-
-def _cantilever_bc():
-    bc = Conditions(
-        Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
-        Neumann(on_plane(0, 1.0), [0.0, -1.0]),
-    )
-    return bc
+from helpers import cantilever_bc
 
 
 def _model(mesh, penalty=3.0, radius=None):
     equation = LinearElastic(E=1.0, nu=0.3)
     sensitivity_filter = calculate_smoothing_matrix(mesh, radius) if radius else None
-    return SIMPModel(equation.problem(mesh, _cantilever_bc()), penalty=penalty,
+    return SIMPModel(equation.problem(mesh, cantilever_bc()), penalty=penalty,
                      sensitivity_filter=sensitivity_filter)
 
 
@@ -103,7 +93,7 @@ def test_model_rejects_a_per_element_modulus(make_unit_square):
     mesh = make_unit_square(4)
     equation = LinearElastic(E=np.ones(len(mesh.elements)), nu=0.3)
     with pytest.raises(ValueError, match='scalar'):
-        SIMPModel(equation.problem(mesh, _cantilever_bc()))
+        SIMPModel(equation.problem(mesh, cantilever_bc()))
 
 
 def test_model_rejects_an_operator_that_is_not_small_strain_elastic(make_unit_square):

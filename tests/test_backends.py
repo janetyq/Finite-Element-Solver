@@ -15,11 +15,12 @@ from fem.algebra.backends import DirectBackend, IterativeBackend, MinresBackend
 from fem.physics.forms import rigid_body_modes
 from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.structured import box_mesh
-from fem.regions import everywhere, on_plane
+from fem.regions import on_plane
 from fem.physics.equations import Heat, LinearElastic, Poisson
 from fem.space import FunctionSpace
 from fem.algebra.system import DiscreteSystem
 from fem.loads import Source
+from helpers import cantilever_bc, pinned
 
 
 def _spd(n, seed=0):
@@ -42,7 +43,7 @@ def _poisson_mms(n, backend):
     """Solve the manufactured sin*sin Poisson problem; return (h, L2 error)."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     eq = Poisson()
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
     problem = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])]))
     u = problem.solve(backend=backend).dofs
     exact = np.sin(np.pi * mesh.vertices[:, 0]) * np.sin(np.pi * mesh.vertices[:, 1])
@@ -54,7 +55,7 @@ def test_iterative_matches_direct_on_poisson():
     """AMG-CG reproduces the direct Poisson solution to problem tolerance."""
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(41, 41))
     eq = Poisson()
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
 
     direct = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])])).solve(backend=DirectBackend()).dofs
     iterative = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])])).solve(backend=IterativeBackend()).dofs
@@ -142,11 +143,7 @@ def test_rigid_body_modes_are_in_the_stiffness_kernel(dim):
 
 def _cantilever():
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(25, 25))
-    bc = Conditions(
-        Dirichlet(on_plane(0, 0.0), [0, 0]),
-        Neumann(on_plane(0, 1.0), [0, -20]),
-    )
-    return mesh, bc
+    return mesh, cantilever_bc(traction=(0.0, -20.0))
 
 
 def test_linear_solve_gives_elasticity_its_rigid_body_modes():
@@ -167,7 +164,7 @@ def test_linear_solve_gives_elasticity_its_rigid_body_modes():
     # A near-kernel the caller set is kept; a scalar problem and a direct backend get none.
     preset = IterativeBackend(near_null_space=np.ones((len(free), 1)))
     assert backend_for(problem, preset) is preset
-    scalar_bc = Conditions(Dirichlet(everywhere(), 0.0))
+    scalar_bc = pinned()
     scalar = backend_for(Poisson(1.0).problem(mesh, scalar_bc), IterativeBackend())
     assert isinstance(scalar, IterativeBackend) and scalar.near_null_space is None
     direct = DirectBackend()
