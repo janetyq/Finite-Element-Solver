@@ -18,7 +18,7 @@ def square():
 
 def test_interpolate_returns_a_field_on_the_space(square):
     space = FunctionSpace(square)
-    field = space.interpolate(lambda p: p[0])
+    field = space.interpolate(lambda p: p[:, 0])
     assert isinstance(field, NodalField)
     assert field.space is space
     np.testing.assert_allclose(field.dofs, square.vertices[:, 0])
@@ -57,7 +57,7 @@ def test_field_is_an_array_to_numpy(square):
 
 def test_nodal_values_and_components_of_a_vector_field(square):
     space = FunctionSpace(square, n_components=2)
-    field = space.interpolate(lambda p: [p[0], 10 * p[1]])
+    field = space.interpolate(lambda p: [p[:, 0], 10 * p[:, 1]])
     assert field.nodal_values.shape == (space.n_nodes, 2)
     np.testing.assert_allclose(field.component(0), square.vertices[:, 0])
     np.testing.assert_allclose(field.component(1), 10 * square.vertices[:, 1])
@@ -74,7 +74,7 @@ def test_scalar_nodal_values_are_one_dimensional(square):
 
 def test_element_values_gather_by_the_space_nodes(square):
     space = FunctionSpace(square, QuadraticTriangleElement, n_components=2)
-    field = space.interpolate(lambda p: [p[0], p[1]])
+    field = space.interpolate(lambda p: [p[:, 0], p[:, 1]])
     assert field.element_values.shape == (square.n_elements, 6, 2)
     np.testing.assert_allclose(field.element_values, space.node_coords[space.element_nodes])
 
@@ -85,7 +85,7 @@ def test_element_values_gather_by_the_space_nodes(square):
 @pytest.mark.parametrize('element_type', [None, QuadraticTriangleElement])
 def test_integral_and_mean_of_a_linear_field_are_exact(square, element_type):
     space = FunctionSpace(square, element_type)
-    field = space.interpolate(lambda p: 2 * p[0] + 3 * p[1])
+    field = space.interpolate(lambda p: 2 * p[:, 0] + 3 * p[:, 1])
     assert field.integrate() == pytest.approx(2.5, rel=1e-12)
     assert field.mean() == pytest.approx(2.5, rel=1e-12)
 
@@ -100,19 +100,19 @@ def test_integral_of_a_vector_field_is_per_component(square):
 @pytest.mark.parametrize('element_type', [None, QuadraticTriangleElement])
 def test_gradient_of_a_linear_field_is_its_slope(square, element_type):
     space = FunctionSpace(square, element_type)
-    scalar = space.interpolate(lambda p: 2 * p[0] + 3 * p[1]).gradient()
+    scalar = space.interpolate(lambda p: 2 * p[:, 0] + 3 * p[:, 1]).gradient()
     assert scalar.shape == (square.n_elements, 2)
     np.testing.assert_allclose(scalar, [[2.0, 3.0]] * square.n_elements, atol=1e-12)
 
     vector = FunctionSpace(square, element_type, n_components=2)
-    grad = vector.interpolate(lambda p: [p[0], 2 * p[0] + 3 * p[1]]).gradient()
+    grad = vector.interpolate(lambda p: [p[:, 0], 2 * p[:, 0] + 3 * p[:, 1]]).gradient()
     assert grad.shape == (square.n_elements, 2, 2)
     np.testing.assert_allclose(grad, [[[1.0, 0.0], [2.0, 3.0]]] * square.n_elements, atol=1e-12)
 
 
 def test_space_gradient_takes_a_field_or_a_vector(square):
     space = FunctionSpace(square)
-    field = space.interpolate(lambda p: p[0])
+    field = space.interpolate(lambda p: p[:, 0])
     np.testing.assert_allclose(space.gradient(field), space.gradient(field.dofs))
 
 
@@ -147,7 +147,7 @@ def test_locate_in_three_dimensions():
 
 def test_p1_field_evaluates_a_linear_function_exactly(square):
     space = FunctionSpace(square)
-    field = space.interpolate(lambda p: 1 + 2 * p[0] - p[1])
+    field = space.interpolate(lambda p: 1 + 2 * p[:, 0] - p[:, 1])
     points = np.array([[0.13, 0.71], [0.5, 0.5], [1.0, 1.0]])
     np.testing.assert_allclose(field.evaluate(points), 1 + 2 * points[:, 0] - points[:, 1], atol=1e-12)
     assert field.evaluate(points).shape == (3,)
@@ -155,7 +155,7 @@ def test_p1_field_evaluates_a_linear_function_exactly(square):
 
 def test_p2_field_evaluates_a_quadratic_exactly(square):
     space = FunctionSpace(square, QuadraticTriangleElement)
-    field = space.interpolate(lambda p: p[0] ** 2 + p[0] * p[1])
+    field = space.interpolate(lambda p: p[:, 0] ** 2 + p[:, 0] * p[:, 1])
     points = np.array([[0.13, 0.71], [0.6, 0.35]])
     expected = points[:, 0] ** 2 + points[:, 0] * points[:, 1]
     np.testing.assert_allclose(field.evaluate(points), expected, atol=1e-12)
@@ -163,7 +163,7 @@ def test_p2_field_evaluates_a_quadratic_exactly(square):
 
 def test_vector_field_evaluates_per_component(square):
     space = FunctionSpace(square, n_components=2)
-    field = space.interpolate(lambda p: [p[0], 3 * p[1]])
+    field = space.interpolate(lambda p: [p[:, 0], 3 * p[:, 1]])
     values = field.evaluate([[0.25, 0.5]])
     assert values.shape == (1, 2)
     np.testing.assert_allclose(values[0], [0.25, 1.5], atol=1e-12)

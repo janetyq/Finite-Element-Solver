@@ -18,7 +18,7 @@ from fem.conditions import Conditions
 
 def target(point):
     """sin(40 r^2) about the unit square's centre: rings that tighten with radius."""
-    x, y = point - np.array([0.5, 0.5])
+    x, y = (point - np.array([0.5, 0.5])).T
     return [np.sin(40 * (x**2 + y**2))]
 
 

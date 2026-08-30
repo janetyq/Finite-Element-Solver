@@ -24,7 +24,7 @@ from fem.regions import everywhere
 from fem.loads import Source
 
 POISSON = Poisson()
-POISSON_SOURCE = Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])
+POISSON_SOURCE = Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])])
 ELASTIC = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU)
 ELASTIC_SOURCE = Source(elastic_source)
 
@@ -104,7 +104,7 @@ def test_recovery_of_a_linear_field_is_near_zero(make_unit_square):
     """A globally linear solution has constant gradient, so the estimate vanishes: the patch
     test for a recovery estimator."""
     equation = Poisson()
-    problem, solution = _solved(equation, make_unit_square(6), lambda p: p[0])
+    problem, solution = _solved(equation, make_unit_square(6), lambda p: p[:, 0])
 
     eta = RecoveryEstimator().estimate(problem, solution)
     assert np.all(eta < 1e-10)
@@ -137,7 +137,7 @@ def test_recovery_drives_adaptive_refinement(make_unit_square):
 
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
-        mesh, lambda m: equation.problem(m, bc + Source(lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)),
+        mesh, lambda m: equation.problem(m, bc + Source(lambda p: np.where(np.linalg.norm(p - 0.5, axis=1) < 0.1, 10.0, 0.0))),
         RecoveryEstimator(), max_triangles=300, max_iters=5,
     )
     driver.run()

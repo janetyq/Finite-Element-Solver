@@ -27,7 +27,7 @@ from fem.loads import Source
 
 
 def _poisson_source(point):
-    return [2 * np.pi**2 * np.sin(np.pi * point[0]) * np.sin(np.pi * point[1])]
+    return [2 * np.pi**2 * np.sin(np.pi * point[:, 0]) * np.sin(np.pi * point[:, 1])]
 
 
 def _global(eta):
@@ -138,7 +138,7 @@ def test_p2_residual_vanishes_on_a_quadratic_field():
     gradient), and its boundary term (Dirichlet everywhere, so every edge is skipped) all
     vanish, and every indicator is zero."""
     equation = Poisson()
-    problem, solution = _solve(equation, 5, bc_value=lambda p: p[0]**2 - p[1]**2)
+    problem, solution = _solve(equation, 5, bc_value=lambda p: p[:, 0]**2 - p[:, 1]**2)
     eta = ResidualEstimator().estimate(problem, solution)
     assert np.all(eta < 1e-10)
 
@@ -178,7 +178,7 @@ def test_p2_residual_concentrates_near_a_peaked_source():
 
     def peaked_source(point):
         a = 50
-        x, y = point - 0.5
+        x, y = (point - 0.5).T
         r2 = x**2 + y**2
         return 4 * a * a * (1 - a * r2) * np.exp(-a * r2)
 
@@ -200,7 +200,7 @@ def test_p2_residual_drives_adaptive_refinement():
 
     n_before = len(mesh.elements)
     driver = AdaptiveRefinement(
-        mesh, lambda m: equation.problem(m, bc + Source(lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0), element_type=QuadraticTriangleElement),
+        mesh, lambda m: equation.problem(m, bc + Source(lambda p: np.where(np.linalg.norm(p - 0.5, axis=1) < 0.1, 10.0, 0.0)), element_type=QuadraticTriangleElement),
         ResidualEstimator(), max_triangles=300, max_iters=5,
     )
     solution = driver.run()

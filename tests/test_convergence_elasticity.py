@@ -53,7 +53,7 @@ def _solve_2d(n):
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
     def source(p):
-        x, y = p
+        x, y = p.T
         return [
             PI**2 * (3 * MU + LAMB) * np.sin(PI * x) * np.sin(PI * y),
             -(MU + LAMB) * PI**2 * np.cos(PI * x) * np.cos(PI * y),
@@ -91,7 +91,7 @@ def _solve_3d(n):
     mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
 
     def source(p):
-        x, y, z = p
+        x, y, z = p.T
         return [
             PI**2 * (4 * MU + LAMB) * np.sin(PI * x) * np.sin(PI * y) * np.sin(PI * z),
             -(MU + LAMB) * PI**2 * np.cos(PI * x) * np.cos(PI * y) * np.sin(PI * z),

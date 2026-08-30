@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from fem.typing import BoolArray, FieldValue, FloatArray, IntArray, Point, Region, Vertices
+from fem.typing import BoolArray, FieldValue, FloatArray, IntArray, Region, Vertices
 
 # Coordinates come from linspace/midpoint arithmetic, so exact boundary values
 # are representable; this only absorbs round-off, not genuine mesh spacing.
@@ -132,10 +132,10 @@ class TimeDependent:
     position every other consumer takes.
     '''
 
-    def __init__(self, fn: Callable[[Point, float], Any]) -> None:
+    def __init__(self, fn: Callable[[Vertices, float], Any]) -> None:
         self.fn = fn
 
-    def at(self, t: float) -> Callable[[Point], Any]:
+    def at(self, t: float) -> Callable[[Vertices], Any]:
         fn = self.fn
         return lambda p: fn(p, t)
 
@@ -165,24 +165,70 @@ def _coerce_components(value: FieldValue, points: Vertices, n_components: int) -
     with no judgment about whether that is meaningful. `evaluate_field` and
     `Dirichlet`'s resolver both build on this and differ only in
     what a `NaN` component means to each of them.
+
+    A callable is given every point at once, the `(N, d)` array `points`, and is
+    called exactly once: `p[:, 0]` is x at every point, and ufunc arithmetic on it
+    gives a component at every point. It returns its components in one of three
+    layouts: a sequence of `n_components` entries, each a scalar, `None`, or an
+    `(N,)` array; an `(N, n_components)` array; or for one component the bare
+    `(N,)` array or a scalar. Any other shape is an error, with `p[0]`, the first
+    point rather than x, the usual cause.
     '''
     if value is None:
         return np.zeros((len(points), n_components))
     if isinstance(value, TimeDependent):
         raise TypeError('a TimeDependent field has no value without a time; use field_at(value, t)')
-
-    def coerce(raw: float | Sequence[float | None] | FloatArray) -> FloatArray:
-        # object dtype defers numeric coercion to the comprehension below, so a
-        # scalar and a sequence, with or without a None in it, all flatten
-        # to something iterable the same way.
-        components = np.atleast_1d(np.asarray(raw, dtype=object))
-        return np.array([np.nan if c is None else float(c) for c in components])
-
-    if callable(value):
-        values = np.array([coerce(value(p)) for p in points])
-    else:
-        values = np.tile(coerce(value), (len(points), 1))
+    n = len(points)
+    if not callable(value):
+        return np.tile(_coerce_point(value), (n, 1))
+    raw: Any = value(points)
+    if isinstance(raw, np.ndarray) and raw.dtype != object and raw.ndim == 2:
+        if raw.shape != (n, n_components):
+            raise ValueError(_shape_message(raw, n, n_components))
+        return raw.astype(float)
+    # One component may come back bare rather than as a one-entry sequence.
+    bare = _is_scalar(raw) or (isinstance(raw, np.ndarray) and raw.ndim == 1 and n_components == 1
+                               and raw.dtype != object)
+    entries = [raw] if bare else list(raw)
+    if len(entries) != n_components:
+        raise ValueError(_shape_message(raw, n, n_components))
+    values = np.empty((n, n_components))
+    for k, entry in enumerate(entries):
+        if entry is None:
+            values[:, k] = np.nan
+        elif _is_scalar(entry):
+            values[:, k] = float(entry)
+        elif isinstance(entry, np.ndarray) and entry.shape == (n,):
+            values[:, k] = entry.astype(float)
+        else:
+            raise ValueError(_shape_message(raw, n, n_components))
     return values
+
+
+def _is_scalar(x: Any) -> bool:
+    return isinstance(x, (int, float, np.number)) or (isinstance(x, np.ndarray) and x.ndim == 0)
+
+
+def _shape_message(raw: Any, n: int, n_components: int) -> str:
+    try:
+        got = f'shape {np.shape(raw)}'
+    except ValueError:   # a ragged sequence has no shape
+        got = f'a sequence of {len(raw)} of shapes {[np.shape(entry) for entry in raw]}'
+    return (
+        f'field callable must give {n_components} component(s) at each of {n} point(s), as '
+        f'{n_components} entries each a scalar or ({n},) array, or one ({n}, {n_components}) '
+        f'array; got {got}. A field callable is given every point at once as an '
+        f'(N, d) array: index coordinates as p[:, 0], not p[0]'
+    )
+
+
+def _coerce_point(raw: float | Sequence[float | None] | FloatArray) -> FloatArray:
+    '''A constant value as a 1D float array, `None` components as `np.nan`.'''
+    # object dtype defers numeric coercion to the comprehension below, so a
+    # scalar and a sequence, with or without a None in it, all flatten
+    # to something iterable the same way.
+    components = np.atleast_1d(np.asarray(raw, dtype=object))
+    return np.array([np.nan if c is None else float(c) for c in components])
 
 
 def evaluate_field(value: FieldValue, points: Vertices, n_components: int, *,
@@ -191,6 +237,10 @@ def evaluate_field(value: FieldValue, points: Vertices, n_components: int, *,
 
     A single rule, "the value at a point", for both forms; a value's width is
     checked against `n_components`, never inferred from the point count.
+
+    A callable is called once with every point, `(N, d)`, and returns its components
+    over them (see `_coerce_components` for the layouts): one Python call per
+    assembly, not one per quadrature point.
 
     Every component must be a real number: `None` has no meaning for a source or a
     Robin `g`. A `Neumann` value is the exception, where `None` names a component

@@ -68,9 +68,9 @@ def exact_gradient(points: FloatArray) -> FloatArray:
     )
 
 
-def source_term(point: FloatArray) -> list[float]:
+def source_term(point: Vertices) -> list[FloatArray]:
     """`f = -laplacian(u)`, the forcing that makes `exact_solution` the answer."""
-    return [2 * np.pi**2 * np.sin(np.pi * point[0]) * np.sin(np.pi * point[1])]
+    return [2 * np.pi**2 * np.sin(np.pi * point[:, 0]) * np.sin(np.pi * point[:, 1])]
 
 
 def l2_norm(space: FunctionSpace, values: NodalValues) -> float:
@@ -216,10 +216,10 @@ def poisson_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 ELASTIC_E, ELASTIC_NU = 200.0, 0.3
 
 
-def elastic_source(point: FloatArray) -> list[float]:
+def elastic_source(point: Vertices) -> list[FloatArray]:
     """The body force that makes `elastic_exact` the answer, for a plane-strain solid."""
     mu, lamb = Enu_to_Lame(ELASTIC_E, ELASTIC_NU)
-    x, y = point
+    x, y = point.T
     return [
         np.pi**2 * (3*mu + lamb) * np.sin(np.pi * x) * np.sin(np.pi * y),
         -(mu + lamb) * np.pi**2 * np.cos(np.pi * x) * np.cos(np.pi * y),
@@ -276,14 +276,14 @@ def elastic_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 # tests/test_convergence_variable_coefficient.py.
 
 
-def variable_coefficient(point: FloatArray) -> float:
+def variable_coefficient(point: Vertices) -> FloatArray:
     """kappa(x, y) = 1 + x + y: smooth and positive on the unit square."""
-    return 1.0 + point[0] + point[1]
+    return 1.0 + point[:, 0] + point[:, 1]
 
 
-def variable_source(point: FloatArray) -> list[float]:
+def variable_source(point: Vertices) -> list[FloatArray]:
     """f = -div(kappa grad u) for the kappa above and u = sin(pi x) sin(pi y)."""
-    x, y = point[0], point[1]
+    x, y = point[:, 0], point[:, 1]
     sx, sy = np.sin(np.pi * x), np.sin(np.pi * y)
     cx, cy = np.cos(np.pi * x), np.cos(np.pi * y)
     grad_kappa_dot_grad_u = np.pi * cx * sy + np.pi * sx * cy
@@ -451,9 +451,9 @@ def annulus_gradient(points: FloatArray) -> FloatArray:
     return np.stack([np.cos(x) * np.sin(y), np.sin(x) * np.cos(y)], axis=-1)
 
 
-def annulus_source(point: FloatArray) -> list[float]:
+def annulus_source(point: Vertices) -> list[FloatArray]:
     """f = -laplacian(u) = 2 sin(x) sin(y)."""
-    return [2.0 * np.sin(point[0]) * np.sin(point[1])]
+    return [2.0 * np.sin(point[:, 0]) * np.sin(point[:, 1])]
 
 
 def solve_annulus_mms(
@@ -468,7 +468,7 @@ def solve_annulus_mms(
     """
     mesh = annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
 
-    bc = Conditions(Dirichlet(everywhere(), lambda p: [float(annulus_exact(np.asarray(p)))]))
+    bc = Conditions(Dirichlet(everywhere(), annulus_exact))
     problem = Poisson().problem(mesh, bc + Source(annulus_source), element_type=element_type)
     solution = problem.solve()
     space = problem.space
@@ -513,10 +513,10 @@ def oscillatory_exact(vertices: Vertices) -> NodalValues:
     return np.sin(k * np.pi * x) * np.sin(k * np.pi * y)
 
 
-def oscillatory_source(point: FloatArray) -> list[float]:
+def oscillatory_source(point: Vertices) -> list[FloatArray]:
     """f = -laplacian(u) = 2 (k pi)^2 sin(k pi x) sin(k pi y)."""
     k = LOAD_MMS_FREQUENCY
-    return [2 * (k * np.pi) ** 2 * np.sin(k * np.pi * point[0]) * np.sin(k * np.pi * point[1])]
+    return [2 * (k * np.pi) ** 2 * np.sin(k * np.pi * point[:, 0]) * np.sin(k * np.pi * point[:, 1])]
 
 
 @dataclass

@@ -87,14 +87,16 @@ if TYPE_CHECKING:
 # A field value: a constant, a per-component constant, a function of position, or a
 # `TimeDependent` function of position and time (fixed at a time by
 # `fem.regions.field_at` before use). `fem.regions.evaluate_field` normalizes the
-# first three to (n_points, n_components). A component may itself be `None`: a
+# first three to (n_points, n_components). A function of position is given every
+# point at once, an (N, d) array like a `Region` is, and returns its components over
+# them: `lambda p: np.sin(p[:, 0])`, `lambda p: [p[:, 1], 0.0]`. A component may itself be `None`: a
 # Dirichlet value leaves it free rather than pinned, a Neumann value leaves it
 # undriven (zero in the integral); `evaluate_field` rejects it for every other use.
 FieldValue: TypeAlias = Union[
     float,
     Sequence[Union[float, None]],
     FloatArray,
-    Callable[[Point], Union[float, Sequence[Union[float, None]], FloatArray]],
+    Callable[[Vertices], Union[float, Sequence[Union[float, None, FloatArray]], FloatArray]],
     'TimeDependent',
     None,
 ]

@@ -106,7 +106,7 @@ def test_stress_recovery_refuses_an_inverted_state(make_unit_square):
     asking for one raises instead of reporting NaN or infinity."""
     mesh, bc = _stretched_square(make_unit_square)
     problem = FiniteStrainElastic(E=200, nu=0.4).problem(mesh, bc)
-    folded = problem.space.interpolate(lambda p: [-2.0 * p[0], 0.0])   # F_xx = -1
+    folded = problem.space.interpolate(lambda p: [-2.0 * p[:, 0], 0.0])   # F_xx = -1
 
     with pytest.raises(RuntimeError, match="inverted"):
         problem.solution(folded.dofs)

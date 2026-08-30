@@ -91,7 +91,7 @@ def test_interpolate_fills_every_dof_of_the_space(unit_square, element_type, val
 
 def test_interpolate_samples_a_callable_at_the_p2_edge_nodes(unit_square):
     space = FunctionSpace(unit_square, QuadraticTriangleElement)
-    u = space.interpolate(lambda p: p[0] + 2 * p[1])
+    u = space.interpolate(lambda p: p[:, 0] + 2 * p[:, 1])
     expected = space.node_coords[:, 0] + 2 * space.node_coords[:, 1]
     np.testing.assert_allclose(u, expected)
     assert len(u) > len(unit_square.vertices)

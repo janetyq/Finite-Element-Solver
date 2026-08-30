@@ -32,7 +32,7 @@ CENTRE = np.array([W/2, H/2])
 # The source is -laplacian of a * exp(-a r^2), which is within 2e-4 of zero on the
 # boundary, so that peak is the exact solution to the precision this chart needs.
 def peaked_source(point):
-    x, y = point - CENTRE
+    x, y = (point - CENTRE).T
     r2 = x**2 + y**2
     return 4*A*A*(1-A*r2)*e**(-A*r2)
 

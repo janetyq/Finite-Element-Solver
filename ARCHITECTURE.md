@@ -63,7 +63,9 @@ mass matrix, a callable sampled at the quadrature points, or with `nodal=True` i
 or the Dirichlet lift at rest when none is given. An `Initial` is checked against the Dirichlet data
 at `t = 0` on resolution, and is what an integrator steps from and `NewtonSolve` iterates from; the
 `initial=` a solve takes overrides it, to continue a series from a previous step. A `Dirichlet`
-value may leave a component `None` (free) for a roller, and a `Neumann` value one the traction does not drive. A region is geometric (`on_plane`, `in_box`,
+value may leave a component `None` (free) for a roller, and a `Neumann` value one the traction does not drive. A value given as a
+callable is called once with every point, an `(N, d)` array, and returns its components over them, the same
+layout a region reads. A region is geometric (`on_plane`, `in_box`,
 a callable of points) or, for a mesh with `boundary_tags`, `on_tag(k)`, which resolves from the
 facets rather than the coordinates. A field built by hand (a comparison field, a state to continue
 from) is `space.interpolate(value)`, a `NodalField` on every node of the space, P2 edge nodes

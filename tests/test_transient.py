@@ -21,7 +21,7 @@ from fem.loads import Source
 
 
 def test_time_dependent_field_is_evaluated_at_a_time():
-    field = TimeDependent(lambda p, t: p[0] * t)
+    field = TimeDependent(lambda p, t: p[:, 0] * t)
     points = np.array([[1.0, 0.0], [2.0, 0.0]])
     np.testing.assert_allclose(evaluate_field(field_at(field, 3.0), points, 1)[:, 0], [3.0, 6.0])
     assert field_at(2.5, 3.0) == 2.5
