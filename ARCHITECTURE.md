@@ -25,7 +25,7 @@ The README's "What you choose at each step" table is the menu of options; this i
 | Geometry | `Mesh` | |
 | Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) |
 | Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for finite strain |
-| Statement | `Problem(space, form)`, or `Equation.problem(mesh, bc)` (which takes the Discretization step too) | `source` (none), `bc` (none), `element_type`; a `LinearProblem` when the form has a constant tangent |
+| Statement | `Problem(space, form)`, or `Equation.problem(mesh, conditions)` (which takes the Discretization step too) | `conditions` (none), `element_type`; a `LinearProblem` when the form has a constant tangent |
 | Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator or analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`; `initial=`, an `Initial` to start from instead of the conditions' own |
 | Result | a typed `Solution`, returned by every `solve`; a steady one is a `NodalField` | |
 | Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` |
@@ -34,14 +34,15 @@ Composed by hand:
 
 ```python
 space = FunctionSpace(mesh, n_components=1)
-problem = LinearProblem(space, DiffusionForm(), source=1.0, bc=bc)
+conditions = Conditions(Dirichlet(on_plane(0, 0), 0.0), Source(1.0))
+problem = LinearProblem(space, DiffusionForm(), conditions)
 solution = problem.solve(backend=IterativeBackend())
 ```
 
 The same solve from the named equation, which builds the space and the problem:
 
 ```python
-solution = Poisson(source=1.0).problem(mesh, bc).solve(backend=IterativeBackend())
+solution = Poisson().problem(mesh, conditions).solve(backend=IterativeBackend())
 ```
 
 The two agree exactly: `Equation.problem` and `Problem.solve` hold no policy of their own, so
@@ -121,9 +122,9 @@ refined mesh (1) without re-resolving constraints by hand (5).
 | 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
 
 Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
-direct vs. iterative. Named PDEs are `Equation`s, not dispatch keys: `Poisson(f).problem(space, bc)`
-returns `LinearProblem(space, DiffusionForm(), f, bc)`, `FiniteStrainElastic(E, nu).problem(space,
-bc)` a `Problem` over an `EnergyForm`, and a PDE with no name is just a different composition.
+direct vs. iterative. Named PDEs are `Equation`s, not dispatch keys: `Poisson(k).problem(mesh, conditions)`
+returns `LinearProblem(space, DiffusionForm(k), conditions)`, `FiniteStrainElastic(E, nu).problem(mesh,
+conditions)` a `Problem` over an `EnergyForm`, and a PDE with no name is just a different composition.
 
 A choice is a parameter when it changes numbers inside one computation (a modulus, a density,
 plane stress against plane strain) and a class when it changes what the object is: which solve
@@ -293,8 +294,8 @@ both assembled once for the integrators and the modal analysis. `LinearProblem` 
 constant tangent: `tangent()` with no state is the matrix, assembled once and held, and
 `residual(u) = A·u − b`; it is the type every consumer that needs one fixed operator asks for. The
 `Problem` owns its constraints, so nothing index-keyed is carried across a mesh change: a driver
-that remeshes builds a new one. `bc` is the spec the constraints came from and `resolved` that
-resolution on this space. It also answers the two questions that depend on which physics it was
+that remeshes builds a new one. `conditions` is the spec the constraints came from and `resolved`
+that resolution on this space. It also answers the two questions that depend on which physics it was
 composed from: `solution(u)`
 packages a solved vector as the typed `Solution` its operator recovers (`ElasticSolution` for a
 form that recovers stress, `DiffusionSolution` for one naming a flux, else `FieldSolution`), and
@@ -358,14 +359,14 @@ returns the form for its physics: the small-strain stiffness, or the `EnergyForm
 finite-strain law. It refuses rather than approximates when the physics does not apply. The table
 in `fem/physics/equations.py` maps each PDE to its class and the solve that steps it.
 Two more resolve it against a discretization: `space(mesh, element_type)` builds the
-`FunctionSpace` with the component count the field implies, and `problem(mesh_or_space, bc,
+`FunctionSpace` with the component count the field implies, and `problem(mesh_or_space, conditions,
 element_type)` the `LinearProblem` for a constant tangent, else a `Problem`. Every driver goes
 through these two.
 
 ### Drivers
 
 Two drivers, each over one spec. `AdaptiveRefinement` owns a mesh and a `problem_for(mesh)`
-builder (`equation.problem(mesh, bc)`), solves each round's problem with `Problem.solve` (the
+builder (`equation.problem(mesh, conditions)`), solves each round's problem with `Problem.solve` (the
 caller's strategy, else the default), hands `(problem, solution)` to the estimator,
 and refines. `DesignOptimizer` owns a `SIMPModel` (a small-strain elastic `LinearProblem` as
 the template, whose material, supports, and load every density shares) and each iteration

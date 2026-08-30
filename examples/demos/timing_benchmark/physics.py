@@ -15,6 +15,7 @@ shows. It also runs as a script, printing the table over the default sizes:
     cd examples && uv run python -m demos.timing_benchmark.physics
     uv run python examples/cli.py run timing_benchmark
 """
+import contextlib
 import logging
 import time
 from dataclasses import dataclass
@@ -28,9 +29,23 @@ from fem.regions import everywhere
 from fem.algebra.system import DiscreteSystem
 from fem.loads import Source
 
-logging.disable(logging.CRITICAL)  # silence per-solve logging for clean timing
-
 DEFAULT_SIZES = (5, 9, 13, 17, 21)
+
+
+@contextlib.contextmanager
+def _quiet_logging():
+    """Silence per-solve logging for the duration of a timed section, then restore it.
+
+    Scoped rather than disabled at import: a module-level `logging.disable` would mute
+    logging for the whole process the moment this demo is imported, including the CLI's
+    own solver-progress output for every other demo.
+    """
+    previous = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
+    try:
+        yield
+    finally:
+        logging.disable(previous)
 
 
 def _time(fn):
@@ -57,18 +72,19 @@ class Timing:
 
 
 def benchmark(n: int) -> Timing:
-    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
-    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0, 0.0]))
-    equation = LinearElastic(E=200.0, nu=0.3)
+    with _quiet_logging():
+        mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(n, n, n))
+        bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0, 0.0]))
+        equation = LinearElastic(E=200.0, nu=0.3)
 
-    # Building the LinearProblem assembles the stiffness and the load.
-    problem, t_assemble = _time(lambda: equation.problem(mesh, bc + Source(lambda p: [1.0, 0.0, 0.0])))
-    A, b = problem.tangent(None), problem.load
+        # Building the LinearProblem assembles the stiffness and the load.
+        problem, t_assemble = _time(lambda: equation.problem(mesh, bc + Source(lambda p: [1.0, 0.0, 0.0])))
+        A, b = problem.tangent(None), problem.load
 
-    # Each backend factors/preconditions in DiscreteSystem's constructor and solves
-    # once; timing the whole construct+solve captures the setup each pays.
-    _, t_direct = _time(lambda: DiscreteSystem(A, problem.constraints, DirectBackend()).solve(b))
-    _, t_iter = _time(lambda: DiscreteSystem(A, problem.constraints, IterativeBackend()).solve(b))
+        # Each backend factors/preconditions in DiscreteSystem's constructor and solves
+        # once; timing the whole construct+solve captures the setup each pays.
+        _, t_direct = _time(lambda: DiscreteSystem(A, problem.constraints, DirectBackend()).solve(b))
+        _, t_iter = _time(lambda: DiscreteSystem(A, problem.constraints, IterativeBackend()).solve(b))
 
     return Timing(n, len(mesh.elements), problem.space.n_dofs, t_assemble, t_direct, t_iter)
 
