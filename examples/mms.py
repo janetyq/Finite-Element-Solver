@@ -35,8 +35,9 @@ from fem.physics.equations import Heat, LinearElastic, Poisson
 from fem.physics.forms import DiffusionForm, LinearElasticForm
 from fem.algebra.integrators import ThetaMethod
 from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
-from fem.mesh.mesh import Mesh
-from fem.mesh.structured import annulus_mesh, box_mesh
+from fem.mesh.curves import Circle
+from fem.mesh.mesh import Mesh, boundary_facets
+from fem.mesh.structured import box_mesh
 from fem.loads import Source
 from fem.problem import LinearProblem
 from fem.regions import everywhere
@@ -397,6 +398,46 @@ def elastic_p2_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 # asserts.
 
 ANNULUS_INNER, ANNULUS_OUTER = 1.0, 2.0
+
+
+def annulus_mesh(
+    inner_radius: float, outer_radius: float, n_radial: int, n_theta: int,
+) -> Mesh:
+    """Structured triangle mesh of the annulus about the origin, with its rims attached
+    as `Circle`s.
+
+    `n_radial` nodes across the radial direction and `n_theta` sectors around. The
+    inner and outer boundary facets carry a `Circle`, so a curved space places their
+    midside nodes on the true rim rather than at the chord midpoint. Structured so the
+    curved convergence study refines uniformly; an `Outline` of two `Circle`s would
+    mesh the same domain unstructured.
+    """
+    rings = np.arange(n_radial)
+    radii = inner_radius + (outer_radius - inner_radius) * (rings / (n_radial - 1))
+    thetas = 2 * np.pi * np.arange(n_theta) / n_theta
+    r, t = np.meshgrid(radii, thetas, indexing="ij")
+    vertices = np.column_stack([(r * np.cos(t)).ravel(), (r * np.sin(t)).ravel()])
+
+    def node(ring: int, sector: int) -> int:
+        return ring * n_theta + sector % n_theta
+
+    elements = []
+    for ring in range(n_radial - 1):
+        for sector in range(n_theta):
+            a, b = node(ring, sector), node(ring, sector + 1)
+            c, d = node(ring + 1, sector + 1), node(ring + 1, sector)
+            elements.extend([[a, b, c], [a, c, d]])
+    elements = np.array(elements)
+
+    boundary = boundary_facets(elements)
+    inner_curve = Circle([0.0, 0.0], inner_radius)
+    outer_curve = Circle([0.0, 0.0], outer_radius)
+    midradius = 0.5 * (inner_radius + outer_radius)
+    boundary_curves = [
+        inner_curve if float(np.hypot(*vertices[facet[0]])) < midradius else outer_curve
+        for facet in boundary
+    ]
+    return Mesh(vertices, elements, boundary, boundary_curves)
 
 
 def annulus_exact(points: FloatArray) -> FloatArray:

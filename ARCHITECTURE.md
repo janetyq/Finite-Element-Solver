@@ -206,8 +206,7 @@ The values are frozen, like a mesh's arrays, so a solution and the views built o
 one copy. Per-element data (a stress, a flux, a density, an error estimate) is not a field
 on the space and stays an `ElementValues` array.
 
-Meshes come from `box_mesh` (an axis-aligned line, rectangle, or box), `annulus_mesh`,
-an `Outline` (`fem/mesh/outline.py`), or `Mesh(vertices, elements)` directly. An `Outline` is
+Meshes come from `box_mesh` (an axis-aligned line, rectangle, or box), an `Outline` (`fem/mesh/outline.py`), or `Mesh(vertices, elements)` directly. An `Outline` is
 closed loops of pieces (`Line`, `Arc`, `CubicBezier`, or a lone `Circle`; `fem/mesh/curves.py`)
 joined end to end, drawn by hand, from polygons (`Outline.from_polygons`), or from an SVG
 (`Outline.from_svg`), and holding no sampling of its own. `outline.mesh(min_angle,
