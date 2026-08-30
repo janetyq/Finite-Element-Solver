@@ -63,3 +63,47 @@ def test_box_mesh_refuses_mismatched_dimensions():
     with pytest.raises(ValueError):
         box_mesh(corners=[[0, 0, 0, 0], [1, 1, 1, 1]], resolution=(2, 2, 2, 2))
 
+
+
+def _cell_loop_box(nx, ny, nz):
+    """The Kuhn decomposition written as the loop over cells it describes, the readable
+    form the vectorized `box_mesh` must reproduce vertex for vertex and tet for tet."""
+    def node(i, j, k):
+        return (i * ny + j) * nz + k
+
+    kuhn = [(0, 1, 3, 7), (0, 1, 5, 7), (0, 2, 3, 7), (0, 2, 6, 7), (0, 4, 5, 7), (0, 4, 6, 7)]
+    elements = []
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            for k in range(nz - 1):
+                corner = [node(i + (c >> 2 & 1), j + (c >> 1 & 1), k + (c & 1)) for c in range(8)]
+                elements.extend([[corner[c] for c in tet] for tet in kuhn])
+    return np.array(elements)
+
+
+def _cell_loop_rect(nx, ny):
+    """The alternating-diagonal split as the loop over cells it describes."""
+    def node(i, j):
+        return j * nx + i
+
+    elements = []
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            if (i + j) % 2 == 0:
+                elements += [[node(i, j), node(i+1, j), node(i+1, j+1)], [node(i, j), node(i+1, j+1), node(i, j+1)]]
+            else:
+                elements += [[node(i, j), node(i+1, j), node(i, j+1)], [node(i+1, j), node(i+1, j+1), node(i, j+1)]]
+    return np.array(elements)
+
+
+def test_box_mesh_connectivity_is_the_cell_loop_written_out():
+    """The vectorized builders reproduce the per-cell loops exactly: the same vertex
+    order (x fastest in 2D, z fastest in 3D) and the same element order, so a mesh
+    fingerprint recorded on one is valid on the other."""
+    rect = box_mesh(corners=[[0, 0], [2, 1]], resolution=(6, 4))
+    np.testing.assert_array_equal(rect.elements, _cell_loop_rect(6, 4))
+    np.testing.assert_array_equal(rect.vertices[:6, 1], 0.0)          # the first row is y = 0, x varying
+
+    box = box_mesh(corners=[[0, 0, 0], [2, 1, 1]], resolution=(5, 4, 3))
+    np.testing.assert_array_equal(box.elements, _cell_loop_box(5, 4, 3))
+    np.testing.assert_array_equal(box.vertices[:3, :2], 0.0)          # the first column is x = y = 0, z varying

@@ -31,6 +31,35 @@ def frozen_array(array: np.ndarray) -> np.ndarray:
     return array
 
 
+def unique_rows(
+    rows: IntArray, return_index: bool = False, return_inverse: bool = False, return_counts: bool = False,
+) -> Any:
+    '''`np.unique(rows, axis=0, ...)` for rows of non-negative integers, in the same
+    order and with the same optional returns.
+
+    Each row is packed into one integer key, so numpy sorts scalars rather than the
+    void records `axis=0` makes of the rows: an order of magnitude faster on the facet
+    and edge tables a mesh builds from every element. The key is the row read as a
+    base-`max + 1` number, so key order is lexicographic row order and the result is
+    the one `axis=0` would give. Rows that do not fit a 64-bit key fall back to it.
+    '''
+    rows = np.asarray(rows)
+    packable = rows.ndim == 2 and rows.size > 0 and rows.min() >= 0 and (int(rows.max()) + 1) ** rows.shape[1] < 2**62
+    if packable:
+        base = int(rows.max()) + 1
+        keys = np.zeros(len(rows), dtype=np.int64)
+        for column in rows.T:
+            keys = keys * base + column
+        _, first, inverse, counts = np.unique(keys, return_index=True, return_inverse=True, return_counts=True)
+        unique = rows[first]
+    else:
+        unique, first, inverse, counts = np.unique(rows, axis=0, return_index=True, return_inverse=True, return_counts=True)
+    extras = [first, inverse.reshape(-1), counts]
+    wanted = [return_index, return_inverse, return_counts]
+    result = [unique] + [extra for extra, want in zip(extras, wanted) if want]
+    return result[0] if len(result) == 1 else tuple(result)
+
+
 def boundary_facets(elements: Elements) -> Elements:
     '''The facets belonging to exactly one element, as sorted vertex-index rows.
 
@@ -46,7 +75,7 @@ def boundary_facets(elements: Elements) -> Elements:
     # Dropping each node in turn gives the n_nodes facets of a simplex.
     keep = np.array([[j for j in range(n_nodes) if j != i] for i in range(n_nodes)])
     facets = np.sort(elements[:, keep].reshape(-1, n_nodes - 1), axis=1)
-    unique, counts = np.unique(facets, axis=0, return_counts=True)
+    unique, counts = unique_rows(facets, return_counts=True)
     return unique[counts == 1]
 
 
@@ -438,7 +467,7 @@ class Mesh:
         n_pairs = len(node_pairs)
         edge_rows = np.sort(self._elements[:, node_pairs].reshape(-1, 2), axis=1)
         owners = np.repeat(np.arange(self.n_elements), n_pairs)
-        edges, inverse = np.unique(edge_rows, axis=0, return_inverse=True)
+        edges, inverse = unique_rows(edge_rows, return_inverse=True)
         inverse = inverse.reshape(-1)
 
         # Sorting the inverse lines each edge's rows up contiguously; the counts
