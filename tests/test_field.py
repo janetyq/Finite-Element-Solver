@@ -188,7 +188,7 @@ def test_boundary_integral_over_a_region_takes_only_its_facets(square):
     """x over the whole boundary is 2 (the right edge, plus half of the top and bottom);
     over the right edge alone it is 1."""
     space = FunctionSpace(square)
-    x = space.interpolate(lambda p: p[0])
+    x = space.interpolate(lambda p: p[:, 0])
     assert x.boundary_integral() == pytest.approx(2.0)
     assert x.boundary_integral(on_plane(0, 1.0)) == pytest.approx(1.0)
     assert x.boundary_integral(on_plane(0, 0.0)) == pytest.approx(0.0)
@@ -197,13 +197,13 @@ def test_boundary_integral_over_a_region_takes_only_its_facets(square):
 def test_p2_boundary_integral_is_exact_for_a_quadratic(square):
     """∫_0^1 y² dy along the right edge."""
     space = FunctionSpace(square, QuadraticTriangleElement)
-    field = space.interpolate(lambda p: p[1] ** 2)
+    field = space.interpolate(lambda p: p[:, 1] ** 2)
     assert field.boundary_integral(on_plane(0, 1.0)) == pytest.approx(1 / 3)
 
 
 def test_vector_boundary_integral_is_per_component(square):
     space = FunctionSpace(square, n_components=2)
-    field = space.interpolate(lambda p: [1.0, p[0]])
+    field = space.interpolate(lambda p: [1.0, p[:, 0]])
     np.testing.assert_allclose(field.boundary_integral(), [4.0, 2.0])
 
 
