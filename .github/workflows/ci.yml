@@ -29,4 +29,7 @@ jobs:
         run: uv run pyright
 
       - name: Test (pytest)
-        run: uv run pytest
+        # Coverage is reported for visibility, not gated on a threshold; a
+        # no-decrease gate is a follow-up once a baseline is stored. pytest-randomly
+        # shuffles the order each run and prints its seed for reproduction.
+        run: uv run pytest --cov=fem --cov-report=term-missing

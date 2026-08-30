@@ -28,7 +28,10 @@ dependencies = [
 # Development tooling (installed by default with `uv sync`)
 [dependency-groups]
 # pygments highlights the gallery's source listings (examples/source_html.py).
-dev = ["pytest", "ruff", "pyright", "pygments"]
+# pytest-cov reports library coverage in CI; hypothesis drives the property tests
+# (tests/test_properties.py); pytest-randomly shuffles test order to surface any
+# ordering dependence between the module-scoped fixtures.
+dev = ["pytest", "ruff", "pyright", "pygments", "pytest-cov", "hypothesis", "pytest-randomly"]
 
 [tool.ruff]
 line-length = 120
@@ -57,3 +60,11 @@ include = ["fem*"]
 # The package is installed (pip install -e .), so tests import `fem` directly;
 # no sys.path shim needed.
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# Coverage tracks the library. The demos and MMS studies under examples/ are
+# exercised through the demo and convergence tests but are not the code under test.
+source = ["fem"]
+
+[tool.coverage.report]
+show_missing = true
