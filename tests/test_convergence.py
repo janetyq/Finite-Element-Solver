@@ -29,6 +29,7 @@ from mms import (
     elastic_convergence,
     elastic_p2_convergence,
     load_comparison_convergence,
+    mixed_bc_convergence,
     poisson_convergence,
     poisson_p2_convergence,
     solve_poisson_mms,
@@ -85,6 +86,30 @@ def elastic_p2():
     return ConvergenceStudy.from_solves(elastic_p2_convergence((5, 9, 17)))
 
 
+@cache
+def poisson_3d():
+    # h = 1/8, 1/12, 1/16. The n=5 (h=1/4) coarse level is dropped as pre-asymptotic
+    # on Kuhn tets (it reads 1.74), the same reasoning the 3D elasticity fixture states;
+    # the three kept here are cleanly in band.
+    return ConvergenceStudy.from_solves(poisson_convergence((9, 13, 17), dim=3))
+
+
+@cache
+def _mixed_bc_solves():
+    return mixed_bc_convergence((11, 21, 41))    # h = 0.1, 0.05, 0.025
+
+
+@cache
+def mixed_bc_l2():
+    return ConvergenceStudy.from_solves(_mixed_bc_solves())
+
+
+@cache
+def mixed_bc_h1():
+    solves = _mixed_bc_solves()
+    return ConvergenceStudy(np.array([s.h for s in solves]), np.array([s.h1_error for s in solves]))
+
+
 STUDIES = [
     # P1 gives order 2 in L2; the band allows for a structured mesh's coarse end.
     Study('poisson_p1_l2', poisson_p1_l2, 2, (1.7, 2.3), floor=1e-2),
@@ -107,6 +132,17 @@ STUDIES = [
     # The vector P2 path: the node numbering under n_components = 2 and the coupled
     # operator, at the scalar P2 rate.
     Study('elastic_p2', elastic_p2, 3, (2.7, 3.3)),
+    # The same scalar Poisson study in 3D, on a tetrahedral box: assembly and the P1
+    # solve on tets, not only triangles. Observed orders 1.91, 1.95, climbing to two as
+    # the 3D elasticity sequence does.
+    Study('poisson_3d', poisson_3d, 2, (1.7, 2.3), floor=5e-3),
+    # All-natural boundary: nonzero Neumann flux on three edges and a Robin condition on
+    # the fourth, so the boundary-load quadrature and the Robin boundary-mass term enter
+    # a rate for the first time. A boundary integral wrong by a factor breaks the O(h^2).
+    Study('mixed_bc_l2', mixed_bc_l2, 2, (1.7, 2.3), floor=1e-3),
+    # The gradient error of the same solve, O(h) and banded tight like the Poisson H1:
+    # a wrong boundary flux shows here directly.
+    Study('mixed_bc_h1', mixed_bc_h1, 1, (0.9, 1.1)),
 ]
 FLOORED = [study for study in STUDIES if study.floor is not None]
 

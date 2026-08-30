@@ -78,5 +78,5 @@ def demo(**kwargs) -> DemoResult:
 # Builds its own refinement sequence; the smoke run keeps the two coarsest meshes.
 DEMO = Demo('convergence', demo, section='Accuracy & performance',
             smoke_kwargs={'resolutions': (11, 21), 'elastic_resolutions': (9, 17),
-                          'step_counts': (16, 32)},
+                          'step_counts': (16, 32), 'poisson_3d_resolutions': (5, 9)},
             show_source=physics)

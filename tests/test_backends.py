@@ -63,7 +63,8 @@ def test_iterative_matches_direct_on_elasticity():
 
 def test_iterative_backend_preserves_second_order_convergence():
     """The MMS O(h^2) rate holds through the iterative backend, not just the direct one."""
-    study = ConvergenceStudy.from_solves([solve_poisson_mms(n, IterativeBackend()) for n in (11, 21, 41)])
+    study = ConvergenceStudy.from_solves(
+        [solve_poisson_mms(n, backend=IterativeBackend()) for n in (11, 21, 41)])
     for p in study.orders:
         assert 1.7 < p < 2.3, f"expected ~2nd order under CG, got {study.orders}"
 

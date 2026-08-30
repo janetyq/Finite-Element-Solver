@@ -23,7 +23,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.algebra.backends import Backend
-from fem.boundary import Dirichlet
+from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial
 from fem.field import NodalField
 from fem.elements import (
@@ -41,37 +41,45 @@ from fem.mesh.mesh import Mesh, boundary_facets
 from fem.mesh.structured import box_mesh
 from fem.loads import Source
 from fem.problem import LinearProblem
-from fem.regions import everywhere
+from fem.regions import everywhere, on_plane
 from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
 from fem.typing import FloatArray, Vertices, NodalValues
 
 
 def exact_solution(vertices: Vertices) -> NodalValues:
-    """The manufactured `u`, sampled at `vertices`."""
-    x, y = vertices[:, 0], vertices[:, 1]
-    return np.sin(np.pi * x) * np.sin(np.pi * y)
+    """The manufactured `u = prod_i sin(pi x_i)`, sampled at `vertices`.
+
+    Zero on the boundary of the unit box in any dimension, so the Dirichlet data is
+    homogeneous whether the box is 2D or 3D. In 2D it is `sin(pi x) sin(pi y)`.
+    """
+    return np.prod(np.sin(np.pi * vertices), axis=-1)
 
 
 def exact_gradient(points: FloatArray) -> FloatArray:
     """`grad u` of the manufactured solution, sampled at `points`.
 
-    Broadcasts over any leading axes: `points` shaped `(..., 2)` gives `(..., 2)`,
-    so it takes either the `(n_vertices, 2)` nodes or the `(n_elements, n_qp, 2)`
-    quadrature points the H1 error integrates over. The closed-form gradient makes the
-    H1 error independent of the assembled stiffness (see `h1_seminorm_error`).
+    Component `i` is `pi cos(pi x_i) prod_{j != i} sin(pi x_j)`. Broadcasts over any
+    leading axes: `points` shaped `(..., d)` gives `(..., d)`, so it takes either the
+    `(n_vertices, d)` nodes or the `(n_elements, n_qp, d)` quadrature points the H1
+    error integrates over. The closed-form gradient makes the H1 error independent of
+    the assembled stiffness (see `h1_seminorm_error`).
     """
-    x, y = points[..., 0], points[..., 1]
-    return np.stack(
-        [np.pi * np.cos(np.pi * x) * np.sin(np.pi * y),
-         np.pi * np.sin(np.pi * x) * np.cos(np.pi * y)],
-        axis=-1,
-    )
+    sines = np.sin(np.pi * points)
+    cosines = np.cos(np.pi * points)
+    dim = points.shape[-1]
+    components = [
+        np.pi * cosines[..., i] * np.prod(np.delete(sines, i, axis=-1), axis=-1)
+        for i in range(dim)
+    ]
+    return np.stack(components, axis=-1)
 
 
 def source_term(point: Vertices) -> list[FloatArray]:
-    """`f = -laplacian(u)`, the forcing that makes `exact_solution` the answer."""
-    return [2 * np.pi**2 * np.sin(np.pi * point[:, 0]) * np.sin(np.pi * point[:, 1])]
+    """`f = -laplacian(u) = dim * pi^2 * prod_i sin(pi x_i)`, the forcing that makes
+    `exact_solution` the answer (`2 pi^2 u` in 2D, `3 pi^2 u` in 3D)."""
+    dim = point.shape[1]
+    return [dim * np.pi**2 * np.prod(np.sin(np.pi * point), axis=1)]
 
 
 def l2_norm(space: FunctionSpace, values: NodalValues) -> float:
@@ -179,13 +187,14 @@ class ConvergenceStudy:
         return float(np.polyfit(np.log(self.step), np.log(self.error), 1)[0])
 
 
-def solve_poisson_mms(n: int, backend: Backend | None = None) -> MMSSolve:
-    """Solve the manufactured problem on an `n` x `n` unit-square grid.
+def solve_poisson_mms(n: int, dim: int = 2, backend: Backend | None = None) -> MMSSolve:
+    """Solve the manufactured problem on an `n`-per-side unit box in `dim` dimensions.
 
     `backend` picks the linear solver (the default is the direct one), so the same
-    study can measure an iterative backend's accuracy.
+    study can measure an iterative backend's accuracy. `dim=3` runs the same scalar
+    Poisson study on a tetrahedral box, the 3D analogue of the 2D rate.
     """
-    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    mesh = box_mesh(corners=[[0.0] * dim, [1.0] * dim], resolution=(n,) * dim)
 
     bc = Conditions(Dirichlet(everywhere(), 0.0))
     problem = Poisson().problem(mesh, bc + Source(source_term))
@@ -203,9 +212,9 @@ def solve_poisson_mms(n: int, backend: Backend | None = None) -> MMSSolve:
     )
 
 
-def poisson_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
+def poisson_convergence(resolutions: tuple[int, ...], dim: int = 2) -> list[MMSSolve]:
     """Solve the manufactured problem once per resolution, coarsest first."""
-    return [solve_poisson_mms(n) for n in sorted(resolutions)]
+    return [solve_poisson_mms(n, dim) for n in sorted(resolutions)]
 
 
 # --- elasticity: the same idea for a vector unknown -----------------------------
@@ -288,7 +297,7 @@ def elastic_convergence(resolutions: tuple[int, ...], dim: int = 2,
 # (DiffusionForm -> stiffness matrix), the whole of f the load (Source -> load
 # vector). Neither is constant within an element, so both sides exercise the
 # quadrature layer that a constant-coefficient assembly lacks. Asserted in
-# tests/test_convergence_variable_coefficient.py.
+# tests/test_convergence.py.
 
 
 def variable_coefficient(point: Vertices) -> FloatArray:
@@ -332,13 +341,100 @@ def variable_coefficient_convergence(resolutions: tuple[int, ...]) -> list[MMSSo
     return [solve_variable_coefficient_mms(n) for n in sorted(resolutions)]
 
 
+# --- inhomogeneous Neumann and Robin: the boundary-load quadrature in a rate ----
+#
+# Every study above is Dirichlet on the whole boundary, so a boundary-load quadrature
+# wrong by a factor never shows up in a rate. Here the manufactured
+#
+#     u(x, y) = (1 + x) sin(pi y)      f = -laplacian(u) = pi^2 (1 + x) sin(pi y)
+#
+# is nonzero on the right edge and has a nonzero normal derivative on all four, and the
+# boundary is all natural: Neumann (the flux du/dn) on the left, bottom, and top, and
+# Robin (du/dn + kappa u = g) on the right, where u itself is nonzero so the Robin
+# boundary-mass term carries real data too. No edge is Dirichlet; the kappa > 0 Robin
+# term alone makes the form coercive, so the problem is well posed without one, and no
+# node is both pinned and loaded. A boundary quadrature wrong by a constant factor
+# breaks the O(h^2) rate, where the constant-solution and large-kappa checks in
+# test_robin.py would not notice. Asserted in tests/test_convergence.py.
+
+ROBIN_KAPPA = 3.0
+
+
+def mixed_bc_exact(points: FloatArray) -> FloatArray:
+    """u = (1 + x) sin(pi y), sampled at `points` (any leading axes)."""
+    return (1.0 + points[..., 0]) * np.sin(np.pi * points[..., 1])
+
+
+def mixed_bc_gradient(points: FloatArray) -> FloatArray:
+    """grad u = (sin(pi y), pi (1 + x) cos(pi y)), broadcasting over any leading axes."""
+    x, y = points[..., 0], points[..., 1]
+    return np.stack([np.sin(np.pi * y), np.pi * (1.0 + x) * np.cos(np.pi * y)], axis=-1)
+
+
+def mixed_bc_source(point: Vertices) -> list[FloatArray]:
+    """f = -laplacian(u) = pi^2 (1 + x) sin(pi y): x is linear, so only the y curvature
+    survives."""
+    return [np.pi**2 * (1.0 + point[:, 0]) * np.sin(np.pi * point[:, 1])]
+
+
+def solve_mixed_bc_mms(n: int) -> MMSSolve:
+    """Solve the natural-boundary manufactured Poisson problem on an `n` x `n` grid.
+
+    Neumann du/dn on the left, bottom, and top edges and Robin du/dn + kappa u = g on
+    the right. Every edge carries nonzero data, so the boundary-load assembly and the
+    Robin boundary-mass term both enter the error, and the Robin term makes the pure
+    natural problem well posed.
+    """
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    left, right = on_plane(0, 0.0), on_plane(0, 1.0)
+    bottom, top = on_plane(1, 0.0), on_plane(1, 1.0)
+
+    # The outward normal derivative on each natural edge. du/dx = sin(pi y);
+    # du/dy = pi (1 + x) cos(pi y). Left (n = -x): -du/dx = -sin(pi y). Bottom (n = -y)
+    # and top (n = +y): -du/dy and +du/dy both come to -pi (1 + x) (cos(pi) = -1 at the
+    # top). The Robin g is du/dn + kappa u with du/dn = du/dx = sin(pi y) and
+    # u = (1 + x) sin(pi y) on the right.
+    def left_flux(p: Vertices) -> FloatArray:
+        return -np.sin(np.pi * p[:, 1])
+
+    def horizontal_flux(p: Vertices) -> FloatArray:
+        return -np.pi * (1.0 + p[:, 0])
+
+    def robin_g(p: Vertices) -> FloatArray:
+        return (1.0 + ROBIN_KAPPA * (1.0 + p[:, 0])) * np.sin(np.pi * p[:, 1])
+
+    bc = Conditions(
+        Neumann(left, left_flux),
+        Neumann(bottom, horizontal_flux),
+        Neumann(top, horizontal_flux),
+        Robin(right, kappa=ROBIN_KAPPA, g=robin_g),
+    )
+    problem = Poisson().problem(mesh, bc + Source(mixed_bc_source))
+    solution = problem.solve()
+
+    exact = mixed_bc_exact(mesh.vertices)
+    return MMSSolve(
+        h=1.0 / (n - 1),
+        mesh=mesh,
+        dofs=solution.dofs,
+        exact=exact,
+        l2_error=l2_norm(problem.space, solution.dofs - exact),
+        h1_error=h1_seminorm_error(problem.space, solution.dofs, mixed_bc_gradient),
+    )
+
+
+def mixed_bc_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
+    """Solve the mixed-boundary manufactured problem per resolution, coarsest first."""
+    return [solve_mixed_bc_mms(n) for n in sorted(resolutions)]
+
+
 # --- P2 elements: the same Poisson problem, one polynomial degree higher ---------
 #
 # The same manufactured u = sin(pi x) sin(pi y), solved on the quadratic space. The
 # only differences from solve_poisson_mms are the element type and that the exact
 # solution and the error norm are sampled at all the P2 nodes (corners and edge
 # midpoints) since the extra DOFs live there. P2 is O(h^3) in L2 where P1 is O(h^2),
-# which test_convergence_p2.py asserts.
+# which tests/test_convergence.py asserts.
 
 
 def solve_poisson_mms_p2(n: int) -> MMSSolve:
