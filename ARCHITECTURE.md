@@ -218,7 +218,9 @@ max_area_fraction, resolution)` samples it into a `PSLG` (the straight-line grap
 Douglas-Peucker over a loop's straight runs. This is the spec / resolution split again:
 `Outline` is the description and `PSLG` its resolution at one chord length, the way
 `Conditions` resolves to `ResolvedConditions`. `RuppertsAlgorithm` takes the `PSLG`, kept public
-for a caller that wants the refinement state. Every chord of a curved piece carries the piece as
+for a caller that wants the refinement state; it grows its triangulation through
+`IncrementalDelaunay`, a Bowyer-Watson insertion over dicts that reports the triangles each point
+makes, so an insertion costs its cavity rather than the mesh. Every chord of a curved piece carries the piece as
 its `Curve`, so Ruppert's split points, red-green midpoints, and an isoparametric element's edge
 nodes all project onto the true shape; the mesh's `boundary_curves` carry it and `boundary_tags`
 name the loop each facet came from, both through refinement. `on_tag(k)` is the region that

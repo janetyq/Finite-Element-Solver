@@ -3,8 +3,9 @@ import logging
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
-from scipy.spatial import Delaunay, KDTree, QhullError
+from scipy.spatial import KDTree
 
+from fem.mesh.delaunay import IncrementalDelaunay
 from fem.mesh.mesh import Mesh, boundary_facets, triangle_angles
 
 logger = logging.getLogger(__name__)
@@ -95,26 +96,6 @@ ENCROACHMENT_TOLERANCE = 1e-12
 # skinny, stay above ~1e-3. See `_is_degenerate`.
 DEGENERACY_TOLERANCE = 1e-9
 
-# Vertex indices are packed three-to-an-integer to give a triangle a name that
-# survives an insertion; see `_triangle_keys`. Three indices below this bound
-# stay inside a signed 64-bit integer, and a mesh of a million vertices is far
-# past anything this refinement finishes in reasonable time.
-_KEY_STRIDE = np.int64(1) << 20
-
-
-def _triangle_keys(simplices):
-    '''One integer naming each triangle, from its corners in sorted order.
-
-    A triangle has to be named by its corners because qhull renumbers
-    `simplices` freely across an insertion; a row index means nothing from one
-    pass to the next. Reducing the three corners to a single integer turns
-    "does this triangle still exist" into a lookup in a sorted array.
-
-    Takes one `(3,)` triangle or a stacked `(n, 3)` array.
-    '''
-    corners = np.sort(np.asarray(simplices), axis=-1).astype(np.int64)
-    return (corners[..., 0]*_KEY_STRIDE + corners[..., 1])*_KEY_STRIDE + corners[..., 2]
-
 
 class RuppertsAlgorithm:
     '''Ruppert's Delaunay refinement of a PSLG.
@@ -133,8 +114,9 @@ class RuppertsAlgorithm:
        circumcenter.  If that new point would encroach a segment, split the
        segment instead and re-examine the triangle later.
 
-    Each step adds one vertex, which the triangulation absorbs incrementally
-    rather than being rebuilt around.
+    Each step adds one vertex, which the triangulation (`IncrementalDelaunay`)
+    absorbs by re-fanning the handful of triangles around it, reporting the
+    triangles it made so only those are judged against the bounds.
 
     Why segments are respected: the Delaunay triangulation only knows about points,
     but a segment whose diametral circle contains no other vertex is guaranteed to
@@ -154,10 +136,11 @@ class RuppertsAlgorithm:
     input's own angle, since no refinement improves it.  Everything away from
     those corners still meets the bound.
 
-    Cost grows steeply in the number of input points: the triangulation itself is
-    grown a point at a time, but everything around it rescans the whole mesh per
-    insertion.  Simplify a densely sampled outline
-    (`fem.mesh.svg.douglas_peucker`) before handing it over.
+    An insertion costs the size of its cavity plus a pass over the segments, so
+    a run is close to linear in the points it places; the whole mesh is scanned
+    only at the start and to confirm the end. A densely sampled outline still
+    costs elements: simplify it (`fem.mesh.svg.douglas_peucker`) before handing
+    it over.
     '''
 
     def __init__(self, pslg, min_angle: float = 30, max_area: float | None = None,
@@ -183,7 +166,9 @@ class RuppertsAlgorithm:
                 f'min_angle must be between 0 and {MAX_MIN_ANGLE} degrees, got {min_angle}; '
                 f'Ruppert refinement is not guaranteed to terminate above it'
             )
-        self.vertices = np.array(pslg.vertices)
+        self.triangulation = IncrementalDelaunay(np.array(pslg.vertices))
+        # A view of the triangulation's points, refreshed after every insertion.
+        self.vertices = self.triangulation.points
         self.n_input_vertices = len(self.vertices)
         self.max_insertions = (
             max(MIN_INSERTION_CAP, INSERTIONS_PER_INPUT_VERTEX * self.n_input_vertices)
@@ -196,25 +181,16 @@ class RuppertsAlgorithm:
         # midpoint, so refinement rounds the outline; halves inherit their parent's
         # curve, and it is carried onto the matching boundary facet of the output mesh.
         self.segment_curves = list(pslg.segment_curves)
-        self.triangulation = Delaunay(self.vertices)
-        self._incremental = False
         self.min_angle = min_angle
         self.max_area = max_area
-
-        # A fixed seed so a mesh is reproducible: the only randomness is the direction of
-        # the tiny nudge `_perturb` gives each inserted circumcenter (see there), and
-        # insertions happen in a deterministic order, so the whole run is deterministic.
-        self._rng = np.random.default_rng(0)
 
         # Diametral circles, and which segments a vertex sits inside. Both are
         # maintained as segments and vertices are added; see `_diametral_circles`
         # and `get_encroached_segments`. The one full scan is here, where a KD-tree
         # beats testing every circle against every vertex.
         self._circles = None
-        # Bad triangles still to refine, newest last; see `refine`. `_live_keys` is
-        # how a queued one is checked to still exist, dropped on every insertion.
+        # Bad triangles still to refine, newest last; see `refine`.
         self._bad_queue = []
-        self._live_keys = None
         centers, radii_sq = self._diametral_circles()
         distances, nearest = KDTree(self.vertices).query(centers)
         # The vertex nearest a diametral centre decides encroachment: anything strictly
@@ -332,9 +308,9 @@ class RuppertsAlgorithm:
         '''Triangles whose corners are collinear to floating-point precision.
 
         A segment split lands a midpoint exactly on the line through the segment's
-        endpoints, and qhull can fan that triple into a zero-area sliver. Its
-        circumcenter lands ~1e12 away, wrecking the next incremental insertion, so
-        such a sliver must be neither refined nor returned as an element.
+        endpoints, and round-off in the insertion can fan that triple into a
+        zero-area sliver. Its circumcenter lands ~1e12 away, so such a sliver must
+        be neither refined nor returned as an element.
         '''
         corners = self.vertices[simplices]
         edges = corners - corners[:, [1, 2, 0]]
@@ -361,53 +337,34 @@ class RuppertsAlgorithm:
         bad &= ~self.get_exterior_triangles(segment_mask)
         return simplices[bad]
 
-    def _bad_triangles_created_by(self, vertex_index):
-        '''The bad triangles among those that appeared when `vertex_index` went in.
+    def _bad_among(self, created):
+        '''The bad triangles among the ones an insertion just `created`.
 
         This is everything the standing queue of bad triangles is missing, which
-        rests on two facts.
-
-        A triangle cannot go bad after it is created. Its angles and area come
-        from its corners, and corners never move; splitting a segment only
-        subdivides it, so the even-odd boundary does not shift either and a
+        rests on a triangle never going bad after it is created. Its angles and
+        area come from its corners, and corners never move; splitting a segment
+        only subdivides it, so the even-odd boundary does not shift either and a
         triangle's enclosure is settled too. So a triangle is bad from the
         moment it exists or fine for as long as it exists, and nothing already
         in the mesh can turn bad unnoticed.
-
-        Every triangle an insertion creates has the inserted vertex as a corner,
-        so the ones to examine are found by an integer comparison instead of the
-        trigonometry a full rescan costs.
 
         Enclosure is settled per triangle here rather than by labelling regions.
         That is the wrong trade over a whole mesh (measured at 1.9x slower) and
         the right one over the handful of triangles one insertion makes.
         '''
-        simplices = self.triangulation.simplices
-        created = simplices[(simplices == vertex_index).any(axis=1)]
+        created = np.array(created, dtype=int).reshape(-1, 3)
         candidates = created[self._fails_a_bound(created)]
         centroids = self.vertices[candidates].mean(axis=1)
         return candidates[self._crossing_counts(centroids) % 2 == 1]
 
-    def _live_triangle_keys(self):
-        '''Sorted keys of every triangle that currently exists.
-
-        Rebuilt after an insertion rather than maintained. That is a couple of
-        vectorised passes, and it lets a queued triangle be checked without
-        asking qhull to locate a point; point location rebuilds its own search
-        structure on every insertion, which costs a thousand times more in a
-        loop that inserts and then immediately asks.
-        '''
-        if self._live_keys is None:
-            self._live_keys = np.sort(_triangle_keys(self.triangulation.simplices))
-        return self._live_keys
-
     def _refill_bad_queue(self, triangles, replace=True):
-        '''Queue `triangles` for refinement, as corner triples rather than rows.
-
-        Rows are qhull's numbering and do not survive an insertion; the corners do.
-        '''
-        queued = [tuple(sorted(triangle)) for triangle in triangles]
-        self._bad_queue = queued if replace else self._bad_queue + queued
+        '''Queue `triangles` for refinement, as sorted corner triples: a triangle is
+        named by its corners, which outlive any row it has in an array.'''
+        queued = [(int(a), int(b), int(c)) for a, b, c in (sorted(t) for t in triangles)]
+        if replace:
+            self._bad_queue = queued
+        else:
+            self._bad_queue.extend(queued)
 
     def _next_queued_bad_triangle(self):
         '''The newest queued triangle that still exists, or None if none does.
@@ -415,12 +372,9 @@ class RuppertsAlgorithm:
         Entries go stale as later insertions re-fan the triangles around them,
         which is cheaper to discover here than to track as it happens.
         '''
-        keys = self._live_triangle_keys()
         while self._bad_queue:
             triangle = self._bad_queue.pop()
-            key = _triangle_keys(triangle)
-            position = int(np.searchsorted(keys, key))
-            if position < len(keys) and keys[position] == key:
+            if self.triangulation.contains(triangle):
                 return triangle
         return None
 
@@ -517,7 +471,7 @@ class RuppertsAlgorithm:
     def _enclosed_mesh(self):
         '''The enclosed triangles as a Mesh, renumbered onto the vertices it uses.'''
         simplices = self.triangulation.simplices
-        # A degenerate sliver covers no area and is a qhull artifact along a
+        # A degenerate sliver covers no area and is a round-off artifact along a
         # segment, not an element; drop it whatever its region's label.
         kept = ~self.get_exterior_triangles() & ~self._is_degenerate(simplices)
         elements = simplices[kept]
@@ -557,45 +511,6 @@ class RuppertsAlgorithm:
                 of_edge[tuple(sorted((int(renumbered[start]), int(renumbered[end]))))] = value
         return [of_edge.get(tuple(sorted(int(v) for v in facet)), missing) for facet in boundary]
 
-    def _retriangulate(self):
-        '''Fold the vertices added since the last call into the triangulation.
-
-        Inserting a point only invalidates the triangles whose circumcircle
-        contains it, so qhull re-fans that cavity and leaves the rest standing.
-        Rebuilding from scratch instead costs a pass over every vertex already
-        placed, once per insertion, and that is half of a refinement run.
-
-        Incremental mode cannot start from a point set with no non-degenerate
-        initial simplex, and that is not an exotic input: any four cocircular
-        points are one, a square included. It also rules out the `Qz` option that
-        would otherwise handle them. So a run rebuilds until qhull will take the
-        point set, which the first inserted vertex almost always settles.
-
-        An incremental insertion can also fail partway through a run, with a
-        precision error ("wide merge" on nearly-cocircular points, which an
-        axis-aligned outline and the circumcenters inserted along a re-entrant
-        corner readily produce). A batch rebuild settles the same point set,
-        because that path applies qhull's `Qbb`/`Qz` paraboloid scaling that
-        incremental mode cannot; the next insertion resumes incrementally.
-        '''
-        added = self.vertices[len(self.triangulation.points):]
-        if not len(added):
-            return
-        self._live_keys = None
-        if self._incremental:
-            try:
-                self.triangulation.add_points(added)
-                return
-            except QhullError:
-                # Fall through to a rebuild, dropping the incremental state the
-                # failed insertion left the triangulation in.
-                self._incremental = False
-        try:
-            self.triangulation = Delaunay(self.vertices, incremental=True)
-            self._incremental = True
-        except QhullError:
-            self.triangulation = Delaunay(self.vertices)
-
     def refine(self):
         '''Refine until nothing is left to fix, and return the enclosed mesh.
 
@@ -615,10 +530,9 @@ class RuppertsAlgorithm:
 
         while True:
             would_encroach = []
-            new_vertex = None
+            created = None
             if encroached_segments:
-                self.split_segment(encroached_segments.pop())
-                new_vertex = len(self.vertices) - 1
+                created = self.split_segment(encroached_segments.pop())
             else:
                 triangle = self._next_queued_bad_triangle()
                 if triangle is None:
@@ -629,8 +543,7 @@ class RuppertsAlgorithm:
                         break
                     self._refill_bad_queue(remaining)
                     continue
-                centre = self._perturb(
-                    circumcenter(self.vertices[list(triangle)]), list(triangle))
+                centre = circumcenter(self.vertices[list(triangle)])
                 # Inserting a point inside a segment's diametral circle would cut
                 # the mesh off from the outline, so split those segments instead
                 # and put the triangle back to be reconsidered once they are gone.
@@ -638,9 +551,10 @@ class RuppertsAlgorithm:
                 if would_encroach:
                     self._bad_queue.append(triangle)
                 else:
-                    self.add_vertex(centre)
-                    new_vertex = len(self.vertices) - 1
-            if new_vertex is not None:
+                    # The triangle is the natural start of the walk to its own
+                    # circumcenter.
+                    created = self.add_vertex(centre, near=self.triangulation.find(triangle))
+            if created is not None:
                 if len(self.vertices) - self.n_input_vertices > self.max_insertions:
                     raise RuntimeError(
                         f'Ruppert refinement inserted {self.max_insertions} points without '
@@ -648,9 +562,7 @@ class RuppertsAlgorithm:
                         f'max_area={self.max_area}); lower the angle bound, or raise '
                         f'max_insertions if the mesh is meant to be this fine'
                     )
-                self._retriangulate()
-                self._refill_bad_queue(self._bad_triangles_created_by(new_vertex),
-                                       replace=False)
+                self._refill_bad_queue(self._bad_among(created), replace=False)
             # `would_encroach` is not in the mask: no vertex was placed to put it
             # there, since the circumcenter that would have was refused.
             encroached_segments = list(self.get_encroached_segments()) + would_encroach
@@ -671,30 +583,15 @@ class RuppertsAlgorithm:
         self._circles = None
         return loop_id, curve
 
-    def _perturb(self, circumcenter, triangle):
-        '''Nudge an inserted circumcenter a hair off its exact position.
-
-        A circumcenter lies exactly on its triangle's circumcircle, which is the
-        cocircular worst case for the incremental Delaunay underneath: on the lifted
-        paraboloid the new point is coplanar with the ones it joins, and qhull's facet
-        merge can fail with a precision error. One re-entrant corner trips it rarely, but
-        a finely sampled smooth outline (an airfoil) packs enough near-cocircular points
-        that it trips on most insertions there, and the batch-rebuild recovery in
-        `_retriangulate` then dominates the run. Moving the point a fixed tiny fraction of
-        its circumradius, in a deterministic direction, breaks the degeneracy at the
-        source while leaving it where refinement meant to put it: the offset is far above
-        qhull's precision floor and far below any mesh feature. Only interior circumcenters
-        are perturbed; a segment split point has to stay on its segment.
-        '''
-        radius = float(np.linalg.norm(circumcenter - self.vertices[triangle[0]]))
-        angle = float(self._rng.uniform(0, 2 * np.pi))
-        return circumcenter + 1e-4 * radius * np.array([np.cos(angle), np.sin(angle)])
-
-    def add_vertex(self, vertex):
+    def add_vertex(self, vertex, near=None):
+        '''Insert `vertex`, returning the triangles that made; `near` is a triangle
+        id to start the walk to it from.'''
         # The one place vertices appear, so the one place a segment can newly
         # become encroached by an existing circle.
         self._encroached |= self._circles_containing(vertex)
-        self.vertices = np.append(self.vertices, [vertex], axis=0)
+        _, created = self.triangulation.insert(np.asarray(vertex, dtype=float), near)
+        self.vertices = self.triangulation.points
+        return created
 
     def add_segment(self, segment, loop_id=0, curve=None):
         # A new circle has no history to carry forward, so it is scanned against
@@ -741,8 +638,13 @@ class RuppertsAlgorithm:
         return corner + (far - corner) * (radius / length)
 
     def split_segment(self, segment):
+        '''Replace `segment` by its two halves, returning the triangles that made.'''
         new_vertex_idx = len(self.vertices)
         new_segments = [[segment[0], new_vertex_idx], [segment[1], new_vertex_idx]]
+        # A segment is an edge of the triangulation (its diametral circle is only
+        # ever split for being non-empty, never for being absent), so the walk to
+        # its split point starts on it.
+        near = self.triangulation.triangle_on(int(segment[0]), int(segment[1]))
         # Halves inherit the loop and the curve, so a boundary facet can still be traced
         # back to the outline it came from however many times it has been split.
         loop_id, curve = self.del_segment(segment)
@@ -752,7 +654,7 @@ class RuppertsAlgorithm:
         # smooth curve has no sharp corner, so this never fights the shell splitting.
         if curve is not None:
             split = np.asarray(curve.project(split))
-        self.add_vertex(split)
+        created = self.add_vertex(split, near)
         self.add_segment(new_segments[0], loop_id, curve)
         self.add_segment(new_segments[1], loop_id, curve)
-        return new_segments
+        return created

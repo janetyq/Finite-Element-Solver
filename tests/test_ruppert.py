@@ -8,7 +8,7 @@ import logging
 
 import numpy as np
 import pytest
-from scipy.spatial import Delaunay, QhullError
+from scipy.spatial import Delaunay
 
 from fem.mesh.mesh import triangle_min_angle
 from fem.mesh.pslg import point_in_polygon, polygon_area
@@ -25,10 +25,10 @@ SLAB_OUTLINE = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 0.5], [0.0, 0.5]])
 # A plate comfortably around the L-shape, sharing no vertex with it.
 PLATE_OUTLINE = np.array([[-3.0, -3.0], [5.0, -3.0], [5.0, 5.0], [-3.0, 5.0]])
 
-# `files/cloud.svg` simplified at tolerance 0.02, from the backlog's qhull-precision
-# report. Its tight curvature makes qhull fan a segment split's collinear triple into a
-# zero-area sliver that crashes an unguarded refinement. Regular shapes do not reproduce it, so
-# the exact coordinates are pinned here rather than generated.
+# `files/cloud.svg` simplified at tolerance 0.02. Its tight curvature once fanned a segment
+# split's collinear triple into a zero-area sliver that crashed an unguarded refinement.
+# Regular shapes do not reproduce it, so the exact coordinates are pinned here rather than
+# generated.
 CLOUD_OUTLINE = np.array([
     [3.0000, 786.3507], [3.2753, 784.6595], [4.5816, 782.5672], [6.6932, 781.2728],
     [8.4000, 781.0000], [17.9224, 781.2296], [20.1318, 782.8436], [21.0000, 785.5031],
@@ -39,10 +39,8 @@ CLOUD_OUTLINE = np.array([
 
 # A slender L-bracket (arm 4, limb width 1.2) with a sharp re-entrant corner. Its long
 # axis-aligned edges and the circumcenters refinement inserts along the corner are
-# nearly cocircular, which trips qhull's incremental insertion with a "wide merge"
-# precision error partway through a run. Distinct from CLOUD_OUTLINE's failure,
-# which was a segment-split sliver; this one is in add_points, and the coordinates are
-# pinned because a regular shape does not reproduce it.
+# nearly cocircular, the worst case for an incremental Delaunay insertion; the
+# coordinates are pinned because a regular shape does not reproduce it.
 L_BRACKET_OUTLINE = np.array([
     [0.0, 0.0], [4.0, 0.0], [4.0, 1.2], [1.2, 1.2], [1.2, 4.0], [0.0, 4.0],
 ])
@@ -125,17 +123,12 @@ def test_growing_the_triangulation_keeps_it_delaunay():
     assert len(simplices) == len(Delaunay(vertices).simplices)
 
 
-def test_an_outline_qhull_cannot_start_incrementally_from_still_meshes():
-    """Incremental mode needs a non-degenerate initial simplex, which four cocircular points
-    (a rectangle) do not give; such a run rebuilds until qhull takes the point set."""
-    algo = RuppertsAlgorithm(_thin_slab(), min_angle=25)
-    with pytest.raises(QhullError):
-        Delaunay(SLAB_OUTLINE, incremental=True)
-
-    mesh = algo.refine()
+def test_a_cocircular_outline_meshes():
+    """Four cocircular input points (a rectangle) are the degenerate start for an
+    incremental Delaunay; the run must still meet its angle bound."""
+    mesh = RuppertsAlgorithm(_thin_slab(), min_angle=25).refine()
 
     assert _min_angles(mesh).min() >= 25
-    assert algo._incremental, 'the run never got off the rebuild path'
 
 
 def test_no_segment_is_encroached_on_return():
@@ -621,9 +614,9 @@ def test_a_collinear_sliver_is_never_treated_as_a_bad_triangle():
     assert algo._fails_a_bound(skinny)[0], 'a real skinny triangle still fails the bound'
 
 
-def test_a_tight_outline_meshes_without_a_qhull_precision_error():
-    """`CLOUD_OUTLINE` under an area cap meshes without a QhullError, honours the angle
-    bound, and fills what the outline encloses."""
+def test_a_tight_outline_meshes_under_an_area_cap():
+    """`CLOUD_OUTLINE` under an area cap meshes, honours the angle bound, and fills what
+    the outline encloses."""
     pslg = PSLG(CLOUD_OUTLINE.copy())
     algo = RuppertsAlgorithm(pslg, min_angle=30, max_area=0.005 * pslg.area())
 
@@ -636,10 +629,9 @@ def test_a_tight_outline_meshes_without_a_qhull_precision_error():
 
 
 @pytest.mark.parametrize('max_area_fraction', [0.04, 0.06, 0.08, 0.10])
-def test_a_reentrant_corner_meshes_through_an_incremental_precision_error(max_area_fraction):
-    """The sharp re-entrant `L_BRACKET_OUTLINE` under an area cap meshes through qhull's
-    incremental precision error (the wide merge is caught and the triangulation rebuilt
-    in batch), honouring the angle bound and filling the outline."""
+def test_a_sharp_reentrant_corner_meshes_under_an_area_cap(max_area_fraction):
+    """The sharp re-entrant `L_BRACKET_OUTLINE` under an area cap meshes through its
+    near-cocircular insertions, honouring the angle bound and filling the outline."""
     pslg = PSLG(L_BRACKET_OUTLINE.copy())
     algo = RuppertsAlgorithm(pslg, min_angle=25, max_area=max_area_fraction * pslg.area())
 
@@ -651,10 +643,9 @@ def test_a_reentrant_corner_meshes_through_an_incremental_precision_error(max_ar
     assert filled == pytest.approx(pslg.area())
 
 
-def test_refinement_is_reproducible_despite_the_perturbation():
-    """Each inserted circumcenter is nudged a hair off its exact position to dodge the
-    cocircular precision failure, but from a fixed seed, so a run is deterministic:
-    meshing the same outline twice must give the identical triangulation."""
+def test_refinement_is_reproducible():
+    """Insertions happen in a deterministic order at deterministic positions, so meshing
+    the same outline twice must give the identical triangulation."""
     first = RuppertsAlgorithm(_l_shape(), min_angle=25, max_area=REFINING_AREA).refine()
     second = RuppertsAlgorithm(_l_shape(), min_angle=25, max_area=REFINING_AREA).refine()
 

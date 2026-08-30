@@ -11,7 +11,6 @@ Effort: 🟢 low · 🟡 medium · 🔴 high.
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
 | Scaling | Cache assembly across `solve()` calls | 🟡 | [§2](#2-performance--scaling) |
-| Scaling | Per-insertion `O(n)` left in Ruppert's refinement | 🔴 | [§2](#2-performance--scaling) |
 | Numerics | 3D P2 (`QuadraticTetrahedralElement`); P2 curved-element adaptivity | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Mixed (u-p) formulation for near-incompressible elasticity | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -38,25 +37,17 @@ operator and load. The two looping drivers already avoid this: the integrators b
 of element matrices via `LinearProblem.with_operator`. The remaining case is a repeated steady
 `solve()`.
 
-### 🟠 Per-insertion `O(n)` left in Ruppert's refinement
-Refinement grows the triangulation incrementally, carries encroachment in a mask, and refines off a
-queue of bad triangles topped up per insertion. `_retriangulate` (qhull's own insertion) is the
-largest single cost.
-
-What is left is `O(n)` per insertion in two cheap places: `(simplices == v).any(axis=1)` to find
-the triangles an insertion created, and `_live_triangle_keys` to pack and sort every triangle so a
-queued one can be checked to still exist. Both are integer work, so the constant is small, but the
-loop is still superlinear. Removing them needs the cavity from qhull (`add_points` does not report
-it) or a hand-rolled Bowyer-Watson.
-
-Two approaches measured and rejected, so they are not proposed again:
+### Ruppert's refinement: approaches measured and rejected
+Not open work; recorded so they are not proposed again. Refinement now inserts through
+`IncrementalDelaunay`, so an insertion costs its cavity.
 - **Testing enclosure per candidate instead of labelling regions**, over the whole mesh: 1.9x
   *slower*. A non-convex outline fails the angle bound on hundreds of triangles outside the hull,
   and there are only a handful of regions. Per *newly created* triangle it is the right trade,
-  which is what `_bad_triangles_created_by` does.
-- **`find_simplex` for the staleness check**: 14us in a tight loop but 14ms when interleaved with
-  `add_points`, which rebuilds its search structure each time. That made the queue 8x slower than
-  the rescan it replaced.
+  which is what `_bad_among` does.
+- **scipy's incremental `Delaunay`** (`add_points`) for the growing triangulation: it rebuilds
+  its simplex arrays after every insertion, ~10 ms each at a few thousand points, so a run was
+  quadratic and that one call was over 80% of it; and its point location (`find_simplex`)
+  rebuilds a search structure per call, 1000x slower interleaved with insertions than alone.
 
 ---
 
