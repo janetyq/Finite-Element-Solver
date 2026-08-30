@@ -8,7 +8,7 @@ from fem.conditions import Conditions
 from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.outline import Outline
-from fem.mesh.pslg import PSLG, _find_crossing_segments
+from fem.mesh.pslg import PSLG, _find_crossing_segments, _find_improper_touch
 from fem.mesh.structured import box_mesh
 from fem.regions import on_tag
 from fem.space import FunctionSpace
@@ -105,6 +105,49 @@ def test_grid_crossing_finds_a_crossing_among_far_apart_clusters():
     ])
     segments = np.array([[0, 1], [2, 3], [4, 5], [6, 7]])
     assert _find_crossing_segments(vertices, segments) == (0, 1)
+
+
+# --- T-junctions and collinear overlaps ---
+#
+# A proper crossing puts endpoints on opposite sides of a line; these two touch on the
+# line itself, which the strict crossing test skips, so `validate` catches them
+# separately. Each here is a graph the mesher would otherwise triangulate as the wrong
+# region without a word.
+
+def test_validate_rejects_a_t_junction():
+    """An endpoint of one segment sitting in another's interior is not a valid PSLG."""
+    vertices = np.array([[0.0, 0.0], [4.0, 0.0], [2.0, 0.0], [2.0, 2.0]])
+    graph = PSLG(vertices, segments=[[0, 1], [2, 3]])   # (2,0) lands on the first segment
+    assert _find_improper_touch(vertices, graph.segments) == (0, 1, 'touch')
+    with pytest.raises(ValueError, match='T-junction'):
+        graph.validate()
+
+
+def test_validate_rejects_a_collinear_overlap():
+    """Two collinear segments sharing more than a point overlap; one region gets meshed
+    twice and its neighbour not at all."""
+    vertices = np.array([[0.0, 0.0], [4.0, 0.0], [2.0, 0.0], [6.0, 0.0]])
+    graph = PSLG(vertices, segments=[[0, 1], [2, 3]])   # [0,4] and [2,6] share [2,4]
+    assert _find_improper_touch(vertices, graph.segments) == (0, 1, 'overlap')
+    with pytest.raises(ValueError, match='overlap'):
+        graph.validate()
+
+
+def test_validate_allows_collinear_segments_sharing_only_an_endpoint():
+    """A straight edge sampled into pieces is collinear segments meeting end to end;
+    that is the common case, not an overlap."""
+    vertices = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
+    graph = PSLG(vertices, segments=[[0, 1], [1, 2]])
+    assert _find_improper_touch(vertices, graph.segments) is None
+    graph.validate()   # does not raise
+
+
+def test_validate_accepts_a_finely_sampled_straight_edged_outline():
+    """The straight sides of a sampled square are long runs of collinear chords; none of
+    them may be mistaken for an overlap."""
+    graph = Outline.from_polygons([SQUARE]).sample(resolution=0.1)
+    assert _find_improper_touch(graph.vertices, graph.segments) is None
+    graph.validate()   # does not raise
 
 
 # --- boundary tags ---

@@ -136,6 +136,87 @@ def _find_crossing_segments(vertices, segments):
     return int(i[first]), int(j[first])
 
 
+# On-the-line and overlap tests carry a relative tolerance: a vertex placed on an
+# edge, or a segment laid along another, is rarely bit-exact after sampling, and the
+# strict-inequality crossing test above deliberately treats an on-line point as
+# non-crossing, so these degenerate touches need their own detector. The tolerance is
+# relative to the segment length, so it means the same at any coordinate scale.
+_TOUCH_TOLERANCE = 1e-9
+
+
+def _point_on_open_segment(point, start, end, tol=_TOUCH_TOLERANCE):
+    '''Whether `point` lies on segment `(start, end)` strictly between its endpoints.
+
+    On the supporting line to within `tol` of the segment's length, and with its
+    projection parameter in `(tol, 1 - tol)` so an endpoint (a shared vertex) does not
+    count. `validate` has already refused duplicate vertices, so a non-shared endpoint
+    cannot coincide with one of `(start, end)`.
+    '''
+    d = end - start
+    dd = float(d @ d)
+    if dd == 0.0:
+        return False                       # a zero-length segment is refused elsewhere
+    cross = float(d[0] * (point[1] - start[1]) - d[1] * (point[0] - start[0]))
+    if cross * cross > (tol * tol) * dd * dd:
+        return False                       # off the supporting line
+    t = float((point - start) @ d) / dd
+    return tol < t < 1.0 - tol
+
+
+def _collinear_overlap_fraction(a0, a1, b0, b1, tol=_TOUCH_TOLERANCE):
+    '''The length of the overlap of two collinear segments, as a fraction of the first.
+
+    Zero unless both endpoints of `(b0, b1)` lie on the line through `(a0, a1)`; then
+    the segments' projections onto that line are intersected. Two collinear segments
+    meeting only at a shared endpoint give a zero-length overlap and so are allowed.
+    '''
+    d = a1 - a0
+    dd = float(d @ d)
+    if dd == 0.0:
+        return 0.0
+    for p in (b0, b1):
+        cross = float(d[0] * (p[1] - a0[1]) - d[1] * (p[0] - a0[0]))
+        if cross * cross > (tol * tol) * dd * dd:
+            return 0.0                     # not collinear
+    tb0 = float((b0 - a0) @ d) / dd
+    tb1 = float((b1 - a0) @ d) / dd
+    lo = max(0.0, min(tb0, tb1))
+    hi = min(1.0, max(tb0, tb1))
+    return max(0.0, hi - lo)
+
+
+def _find_improper_touch(vertices, segments):
+    '''The lex-first pair of segments that touch anywhere but a single shared endpoint.
+
+    Returns `(i, j, kind)` with `kind` either `'overlap'` (the two are collinear and
+    share more than a point) or `'touch'` (an endpoint of one lands in the other's
+    interior, a T-junction), or `None` when every contact is at a shared endpoint.
+    Complements `_find_crossing_segments`, which handles interiors that properly cross;
+    together they are the ways a planar straight-line graph can be malformed. Reuses the
+    same bounding-box grid, so it stays near-linear on a spread-out outline.
+    '''
+    vertices = np.asarray(vertices, dtype=float)
+    segments = np.asarray(segments)
+    if len(segments) < 2:
+        return None
+
+    starts, ends = vertices[segments[:, 0]], vertices[segments[:, 1]]
+    lo = np.minimum(starts, ends)
+    hi = np.maximum(starts, ends)
+
+    for i, j in sorted(_candidate_segment_pairs(lo, hi)):
+        a0, a1, b0, b1 = starts[i], ends[i], starts[j], ends[j]
+        # Collinear containment triggers the interior test too; report it as an overlap,
+        # the more descriptive of the two.
+        if (_collinear_overlap_fraction(a0, a1, b0, b1) > _TOUCH_TOLERANCE
+                or _collinear_overlap_fraction(b0, b1, a0, a1) > _TOUCH_TOLERANCE):
+            return int(i), int(j), 'overlap'
+        if (_point_on_open_segment(b0, a0, a1) or _point_on_open_segment(b1, a0, a1)
+                or _point_on_open_segment(a0, b0, b1) or _point_on_open_segment(a1, b0, b1)):
+            return int(i), int(j), 'touch'
+    return None
+
+
 @dataclass(frozen=True, eq=False)
 class PSLG:
     '''A planar straight-line graph: vertices, plus the segments a mesh must respect.
@@ -200,9 +281,11 @@ class PSLG:
     def validate(self) -> None:
         '''Raise if these segments do not describe a planar straight-line graph.
 
-        Segments may share endpoints and may not otherwise touch. Meshing an
-        input that breaks this does not fail, it quietly produces a mesh of the
-        wrong region, so it is worth refusing up front.
+        Segments may share endpoints and may not otherwise touch: no zero-length
+        segment, no duplicate vertex, and no two segments that cross, meet at a
+        T-junction (an endpoint on another's interior), or overlap along a shared
+        line. Meshing an input that breaks this does not fail, it quietly produces a
+        mesh of the wrong region, so it is worth refusing up front.
         '''
         vertices, segments = self.vertices, self.segments
 
@@ -216,6 +299,20 @@ class PSLG:
         if np.any(counts > 1):
             duplicate = vertices[first[counts > 1][0]]
             raise ValueError(f'vertex {duplicate.tolist()} appears more than once')
+
+        # Degenerate touches first, so a T-junction or overlap is named for what it is:
+        # the strict crossing test below reads an on-line endpoint as one-sided, so it
+        # would call some T-junctions crossings and miss others depending on which way
+        # the stem leaves the line.
+        touch = _find_improper_touch(vertices, segments)
+        if touch is not None:
+            first_seg, second, kind = touch
+            reason = ('overlap along a shared line' if kind == 'overlap'
+                      else 'touch away from their endpoints (a T-junction)')
+            raise ValueError(
+                f'segments {segments[first_seg].tolist()} and {segments[second].tolist()} '
+                f'{reason}'
+            )
 
         crossing = _find_crossing_segments(vertices, segments)
         if crossing is not None:
