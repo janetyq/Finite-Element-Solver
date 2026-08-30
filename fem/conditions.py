@@ -242,7 +242,9 @@ class Conditions:
             r.kappa * BoundaryMassForm(n_components, r.facet_mask) for r in robin)
         loads: list[Load] = [] if self.source is None else [self.source]
         loads += [BoundaryLoad.over(space, c.facet_mask, c.node_idxs, c.value) for c in neumann]
-        loads += [BoundaryLoad.over(space, c.facet_mask, c.node_idxs, c.value) for c in robin]
+        robin_loads = tuple(
+            BoundaryLoad.over(space, c.facet_mask, c.node_idxs, c.value) for c in robin)
+        loads += list(robin_loads)
         loads += list(self.point_loads)
 
         # The initial state defaults to the Dirichlet lift (the prescribed values at the
@@ -256,6 +258,7 @@ class Conditions:
             u0=NodalField(space, lift), v0=NodalField(space, np.zeros(space.n_dofs)),
             dirichlet=tuple(dirichlet), neumann=tuple(neumann), robin=tuple(robin),
             operator_terms=operator_terms, source=self.source, loads=tuple(loads),
+            robin_loads=robin_loads,
         )
         if self.initial is not None:
             u0, v0 = resolved.resolve_initial(self.initial)
@@ -286,6 +289,7 @@ class ResolvedConditions:
     operator_terms: tuple[Form, ...] = ()   # κ boundary mass per Robin condition
     source: Source | None = None            # the volume source, a pointwise field
     loads: tuple[Load, ...] = ()            # source, boundary integrals, point loads
+    robin_loads: tuple[BoundaryLoad, ...] = ()   # the ∫_Γ g·v term of each Robin condition
 
     @property
     def n_nodes(self) -> int:
