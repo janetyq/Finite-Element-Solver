@@ -43,7 +43,7 @@ def _poisson_mms(n, backend):
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     eq = Poisson()
     bc = Conditions(Dirichlet(everywhere(), 0.0))
-    problem = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]))
+    problem = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])]))
     u = problem.solve(backend=backend).dofs
     exact = np.sin(np.pi * mesh.vertices[:, 0]) * np.sin(np.pi * mesh.vertices[:, 1])
     error = u - exact
@@ -56,8 +56,8 @@ def test_iterative_matches_direct_on_poisson():
     eq = Poisson()
     bc = Conditions(Dirichlet(everywhere(), 0.0))
 
-    direct = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])).solve(backend=DirectBackend()).dofs
-    iterative = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])])).solve(backend=IterativeBackend()).dofs
+    direct = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])])).solve(backend=DirectBackend()).dofs
+    iterative = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])])).solve(backend=IterativeBackend()).dofs
     np.testing.assert_allclose(iterative, direct, atol=1e-8)
 
 

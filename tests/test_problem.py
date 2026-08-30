@@ -21,7 +21,7 @@ from fem.loads import Source
 
 
 def _mms_source(p):
-    return [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]
+    return [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])]
 
 
 def _problem(equation, mesh, bc=None):
@@ -255,11 +255,11 @@ def test_callable_source_is_sampled_at_the_quadrature_points(make_unit_square):
     space = FunctionSpace(mesh)
 
     def peaked(point):
-        return float(np.exp(-40 * np.sum((point - 0.5) ** 2)))
+        return np.exp(-40 * np.sum((point - 0.5) ** 2, axis=1))
 
     sampled = LinearProblem(space, DiffusionForm(), Conditions(Source(peaked))).load
     explicit = LinearProblem(space, DiffusionForm(), Conditions(Source(peaked))).load
-    nodal = space.mass_matrix @ np.array([peaked(p) for p in space.node_coords])
+    nodal = space.mass_matrix @ peaked(space.node_coords)
     assert np.allclose(sampled, explicit)
     assert not np.allclose(sampled, nodal)
 

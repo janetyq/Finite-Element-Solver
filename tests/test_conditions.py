@@ -125,7 +125,7 @@ def test_a_traction_on_a_pinned_component_conflicts_whatever_its_value(make_unit
     assert len(roller.resolve(space).neumann) == 1
     # A callable of position is read at the nodes, where its zeros are exact.
     sheared = Conditions(Dirichlet(on_plane(0, 0.0), [0, None]),
-                         Neumann(on_plane(0, 0.0), lambda p: [0.0, p[1]]))
+                         Neumann(on_plane(0, 0.0), lambda p: [0.0, p[:, 1]]))
     assert len(sheared.resolve(space).neumann) == 1
     # A TimeDependent value cannot be known to vanish, so on a roller's own nodes it
     # conflicts unless it leaves the pinned component None.
@@ -163,7 +163,7 @@ def test_no_initial_resolves_to_the_dirichlet_lift_at_rest(make_unit_square):
 
 def test_initial_is_interpolated_at_the_nodes_and_checked_against_dirichlet(make_unit_square):
     space = FunctionSpace(make_unit_square(4), n_components=1)
-    profile = Initial(lambda p: 1.0 + p[0], v0=lambda p: p[0])
+    profile = Initial(lambda p: 1.0 + p[:, 0], v0=lambda p: p[:, 0])
     resolved = Conditions(Dirichlet(on_plane(0, 0.0), 1.0), profile).resolve(space)
     np.testing.assert_allclose(resolved.u0.dofs, 1.0 + space.node_coords[:, 0])
     np.testing.assert_allclose(resolved.v0.dofs, space.interpolate(profile.v0).dofs)
@@ -176,19 +176,19 @@ def test_initial_is_interpolated_at_the_nodes_and_checked_against_dirichlet(make
 def test_a_field_is_taken_as_is_on_its_space_and_evaluated_on_another(make_unit_square):
     coarse = FunctionSpace(make_unit_square(3), n_components=1)
     fine = FunctionSpace(make_unit_square(6), n_components=1)
-    ramp = coarse.interpolate(lambda p: p[0] + 2 * p[1])
+    ramp = coarse.interpolate(lambda p: p[:, 0] + 2 * p[:, 1])
     on_coarse, _ = Conditions().resolve(coarse).resolve_initial(Initial(ramp))
     assert on_coarse is ramp
     on_fine, _ = Conditions().resolve(fine).resolve_initial(Initial(ramp))
-    np.testing.assert_allclose(on_fine.dofs, fine.interpolate(lambda p: p[0] + 2 * p[1]).dofs, atol=1e-12)
+    np.testing.assert_allclose(on_fine.dofs, fine.interpolate(lambda p: p[:, 0] + 2 * p[:, 1]).dofs, atol=1e-12)
 
 
 def test_integrators_step_from_the_initial_state_unless_overridden(make_unit_square):
     mesh = make_unit_square(5)
-    hot = Conditions(Dirichlet(on_plane(0, 0.0), 1.0), Initial(lambda p: 1.0 - p[0]))
+    hot = Conditions(Dirichlet(on_plane(0, 0.0), 1.0), Initial(lambda p: 1.0 - p[:, 0]))
     heat = Heat().problem(mesh, hot)
     stepped = ThetaMethod(dt=0.05, steps=4).solve(heat)
-    by_hand = ThetaMethod(dt=0.05, steps=4).solve(heat, initial=Initial(lambda p: 1.0 - p[0]))
+    by_hand = ThetaMethod(dt=0.05, steps=4).solve(heat, initial=Initial(lambda p: 1.0 - p[:, 0]))
     np.testing.assert_allclose(stepped.dofs, by_hand.dofs)
     continued = ThetaMethod(dt=0.05, steps=2).solve(heat, initial=Initial(stepped[2]))
     np.testing.assert_allclose(continued.dofs[-1], stepped.dofs[-1])
@@ -196,7 +196,7 @@ def test_integrators_step_from_the_initial_state_unless_overridden(make_unit_squ
         ThetaMethod(dt=0.05, steps=1).solve(heat, initial=Initial(0.0))
 
     def bump(p):
-        return np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])
+        return np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])
 
     wave = Wave().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0), Initial(0.0, v0=bump)))
     rest = Wave().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0)))
@@ -214,7 +214,7 @@ def test_newton_iterates_from_the_initial_state(make_unit_square):
     mesh = make_unit_square(4)
     bc = Conditions(Dirichlet(on_plane(0, 0.0), 0.0), Source(1.0))
     cold = Poisson().problem(mesh, bc)
-    warm = Poisson().problem(mesh, bc + Initial(lambda p: p[0]))
+    warm = Poisson().problem(mesh, bc + Initial(lambda p: p[:, 0]))
     reference = cold.solve().dofs
     np.testing.assert_allclose(NewtonSolve().solve(warm), reference, atol=1e-10)
     np.testing.assert_allclose(NewtonSolve().solve(cold, initial=Initial(warm.u0)), reference, atol=1e-10)

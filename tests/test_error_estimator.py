@@ -31,7 +31,7 @@ def _for(equation, bc):
 def test_error_estimator_linear_solution_small_jumps(make_unit_square):
     """A problem with linear exact solution has near-zero gradient jumps."""
     mesh = make_unit_square(6)
-    bc = Conditions(Dirichlet(everywhere(), lambda p: p[0]))
+    bc = Conditions(Dirichlet(everywhere(), lambda p: p[:, 0]))
     equation = Poisson()
     problem, solution = _solved(mesh, equation, bc)
 
@@ -47,7 +47,7 @@ def test_error_estimator_concentrates_near_peak(make_unit_square):
 
     def peaked_source(point):
         a = 50
-        x, y = point - 0.5
+        x, y = (point - 0.5).T
         r2 = x**2 + y**2
         return 4*a*a*(1-a*r2)*e**(-a*r2)
 
@@ -71,7 +71,7 @@ def test_adaptive_refinement_with_error_estimator(make_unit_square):
     equation = Poisson()
 
     n_before = len(mesh.elements)
-    bc = bc + Source(lambda p: 10.0 if np.linalg.norm(p - 0.5) < 0.1 else 0.0)
+    bc = bc + Source(lambda p: np.where(np.linalg.norm(p - 0.5, axis=1) < 0.1, 10.0, 0.0))
     driver = AdaptiveRefinement(mesh, _for(equation, bc), ResidualEstimator(),
                                 max_triangles=300, max_iters=5)
     driver.run()
@@ -98,8 +98,8 @@ def test_poisson_estimator_affine_coefficient_exact_p1_solution_is_quiet(make_un
     """kappa = 1 + x, u = x: the flux (1 + x) is continuous, and its divergence, 1,
     cancels the source f = -1. Reading grad u alone would report f + laplacian(u) = -1."""
     mesh = make_unit_square(6)
-    bc = Conditions(Dirichlet(everywhere(), lambda p: p[0]), Source(-1.0))
-    problem = Poisson(coefficient=lambda p: 1.0 + p[0]).problem(mesh, bc)
+    bc = Conditions(Dirichlet(everywhere(), lambda p: p[:, 0]), Source(-1.0))
+    problem = Poisson(coefficient=lambda p: 1.0 + p[:, 0]).problem(mesh, bc)
     solution = problem.solve()
     np.testing.assert_allclose(solution.dofs, mesh.vertices[:, 0], atol=1e-12)
 
@@ -117,10 +117,10 @@ def test_poisson_estimator_affine_coefficient_exact_p2_solution_is_quiet(make_un
     # function, are cubic integrands: raise both rules so the discrete solution is the
     # exact u = x^2.
     bc = Conditions(
-        Dirichlet(everywhere(), lambda p: p[0]**2),
-        Source(lambda p: -(2.0 + 4.0 * p[0]), quadrature_degree=4),
+        Dirichlet(everywhere(), lambda p: p[:, 0]**2),
+        Source(lambda p: -(2.0 + 4.0 * p[:, 0]), quadrature_degree=4),
     )
-    problem = LinearProblem(space, DiffusionForm(lambda p: 1.0 + p[0], rule_degree=4), bc)
+    problem = LinearProblem(space, DiffusionForm(lambda p: 1.0 + p[:, 0], rule_degree=4), bc)
     solution = problem.solve()
     np.testing.assert_allclose(solution.dofs, space.node_coords[:, 0]**2, atol=1e-10)
 
@@ -134,7 +134,7 @@ def test_poisson_estimator_constant_coefficient_scales_the_estimate(make_unit_sq
     mesh = make_unit_square(8)
     bc = Conditions(Dirichlet(everywhere(), 0.0))
     def source(p):
-        return np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])
+        return np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])
 
     unit = Poisson().problem(mesh, bc + Source(source))
     scaled = Poisson(coefficient=3.0).problem(mesh, bc + Source(lambda p: 3.0 * source(p)))
@@ -150,7 +150,7 @@ def test_poisson_estimator_scaled_form_scales_its_flux(make_unit_square):
     """`3 * DiffusionForm()` and `DiffusionForm(3.0)` are the same operator, so their
     estimates agree: the scaled form's flux carries the factor."""
     mesh = make_unit_square(6)
-    bc = Conditions(Dirichlet(everywhere(), 0.0), Source(lambda p: p[0] * p[1]))
+    bc = Conditions(Dirichlet(everywhere(), 0.0), Source(lambda p: p[:, 0] * p[:, 1]))
     space = FunctionSpace(mesh)
     by_coefficient = LinearProblem(space, DiffusionForm(3.0), bc)
     by_factor = LinearProblem(space, 3.0 * DiffusionForm(), bc)
@@ -241,7 +241,7 @@ def test_elastic_error_estimator_linear_solution_small_jumps(make_unit_square):
     zero body force, so eta vanishes. Dirichlet everywhere, so only the interior and
     jump terms are exercised."""
     mesh = make_unit_square(6)
-    bc = Conditions(Dirichlet(everywhere(), lambda p: [0.01 * p[0], -0.003 * p[1]]))
+    bc = Conditions(Dirichlet(everywhere(), lambda p: [0.01 * p[:, 0], -0.003 * p[:, 1]]))
     equation = LinearElastic(E=200, nu=0.3)
     problem, solution = _solved(mesh, equation, bc)
 

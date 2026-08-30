@@ -70,7 +70,7 @@ def test_p2_reproduces_a_linear_displacement_and_its_constant_stress():
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(6, 6))
     space = FunctionSpace(mesh, QuadraticTriangleElement, n_components=2)
 
-    bc = Conditions(Dirichlet(everywhere(), lambda p: [a * p[0], 0.0]))
+    bc = Conditions(Dirichlet(everywhere(), lambda p: [a * p[:, 0], 0.0]))
     problem = LinearProblem(space, LinearElasticForm(LinearElasticMaterial(E, nu)), bc)
     u = LinearSolve().solve(problem)
 
@@ -94,7 +94,7 @@ def test_p2_is_reachable_through_the_solver_facade():
 
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
     bc = Conditions(Dirichlet(everywhere(), 0.0))
-    source = lambda p: [2 * np.pi**2 * np.sin(np.pi * p[0]) * np.sin(np.pi * p[1])]  # noqa: E731
+    source = lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])]  # noqa: E731
     problem = Poisson().problem(mesh, bc + Source(source), element_type=QuadraticTriangleElement)
     solution = problem.solve()
 

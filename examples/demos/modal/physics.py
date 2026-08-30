@@ -142,7 +142,7 @@ def strike(fork: ModalSolution, voice, ring_periods, steps_per_period,
     tap_length = 0.1 * period
 
     def pinch(p, t):
-        inward = -np.sign(p[0])      # each tip pushed toward the other
+        inward = -np.sign(p[:, 0])      # each tip pushed toward the other
         return [inward * np.sin(np.pi * t / tap_length) if t < tap_length else 0.0, 0.0]
 
     equation = LinearElastic(E, NU, density=RHO, damping=damping)

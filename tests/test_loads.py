@@ -193,7 +193,7 @@ def test_undamped_is_the_no_damping_path(make_unit_square):
     plain = LinearElastic(E=10.0, nu=0.3).problem(mesh, bc)
     zero = LinearElastic(E=10.0, nu=0.3, damping=RayleighDamping()).problem(mesh, bc)
     assert plain.damping_matrix is None
-    start = Initial(lambda p: [0.0, 0.01 * p[0]])
+    start = Initial(lambda p: [0.0, 0.01 * p[:, 0]])
     a = NewmarkMethod(dt=0.01, steps=5).solve(plain, initial=start)
     b = NewmarkMethod(dt=0.01, steps=5).solve(zero, initial=start)
     np.testing.assert_allclose(a.dofs[-1], b.dofs[-1], atol=1e-12)

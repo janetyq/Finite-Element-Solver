@@ -38,12 +38,12 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
     mesh = make_unit_square(20)
 
     def linear_field(p):
-        return [2.0 * p[0] + 3.0 * p[1] - 1.0]
+        return [2.0 * p[:, 0] + 3.0 * p[:, 1] - 1.0]
 
     solution = Projection().problem(mesh, Conditions(Source(linear_field))).solve()
 
     u = solution.dofs
-    expected = np.array([linear_field(v)[0] for v in mesh.vertices])
+    expected = linear_field(mesh.vertices)[0]
     assert np.allclose(u, expected, atol=1e-8), "linear field not reproduced exactly"
 
 

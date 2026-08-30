@@ -32,7 +32,7 @@ def test_a_source_integrates_a_constant_exactly_and_samples_a_callable(make_unit
     np.testing.assert_allclose(constant.vector(space).sum(), 2.0, atol=1e-12)
 
     def peaked(p):
-        return float(np.exp(-40 * np.sum((p - 0.5) ** 2)))
+        return np.exp(-40 * np.sum((p - 0.5) ** 2, axis=1))
 
     sampled = Source(peaked)
     assert sampled.is_sampled
@@ -46,7 +46,7 @@ def test_the_named_equation_and_the_hand_composition_agree_on_a_varying_coeffici
     bc = Conditions(Dirichlet(everywhere(), 0.0))
 
     def kappa(p):
-        return 1.0 + p[0] + p[1]
+        return 1.0 + p[:, 0] + p[:, 1]
 
     named = Poisson(coefficient=kappa).problem(mesh, bc + Source(1.0)).solve().dofs
     composed = LinearProblem(FunctionSpace(mesh), DiffusionForm(kappa), bc + Source(1.0)).solve().dofs
