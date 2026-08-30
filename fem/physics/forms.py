@@ -775,9 +775,15 @@ class EnergyForm(Form[ElasticSolution]):
     The physics is delegated to an energy density (`fem.physics.energies`), which evaluates
     the full derivative chain once for the whole mesh and returns a
     `StrainEnergyDerivatives` bundle (derivatives of W, distinct from those of the
-    total potential Pi this form builds). It contracts those against `dF_dx` (the
-    shape-function contribution to the deformation gradient) to produce the
+    total potential Pi this form builds). It contracts those against the shape-function
+    gradients, the nodal DOFs' contribution to the deformation gradient, to produce the
     assembly-ready element quantities.
+
+    That contribution is `dF_ci/du_{p,k} = grad_phi[p,i] delta_ck`: a node's k-th DOF
+    moves only row k of F. The delta is contracted by hand rather than materialized,
+    so the residual is `P : grad_phi` and the tangent `A : grad_phi : grad_phi` with
+    each free index of F pinned to a DOF component, `d^2` less work than the dense
+    `(n_el, d, d, N, d)` map would take.
     '''
     energy_density: EnergyDensity
     has_energy = True
@@ -792,12 +798,11 @@ class EnergyForm(Form[ElasticSolution]):
         '''
         return self.energy_density.energy_degree * max(0, shape_degree - 1)
 
-    def _dF_dx(self, geometry: ElementGeometry, q: int) -> FloatArray:
-        '''(n_el, d, d, N, d): dF/dx at quadrature point q. `dF_dx[e,c,i,p,k]` is
-        ∂F_ci/∂u_{p,k} = grad_phi[p,i] δ_ck, the shape-function contribution to the
-        deformation gradient in the standard `F[c,i]` orientation.'''
-        d = geometry.spatial_dim
-        return np.einsum('epi,ck->ecipk', geometry.grad_phi[:, q, :, :d], np.eye(d))
+    @staticmethod
+    def _grad_phi(geometry: ElementGeometry, q: int) -> FloatArray:
+        '''(n_el, N, d) shape-function gradients at quadrature point q, in the spatial
+        dimension: `dF_ci/du_{p,k} = grad_phi[e,p,i]` for `c == k`, zero otherwise.'''
+        return geometry.grad_phi[:, q, :, :geometry.spatial_dim]
 
     def element_energies(
         self, geometry: ElementGeometry, u_elements: FloatArray,
@@ -820,8 +825,8 @@ class EnergyForm(Form[ElasticSolution]):
         residual = np.zeros((geometry.n_elements, n_nodes, d))
         for q in range(geometry.n_qp):
             t = self.energy_density.evaluate(grad_u[:, q])
-            dF_dx = self._dF_dx(geometry, q)
-            dW_dx = np.einsum('eci,ecipk->epk', t.P, dF_dx)
+            # dPi/du_{p,k} = P_ki grad_phi[p,i]: row k of P against node p's gradient.
+            dW_dx = np.einsum('eki,epi->epk', t.P, self._grad_phi(geometry, q))
             residual += dW_dx * geometry.weight_detJ[:, q][:, None, None]
         return residual.reshape(geometry.n_elements, n_nodes * d)
 
@@ -829,17 +834,17 @@ class EnergyForm(Form[ElasticSolution]):
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> FloatArray:
         '''(n_elements, k, k) element tangents d²Pi/dx², k = N * d in the residual's order.'''
-        # d²Pi/dx² = A : dF_dx : dF_dx, where A = d²W/dF² is the density's material
-        # tangent and dF_dx maps a nodal DOF to its contribution to F. Each "einsum"
-        # is one double contraction (the shared F-index pairs "ci" and "kl"), summed
-        # over the quadrature points and weighted by `weight_detJ`.
+        # d²Pi/du_{p,a} du_{q,b} = A_{aibl} grad_phi[p,i] grad_phi[q,l], with
+        # A = d²W/dF² the density's material tangent: the DOF components a and b pin
+        # the row indices of the two F's, the gradients contract their column indices.
+        # Summed over the quadrature points and weighted by `weight_detJ`.
         grad_u = geometry.gradients(u_elements)
         n_nodes, d = geometry.grad_phi.shape[2], geometry.spatial_dim
         tangent = np.zeros((geometry.n_elements, n_nodes, d, n_nodes, d))
         for q in range(geometry.n_qp):
             t = self.energy_density.evaluate(grad_u[:, q])
-            dF_dx = self._dF_dx(geometry, q)
-            d2W_dx2 = np.einsum('ecikl,ecipq,eklrs->epqrs', t.A, dF_dx, dF_dx)
+            grad_phi = self._grad_phi(geometry, q)
+            d2W_dx2 = np.einsum('eaibl,epi,eql->epaqb', t.A, grad_phi, grad_phi, optimize=True)
             tangent += d2W_dx2 * geometry.weight_detJ[:, q][:, None, None, None, None]
         k = n_nodes * d
         return tangent.reshape(geometry.n_elements, k, k)

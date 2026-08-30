@@ -114,8 +114,9 @@ def test_stress_recovery_refuses_an_inverted_state(make_unit_square):
 
 def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_square):
     """Under strong compression (the right edge pushed 70% through the block) the St-VK
-    tangent loses ellipticity and a full Newton step from the zero seed diverges;
-    backtracking on the energy reaches equilibrium."""
+    tangent loses ellipticity and full Newton steps from the zero seed wander (the
+    iterate is still a unit or so off after 20 steps, and where it eventually lands
+    depends on round-off); backtracking on the energy reaches equilibrium."""
     mesh = make_unit_square(8)
     bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
@@ -125,8 +126,9 @@ def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_s
     problem = equation.problem(mesh, bc)
     free = problem.constraints[0]
 
-    with pytest.raises(RuntimeError, match="did not converge"):
-        NewtonSolve(max_iters=50, line_search=None).solve(problem)
+    with pytest.raises(NewtonDivergence, match="did not converge") as info:
+        NewtonSolve(max_iters=20, line_search=None).solve(problem)
+    assert info.value.step_norm > 0.1
 
     u = NewtonSolve(max_iters=50, line_search=BacktrackingLineSearch()).solve(problem)
     r_searched = float(np.linalg.norm(problem.residual(u)[free]))
