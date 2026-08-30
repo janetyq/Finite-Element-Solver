@@ -4,6 +4,7 @@ import pytest
 
 from fem.elements import QuadraticTriangleElement
 from fem.field import NodalField
+from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
 from fem.regions import on_plane
 from fem.space import FunctionSpace
@@ -128,6 +129,34 @@ def test_locate_finds_the_element_and_reference_coordinates(square):
     rebuilt = corners[:, 0] + np.einsum('pr,pri->pi', reference, corners[:, 1:] - corners[:, :1])
     np.testing.assert_allclose(rebuilt, points, atol=1e-12)
     assert np.all(reference >= -1e-9) and np.all(reference.sum(axis=1) <= 1 + 1e-9)
+
+
+def test_locate_batches_points_the_way_it_takes_them_one_at_a_time(square):
+    """Every point is tested against its candidates at once; the answer is the one a
+    point-by-point search gives, and the search structure is built once per mesh."""
+    points = np.random.default_rng(0).random((200, 2))
+    elements, reference = square.locate(points)
+    for p, e, r in zip(points, elements, reference):
+        (e1,), (r1,) = square.locate([p])
+        assert e1 == e
+        np.testing.assert_allclose(r1, r)
+    assert square._locator is square._locator
+
+
+def test_locate_falls_back_to_every_element_when_the_nearest_miss():
+    """A point in a large element near a cluster of small ones has none of the
+    nearest centroids in its own element; the fallback still finds it."""
+    fine = box_mesh(corners=[[0, 0], [1, 1]], resolution=(30, 30))
+    n = fine.n_vertices
+    vertices = np.vstack([fine.vertices, [[1.0, 0.0], [1.0, 1.0], [40.0, 0.5]]])
+    elements = np.vstack([fine.elements, [[n, n + 1, n + 2]]])
+    mesh = Mesh(vertices, elements)
+    (element,), (reference,) = mesh.locate(np.array([[1.5, 0.5]]))
+    assert element == mesh.n_elements - 1
+    assert np.all(reference >= 0) and reference.sum() <= 1
+    # The miss is reported by the point that missed, not the batch.
+    with pytest.raises(ValueError, match=r'-1\.\s*\] lies outside'):
+        mesh.locate(np.array([[0.2, 0.3], [0.5, -1.0]]))
 
 
 def test_locate_rejects_a_point_outside(square):

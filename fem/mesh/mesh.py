@@ -8,6 +8,7 @@ import itertools
 import math
 from collections.abc import Sequence
 from functools import cached_property
+from typing import Any
 
 import numpy as np
 
@@ -299,6 +300,18 @@ class Mesh:
 
     # -- new meshes from this one ------------------------------------------------------
 
+    @cached_property
+    def _locator(self) -> tuple[FloatArray, FloatArray, Any]:
+        '''What `locate` needs of the mesh, built once: each element's corner 0, the
+        inverse of its edge matrix, and a KD-tree over the centroids.'''
+        from scipy.spatial import KDTree
+
+        corners = self._vertices[self._elements[:, :self.element_dim + 1]]   # (n_el, d+1, d)
+        # T[e, i, r] = corner_{r+1} - corner_0, so T lambda = p - corner_0.
+        edges = np.swapaxes(corners[:, 1:] - corners[:, :1], 1, 2)
+        inverse: FloatArray = np.linalg.inv(edges).astype(float)
+        return corners[:, 0], inverse, KDTree(self.centroids)
+
     def locate(self, points: Vertices, tol: float = 1e-9) -> tuple[IntArray, FloatArray]:
         '''The element containing each of `points`, and the point's reference coordinates
         in it: `(elements (n_points,), reference (n_points, element_dim))`.
@@ -310,40 +323,41 @@ class Mesh:
         point outside the mesh (past `tol` in barycentric terms, shared edges and
         corners included) is an error. A point on a shared facet belongs to whichever
         of its elements is tested first.
-        '''
-        from scipy.spatial import KDTree
 
+        The search structure is cached on the mesh and every point is tested against
+        its candidates at once, so locating many points, or one point many times,
+        costs no more than the arithmetic.
+        '''
         points = np.atleast_2d(np.asarray(points, dtype=float))
         if points.shape[1] != self.spatial_dim:
             raise ValueError(
                 f'points are {points.shape[1]}-dimensional, the mesh is {self.spatial_dim}')
-        corners = self._vertices[self._elements[:, :self.element_dim + 1]]   # (n_el, d+1, d)
-        # T[e, i, r] = corner_{r+1} - corner_0, so T lambda = p - corner_0.
-        edges = np.swapaxes(corners[:, 1:] - corners[:, :1], 1, 2)
-        inverse = np.linalg.inv(edges)                                       # (n_el, d, d)
+        origins, inverse, tree = self._locator
 
-        def reference_in(candidates: IntArray, p: FloatArray) -> FloatArray:
-            '''(n_candidates, d) reference coordinates of `p` in each candidate element.'''
-            return np.einsum('eri,ei->er', inverse[candidates], p - corners[candidates, 0])
-
-        def inside(reference: FloatArray) -> np.ndarray:
-            return (reference >= -tol).all(axis=1) & (reference.sum(axis=1) <= 1 + tol)
+        def first_hit(candidates: IntArray, p: FloatArray) -> tuple[IntArray, FloatArray, np.ndarray]:
+            '''For each point, the first of its candidates holding it: the element, the
+            reference coordinates there, and whether any did. `candidates` is
+            (n_points, n_candidates), `p` (n_points, d).'''
+            offset = p[:, None, :] - origins[candidates]
+            ref = np.einsum('pcri,pci->pcr', inverse[candidates], offset)
+            inside = (ref >= -tol).all(axis=2) & (ref.sum(axis=2) <= 1 + tol)
+            first = inside.argmax(axis=1)
+            rows = np.arange(len(p))
+            return candidates[rows, first], ref[rows, first], inside.any(axis=1)
 
         k = min(self.n_elements, 2 * (self.element_dim + 1) ** 2)
-        _, nearest = KDTree(self.centroids).query(points, k=k)
+        _, nearest = tree.query(points, k=k)
         nearest = np.atleast_2d(nearest).reshape(len(points), -1)
-        elements = np.full(len(points), -1)
-        reference = np.zeros((len(points), self.element_dim))
-        for i, p in enumerate(points):
-            for candidates in (nearest[i], np.arange(self.n_elements)):
-                ref = reference_in(candidates, p)
-                hits = np.flatnonzero(inside(ref))
-                if len(hits):
-                    elements[i] = candidates[hits[0]]
-                    reference[i] = ref[hits[0]]
-                    break
-            else:
-                raise ValueError(f'point {p} lies outside the mesh')
+        elements, reference, found = first_hit(nearest, points)
+
+        # A point none of its nearest candidates holds (a sliver far from any
+        # centroid) is tested against every element.
+        missed = np.flatnonzero(~found)
+        if len(missed):
+            everything = np.broadcast_to(np.arange(self.n_elements), (len(missed), self.n_elements))
+            elements[missed], reference[missed], found[missed] = first_hit(everything, points[missed])
+            if not found.all():
+                raise ValueError(f'point {points[np.flatnonzero(~found)[0]]} lies outside the mesh')
         return elements, reference
 
     def displaced(self, displacement: FloatArray, scale: float = 1.0) -> 'Mesh':

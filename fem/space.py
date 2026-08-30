@@ -213,34 +213,37 @@ def p2_connectivity(
     element passes `project_boundary=False`, so its node placement is unchanged.
     '''
     n_vertices = len(mesh.vertices)
-    edge_index = {(int(a), int(b)): i for i, (a, b) in enumerate(mesh.edges)}
+    edges = mesh.edges
+    # `mesh.edges` is sorted lexicographically, so an edge's index is where its
+    # single-integer key lands among the sorted keys.
+    edge_keys = edges[:, 0] * n_vertices + edges[:, 1]
 
-    def edge_node(a: int, b: int) -> int:
-        return n_vertices + edge_index[(a, b) if a < b else (b, a)]
+    def edge_index(pairs: IntArray) -> IntArray:
+        '''Index into `mesh.edges` of each (a, b) row of `pairs`, in either orientation.'''
+        pairs = np.sort(pairs, axis=1)
+        return np.searchsorted(edge_keys, pairs[:, 0] * n_vertices + pairs[:, 1])
 
     elements = np.asarray(mesh.elements)
     element_nodes = np.empty((len(elements), 6), dtype=int)
     element_nodes[:, :3] = elements
-    for e, (a, b, c) in enumerate(elements):
-        element_nodes[e, 3] = edge_node(b, c)   # opposite corner 0
-        element_nodes[e, 4] = edge_node(a, c)   # opposite corner 1
-        element_nodes[e, 5] = edge_node(a, b)   # opposite corner 2
-
-    edge_midpoints = mesh.vertices[mesh.edges].mean(axis=1)
-    if project_boundary and mesh.boundary_curves is not None:
-        for facet, curve in zip(mesh.boundary, mesh.boundary_curves):
-            if curve is None:
-                continue
-            a, b = int(facet[0]), int(facet[1])
-            e = edge_index[(a, b) if a < b else (b, a)]
-            edge_midpoints[e] = curve.project(edge_midpoints[e])
-    node_coords = np.vstack([mesh.vertices, edge_midpoints])
+    # The edge opposite corner k comes k-th: (1, 2), (0, 2), (0, 1).
+    for k, (i, j) in enumerate([(1, 2), (0, 2), (0, 1)]):
+        element_nodes[:, 3 + k] = n_vertices + edge_index(elements[:, [i, j]])
 
     boundary = np.asarray(mesh.boundary)
+    boundary_edges = edge_index(boundary)
+    edge_midpoints = mesh.vertices[edges].mean(axis=1)
+    if project_boundary and mesh.boundary_curves is not None:
+        # Each curve projects the midpoints of all its facets in one call.
+        curves = list(mesh.boundary_curves)
+        for curve in {id(c): c for c in curves if c is not None}.values():
+            on_curve = boundary_edges[[c is curve for c in curves]]
+            edge_midpoints[on_curve] = curve.project(edge_midpoints[on_curve])
+    node_coords = np.vstack([mesh.vertices, edge_midpoints])
+
     boundary_nodes = np.empty((len(boundary), 3), dtype=int)
     boundary_nodes[:, :2] = boundary
-    for i, (a, b) in enumerate(boundary):
-        boundary_nodes[i, 2] = edge_node(a, b)
+    boundary_nodes[:, 2] = n_vertices + boundary_edges
 
     return element_nodes, node_coords, boundary_nodes
 
