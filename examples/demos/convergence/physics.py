@@ -16,8 +16,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from mms import (
-    ConvergenceStudy, elastic_convergence, load_comparison_convergence, poisson_convergence,
-    poisson_p2_convergence, theta_convergence,
+    ConvergenceStudy, elastic_convergence, load_comparison_convergence, mixed_bc_convergence,
+    poisson_convergence, poisson_p2_convergence, theta_convergence,
 )
 from fem.elements import QuadraticTriangleElement
 from fem.space import FunctionSpace
@@ -70,13 +70,17 @@ class RatesStudy:
     backward_euler: ConvergenceStudy
     nodal: ConvergenceStudy
     sampled: ConvergenceStudy
+    poisson_3d: ConvergenceStudy
+    mixed_bc: ConvergenceStudy
 
     @property
     def table(self) -> list[tuple[str, ConvergenceStudy, int]]:
         """Each study with its name and the order theory expects of it."""
         return [('Poisson P1 (h)', self.poisson, 2),
                 ('Poisson P2 (h)', self.p2, 3),
+                ('Poisson 3D (h)', self.poisson_3d, 2),
                 ('Elasticity (h)', self.elastic, 2),
+                ('Neumann/Robin (h)', self.mixed_bc, 2),
                 ('Crank-Nicolson (dt)', self.crank_nicolson, 2),
                 ('Backward Euler (dt)', self.backward_euler, 1),
                 ('Nodal load (h)', self.nodal, 2),
@@ -84,10 +88,12 @@ class RatesStudy:
 
 
 def run(resolutions=(11, 21, 41, 81), elastic_resolutions=(9, 17, 33),
-        step_counts=(16, 32, 64, 128)) -> RatesStudy:
+        step_counts=(16, 32, 64, 128), poisson_3d_resolutions=(5, 9, 13)) -> RatesStudy:
     """Run every study and collect the measured rates."""
     poisson, p2, elastic, p1_dofs, p2_dofs = space_studies(resolutions, elastic_resolutions)
     crank_nicolson, backward_euler = time_studies(step_counts)
     nodal, sampled = load_studies(resolutions)
+    poisson_3d = ConvergenceStudy.from_solves(poisson_convergence(poisson_3d_resolutions, dim=3))
+    mixed_bc = ConvergenceStudy.from_solves(mixed_bc_convergence(resolutions))
     return RatesStudy(poisson, p2, elastic, p1_dofs, p2_dofs, crank_nicolson, backward_euler,
-                      nodal, sampled)
+                      nodal, sampled, poisson_3d, mixed_bc)
