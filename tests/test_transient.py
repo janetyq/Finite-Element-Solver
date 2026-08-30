@@ -13,7 +13,7 @@ import pytest
 from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial
 from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
-from fem.algebra.integrators import NewmarkMethod, ThetaMethod
+from fem.algebra.integrators import NewmarkMethod, ThetaMethod, wave_energy
 from fem.regions import TimeDependent, everywhere, evaluate_field, field_at, on_plane
 from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution, TransientSolution, WaveSolution
 from fem.space import FunctionSpace
@@ -111,6 +111,30 @@ def test_newmark_integrates_a_time_dependent_source(make_unit_square):
         errors.append(abs(_mean(forced, solution.dofs[-1]) - (T - np.sin(T))))
     orders = np.log(np.array(errors[:-1]) / errors[1:]) / np.log(2)
     assert np.all(orders > 1.9), orders
+
+
+def test_newmark_gamma_sets_the_numerical_damping(make_unit_square):
+    """gamma = 1/2 (average acceleration) conserves the energy of a free vibration; gamma
+    above 1/2 introduces numerical dissipation, so the energy decays monotonically. A
+    seeded standing wave with no source or damping isolates the scheme's own dissipation.
+    """
+    mesh = make_unit_square(8)
+    problem = Wave(stiffness=1.0).problem(mesh, Conditions(Dirichlet(everywhere(), 0.0)))
+    x, y = mesh.vertices[:, 0], mesh.vertices[:, 1]
+    u0 = NodalField(problem.space, np.sin(np.pi * x) * np.sin(np.pi * y))
+
+    def energies(gamma, beta):
+        run = NewmarkMethod(dt=0.02, steps=80, gamma=gamma, beta=beta).solve(
+            problem, initial=Initial(u0))
+        return np.array([wave_energy(problem, run.dofs[i], run.dudt[i]) for i in range(len(run))])
+
+    conserving = energies(0.5, 0.25)
+    assert (conserving.max() - conserving.min()) < 1e-9 * conserving[0], 'energy not conserved'
+
+    # gamma > 1/2 with the matching beta = (gamma + 1/2)^2 / 4 stays stable and dissipative.
+    damping = energies(0.6, (0.6 + 0.5) ** 2 / 4)
+    assert np.all(np.diff(damping) <= 1e-12), f'energy did not decay monotonically: {damping}'
+    assert damping[-1] < 0.98 * damping[0], f'no numerical dissipation at gamma=0.6: {damping}'
 
 
 def test_newmark_refuses_time_dependent_dirichlet_data(make_unit_square):

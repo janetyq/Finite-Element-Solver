@@ -9,7 +9,7 @@ import pytest
 from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions
 from fem.physics.equations import LinearElastic
-from fem.regions import at_indices, intersect, on_plane
+from fem.regions import at_indices, evaluate_field, intersect, on_plane
 from fem.space import FunctionSpace
 
 
@@ -81,3 +81,14 @@ def test_a_neumann_free_component_integrates_as_zero(make_unit_square, value):
     with_zero = Conditions(Neumann(on_plane(0, 1.0), [1.0, 0.0])).resolve(space)
     np.testing.assert_allclose(with_none.load_at(0.0), with_zero.load_at(0.0))
     assert not with_none.neumann[0].loaded[:, 1].any()
+
+
+def test_free_as_zero_reads_a_none_component_as_zero():
+    """The seam the Neumann assembly above rides on, directly: evaluate_field with
+    free_as_zero substitutes 0 for a None component, while without the flag a None is an
+    error, since a source or a Robin g has no meaning for one."""
+    points = np.array([[1.0, 0.0], [0.0, 1.0]])
+    zeroed = evaluate_field([2.0, None], points, 2, free_as_zero=True)
+    np.testing.assert_array_equal(zeroed, [[2.0, 0.0], [2.0, 0.0]])
+    with pytest.raises(ValueError, match='real number'):
+        evaluate_field([2.0, None], points, 2)

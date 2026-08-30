@@ -81,6 +81,22 @@ class LinearSolve:
         return system.solve(problem.load)
 
 
+class LineSearchFailure(RuntimeError):
+    '''`BacktrackingLineSearch` exhausted its backtracks without meeting the
+    sufficient-decrease condition. The step direction descends, but no length tried
+    decreased the merit enough: typically a near-singular or badly scaled tangent. It
+    carries the smallest `alpha` tried and the merit at the start and at that alpha, so
+    a caller can widen the search or reseed rather than accept a step that does not
+    descend. Refusing here is the line-search analogue of `NewtonDivergence`: a step
+    that fails the descent test is never returned as if it had passed.'''
+
+    def __init__(self, message: str, alpha: float, phi0: float, phi_alpha: float) -> None:
+        super().__init__(message)
+        self.alpha = alpha
+        self.phi0 = phi0
+        self.phi_alpha = phi_alpha
+
+
 @dataclass(frozen=True)
 class BacktrackingLineSearch:
     '''Armijo backtracking: scale a Newton step so a merit function decreases.
@@ -90,7 +106,9 @@ class BacktrackingLineSearch:
     sufficient-decrease condition `m(u + alpha*step) <= m(u) + c1*alpha*slope`. Starting
     at `alpha = 1` keeps full Newton (and its quadratic convergence) near the solution;
     shrinking it keeps progress from a poor seed. `slope < 0` (a descent direction) is
-    the caller's responsibility; this only chooses the length.
+    the caller's responsibility; this only chooses the length. Exhausting `max_backtracks`
+    without meeting the condition raises `LineSearchFailure` rather than returning the
+    smallest, non-descending step as though it had been accepted.
     '''
     c1: float = 1e-4
     rho: float = 0.5
@@ -105,11 +123,20 @@ class BacktrackingLineSearch:
     ) -> DofVector:
         phi0 = merit(u)
         alpha = 1.0
+        phi_alpha = phi0
         for _ in range(self.max_backtracks):
-            if merit(u + alpha * step) <= phi0 + self.c1 * alpha * slope:
-                break
+            phi_alpha = merit(u + alpha * step)
+            if phi_alpha <= phi0 + self.c1 * alpha * slope:
+                return u + alpha * step
             alpha *= self.rho
-        return u + alpha * step
+        raise LineSearchFailure(
+            f'line search did not reach sufficient decrease in {self.max_backtracks} '
+            f'backtracks; the smallest step (alpha = {alpha / self.rho:.2e}) still failed '
+            f'the Armijo condition, merit {phi0:.3e} -> {phi_alpha:.3e}. The tangent may be '
+            f'near-singular or badly scaled; regularize it, refine the mesh, or seed the '
+            f'solve closer.',
+            alpha / self.rho, phi0, phi_alpha,
+        )
 
 
 @dataclass(frozen=True)
@@ -179,7 +206,9 @@ class NewtonSolve:
     the problem's energy Π(u) when it has one (`has_energy`) else ½‖r‖², so a
     non-convex energy (St-Venant–Kirchhoff under compression) converges from a seed a
     full step would send diverging. The line search is a no-op where the full step
-    already works, including every `LinearProblem`, whose exact step passes at alpha = 1.
+    already works, including every `LinearProblem`, whose exact step passes at alpha = 1;
+    where the step descends but no length satisfies Armijo it raises `LineSearchFailure`
+    rather than accept a non-descending step.
 
     The `backend` given at the call selects the linear algebra for each tangent solve
     (direct by default). A nonlinear tangent is indefinite away from a convex minimum, so

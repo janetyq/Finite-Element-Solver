@@ -1,5 +1,6 @@
 """DiscreteSystem eliminates the Dirichlet DOFs and reuses its factorization."""
 import numpy as np
+import pytest
 
 from fem.algebra.system import DiscreteSystem
 
@@ -54,6 +55,22 @@ def test_factorization_is_reused_across_right_hand_sides():
         b_free = b[free] - A[np.ix_(free, fixed)] @ fixed_values
         expected_free = np.linalg.solve(A[np.ix_(free, free)], b_free)
         np.testing.assert_allclose(x[free], expected_free)
+
+
+def test_elimination_preserves_symmetry():
+    """Eliminating the Dirichlet DOFs keeps the factored free-free block symmetric, so
+    the reduced system is still SPD. Symmetry shows as reciprocity through the
+    homogeneous solve: b1 . A_ff^-1 b2 == b2 . A_ff^-1 b1. A free/fixed indexing slip or
+    a one-sided elimination would break it while a plain solve could still look right."""
+    A = _spd(9, seed=4)
+    free = np.array([0, 1, 3, 5, 6, 8])
+    fixed = np.array([2, 4, 7])
+    system = DiscreteSystem(A, (free, fixed, np.zeros(3)))
+
+    rng = np.random.default_rng(5)
+    b1, b2 = rng.normal(size=9), rng.normal(size=9)
+    x1, x2 = system.solve_homogeneous(b1), system.solve_homogeneous(b2)
+    assert float(b1 @ x2) == pytest.approx(float(b2 @ x1))
 
 
 def test_no_fixed_dofs_is_a_plain_solve():

@@ -231,6 +231,20 @@ def test_design_optimizer_reduces_compliance(make_unit_square):
     assert history.objective[-1] < history.objective[0]
 
 
+def test_design_optimizer_reports_each_iteration_to_the_callback(make_unit_square):
+    """on_iteration(i, rho, J) fires once per iteration, in order, with that step's
+    density (one value per element) and its objective; the reported objectives are the
+    history's."""
+    model = _model(make_unit_square(6))
+    calls = []
+    design = DesignOptimizer(model, Compliance(), volume_frac=0.5, iters=4)
+    history = design.run(on_iteration=lambda i, rho, j: calls.append((i, np.asarray(rho).copy(), j)))
+
+    assert [i for i, _, _ in calls] == [0, 1, 2, 3]
+    assert all(rho.shape == (len(model.volumes),) for _, rho, _ in calls)
+    np.testing.assert_allclose([j for _, _, j in calls], history.objective)
+
+
 def test_design_optimizer_meets_the_volume_target(make_unit_square):
     model = _model(make_unit_square(10))
     design = DesignOptimizer(model, Compliance(), volume_frac=0.4, iters=15)
