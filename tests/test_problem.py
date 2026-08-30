@@ -432,12 +432,15 @@ def test_robin_flux_subtracts_the_condition_value(make_unit_square):
     assert problem.robin_flux(problem.space.interpolate(301.0)) == pytest.approx(2.0 * 4.0)
 
 
-def test_robin_flux_names_the_condition_by_index(make_unit_square):
+def test_robin_flux_takes_the_condition_when_there_are_several(make_unit_square):
     mesh = make_unit_square(4)
-    bc = Conditions(Robin(on_plane(0, 0.0), kappa=1.0, g=0.0), Robin(on_plane(0, 1.0), kappa=3.0, g=0.0))
-    problem = Poisson().problem(mesh, bc)
+    left = Robin(on_plane(0, 0.0), kappa=1.0, g=0.0)
+    right = Robin(on_plane(0, 1.0), kappa=3.0, g=0.0)
+    problem = Poisson().problem(mesh, Conditions(left, right))
     ones = problem.space.interpolate(1.0)
-    assert problem.robin_flux(ones, 0) == pytest.approx(1.0)
-    assert problem.robin_flux(ones, 1) == pytest.approx(3.0)
-    with pytest.raises(IndexError):
-        problem.robin_flux(ones, 2)
+    assert problem.robin_flux(ones, left) == pytest.approx(1.0)
+    assert problem.robin_flux(ones, right) == pytest.approx(3.0)
+    with pytest.raises(ValueError, match='2 Robin conditions'):
+        problem.robin_flux(ones)
+    with pytest.raises(ValueError, match='not a Robin condition of this problem'):
+        problem.robin_flux(ones, Robin(on_plane(1, 0.0), kappa=1.0, g=0.0))

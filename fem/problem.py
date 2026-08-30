@@ -59,6 +59,7 @@ S2 = TypeVar('S2', bound=FieldSolution)
 P = TypeVar('P', bound='Problem[Any]')      # the problem's own type, for copies
 
 if TYPE_CHECKING:
+    from fem.boundary import Robin
     from fem.algebra.backends import Backend
     from fem.algebra.solve import SolveStrategy
 
@@ -194,18 +195,29 @@ class Problem(Generic[S]):
     def resolved(self) -> ResolvedConditions:
         return self._resolved
 
-    def robin_flux(self, u: DofVector | NodalField, i: int = 0, t: float = 0.0) -> float | FloatArray:
-        '''∫_Γ (κu − g) over the region of the `i`-th Robin condition at state `u`: the
-        flux leaving the domain through it (the heat a convective film sheds), with a
-        `TimeDependent` g taken at `t`. A float for a scalar problem, `(n_components,)`
-        for a vector one.
+    def robin_flux(self, u: DofVector | NodalField, condition: 'Robin | None' = None,
+                   t: float = 0.0) -> float | FloatArray:
+        '''∫_Γ (κu − g) over the region of a Robin `condition` of this problem at state
+        `u`: the flux leaving the domain through it (the heat a convective film sheds),
+        with a `TimeDependent` g taken at `t`. A float for a scalar problem,
+        `(n_components,)` for a vector one. `condition` may be left out when the
+        problem has exactly one.
 
         Read off the same region-restricted boundary mass the condition assembles, so
         it is the exact discrete integral, not a quadrature of the recovered gradient.
         '''
+        robins = self.conditions.robin
+        if condition is None:
+            if len(robins) != 1:
+                raise ValueError(
+                    f'robin_flux needs the condition to integrate over: the problem has '
+                    f'{len(robins)} Robin conditions')
+            i = 0
+        elif condition in robins:
+            i = robins.index(condition)
+        else:
+            raise ValueError(f'{condition} is not a Robin condition of this problem')
         robin = self._resolved.robin
-        if not 0 <= i < len(robin):
-            raise IndexError(f'Robin condition {i} of a problem with {len(robin)}')
         load = self._resolved.robin_loads[i]
         n = self.space.n_components
         dofs = np.asarray(u, dtype=float)
