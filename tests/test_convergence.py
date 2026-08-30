@@ -15,7 +15,6 @@ from typing import Callable
 import numpy as np
 import pytest
 
-from fem.algebra.backends import IterativeBackend
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
@@ -88,10 +87,9 @@ def elastic_p2():
 
 @cache
 def poisson_3d():
-    # h = 1/8, 1/12, 1/16. The n=5 (h=1/4) coarse level is dropped as pre-asymptotic
-    # on Kuhn tets (it reads 1.74), the same reasoning the 3D elasticity fixture states;
-    # the three kept here are cleanly in band.
-    return ConvergenceStudy.from_solves(poisson_convergence((9, 13, 17), dim=3))
+    # h = 1/4, 1/8, 1/12 on the default regular box mesh. Its near-regular tets are in
+    # band from the coarsest level, where the Kuhn mesh read 1.74; observed 1.93, 1.98.
+    return ConvergenceStudy.from_solves(poisson_convergence((5, 9, 13), dim=3))
 
 
 @cache
@@ -133,9 +131,9 @@ STUDIES = [
     # operator, at the scalar P2 rate.
     Study('elastic_p2', elastic_p2, 3, (2.7, 3.3)),
     # The same scalar Poisson study in 3D, on a tetrahedral box: assembly and the P1
-    # solve on tets, not only triangles. Observed orders 1.91, 1.95, climbing to two as
-    # the 3D elasticity sequence does.
-    Study('poisson_3d', poisson_3d, 2, (1.7, 2.3), floor=5e-3),
+    # solve on tets, not only triangles. On the regular mesh it is in a tighter band
+    # from a coarse sequence; observed orders 1.93, 1.98.
+    Study('poisson_3d', poisson_3d, 2, (1.8, 2.2), floor=5e-3),
     # All-natural boundary: nonzero Neumann flux on three edges and a Robin condition on
     # the fourth, so the boundary-load quadrature and the Robin boundary-mass term enter
     # a rate for the first time. A boundary integral wrong by a factor breaks the O(h^2).
@@ -193,40 +191,30 @@ def test_the_error_is_interior():
 
 @pytest.fixture(scope='module')
 def elastic_3d():
-    # h = 1/8, 1/12, 1/16, 1/20, 1/28.
-    #
-    # The coarse end is dropped. Kuhn tets are distorted enough that the error constant
-    # is large, so h = 1/4 and 1/6 are still pre-asymptotic (they read 1.46 and 1.69)
-    # and including them would force a weaker assertion on the whole sequence. Starting
-    # at h = 1/8 is not cherry-picking the answer: it is declining to measure an
-    # asymptotic rate outside the asymptotic regime.
-    #
-    # AMG-preconditioned CG, not the direct factorization: it solves the same SPD system
-    # (test_backends.py proves them equivalent) but stays cheap on the fine meshes this
-    # sequence needs, and it is what the convergence measures, the assembly, regardless
-    # of how the block is solved. The fine end (n=29) is what it buys: a direct n=29
-    # solve is too slow to keep here, and it is where the observed order finally arrives
-    # near 2 rather than merely climbing toward it.
-    return ConvergenceStudy.from_solves(
-        elastic_convergence((9, 13, 17, 21, 29), dim=3, backend=IterativeBackend()))
+    # h = 1/4, 1/6, 1/8, 1/12, on the default regular (five-tet) box mesh. Its
+    # near-regular tets are asymptotic from the coarsest level, so the sequence stays
+    # coarse and the direct factorization is cheap; the same study on Kuhn tets needed
+    # h down to 1/28 to reach the same rate (see fem/mesh/structured.py). Observed
+    # orders 1.99, 2.00, 2.00.
+    return ConvergenceStudy.from_solves(elastic_convergence((5, 7, 9, 13), dim=3))
 
 
 def test_3d_elasticity_is_second_order(elastic_3d):
-    """The error falls monotonically under refinement, inside the O(h^2) band the 2D
-    case asserts: observed orders 1.79, 1.88, 1.93, 1.96."""
+    """The error falls monotonically under refinement, inside a tight O(h^2) band the
+    Kuhn mesh could not hold at these coarse sizes."""
     for coarse, fine in zip(elastic_3d.error[:-1], elastic_3d.error[1:]):
         assert fine < coarse, f'error grew under refinement: {elastic_3d.error}'
-    assert all(1.7 < p < 2.3 for p in elastic_3d.orders), f'expected ~2nd order, got {elastic_3d.orders}'
+    assert all(1.9 < p < 2.1 for p in elastic_3d.orders), f'expected ~2nd order, got {elastic_3d.orders}'
 
 
-def test_3d_order_climbs_to_two(elastic_3d):
-    """Inside the band is necessary but not sufficient: a defect degrading the rate to
-    a constant 1.8 would pass it. The order must climb monotonically under refinement
-    (a pre-asymptotic reading of a second-order method, not a lower-order one) and the
-    finest pair, which AMG-CG affords, must arrive near 2 rather than merely approach it."""
+def test_3d_is_asymptotic_from_the_coarsest_mesh(elastic_3d):
+    """The regular mesh's payoff: there is no pre-asymptotic drift to climb out of, so
+    the very first pair already reads ~2. That makes this a sharp defect test at coarse
+    sizes, where the old Kuhn sequence could only reach 1.9 by refining to h = 1/28: a
+    defect degrading the rate to a constant 1.8 shows here immediately, on tiny meshes."""
     orders = elastic_3d.orders
-    assert all(fine > coarse for coarse, fine in zip(orders[:-1], orders[1:])), orders
-    assert orders[-1] > 1.95, f'finest order did not reach the asymptotic rate: {orders}'
+    assert orders[0] > 1.95, f'coarsest pair is not yet asymptotic: {orders}'
+    assert 1.95 < elastic_3d.fitted_order < 2.05, f'fitted rate off two: {elastic_3d.fitted_order}'
 
 
 # -- patch tests: exact where the space can be exact --------------------------

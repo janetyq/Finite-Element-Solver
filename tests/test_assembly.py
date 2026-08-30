@@ -98,29 +98,29 @@ def unit_cube():
 def test_scalar_operators_on_cube(unit_cube):
     V = FunctionSpace(unit_cube)
     assert fingerprint(V.mass_matrix) == approx({
-        'shape': (27, 27), 'nnz': 223, 'trace': 0.4,
-        'fro': 0.10520317644135, 'sum': 1.0,
+        'shape': (27, 27), 'nnz': 207, 'trace': 0.4,
+        'fro': 0.12140668570278, 'sum': 1.0,
     })
     assert fingerprint(V.assemble(DiffusionForm())) == approx({
-        'shape': (27, 27), 'nnz': 135, 'trace': 24.0,
-        'fro': 6.1101009266078, 'sum': 0.0,
+        'shape': (27, 27), 'nnz': 207, 'trace': 20.0,
+        'fro': 4.987484335815, 'sum': 0.0,
     })
 
 
 def test_vector_operators_on_cube(unit_cube):
     V = FunctionSpace(unit_cube, n_components=3)
     assert fingerprint(V.mass_matrix) == approx({
-        'shape': (81, 81), 'nnz': 669, 'trace': 1.2,
-        'fro': 0.18221724671416, 'sum': 3.0,
+        'shape': (81, 81), 'nnz': 621, 'trace': 1.2,
+        'fro': 0.21028254801576, 'sum': 3.0,
     })
     assert fingerprint(V.boundary_mass_matrix) == approx({
         'shape': (81, 81), 'nnz': 510, 'trace': 9.0,
-        'fro': 1.1180339887499, 'sum': 18.0,
+        'fro': 1.1456439237390, 'sum': 18.0,
     })
     K = V.assemble(LinearElasticForm(LinearElasticMaterial(200.0, 0.3)))
     assert fingerprint(K) == approx({
-        'shape': (81, 81), 'nnz': 1659, 'trace': 10153.846153846,
-        'fro': 1660.0583982503, 'sum': 0.0,
+        'shape': (81, 81), 'nnz': 1317, 'trace': 8461.538461538,
+        'fro': 1347.5496426654, 'sum': 0.0,
     })
 
 
@@ -196,7 +196,10 @@ def test_scatter_matches_a_direct_coo_sum(mesh):
     assembled = V.assemble(form)
     np.testing.assert_array_equal(assembled.indptr, reference.indptr)
     np.testing.assert_array_equal(assembled.indices, reference.indices)
-    np.testing.assert_allclose(assembled.data, reference.data, rtol=1e-12)
+    # `atol` covers the entries that cancel to zero: the scatter's bincount and the COO
+    # sum add the same terms in a different order, so a structural zero lands at ~1e-14
+    # in one and ~0 in the other, which no relative tolerance can bridge.
+    np.testing.assert_allclose(assembled.data, reference.data, rtol=1e-12, atol=1e-10)
 
 
 def test_scatter_plan_is_not_bound_to_the_first_form_assembled(mesh):
