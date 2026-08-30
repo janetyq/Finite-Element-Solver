@@ -9,12 +9,12 @@ description = "A finite element method solver for 2D/3D PDEs, with custom meshin
 readme = "README.md"
 requires-python = ">=3.10"
 # Abstract (unpinned) runtime deps: what the library needs to import and run.
-# Reproducible, pinned versions for development live in requirements.txt.
+# Reproducible, pinned versions for development live in uv.lock.
 dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
-    # AMG-preconditioned CG for large SPD systems (fem.backends.IterativeBackend), the
+    # AMG-preconditioned CG for large SPD systems (fem.algebra.backends.IterativeBackend), the
     # solver's answer to 3D factorization fill-in. Base, not an extra: it needs only
     # numpy/scipy (already here), so it adds no transitive weight, and it is the core
     # scaling path rather than a niche feature.

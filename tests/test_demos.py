@@ -6,6 +6,7 @@ returns what the registry claims", not "still correct". A demo needing an option
 dependency names it in `Demo.smoke_requires`; `Demo.smoke_kwargs` supplies the
 cheapest arguments that still exercise the code.
 """
+import logging
 import sys
 
 import matplotlib.pyplot as plt
@@ -79,6 +80,17 @@ def test_demo_runs(demo, make_unit_square, tmp_path, monkeypatch):
     # A demo that yields nothing appears nowhere in the gallery.
     assert result.figures or result.text or result.artifacts, (
         f'{demo.name} produced no figures, no text, and no files'
+    )
+
+
+def test_building_the_registry_leaves_logging_enabled():
+    """No demo may disable logging at import. The timing benchmark once called
+    `logging.disable(CRITICAL)` at module scope, which muted the CLI's own
+    solver-progress output for every other demo; importing them all must leave the
+    global logging state untouched."""
+    cli.build_registry()
+    assert logging.root.manager.disable < logging.CRITICAL, (
+        'importing the demos globally disabled logging'
     )
 
 
