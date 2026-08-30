@@ -19,3 +19,9 @@ REFACTOR_PLAN.md
 
 # Rendered demo gallery: regenerate with `examples/cli.py gallery`.
 .gallery/
+
+# Coverage artifacts (pytest-cov)
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

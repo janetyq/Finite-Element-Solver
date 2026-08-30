@@ -17,7 +17,7 @@ Effort: 🟢 low · 🟡 medium · 🔴 high.
 | Numerics | Globalize the Newton direction (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Design | Lazy `pyamg` import | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Tooling | Coverage (`pytest-cov`), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Tooling | Coverage no-decrease gate, API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Demos | Stress-driven design beside compliance-driven; a motivated goal-oriented refinement demo | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
@@ -189,9 +189,10 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   and second-order systems; the seam for a third is in place, so this is additive.
 
 **Engineering**
-- 💡 **Coverage.** Add `pytest-cov`, then fill gaps: `svg`'s path parsing is covered only through the
-  demos, and the plot layer is exercised end-to-end by `tests/test_demos.py` but has no assertions on
-  what it draws.
+- 💡 **Coverage.** `pytest-cov` runs in CI (report-only, `--cov=fem`); still open are a no-decrease
+  gate once a baseline is stored, and the gaps the report names: `svg`'s path parsing is covered only
+  through the demos, and the plot layer is exercised end-to-end by `tests/test_demos.py` but has no
+  assertions on what it draws.
 - 💡 **Report the minimum corner angle alongside the demo's simplification tolerance.** The minimum
   corner angle is the number that predicts whether the requested angle bound will hold everywhere
   (the corner treatment in `RuppertsAlgorithm._split_point` / `_spans_a_sharp_corner` keeps output
