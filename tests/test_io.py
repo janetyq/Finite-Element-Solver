@@ -8,7 +8,9 @@ from fem.algebra.integrators import ThetaMethod
 from fem.conditions import Initial
 from fem.field import NodalField
 from fem.post.io import load_mesh, save_mesh
+from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
+from fem.mesh.outline import Outline
 from fem.space import FunctionSpace
 from fem.numerics import bump_function
 from fem.physics.equations import Heat
@@ -17,8 +19,18 @@ from fem.post.solution import (
 )
 
 
+def _plate_with_hole_mesh():
+    """A plate with a circular hole: its rim facets carry a `Circle`, its straight edges
+    carry `None`, and its two loops give distinct boundary tags, so it exercises the
+    curve and tag paths together (and both a real curve and a `None` in the same list)."""
+    plate = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]])
+    outline = Outline([Outline.from_polygons([plate]).loops[0],
+                       (Circle([2.0, 2.0], 0.8),)])
+    return outline.sample(resolution=0.1).mesh(min_angle=30, max_area=0.2)
+
+
 def test_mesh_json_round_trip(make_unit_square, tmp_path):
-    """Geometry survives a JSON save/load unchanged."""
+    """Geometry survives a JSON save/load unchanged; a straight mesh keeps no curves."""
     mesh = make_unit_square(6)
     path = tmp_path / "mesh.json"
 
@@ -28,6 +40,26 @@ def test_mesh_json_round_trip(make_unit_square, tmp_path):
     assert np.allclose(loaded.vertices, mesh.vertices)
     assert np.array_equal(loaded.elements, mesh.elements)
     assert np.array_equal(loaded.boundary, mesh.boundary)
+    assert loaded.boundary_curves is None
+    assert (loaded.boundary_tags is None) == (mesh.boundary_tags is None)
+
+
+def test_mesh_json_round_trip_preserves_curves_and_tags(tmp_path):
+    """A curved, tagged mesh reloads rounded and tagged rather than straight and bare."""
+    mesh = _plate_with_hole_mesh()
+    assert mesh.boundary_curves is not None and mesh.boundary_tags is not None
+    assert any(c is not None for c in mesh.boundary_curves)   # the hole's rim
+    assert any(c is None for c in mesh.boundary_curves)       # the straight edges
+    path = tmp_path / "plate.json"
+
+    save_mesh(mesh, path)
+    loaded = load_mesh(path)
+
+    assert np.array_equal(loaded.boundary, mesh.boundary)
+    assert np.array_equal(loaded.boundary_tags, mesh.boundary_tags)
+    original = [None if c is None else c.to_dict() for c in mesh.boundary_curves]
+    restored = [None if c is None else c.to_dict() for c in loaded.boundary_curves]
+    assert restored == original
 
 
 def test_mesh_load_rebuilds_the_requested_class(make_unit_square, tmp_path):
@@ -143,4 +175,40 @@ def test_solution_load_does_not_unpickle(make_unit_square, tmp_path):
 
     with np.load(path, allow_pickle=False) as data:
         assert "value.dofs" in data.files
+
+
+def test_solution_npz_round_trip_preserves_a_curved_tagged_mesh(tmp_path):
+    """A solution on a curved, tagged mesh carries the curves and tags through the npz
+    archive, and stays readable without pickle."""
+    mesh = _plate_with_hole_mesh()
+    solution = FieldSolution(FunctionSpace(mesh), np.zeros(len(mesh.vertices)))
+    path = tmp_path / "plate.npz"
+
+    solution.save(path)
+    with np.load(path, allow_pickle=False):
+        pass   # the curve string and tag array must not need pickle
+    loaded = Solution.load(path)
+
+    assert np.array_equal(loaded.mesh.boundary_tags, mesh.boundary_tags)
+    original = [None if c is None else c.to_dict() for c in mesh.boundary_curves]
+    restored = [None if c is None else c.to_dict() for c in loaded.mesh.boundary_curves]
+    assert restored == original
+
+
+def test_solution_load_rejects_an_unknown_class(make_unit_square, tmp_path):
+    """A stored class name is resolved against its base class, so an archive naming
+    something that is not a Solution is refused rather than instantiated."""
+    mesh = make_unit_square(4)
+    solution = FieldSolution(FunctionSpace(mesh), np.zeros(len(mesh.vertices)))
+    path = tmp_path / "solution.npz"
+    solution.save(path)
+
+    with np.load(path, allow_pickle=False) as data:
+        arrays = {k: data[k] for k in data.files}
+    arrays["__solution_class__"] = np.array("NodalField")   # a real name, not a Solution
+    with open(path, "wb") as f:
+        np.savez(f, **arrays)
+
+    with pytest.raises(ValueError, match="unknown solution"):
+        Solution.load(path)
 

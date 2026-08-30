@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from fem.mesh.curves import Arc, Circle, CubicBezier, Line
+from fem.mesh.curves import Arc, Circle, CubicBezier, Line, curve_from_dict, curve_to_dict
 
 
 def test_circle_projects_radially_onto_the_rim():
@@ -146,3 +146,35 @@ def test_bezier_ends_and_length():
     bezier = CubicBezier([0, 0], [0, 0], [3, 0], [3, 0])   # a straight cubic
     assert np.allclose(bezier.start, [0, 0]) and np.allclose(bezier.end, [3, 0])
     assert bezier.length() == pytest.approx(3.0, rel=1e-6)
+
+
+# --- serialization (fem.post.io persists a mesh's boundary curves through these) ---
+
+@pytest.mark.parametrize('curve', [
+    Line([0.0, 0.0], [2.0, 1.0]),
+    Circle([1.0, 2.0], 3.0),
+    Arc([0.0, 0.0], 1.0, 0.2, 1.3),
+    Arc([0.0, 0.0], 1.0, 0.2, 1.3).reversed(),   # the reversed flag must survive too
+    CubicBezier([0.0, 0.0], [1.0, 2.0], [3.0, -1.0], [4.0, 0.0]),
+], ids=['line', 'circle', 'arc', 'arc-reversed', 'bezier'])
+def test_curve_dict_round_trip(curve):
+    back = curve_from_dict(curve_to_dict(curve))
+    assert type(back) is type(curve)
+    assert back.to_dict() == curve.to_dict()
+    # Projection is the one behaviour meshing needs, so it must be identical.
+    pts = np.array([[0.5, 0.5], [-1.0, 2.0], [3.0, 3.0]])
+    np.testing.assert_allclose(back.project(pts), curve.project(pts))
+
+
+def test_curve_from_dict_rejects_an_unknown_type():
+    with pytest.raises(ValueError, match='unknown boundary curve type'):
+        curve_from_dict({'type': 'Spiral'})
+
+
+def test_curve_to_dict_rejects_an_unserializable_curve():
+    class Weird:
+        def project(self, points):
+            return points
+
+    with pytest.raises(ValueError, match='cannot serialize'):
+        curve_to_dict(Weird())
