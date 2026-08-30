@@ -10,6 +10,7 @@ from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
 from fem.physics.forms import ScaledForm
 from fem.regions import TimeDependent, at_indices, everywhere, on_plane
 from fem.space import FunctionSpace
+from helpers import pinned
 
 
 def _plate(make_unit_square):
@@ -32,7 +33,7 @@ def test_items_are_kept_in_order_and_viewed_by_kind():
 
 
 def test_adding_appends_and_leaves_the_original():
-    base = Conditions(Dirichlet(everywhere(), 0.0))
+    base = pinned()
     more = base + Source(1.0)
     assert len(base) == 1 and len(more) == 2 and more.source is not None
     merged = more + Conditions(PointLoad(at_indices([0]), 1.0))
@@ -95,7 +96,7 @@ def test_a_problem_is_its_conditions_resolved(make_unit_square):
     assert problem.resolved.loads == problem.loads
     assert problem.source is problem.resolved.source
     np.testing.assert_array_equal(problem.constraints[1], problem.resolved.fixed_idxs)
-    split = Poisson().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0)) + Source(1.0))
+    split = Poisson().problem(mesh, pinned() + Source(1.0))
     np.testing.assert_allclose(split.solve().dofs, problem.solve().dofs)
 
 
@@ -199,7 +200,7 @@ def test_integrators_step_from_the_initial_state_unless_overridden(make_unit_squ
         return np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])
 
     wave = Wave().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0), Initial(0.0, v0=bump)))
-    rest = Wave().problem(mesh, Conditions(Dirichlet(everywhere(), 0.0)))
+    rest = Wave().problem(mesh, pinned())
     rung = NewmarkMethod(dt=0.02, steps=5).solve(wave)
     np.testing.assert_allclose(rung.dofs[0], 0.0)
     assert np.abs(rung.dofs[-1]).max() > 1e-3

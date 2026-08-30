@@ -7,11 +7,12 @@ import pytest
 from fem.numerics import bump_function
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions, Initial
-from fem.regions import everywhere, on_plane
+from fem.regions import on_plane
 from fem.physics.equations import Heat, Projection, Poisson, LinearElastic, Wave
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod, wave_energy
 from fem.algebra.solve import EigenSolve, LinearSolve, NewtonSolve
 from fem.loads import Source
+from helpers import pinned
 
 
 def _on(equation, mesh, bc=None):
@@ -50,7 +51,7 @@ def test_l2_projection_reproduces_linear_field(make_unit_square):
 def _pinned_square(make_unit_square, n=12):
     """Unit square with every boundary node pinned at u = 0."""
     mesh = make_unit_square(n)
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
     return mesh, bc
 
 

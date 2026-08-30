@@ -4,40 +4,20 @@ concentrates near the quantity of interest, more strongly than the global estima
 import numpy as np
 
 from fem.analysis.adaptivity import AdaptiveRefinement
-from fem.boundary import Dirichlet
-from fem.conditions import Conditions
 from fem.physics.equations import Poisson
 from fem.analysis.estimators import GoalOrientedEstimator, RecoveryEstimator
-from fem.mesh.structured import box_mesh
-from fem.regions import everywhere
 from fem.analysis.sensitivity import PointValue
 from fem.loads import Source
+from helpers import near_far_counts, pinned, problem_for, solved
 
-EQUATION = Poisson()
-SOURCE = Source(lambda p: 1.0)
-
-
-def _problem_for(mesh):
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
-    return EQUATION.problem(mesh, bc + SOURCE)
+PROBLEM_FOR = problem_for(Poisson(), pinned() + Source(lambda p: 1.0))
 
 
-def _square(n):
-    return box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-
-
-def _near_far(mesh, point, near=0.15, far=0.35):
-    centroids = mesh.vertices[mesh.elements].mean(axis=1)
-    dist = np.linalg.norm(centroids - np.asarray(point), axis=1)
-    return int((dist < near).sum()), int((dist > far).sum())
-
-
-def test_indicator_peaks_near_the_quantity_of_interest():
+def test_indicator_peaks_near_the_quantity_of_interest(make_unit_square):
     """The dual solution is the influence function of the point value, peaked at the
     point, so the product indicator is largest near it."""
-    mesh = _square(16)
-    problem = _problem_for(mesh)
-    solution = problem.solve()
+    mesh = make_unit_square(16)
+    problem, solution = solved(Poisson(), mesh, pinned() + Source(lambda p: 1.0))
     target = (0.72, 0.72)
     qoi = PointValue(np.asarray(target))
     eta = GoalOrientedEstimator(qoi).estimate(problem, solution)
@@ -49,24 +29,22 @@ def test_indicator_peaks_near_the_quantity_of_interest():
     assert dist[int(np.argmax(eta))] < 0.2
 
 
-def test_refines_toward_the_quantity_of_interest_more_than_global():
+def test_refines_toward_the_quantity_of_interest_more_than_global(make_unit_square):
     """Goal-oriented refinement concentrates elements near the point value; the global
     recovery estimator, blind to the goal, spreads them out. The goal-oriented mesh
     therefore has a higher near-to-far element ratio around the point."""
     target = (0.72, 0.72)
-
-    mesh = _square(12)
     qoi = PointValue(np.asarray(target))
-    goal = AdaptiveRefinement(mesh, _problem_for, GoalOrientedEstimator(qoi),
+    goal = AdaptiveRefinement(make_unit_square(12), PROBLEM_FOR, GoalOrientedEstimator(qoi),
                               max_triangles=400, max_iters=6)
     goal.run()
 
-    global_ = AdaptiveRefinement(_square(12), _problem_for, RecoveryEstimator(),
+    global_ = AdaptiveRefinement(make_unit_square(12), PROBLEM_FOR, RecoveryEstimator(),
                                  max_triangles=400, max_iters=6)
     global_.run()
 
-    goal_near, goal_far = _near_far(goal.mesh, target)
-    global_near, global_far = _near_far(global_.mesh, target)
+    goal_near, goal_far = near_far_counts(goal.mesh, target, near=0.15)
+    global_near, global_far = near_far_counts(global_.mesh, target, near=0.15)
 
     goal_ratio = goal_near / max(goal_far, 1)
     global_ratio = global_near / max(global_far, 1)

@@ -4,11 +4,12 @@ the sign and magnitude of both.
 """
 import numpy as np
 
-from fem.boundary import Dirichlet, Robin
+from fem.boundary import Robin
 from fem.conditions import Conditions
 from fem.regions import everywhere, on_plane
 from fem.physics.equations import Poisson
 from fem.loads import Source
+from helpers import pinned
 
 
 def test_constant_solution_is_reproduced_exactly(make_unit_square):
@@ -28,7 +29,7 @@ def test_large_kappa_approaches_the_dirichlet_limit(make_unit_square):
     mesh = make_unit_square(12)
     source = 1.0
 
-    bc_d = Conditions(Dirichlet(everywhere(), 0.0))
+    bc_d = pinned()
     u_dirichlet = Poisson().problem(mesh, bc_d + Source(source)).solve().dofs
 
     gaps = []

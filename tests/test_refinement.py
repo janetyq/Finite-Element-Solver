@@ -12,10 +12,11 @@ from fem.physics.energies import StVenantKirchhoff
 from fem.analysis.estimators import RecoveryEstimator
 from fem.physics.forms import EnergyForm
 from fem.problem import Problem
-from fem.regions import everywhere, at_indices, on_plane
+from fem.regions import at_indices, on_plane
 from fem.physics.equations import LinearElastic, Projection, Poisson, FiniteStrainElastic
 from fem.loads import Source
 from fem.space import FunctionSpace
+from helpers import pinned
 
 
 def refine_near_centre(problem, solution):
@@ -77,7 +78,7 @@ def test_adaptive_refinement_carries_geometric_dirichlet_bcs(make_unit_square):
     """A Dirichlet condition described as a region is re-resolved on each refined mesh,
     so it keeps holding on nodes that did not exist when it was written."""
     mesh = make_unit_square(6)
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
     driver = AdaptiveRefinement(mesh, _for(Poisson(), bc + Source(1.0)), refine_near_centre,
                                 max_triangles=400, max_iters=3)
 
@@ -115,7 +116,7 @@ def test_adaptive_refinement_rejects_mismatched_estimator(make_unit_square):
 
 def test_bc_spec_is_reusable_across_meshes(make_unit_square):
     """The spec holds no mesh, so the same object resolves on any of them."""
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
 
     coarse, fine = make_unit_square(4), make_unit_square(9)
     assert len(bc.resolve(FunctionSpace(coarse, n_components=1)).fixed_idxs) == len(coarse.boundary_idxs)

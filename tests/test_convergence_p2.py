@@ -25,6 +25,7 @@ from fem.post.solution import ElasticSolution
 from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
 from fem.loads import Source
+from helpers import pinned
 
 
 @pytest.fixture(scope="module")
@@ -93,7 +94,7 @@ def test_p2_is_reachable_through_the_solver_facade():
     from fem.physics.equations import Poisson
 
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(9, 9))
-    bc = Conditions(Dirichlet(everywhere(), 0.0))
+    bc = pinned()
     source = lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])]  # noqa: E731
     problem = Poisson().problem(mesh, bc + Source(source), element_type=QuadraticTriangleElement)
     solution = problem.solve()

@@ -7,14 +7,12 @@ exactly, tying the recovered fields to the operator without a magic number.
 import numpy as np
 import pytest
 
-from fem.boundary import Dirichlet, Neumann
-from fem.conditions import Conditions
 from fem.elements import LinearTriangleElement
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.equations import LinearElastic
 from fem.physics.forms import EnergyForm, LinearElasticForm
 from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
-from fem.regions import on_plane
+from helpers import cantilever_bc
 
 E, NU = 210.0, 0.3
 REFERENCE_TRIANGLE = np.array([[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]])
@@ -28,17 +26,8 @@ def _geometry_and_nodal(A):
     return geometry, nodal[None]
 
 
-def _cantilever_bc() -> Conditions:
-    """Left edge pinned, right edge pulled down."""
-    bc = Conditions(
-        Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
-        Neumann(on_plane(0, 1.0), [0.0, -1.0]),
-    )
-    return bc
-
-
 def _solved(mesh):
-    problem = LinearElastic(E=1.0, nu=0.3).problem(mesh, _cantilever_bc())
+    problem = LinearElastic(E=1.0, nu=0.3).problem(mesh, cantilever_bc())
     return problem, problem.solve()
 
 
@@ -72,7 +61,7 @@ def test_solver_and_design_model_recover_the_same_fields(make_unit_square):
     _, solution = _solved(mesh)
 
     equation = LinearElastic(E=1.0, nu=0.3)
-    model = SIMPModel(equation.problem(mesh, _cantilever_bc()), penalty=1.0)
+    model = SIMPModel(equation.problem(mesh, cantilever_bc()), penalty=1.0)
     rho = np.ones(len(mesh.elements))
     design_solution = model.solution(rho, LinearSolve().solve(model.problem(rho)))
 
