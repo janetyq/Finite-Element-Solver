@@ -153,6 +153,7 @@ def test_effective_length_factors_across_end_conditions():
     assert factors['cantilever'] == pytest.approx(2.0, rel=0.05)
     assert factors['pinned'] == pytest.approx(1.0, rel=0.05)
     assert factors['fixed'] == pytest.approx(0.5, rel=0.05)
+    # Fixed-pinned: K = pi / x for the first root of tan x = x, x = 4.4934, so 0.6992.
     assert factors['fixed_pinned'] == pytest.approx(0.699, rel=0.05)
 
 

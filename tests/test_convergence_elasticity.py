@@ -145,3 +145,17 @@ def test_3d_order_climbs_to_two(convergence_3d):
     orders = _observed_orders(convergence_3d)
     assert all(fine > coarse for coarse, fine in zip(orders, orders[1:])), orders
     assert orders[-1] > 1.95, f'finest order did not reach the asymptotic rate: {orders}'
+
+
+def test_p1_reproduces_a_linear_displacement_exactly(make_unit_square):
+    """The patch test: u = A x has constant strain and lies in the P1 space, so it is
+    reproduced to round-off from its Dirichlet trace alone, shear coupling included."""
+    mesh = make_unit_square(7)
+    A = np.array([[0.02, 0.01], [-0.03, 0.05]])
+
+    def exact(p):
+        return p @ A.T
+
+    bc = Conditions(Dirichlet(everywhere(), exact))
+    solution = LinearElastic(E=E, nu=NU).problem(mesh, bc).solve()
+    np.testing.assert_allclose(solution.nodal_values, exact(mesh.vertices), atol=1e-12)

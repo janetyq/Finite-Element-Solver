@@ -26,8 +26,20 @@ def test_circle_projection_fixes_points_already_on_the_rim():
 
 
 def test_circle_rejects_nonpositive_radius():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match='radius must be positive'):
         Circle([0.0, 0.0], 0.0)
+
+
+def test_arc_rejects_nonpositive_radius():
+    with pytest.raises(ValueError, match='radius must be positive'):
+        Arc([0.0, 0.0], -1.0, 0.0, np.pi)
+
+
+def test_line_needs_two_2d_endpoints():
+    with pytest.raises(ValueError, match='two 2D endpoints'):
+        Line([0.0, 0.0, 0.0], [1.0, 1.0, 1.0])
+    with pytest.raises(ValueError, match='two 2D endpoints'):
+        Line([0.0], [1.0])
 
 
 def test_arc_projects_within_its_span_onto_the_circle():
@@ -43,9 +55,13 @@ def test_arc_clamps_outside_its_span_to_the_nearer_endpoint():
     np.testing.assert_allclose(arc.project(np.array([-1.0, -0.2])), [-1.0, 0.0], atol=1e-9)
 
 
-def test_arc_rejects_empty_span():
-    with pytest.raises(ValueError):
+def test_arc_rejects_a_span_that_does_not_advance():
+    """An arc runs counter-clockwise from `start_angle`, so the end must lie beyond it;
+    the other way round is spelled `reversed()`, not by swapping the angles."""
+    with pytest.raises(ValueError, match='end_angle > start_angle'):
         Arc([0.0, 0.0], 1.0, np.pi, 0.0)
+    with pytest.raises(ValueError, match='end_angle > start_angle'):
+        Arc([0.0, 0.0], 1.0, 1.0, 1.0)
 
 
 def _hump():
@@ -88,7 +104,7 @@ def test_cubic_projection_preserves_batch_shape():
 
 
 def test_cubic_rejects_non_2d_control_points():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match='four 2D control points'):
         CubicBezier([0, 0, 0], [1, 1, 1], [2, 0, 0], [3, 3, 3])   # 3D points
 
 

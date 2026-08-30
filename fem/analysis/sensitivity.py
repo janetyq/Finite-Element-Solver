@@ -387,9 +387,6 @@ class ModulusParameterization(_ElementModulusParameterization):
         K0 = LinearElasticForm(LinearElasticMaterial(1.0, nu)).element_matrices(space.geometry)
         return cls(space=space, nu=nu, _K0=K0, E=np.asarray(E, dtype=float))
 
-    def with_modulus(self, E: ElementValues) -> 'ModulusParameterization':
-        return ModulusParameterization(space=self.space, nu=self.nu, _K0=self._K0, E=np.asarray(E, dtype=float))
-
     @property
     def size(self) -> int:
         return len(self.E)

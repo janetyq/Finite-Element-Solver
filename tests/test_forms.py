@@ -14,9 +14,14 @@ from fem.elements import (
     LinearTriangleElement,
 )
 from fem.physics.energies import StVenantKirchhoff
-from fem.physics.forms import DiffusionForm, EnergyForm, GeometricStiffnessForm, LinearElasticForm, BoundaryMassForm, MassForm, PrecomputedForm, ScaledForm, strain_displacement
+from fem.physics.forms import (
+    BoundaryMassForm, DiffusionForm, EnergyForm, GeometricStiffnessForm, LinearElasticForm, MassForm,
+    PrecomputedForm, ScaledForm, SumForm, rigid_body_modes, strain_displacement, voigt_to_tensor,
+)
 from fem.loads import Source
-from fem.physics.materials import LinearElasticMaterial
+from fem.mesh.structured import box_mesh
+from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.space import FunctionSpace
 
 
 def one(element_type, vertices):
@@ -88,19 +93,38 @@ def test_strain_displacement_is_batched_over_elements():
     np.testing.assert_allclose(B[1], 0.5 * B[0])
 
 
-def test_elastic_stiffness_matches_reference_triangle():
-    """Golden element stiffness for the unit triangle at E=200, nu=0.3, captured
-    from B^T D B and independently reproducible from plane-strain Lame values."""
-    form = LinearElasticForm(LinearElasticMaterial(200.0, 0.3))
-    expected = np.array([
-        [173.076923, 96.153846, -134.615385, -38.461538, -38.461538, -57.692308],
-        [96.153846, 173.076923, -57.692308, -38.461538, -38.461538, -134.615385],
-        [-134.615385, -57.692308, 134.615385, 0.0, 0.0, 57.692308],
-        [-38.461538, -38.461538, 0.0, 38.461538, 38.461538, 0.0],
-        [-38.461538, -38.461538, 0.0, 38.461538, 38.461538, 0.0],
-        [-57.692308, -134.615385, 57.692308, 0.0, 0.0, 134.615385],
-    ])
-    np.testing.assert_allclose(form.element_matrices(TRI)[0], expected, atol=1e-5)
+def test_elastic_stiffness_matches_the_hand_assembled_reference_triangle():
+    """K = area * B^T D B on the unit right triangle, with B written out from the P1
+    gradients (-1,-1), (1,0), (0,1) and D from the plane-strain Lame constants, so the
+    reference is derived here rather than recorded from the implementation."""
+    E, nu = 200.0, 0.3
+    mu, lam = Enu_to_Lame(E, nu)
+    D = np.array([[lam + 2 * mu, lam, 0.0], [lam, lam + 2 * mu, 0.0], [0.0, 0.0, mu]])
+    grads = np.array([[-1.0, -1.0], [1.0, 0.0], [0.0, 1.0]])   # d(phi_a)/dx, d(phi_a)/dy
+    B = np.zeros((3, 6))
+    for a, (dx, dy) in enumerate(grads):
+        B[0, 2 * a] = dx
+        B[1, 2 * a + 1] = dy
+        B[2, 2 * a], B[2, 2 * a + 1] = dy, dx
+    expected = 0.5 * B.T @ D @ B
+
+    form = LinearElasticForm(LinearElasticMaterial(E, nu))
+    np.testing.assert_allclose(form.element_matrices(TRI)[0], expected, atol=1e-10)
+
+
+@pytest.mark.parametrize('form', [
+    DiffusionForm(), MassForm(), LinearElasticForm(LinearElasticMaterial(200.0, 0.3)),
+], ids=lambda f: type(f).__name__)
+def test_element_matrices_do_not_depend_on_node_orientation(form):
+    """The measure enters as |det J|, so a triangle listed clockwise assembles the same
+    matrix as its counter-clockwise twin once the node blocks are put back in order."""
+    ccw = np.array([[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]])
+    K_ccw = form.element_matrices(LinearTriangleElement.geometry(ccw))[0]
+    K_cw = form.element_matrices(LinearTriangleElement.geometry(ccw[:, ::-1]))[0]
+
+    per_node = K_ccw.shape[0] // 3
+    undo = np.concatenate([np.arange(per_node * a, per_node * (a + 1)) for a in (2, 1, 0)])
+    np.testing.assert_allclose(K_cw[np.ix_(undo, undo)], K_ccw, atol=1e-12)
 
 
 @pytest.mark.parametrize("geometry", [TRI, TET])
@@ -202,3 +226,56 @@ def test_linear_form_constant_source_integrates_the_hat_exactly():
     b = Source(3.0).element_vectors(TRI, 1)[0]   # (N,)
     np.testing.assert_allclose(b, 3.0 * volume / 3)  # 3 nodes, integral of a P1 hat
     np.testing.assert_allclose(b.sum(), 3.0 * volume)
+
+
+# -- refusals -------------------------------------------------------------------
+
+
+def test_a_sum_needs_two_flat_terms():
+    with pytest.raises(ValueError, match='at least two terms'):
+        SumForm((DiffusionForm(),))
+    with pytest.raises(ValueError, match='is flat'):
+        SumForm((DiffusionForm() + MassForm(), MassForm()))
+
+
+def test_a_scale_distributes_over_a_sum_rather_than_wrapping_it():
+    """`factor * (a + b)` is a sum of scaled terms; wrapping the sum itself is refused."""
+    scaled = 2.0 * (DiffusionForm() + MassForm())
+    assert isinstance(scaled, SumForm)
+    assert all(isinstance(term, ScaledForm) for term in scaled.terms)
+    with pytest.raises(TypeError, match='scale the terms of a sum'):
+        ScaledForm(2.0, DiffusionForm() + MassForm())
+
+
+@pytest.mark.parametrize('method', ['element_matrices', 'element_residuals', 'element_tangents', 'element_energies'])
+def test_a_sum_has_no_element_blocks_of_its_own(method):
+    total = DiffusionForm() + MassForm()
+    args = (TRI,) if method == 'element_matrices' else (TRI, np.zeros((1, 3)))
+    with pytest.raises(TypeError, match='no element blocks'):
+        getattr(total, method)(*args)
+
+
+def test_a_sum_answers_for_one_physics_term_only():
+    """Two terms naming a flux, or a near-null space, leave the sum unable to say which
+    physics it solves; a boundary mass beside a Laplacian is the intended shape."""
+    space = FunctionSpace(box_mesh(corners=[[0, 0], [1, 1]], resolution=(3, 3)), n_components=2)
+    with pytest.raises(ValueError, match='more than one term of the sum names a flux'):
+        (DiffusionForm() + DiffusionForm()).flux()
+    elastic = LinearElasticForm(LinearElasticMaterial(200.0, 0.3))
+    with pytest.raises(ValueError, match='more than one term of the sum names a near-null space'):
+        (elastic + elastic).near_null_space(space)
+
+
+def test_rigid_body_modes_need_a_plane_or_a_solid():
+    with pytest.raises(ValueError, match='rigid-body modes are defined for 2D or 3D'):
+        rigid_body_modes(np.zeros((4, 1)), 1)
+
+
+def test_voigt_to_tensor_takes_three_or_six_components():
+    with pytest.raises(ValueError, match=r'expected 3 \(2D\) or 6 \(3D\) Voigt components'):
+        voigt_to_tensor(np.zeros((2, 4)))
+
+
+def test_strain_displacement_is_defined_in_2d_and_3d_only():
+    with pytest.raises(NotImplementedError, match='no strain-displacement matrix for dim=1'):
+        strain_displacement(LINE.grad_phi)

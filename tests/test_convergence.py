@@ -7,6 +7,10 @@ rate P1 promises, and the finest mesh is accurate in absolute terms.
 import numpy as np
 import pytest
 
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
+from fem.physics.equations import Poisson
+from fem.regions import everywhere
 from mms import ConvergenceStudy, solve_poisson_mms
 
 
@@ -74,3 +78,18 @@ def test_the_error_is_interior():
     solve = solve_poisson_mms(11)
     assert np.allclose(solve.pointwise_error[solve.mesh.boundary_idxs], 0.0)
     assert np.abs(solve.pointwise_error).max() > 0.0
+
+
+def test_p1_reproduces_a_linear_solution_exactly(make_unit_square):
+    """The patch test. A linear field lies in the P1 space, so with its trace as the
+    Dirichlet data and no source the Galerkin solution is that field at every node, to
+    round-off. The rates above say the error shrinks; this says the discretisation is
+    consistent at the one place it can be exact."""
+    mesh = make_unit_square(7)
+
+    def exact(p):
+        return 1.0 + 2.0 * p[:, 0] - 3.0 * p[:, 1]
+
+    bc = Conditions(Dirichlet(everywhere(), exact))
+    solution = Poisson().problem(mesh, bc).solve()
+    np.testing.assert_allclose(solution.dofs, exact(mesh.vertices), atol=1e-12)

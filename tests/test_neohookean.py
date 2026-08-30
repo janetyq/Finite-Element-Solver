@@ -122,17 +122,30 @@ def test_neohookean_solve_converges_and_reports_stress(make_unit_square):
     assert rel > 1e-3, f"finite-strain answer should differ from small strain, got rel={rel:.2e}"
 
 
-def test_neohookean_on_p2_converges(make_unit_square):
-    """The material carries its own quadrature hint (degree 4), so it also assembles and
-    converges on quadratic elements."""
-    mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
+def test_neohookean_p2_is_closer_to_a_fine_reference_than_p1():
+    """The material carries its own quadrature hint (degree 4), so it also solves on
+    quadratic elements, and it converges there: on the same coarse mesh, the P2 vertex
+    displacements sit nearer a fine P1 reference than the coarse P1 ones do."""
+    coarse = box_mesh([[0.0, 0.0], [2.0, 1.0]], [6, 4])
+    fine = box_mesh([[0.0, 0.0], [2.0, 1.0]], [21, 11])
     bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
         Dirichlet(on_plane(0, 2.0), [0.3, 0.15]),
     )
     equation = FiniteStrainElastic(200.0, 0.3, law=NeohookeanEnergyDensity)
-    solution = equation.problem(mesh, bc, element_type=QuadraticTriangleElement).solve()
 
-    assert isinstance(solution, ElasticSolution)
-    assert solution.element_type is QuadraticTriangleElement
-    assert np.all(np.isfinite(solution.nodal_von_mises()))
+    p2 = equation.problem(coarse, bc, element_type=QuadraticTriangleElement).solve()
+    p1 = equation.problem(coarse, bc).solve()
+    reference = equation.problem(fine, bc).solve()
+    assert isinstance(p2, ElasticSolution)
+    assert p2.element_type is QuadraticTriangleElement
+
+    # The coarse vertices are a subset of the fine ones (h = 0.4 against 0.1), and a P2
+    # solution lists its vertex nodes first, so both coarse answers are read against the
+    # reference at the same points.
+    at = [int(np.argmin(np.linalg.norm(fine.vertices - v, axis=1))) for v in coarse.vertices]
+    ref = reference.nodal_values[at]
+    n = coarse.n_vertices
+    gap_p2 = np.linalg.norm(p2.nodal_values[:n] - ref)
+    gap_p1 = np.linalg.norm(p1.nodal_values[:n] - ref)
+    assert gap_p2 < gap_p1, f'P2 gap {gap_p2:.3e} is not below the P1 gap {gap_p1:.3e}'

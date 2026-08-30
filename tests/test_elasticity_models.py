@@ -151,16 +151,19 @@ def test_each_elastic_model_names_its_energy_density():
 
 def test_finite_strain_solve_matches_recorded_solution(make_unit_square):
     """Regression pin on the St Venant-Kirchhoff answer: values recorded from the
-    implementation, so this catches drift rather than proving correctness."""
+    implementation, so this catches drift rather than proving correctness. The pin is
+    looser than the recorded digits: a Newton solve lands where its stopping test lets
+    it, so the last few digits belong to the tolerance and the BLAS, not the physics.
+    `u.max()` is the prescribed stretch, imposed exactly."""
     mesh, bc = _stretched_square(make_unit_square)
     equation = FiniteStrainElastic(E=200, nu=0.4)
     problem = equation.problem(mesh, bc)
     u = problem.solve().dofs
 
-    np.testing.assert_allclose(np.linalg.norm(u), 0.503442620332, rtol=1e-9)
+    np.testing.assert_allclose(np.linalg.norm(u), 0.503442620332, rtol=1e-6)
     np.testing.assert_allclose(u.max(), 0.1, rtol=1e-12)
-    np.testing.assert_allclose(u.min(), -0.037995668257, rtol=1e-9)
-    np.testing.assert_allclose(problem.energy(u.copy()), 1.590561321584, rtol=1e-9)
+    np.testing.assert_allclose(u.min(), -0.037995668257, rtol=1e-6)
+    np.testing.assert_allclose(problem.energy(u.copy()), 1.590561321584, rtol=1e-6)
 
 
 def test_residual_and_tangent_are_consistent_by_finite_difference(make_unit_square):

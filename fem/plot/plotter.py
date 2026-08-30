@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 from fem.plot.helpers import (
     plot_mesh,
     plot_boundary,
-    plot_highlight,
     plot_arrows,
     setup_colorbar,
     plot_colored,
@@ -234,22 +233,6 @@ class Plotter:
         load follows the material) while the conditions are still read off `mesh`.
         """
         overlay_supports(self.axs[idx], mesh, conditions, coords=coords)
-
-    def plot_highlights(
-        self,
-        mesh: 'Mesh',
-        idxs_list: Sequence[Any],
-        color_list: Sequence[str],
-        label_list: Sequence[str],
-        mode: str = 'vertices',
-        idx: tuple[int, int] = (0, 0),
-    ) -> None:
-        if not (len(idxs_list) == len(color_list) == len(label_list)):
-            raise ValueError("idxs_list, color_list, and label_list must have the same length.")
-
-        ax = self.axs[idx] if isinstance(self.axs, np.ndarray) else self.axs
-        plot_highlight(ax, mesh, idxs_list, color_list, label_list, mode=mode)
-
 
     # Specialty plotting
     def plot_animation(
