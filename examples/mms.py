@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from fem.algebra.backends import Backend
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions, Initial
 from fem.field import NodalField
@@ -178,13 +179,17 @@ class ConvergenceStudy:
         return float(np.polyfit(np.log(self.step), np.log(self.error), 1)[0])
 
 
-def solve_poisson_mms(n: int) -> MMSSolve:
-    """Solve the manufactured problem on an `n` x `n` unit-square grid."""
+def solve_poisson_mms(n: int, backend: Backend | None = None) -> MMSSolve:
+    """Solve the manufactured problem on an `n` x `n` unit-square grid.
+
+    `backend` picks the linear solver (the default is the direct one), so the same
+    study can measure an iterative backend's accuracy.
+    """
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
 
     bc = Conditions(Dirichlet(everywhere(), 0.0))
     problem = Poisson().problem(mesh, bc + Source(source_term))
-    solution = problem.solve()
+    solution = problem.solve(backend=backend)
     u = solution.dofs
 
     exact = exact_solution(mesh.vertices)
@@ -207,40 +212,49 @@ def poisson_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
 
 # The manufactured displacement moves in x only:
 #
-#     u = (sin(pi x) sin(pi y), 0)
+#     2D:  u = (sin(pi x) sin(pi y), 0)
+#     3D:  u = (sin(pi x) sin(pi y) sin(pi z), 0, 0)
 #
-# but the off-diagonal shear terms of sigma make both components of the forcing
+# but the off-diagonal shear terms of sigma make every component of the forcing
 # non-zero, so this exercises the coupled vector path rather than a scalar solve
-# wearing two components. Asserted in tests/test_convergence_elasticity.py, which
-# also covers the 3D case.
+# wearing two components. Asserted in tests/test_convergence.py.
 ELASTIC_E, ELASTIC_NU = 200.0, 0.3
 
 
 def elastic_source(point: Vertices) -> list[FloatArray]:
-    """The body force that makes `elastic_exact` the answer, for a plane-strain solid."""
+    """The body force that makes `elastic_exact` the answer, for a plane-strain solid
+    or a 3D one by the points' dimension."""
     mu, lamb = Enu_to_Lame(ELASTIC_E, ELASTIC_NU)
-    x, y = point.T
+    if point.shape[1] == 2:
+        x, y = point.T
+        return [
+            np.pi**2 * (3*mu + lamb) * np.sin(np.pi * x) * np.sin(np.pi * y),
+            -(mu + lamb) * np.pi**2 * np.cos(np.pi * x) * np.cos(np.pi * y),
+        ]
+    x, y, z = point.T
     return [
-        np.pi**2 * (3*mu + lamb) * np.sin(np.pi * x) * np.sin(np.pi * y),
-        -(mu + lamb) * np.pi**2 * np.cos(np.pi * x) * np.cos(np.pi * y),
+        np.pi**2 * (4*mu + lamb) * np.sin(np.pi * x) * np.sin(np.pi * y) * np.sin(np.pi * z),
+        -(mu + lamb) * np.pi**2 * np.cos(np.pi * x) * np.cos(np.pi * y) * np.sin(np.pi * z),
+        -(mu + lamb) * np.pi**2 * np.cos(np.pi * x) * np.sin(np.pi * y) * np.cos(np.pi * z),
     ]
 
 
 def elastic_exact(vertices: Vertices) -> FloatArray:
-    """The manufactured displacement, `(n_vertices, 2)`."""
-    exact = np.zeros((len(vertices), 2))
-    exact[:, 0] = np.sin(np.pi * vertices[:, 0]) * np.sin(np.pi * vertices[:, 1])
+    """The manufactured displacement, `(n_vertices, dim)`."""
+    exact = np.zeros_like(vertices, dtype=float)
+    exact[:, 0] = np.prod(np.sin(np.pi * vertices), axis=1)
     return exact
 
 
-def solve_elastic_mms(n: int) -> MMSSolve:
-    """Solve the manufactured elasticity problem on an `n` x `n` unit-square grid."""
-    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+def solve_elastic_mms(n: int, dim: int = 2, backend: Backend | None = None) -> MMSSolve:
+    """Solve the manufactured elasticity problem on an `n`-per-side unit box in `dim`
+    dimensions, with `backend` picking the linear solver (the default is direct)."""
+    mesh = box_mesh(corners=[[0.0] * dim, [1.0] * dim], resolution=(n,) * dim)
 
-    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0]))
+    bc = Conditions(Dirichlet(everywhere(), [0.0] * dim))
     equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU)
     problem = equation.problem(mesh, bc + Source(elastic_source))
-    solution = problem.solve()
+    solution = problem.solve(backend=backend)
 
     exact = elastic_exact(mesh.vertices)
     # The space's mass matrix is the scalar one repeated per component, so this is
@@ -255,9 +269,10 @@ def solve_elastic_mms(n: int) -> MMSSolve:
     )
 
 
-def elastic_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
+def elastic_convergence(resolutions: tuple[int, ...], dim: int = 2,
+                        backend: Backend | None = None) -> list[MMSSolve]:
     """Solve the manufactured elasticity problem once per resolution, coarsest first."""
-    return [solve_elastic_mms(n) for n in sorted(resolutions)]
+    return [solve_elastic_mms(n, dim, backend) for n in sorted(resolutions)]
 
 
 # --- variable coefficient: -div(kappa(x) grad u) = f ----------------------------

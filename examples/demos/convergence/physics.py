@@ -7,7 +7,7 @@ The one demo that shows not what the solver computed but how wrong it was:
   in time   the theta method's order is theta's to choose: 1 at backward Euler,
             2 at Crank-Nicolson, the default.
 
-The same studies run as assertions in tests/test_convergence{,_elasticity,_heat}.py.
+The same studies run as assertions in tests/test_convergence.py and tests/test_convergence_heat.py.
 `run` gathers them into a `RatesStudy` of plain results. Nothing here draws:
 `figures.py` does that from the study, and this file is what the gallery shows.
 """
