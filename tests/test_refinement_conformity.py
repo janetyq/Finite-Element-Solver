@@ -83,6 +83,10 @@ def test_all_elements_refinement_is_conforming(make_unit_square):
 
     _assert_conforming(refined)
     _assert_no_orphan_vertices(refined)
+    # Every element splits in four; a neighbour queued for its own red split is
+    # never closed green in between.
+    assert len(refined.elements) == 4 * len(mesh.elements)
+    assert set(refiner.leaf_classifications()) == {'red'}
 
 
 # ---------------------------------------------------------------------------

@@ -82,6 +82,10 @@ class RedGreenRefiner:
     Internal arrays (vertices, triangles, boundary) grow monotonically and are
     never compacted. Dead triangles are tombstoned via `_Status.GONE`, not
     removed, so every index structure stays valid across rounds.
+
+    Every per-edge lookup is a dict keyed by the sorted vertex pair, and new vertices
+    are accumulated in a list and stacked once at emission, so a round costs time
+    linear in the triangles it touches rather than in the mesh.
     """
 
     def __init__(self, mesh: Mesh) -> None:
@@ -92,8 +96,15 @@ class RedGreenRefiner:
                 f'got {n_nodes}-node elements'
             )
         self._source_mesh: Mesh = mesh
-        self._vertices: Vertices = mesh.vertices.copy()
-        self._boundary: list[list[int]] = [list(edge) for edge in mesh.boundary]
+        # The source vertices, then the midpoints created so far in index order; they
+        # are stacked into one array only when a mesh is emitted.
+        self._source_vertices: Vertices = mesh.vertices
+        self._new_vertices: list[Vertices] = []
+        # Boundary facets keyed by sorted edge, holding the facet's own orientation.
+        # Insertion-ordered, so the emitted facets are the source facets in order with
+        # each split facet replaced by its halves at the end.
+        self._boundary: dict[Edge, tuple[int, int]] = {
+            _edge_key(int(a), int(b)): (int(a), int(b)) for a, b in mesh.boundary}
 
         self._triangles: list[_Triangle] = []
         self._edge_to_tris: dict[Edge, set[int]] = {}
@@ -117,6 +128,7 @@ class RedGreenRefiner:
         self._tri_index_map: dict[int, int] = {
             idx: idx for idx in range(len(self._triangles))
         }
+        self._pending: set[int] = set()
 
     def leaf_classifications(self) -> list[str]:
         """Return ``'red'`` or ``'green'`` for each leaf triangle.
@@ -137,8 +149,11 @@ class RedGreenRefiner:
         ``element_idxs`` are indices into the most recently emitted mesh (or the
         original mesh, on the first call).
         """
-        for e_idx in element_idxs:
-            self._refine_single(self._tri_index_map[e_idx])
+        # Every triangle still queued is known up front, so a neighbour that is about
+        # to be refined red is not first closed green and then rolled back.
+        self._pending = {self._tri_index_map[e_idx] for e_idx in element_idxs}
+        while self._pending:
+            self._refine_single(self._pending.pop())
         return self._emit_mesh()
 
     # -- internal: triangle list management ---------------------------------
@@ -214,6 +229,8 @@ class RedGreenRefiner:
             shared = self._triangles[shared_idx]
             if shared.status is _Status.RED_PARENT:
                 continue
+            elif shared_idx in self._pending:
+                continue
             elif shared.status is _Status.RED_CHILD:
                 self._refine_green(shared_idx, edge, new_point_idxs[i])
             elif shared.status is _Status.GREEN_PARENT:
@@ -280,31 +297,33 @@ class RedGreenRefiner:
             return idx
         return None
 
+    def _vertex(self, idx: int) -> Vertices:
+        n_source = len(self._source_vertices)
+        return self._source_vertices[idx] if idx < n_source else self._new_vertices[idx - n_source]
+
     def _get_or_create_midpoint(self, v0: int, v1: int) -> int:
         key = _edge_key(v0, v1)
         mid = self._edge_midpoints.get(key)
         if mid is not None:
             return mid
-        midpoint = (self._vertices[v0] + self._vertices[v1]) / 2
+        midpoint = (self._vertex(v0) + self._vertex(v1)) / 2
         curve = self._edge_curve.get(key)
         if curve is not None:
             midpoint = np.asarray(curve.project(midpoint))
-        self._vertices = np.vstack((self._vertices, midpoint))
-        mid = len(self._vertices) - 1
+        mid = len(self._source_vertices) + len(self._new_vertices)
+        self._new_vertices.append(midpoint)
         self._edge_midpoints[key] = mid
         return mid
 
     # -- internal: boundary bookkeeping -------------------------------------
 
     def _update_boundary(self, edge: list[int], mid_idx: int) -> None:
-        if edge in self._boundary:
-            self._boundary.remove(edge)
-            self._boundary.extend([[edge[0], mid_idx], [mid_idx, edge[1]]])
-        elif edge[::-1] in self._boundary:
-            self._boundary.remove(edge[::-1])
-            self._boundary.extend([[edge[1], mid_idx], [mid_idx, edge[0]]])
-        else:
+        facet = self._boundary.pop(_edge_key(edge[0], edge[1]), None)
+        if facet is None:
             return
+        a, b = facet
+        self._boundary[_edge_key(a, mid_idx)] = (a, mid_idx)
+        self._boundary[_edge_key(mid_idx, b)] = (mid_idx, b)
         # The two halves lie on whatever curve and outline the split boundary edge did,
         # so a facet keeps following them however many times it is bisected.
         _carry_onto_halves(self._edge_curve, edge, mid_idx)
@@ -328,25 +347,26 @@ class RedGreenRefiner:
             self._tri_index_map[len(elements) - 1] = tri_idx
         elements_arr = np.array(elements)
 
+        all_vertices = np.vstack([self._source_vertices, *self._new_vertices])
         used_idxs = np.unique(elements_arr)
-        vertices = self._vertices[used_idxs]
+        vertices = all_vertices[used_idxs]
         # Compaction: each old vertex index maps to its position in the sorted
         # used set, which searchsorted returns directly. Boundary facets are edges
         # of the emitted elements, so every boundary index is in used_idxs.
         remapped_elements = np.searchsorted(used_idxs, elements_arr)
-        remapped_boundary = np.searchsorted(used_idxs, np.array(self._boundary))
+        facets = list(self._boundary.values())
+        remapped_boundary = np.searchsorted(used_idxs, np.array(facets))
 
         # Curves keyed by the original (uncompacted) endpoints, in the same facet order
         # as `_boundary`, so they align with the remapped boundary rows.
         boundary_curves = None
         if self._edge_curve:
-            boundary_curves = [
-                self._edge_curve.get(_edge_key(a, b)) for a, b in self._boundary]
+            boundary_curves = [self._edge_curve.get(key) for key in self._boundary]
 
         boundary_tags = None
         if self._source_mesh.boundary_tags is not None:
             boundary_tags = np.array(
-                [self._edge_tag.get(_edge_key(a, b), -1) for a, b in self._boundary], dtype=int)
+                [self._edge_tag.get(key, -1) for key in self._boundary], dtype=int)
 
         self._source_mesh = self._source_mesh.with_topology(
             vertices, remapped_elements, remapped_boundary, boundary_curves, boundary_tags,
