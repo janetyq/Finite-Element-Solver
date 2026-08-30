@@ -15,6 +15,7 @@ them lazily and cache them.
 """
 import html
 import os
+import re
 import shutil
 import tempfile
 from collections.abc import Iterable
@@ -27,6 +28,7 @@ import matplotlib
 matplotlib.use('Agg')  # render to buffers; a gallery run opens no windows
 
 from demo_registry import Demo, DemoResult
+from source_html import STYLE_DARK, STYLE_LIGHT, highlight
 
 IMAGES = 'img'
 
@@ -206,16 +208,20 @@ figcaption { color: var(--muted); font-size: .9rem; margin-top: .5rem; }
 .player .count { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
 pre { overflow-x: auto; padding: .9rem 1rem; border: 1px solid var(--line);
       border-radius: 8px; font-size: .85rem; }
-pre.source { line-height: 1.45; tab-size: 4; }
+.source pre { line-height: 1.45; tab-size: 4; }
 .heading { font-size: 1rem; margin: 2.5rem 0 .6rem; text-transform: uppercase;
            letter-spacing: .06em; color: var(--muted); }
 .run { margin: 0 0 2rem; }
 details.fold { margin-top: 1rem; }
 details.fold summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
-details.fold pre { margin-top: .6rem; }
+details.fold .source { margin-top: .6rem; }
 .run code { font-size: .85rem; background: var(--code); border: 1px solid var(--line);
             border-radius: 6px; padding: .25rem .5rem; }
 .note { border-left: 3px solid var(--line); padding-left: .9rem; color: var(--muted); }
+""" + STYLE_LIGHT + """
+@media (prefers-color-scheme: dark) {
+""" + STYLE_DARK + """
+}
 """
 
 PLAYER_JS = """
@@ -259,18 +265,23 @@ def _page(title: str, body: str, script: str = '') -> str:
     )
 
 
-def _figure_note(body: list[str]) -> str:
-    """Render a figure's longer explanation, one <p> per provided paragraph."""
+def _note(body: list[str]) -> str:
+    """A figure's longer explanation, one <p> per provided paragraph."""
     paragraphs = [p.strip() for p in body if p.strip()]
     if not paragraphs:
         return ''
-    inner = '\n'.join(f'<p>{html.escape(p)}</p>' for p in paragraphs)
+    # Docstrings name code in backticks; the page sets those as code.
+    inner = '\n'.join(f'<p>{_backticks(html.escape(p))}</p>' for p in paragraphs)
     return f'\n<div class="figure-note">\n{inner}\n</div>'
+
+
+def _backticks(text: str) -> str:
+    return re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
 
 
 def _panel_html(panel: Panel, index: int) -> str:
     caption = html.escape(panel.caption)
-    note = _figure_note(panel.body)
+    note = _note(panel.body)
     if not panel.frames:
         return (f'<figure>\n<img src="{panel.src}" alt="{caption}">\n'
                 f'<figcaption>{caption}</figcaption>\n</figure>{note}')
@@ -325,10 +336,10 @@ def _demo_page(entry: Entry) -> str:
         if entry.full_source:
             parts.append('<p class="sub">The functions that pose and solve the problem. '
                          'The figures are below the fold.</p>')
-        parts.append(f'<pre class="source">{html.escape(entry.source)}</pre>')
+        parts.append(highlight(entry.source))
     if entry.full_source:
         parts.append('<details class="fold"><summary>The figures, and the demo that assembles them</summary>'
-                     f'<pre class="source">{html.escape(entry.full_source)}</pre></details>')
+                     f'{highlight(entry.full_source)}</details>')
 
     return _page(f'{entry.name} - FEM demos', '\n'.join(parts), PLAYER_JS)
 
