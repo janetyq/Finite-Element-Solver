@@ -19,10 +19,7 @@ from fem.physics.equations import Heat, LinearElastic, Poisson, Projection, Fini
 from fem.space import FunctionSpace
 from fem.loads import Source
 from helpers import pinned
-
-
-def _mms_source(p):
-    return [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])]
+from mms import exact_solution, source_term
 
 
 def _problem(equation, mesh, bc=None):
@@ -31,7 +28,7 @@ def _problem(equation, mesh, bc=None):
 
 def _poisson_problem(mesh):
     bc = pinned()
-    return _problem(Poisson(), mesh, bc + Source(_mms_source))
+    return _problem(Poisson(), mesh, bc + Source(source_term))
 
 
 def test_linear_solve_and_newton_agree_on_a_linear_problem(make_unit_square):
@@ -71,9 +68,24 @@ def test_composed_poisson_matches_the_solver_facade(make_unit_square):
     bc = pinned()
     equation = Poisson()
 
-    u_composed = LinearSolve().solve(_problem(equation, mesh, bc + Source(_mms_source)))
-    u_solver = equation.problem(mesh, bc + Source(_mms_source)).solve().dofs
+    u_composed = LinearSolve().solve(_problem(equation, mesh, bc + Source(source_term)))
+    u_solver = equation.problem(mesh, bc + Source(source_term)).solve().dofs
     np.testing.assert_allclose(u_composed, u_solver, atol=1e-12)
+
+
+def test_p2_is_reachable_through_the_solver_facade(make_unit_square):
+    """P2 is a first-class option on the documented entry point, not only by hand-building
+    a LinearProblem: `element_type` flows through `Equation.problem` to the space, and the
+    solve is the accurate quadratic one."""
+    from fem.elements import QuadraticTriangleElement
+
+    mesh = make_unit_square(9)
+    problem = Poisson().problem(mesh, pinned() + Source(source_term), element_type=QuadraticTriangleElement)
+    solution = problem.solve()
+
+    # P2 on this mesh is already far past the P1 error floor at the same spacing.
+    assert len(solution.dofs) == problem.space.n_dofs
+    assert np.abs(solution.dofs - exact_solution(problem.space.node_coords)).max() < 5e-3
 
 
 def test_composed_linear_elastic_matches_the_solver_facade(make_unit_square):

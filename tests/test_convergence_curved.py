@@ -31,19 +31,15 @@ def test_annulus_rims_carry_their_circles():
     assert all(curve is not None for curve in mesh.boundary_curves)
 
 
-def _observed_orders(hs, errors):
-    hs, errors = np.asarray(hs), np.asarray(errors)
-    return np.log(errors[:-1] / errors[1:]) / np.log(hs[:-1] / hs[1:])
-
-
-def _area_errors(element_type):
+def _area_study(element_type) -> ConvergenceStudy:
+    """The meshed area's error against the true annulus, per resolution."""
     hs, errors = [], []
     for n in RESOLUTIONS:
         mesh = annulus_mesh(ANNULUS_INNER, ANNULUS_OUTER, n, 4 * n)
         space = FunctionSpace(mesh, element_type, n_components=1)
         errors.append(abs(space.geometry.total_volume - TRUE_AREA))
         hs.append(1.0 / (n - 1))
-    return np.array(hs), np.array(errors)
+    return ConvergenceStudy(np.array(hs), np.array(errors))
 
 
 def test_curved_boundary_nodes_lie_on_the_true_rim():
@@ -68,17 +64,14 @@ def test_curved_area_is_higher_order_than_straight():
     """Domain area is pure geometry. The polygonal straight boundary gives an O(h^2)
     area error; the curved boundary reaches the element's own order, orders of magnitude
     smaller at every mesh."""
-    _, straight = _area_errors(QuadraticTriangleElement)
-    hs, curved = _area_errors(IsoparametricTriangleElement)
+    straight = _area_study(QuadraticTriangleElement)
+    curved = _area_study(IsoparametricTriangleElement)
 
-    straight_orders = _observed_orders(hs, straight)
-    curved_orders = _observed_orders(hs, curved)
-
-    for p in straight_orders:
-        assert 1.5 < p < 2.3, f"expected ~2nd order area for straight, got {straight_orders}"
-    assert curved_orders.min() > 2.7, f"expected >2 for curved, got {curved_orders}"
-    assert np.all(curved < straight / 20), (
-        f"curved area error not far below straight: {curved} vs {straight}")
+    for p in straight.orders:
+        assert 1.5 < p < 2.3, f"expected ~2nd order area for straight, got {straight.orders}"
+    assert curved.orders.min() > 2.7, f"expected >2 for curved, got {curved.orders}"
+    assert np.all(curved.error < straight.error / 20), (
+        f"curved area error not far below straight: {curved.error} vs {straight.error}")
 
 
 def test_isoparametric_solve_keeps_the_p2_rate():

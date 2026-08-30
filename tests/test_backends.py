@@ -19,8 +19,8 @@ from fem.regions import on_plane
 from fem.physics.equations import Heat, LinearElastic, Poisson
 from fem.space import FunctionSpace
 from fem.algebra.system import DiscreteSystem
-from fem.loads import Source
 from helpers import cantilever_bc, pinned
+from mms import ConvergenceStudy, solve_poisson_mms
 
 
 def _spd(n, seed=0):
@@ -39,26 +39,10 @@ def _symmetric_indefinite(n, seed=0):
     return (Q * eigenvalues) @ Q.T
 
 
-def _poisson_mms(n, backend):
-    """Solve the manufactured sin*sin Poisson problem; return (h, L2 error)."""
-    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
-    eq = Poisson()
-    bc = pinned()
-    problem = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])]))
-    u = problem.solve(backend=backend).dofs
-    exact = np.sin(np.pi * mesh.vertices[:, 0]) * np.sin(np.pi * mesh.vertices[:, 1])
-    error = u - exact
-    return 1.0 / (n - 1), np.sqrt(error @ problem.space.mass_matrix @ error)
-
-
 def test_iterative_matches_direct_on_poisson():
     """AMG-CG reproduces the direct Poisson solution to problem tolerance."""
-    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(41, 41))
-    eq = Poisson()
-    bc = pinned()
-
-    direct = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])])).solve(backend=DirectBackend()).dofs
-    iterative = eq.problem(mesh, bc + Source(lambda p: [2 * np.pi**2 * np.sin(np.pi * p[:, 0]) * np.sin(np.pi * p[:, 1])])).solve(backend=IterativeBackend()).dofs
+    direct = solve_poisson_mms(41, backend=DirectBackend()).dofs
+    iterative = solve_poisson_mms(41, backend=IterativeBackend()).dofs
     np.testing.assert_allclose(iterative, direct, atol=1e-8)
 
 
@@ -79,15 +63,9 @@ def test_iterative_matches_direct_on_elasticity():
 
 def test_iterative_backend_preserves_second_order_convergence():
     """The MMS O(h^2) rate holds through the iterative backend, not just the direct one."""
-    data = [_poisson_mms(n, IterativeBackend()) for n in (11, 21, 41)]
-    hs = [h for h, _ in data]
-    errors = [e for _, e in data]
-    orders = [
-        np.log(errors[i] / errors[i + 1]) / np.log(hs[i] / hs[i + 1])
-        for i in range(len(hs) - 1)
-    ]
-    for p in orders:
-        assert 1.7 < p < 2.3, f"expected ~2nd order under CG, got {orders}"
+    study = ConvergenceStudy.from_solves([solve_poisson_mms(n, IterativeBackend()) for n in (11, 21, 41)])
+    for p in study.orders:
+        assert 1.7 < p < 2.3, f"expected ~2nd order under CG, got {study.orders}"
 
 
 def test_iterative_matches_direct_on_3d_elasticity():

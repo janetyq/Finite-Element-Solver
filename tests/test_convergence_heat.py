@@ -1,73 +1,26 @@
 """Temporal convergence of the heat time integrators.
 
 The integrator is compared against the exact solution of the semi-discrete system,
-u(t) = expm(-t M^{-1} K) u0 on the free DOFs, so the error is purely temporal.
-theta = 1 (backward Euler) is first order; theta = 1/2 (Crank-Nicolson) is second.
+u(t) = expm(-t M^{-1} K) u0 on the free DOFs, so the error is purely temporal. The
+study lives in `examples/mms.py` as `theta_convergence`, so the `convergence` demo
+draws what this asserts: theta = 1 (backward Euler) is first order; theta = 1/2
+(Crank-Nicolson) is second.
 """
-import numpy as np
 import pytest
-from scipy.linalg import expm
 
-from fem.conditions import Initial
-from fem.field import NodalField
-from fem.algebra.integrators import ThetaMethod
-from fem.mesh.structured import box_mesh
-from fem.physics.equations import Heat
-from helpers import pinned
+from mms import theta_convergence
 
 
-def _semidiscrete_exact(problem, u0, T):
-    """Exact solution of the semi-discrete system M u' = -K u at time T."""
-    free = problem.constraints[0]
-    M = problem.space.mass_matrix.toarray()
-    K = problem.tangent(None).toarray()
-    M_ff, K_ff = M[np.ix_(free, free)], K[np.ix_(free, free)]
-    propagator = expm(-T * np.linalg.solve(M_ff, K_ff))
-    u_exact = np.zeros_like(u0)
-    u_exact[free] = propagator @ u0[free]
-    return u_exact
-
-
-def _temporal_error(mesh, bc, u0, T, n_steps, theta):
-    """M-weighted L2 error of a theta-method against the semi-discrete exact at T."""
-    problem = Heat().problem(mesh, bc)
-    integrator = ThetaMethod(dt=T / n_steps, steps=n_steps, theta=theta)
-    u_h = integrator.solve(problem, initial=Initial(NodalField(problem.space, u0))).dofs[-1]
-    error = u_h - _semidiscrete_exact(problem, u0, T)
-    return float(np.sqrt(error @ problem.space.mass_matrix @ error))
-
-
-def _orders(mesh, bc, u0, T, theta, n_steps):
-    dts = [T / k for k in n_steps]
-    errors = [_temporal_error(mesh, bc, u0, T, k, theta) for k in n_steps]
-    for coarse, fine in zip(errors, errors[1:]):
-        assert fine < coarse, f"error grew under dt refinement: {errors}"
-    return [
-        np.log(errors[i] / errors[i + 1]) / np.log(dts[i] / dts[i + 1])
-        for i in range(len(dts) - 1)
-    ]
-
-
-@pytest.fixture(scope="module")
-def setup():
-    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(11, 11))
-    bc = pinned()
-    x, y = mesh.vertices[:, 0], mesh.vertices[:, 1]
-    u0 = np.sin(np.pi * x) * np.sin(np.pi * y)  # an eigenmode; zero on the boundary
-    return mesh, bc, u0
-
-
-def test_backward_euler_is_first_order(setup):
-    mesh, bc, u0 = setup
-    orders = _orders(mesh, bc, u0, T=0.02, theta=1.0, n_steps=[2, 4, 8, 16])
-    for p in orders:
-        assert 0.8 < p < 1.3, f"expected ~1st order in dt, got {orders}"
-
-
-def test_crank_nicolson_is_second_order(setup):
-    # Steps chosen to sit in the asymptotic band: coarser steps are pre-asymptotic
-    # (lambda*dt not small), finer ones approach the roundoff floor of the expm.
-    mesh, bc, u0 = setup
-    orders = _orders(mesh, bc, u0, T=0.02, theta=0.5, n_steps=[16, 32, 64])
-    for p in orders:
-        assert 1.8 < p < 2.3, f"expected ~2nd order in dt, got {orders}"
+# Crank-Nicolson's steps are chosen to sit in the asymptotic band: coarser steps are
+# pre-asymptotic (lambda dt not small), finer ones approach the roundoff floor of the expm.
+@pytest.mark.parametrize('theta, step_counts, order, band', [
+    (1.0, (2, 4, 8, 16), 1, (0.8, 1.3)),
+    (0.5, (16, 32, 64), 2, (1.8, 2.3)),
+], ids=['backward_euler', 'crank_nicolson'])
+def test_theta_method_converges_at_its_order(theta, step_counts, order, band):
+    study = theta_convergence(theta, step_counts)
+    for coarse, fine in zip(study.error[:-1], study.error[1:]):
+        assert fine < coarse, f'error grew under dt refinement: {study.error}'
+    low, high = band
+    for p in study.orders:
+        assert low < p < high, f'expected order ~{order} in dt, got {study.orders}'
