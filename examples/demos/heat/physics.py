@@ -12,7 +12,6 @@ import numpy as np
 from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial
 from fem.physics.equations import Heat, Poisson
-from fem.physics.forms import BoundaryMassForm
 from fem.algebra.integrators import ThetaMethod
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
@@ -70,13 +69,7 @@ def steady_heatsink(mesh, bc, kappa, u_ambient):
     """
     problem = Poisson().problem(mesh, bc + Source(0))
     u = problem.solve().dofs
-    # The convective loss, read off the same region-restricted boundary mass a Robin
-    # condition assembles, so it is the exact discrete integral of (u - u_ambient).
-    resolved = problem.resolved
-    film_mass = problem.space.assemble(
-        BoundaryMassForm(1, resolved.robin[0].facet_mask), boundary=True)
-    heat_shed = kappa * float(np.asarray(film_mass @ (u - u_ambient)).sum())
-    return u, heat_shed
+    return u, float(problem.robin_flux(u))
 
 
 def solid_block(width, height, target_area):
@@ -136,14 +129,10 @@ def warm_up(mesh, dt, steps, kappa, u_ambient, u_hot, ramp):
     # The heat equation is Poisson's operator integrated in time (see fem.problem.heat).
     heat = Heat().problem(mesh, bc)
     solution = ThetaMethod(dt=dt, steps=steps).solve(heat)
-    # Each step as a steady solution carries the recovered heat flux -grad u. The heat
-    # shed through the film at each step is the same convective integral the steady
-    # comparison reads, kappa * integral_film (u - u_ambient).
+    # Each step as a steady solution carries the recovered heat flux -grad u; the heat
+    # shed through the film at each step is the Robin flux the steady comparison reads.
     flux_values = [np.linalg.norm(step.nodal_gradient(), axis=1) for step in solution]
-    film_mass = heat.space.assemble(
-        BoundaryMassForm(1, heat.resolved.robin[0].facet_mask), boundary=True)
-    shed_values = [kappa * float(np.asarray(film_mass @ (u - u_ambient)).sum())
-                   for u in solution.dofs]
+    shed_values = [float(heat.robin_flux(u)) for u in solution.dofs]
     return bc, solution, flux_values, shed_values
 
 

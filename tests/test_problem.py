@@ -406,3 +406,41 @@ def test_mass_is_the_density_scaled_mass_matrix_held_across_operators(make_unit_
     assert problem.with_operator(MassForm()).mass is problem.mass
     with pytest.raises(ValueError, match='density'):
         Problem(problem.space, DiffusionForm(), density=0.0)
+
+
+# -- Robin flux ------------------------------------------------------------------
+
+
+def test_robin_flux_is_the_heat_leaving_through_the_film(make_unit_square):
+    """u = 1 at x = 0 and du/dn + u = 0 at x = 1 has the linear solution u = 1 - x/2,
+    so the flux through the film is κu = 1/2 along a unit edge. Exact on P1."""
+    mesh = make_unit_square(6)
+    bc = Conditions(Dirichlet(on_plane(0, 0.0), 1.0), Robin(on_plane(0, 1.0), kappa=1.0, g=0.0))
+    problem = Poisson().problem(mesh, bc)
+    u = problem.solve()
+    assert problem.robin_flux(u) == pytest.approx(0.5)
+    assert problem.robin_flux(u.dofs) == pytest.approx(0.5)
+
+
+def test_robin_flux_subtracts_the_condition_value(make_unit_square):
+    """With g = κ u_ambient the flux is κ ∫ (u - u_ambient): zero for a field at ambient."""
+    mesh = make_unit_square(4)
+    bc = Conditions(Robin(everywhere(), kappa=2.0, g=2.0 * 300.0))
+    problem = Poisson().problem(mesh, bc)
+    ambient = problem.space.interpolate(300.0)
+    assert problem.robin_flux(ambient) == pytest.approx(0.0, abs=1e-9)
+    assert problem.robin_flux(problem.space.interpolate(301.0)) == pytest.approx(2.0 * 4.0)
+
+
+def test_robin_flux_takes_the_condition_when_there_are_several(make_unit_square):
+    mesh = make_unit_square(4)
+    left = Robin(on_plane(0, 0.0), kappa=1.0, g=0.0)
+    right = Robin(on_plane(0, 1.0), kappa=3.0, g=0.0)
+    problem = Poisson().problem(mesh, Conditions(left, right))
+    ones = problem.space.interpolate(1.0)
+    assert problem.robin_flux(ones, left) == pytest.approx(1.0)
+    assert problem.robin_flux(ones, right) == pytest.approx(3.0)
+    with pytest.raises(ValueError, match='2 Robin conditions'):
+        problem.robin_flux(ones)
+    with pytest.raises(ValueError, match='not a Robin condition of this problem'):
+        problem.robin_flux(ones, Robin(on_plane(1, 0.0), kappa=1.0, g=0.0))

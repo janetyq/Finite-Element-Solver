@@ -69,10 +69,42 @@ def _has_free_component(value: FieldValue) -> bool:
     return False
 
 
+def select_boundary_nodes(region: Region, nodes: NodeGeometry) -> VertexIndices:
+    '''Boundary nodes of `nodes` inside `region`.
+
+    Regions are evaluated over every node and then intersected with the boundary,
+    which makes "a boundary condition on an interior node" unrepresentable rather than
+    something to diagnose afterwards. For a P2 node set this picks up the edge-midpoint
+    nodes on the boundary automatically, since they satisfy the same geometric region
+    their endpoints do.
+    '''
+    if isinstance(region, on_tag):
+        # Named by outline rather than by place: the facets say which nodes.
+        return region.select_nodes(nodes.boundary, nodes.boundary_tags)
+    selected = np.flatnonzero(region(nodes.vertices))
+    boundary = np.asarray(nodes.boundary_idxs, dtype=int)
+    if is_mesh_bound(region):
+        # A named interior node is a mistake to report; a geometric region is a
+        # filter, so its intersection with the boundary is the intent.
+        interior = np.setdiff1d(selected, boundary)
+        if len(interior):
+            raise ValueError(
+                f'boundary conditions on non-boundary nodes: {sorted(interior)}'
+            )
+        return selected
+    return np.intersect1d(selected, boundary)
+
+
 def _facet_mask(nodes: NodeGeometry, idxs: VertexIndices) -> BoolArray:
     '''The boundary facets whose every node is in `idxs`: the all-nodes rule that keeps
     a boundary integral on its own region and off a neighbour through a shared corner.'''
     return np.asarray(np.isin(nodes.boundary, idxs).all(axis=1), dtype=bool)
+
+
+def boundary_facet_mask(region: Region, nodes: NodeGeometry) -> BoolArray:
+    '''One entry per boundary facet of `nodes`: whether the facet lies in `region`, by
+    the same all-nodes rule a Neumann or Robin condition integrates over.'''
+    return _facet_mask(nodes, select_boundary_nodes(region, nodes))
 
 
 # -- the resolved contributions --------------------------------------------------
@@ -160,29 +192,8 @@ class Condition(ABC):
         return is_mesh_bound(self.region)
 
     def select(self, nodes: NodeGeometry) -> VertexIndices:
-        '''Boundary nodes of `nodes` inside the region.
-
-        Regions are evaluated over every node and then intersected with the
-        boundary, which makes "a boundary condition on an interior node"
-        unrepresentable rather than something to diagnose afterwards. For a P2 node
-        set this picks up the edge-midpoint nodes on the boundary automatically,
-        since they satisfy the same geometric region their endpoints do.
-        '''
-        if isinstance(self.region, on_tag):
-            # Named by outline rather than by place: the facets say which nodes.
-            return self.region.select_nodes(nodes.boundary, nodes.boundary_tags)
-        selected = np.flatnonzero(self.region(nodes.vertices))
-        boundary = np.asarray(nodes.boundary_idxs, dtype=int)
-        if self.is_mesh_bound:
-            # A named interior node is a mistake to report; a geometric region is a
-            # filter, so its intersection with the boundary is the intent.
-            interior = np.setdiff1d(selected, boundary)
-            if len(interior):
-                raise ValueError(
-                    f'boundary conditions on non-boundary nodes: {sorted(interior)}'
-                )
-            return selected
-        return np.intersect1d(selected, boundary)
+        '''Boundary nodes of `nodes` inside the region; see `select_boundary_nodes`.'''
+        return select_boundary_nodes(self.region, nodes)
 
     @abstractmethod
     def resolve(

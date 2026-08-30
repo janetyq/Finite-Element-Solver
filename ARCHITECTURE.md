@@ -177,7 +177,8 @@ to material.
 
 Post-processing (9) is distributed under one rule: a derived quantity lives on the object that
 owns the data it needs. A `NodalField` owns what a field on a space can answer by itself
-(`nodal_values`, `component`, `integrate`, `mean`, the per-element `gradient`, `evaluate` at
+(`nodal_values`, `component`, `integrate`, `mean`, `boundary_integral` over a region's facets,
+the per-element `gradient`, `evaluate` at
 points, `deformed_mesh`); `fem/post/recovery.py` owns `recover_nodal`, `average_to_nodal`, `project_to_nodal`, and
 `nodal_gradient`, each a function of a space; a `Form` owns `sample` / `recover` and
 `flux` (which flux is recoverable, read

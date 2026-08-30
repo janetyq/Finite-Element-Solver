@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from fem.typing import DofVector, ElementValues, FloatArray, NodalValues, Vertices
+from fem.typing import DofVector, ElementValues, FloatArray, NodalValues, Region, Vertices
 
 if TYPE_CHECKING:
     from fem.elements import Element
@@ -108,6 +108,25 @@ class NodalField:
     def mean(self) -> float | FloatArray:
         '''The volume-weighted mean; see `integrate`.'''
         return self.integrate() / self.space.total_volume
+
+    def boundary_integral(self, region: 'Region | None' = None) -> float | FloatArray:
+        '''The integral over the boundary, or over the boundary facets in `region`,
+        exact for the discrete field: a float for a scalar field, `(n_components,)`
+        for a vector one.
+
+        A facet is in the region when all its nodes are, the rule a Neumann or Robin
+        condition integrates by, so the integral over a condition's region is the
+        integral the condition sees.
+        '''
+        from fem.boundary import boundary_facet_mask
+        from fem.physics.forms import BoundaryMassForm
+
+        n_facets = len(self.space.boundary_nodes)
+        mask = (np.ones(n_facets, dtype=bool) if region is None
+                else boundary_facet_mask(region, self.space.nodes))
+        mass = self.space.assemble(BoundaryMassForm(self.n_components, mask), boundary=True)
+        integrals = np.asarray(mass @ self.dofs).reshape(-1, self.n_components).sum(axis=0)
+        return float(integrals[0]) if self.n_components == 1 else integrals
 
     def gradient(self) -> ElementValues:
         '''One gradient per element, `(n_elements, spatial_dim)` for a scalar field and

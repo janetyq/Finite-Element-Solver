@@ -5,6 +5,7 @@ import pytest
 from fem.elements import QuadraticTriangleElement
 from fem.field import NodalField
 from fem.mesh.structured import box_mesh
+from fem.regions import on_plane
 from fem.space import FunctionSpace
 
 
@@ -176,6 +177,34 @@ def test_evaluate_at_a_node_reads_the_nodal_value(square):
 
 
 # -- deformation ----------------------------------------------------------------
+
+
+def test_boundary_integral_of_one_is_the_perimeter(square):
+    space = FunctionSpace(square)
+    assert space.interpolate(1.0).boundary_integral() == pytest.approx(4.0)
+
+
+def test_boundary_integral_over_a_region_takes_only_its_facets(square):
+    """x over the whole boundary is 2 (the right edge, plus half of the top and bottom);
+    over the right edge alone it is 1."""
+    space = FunctionSpace(square)
+    x = space.interpolate(lambda p: p[:, 0])
+    assert x.boundary_integral() == pytest.approx(2.0)
+    assert x.boundary_integral(on_plane(0, 1.0)) == pytest.approx(1.0)
+    assert x.boundary_integral(on_plane(0, 0.0)) == pytest.approx(0.0)
+
+
+def test_p2_boundary_integral_is_exact_for_a_quadratic(square):
+    """∫_0^1 y² dy along the right edge."""
+    space = FunctionSpace(square, QuadraticTriangleElement)
+    field = space.interpolate(lambda p: p[:, 1] ** 2)
+    assert field.boundary_integral(on_plane(0, 1.0)) == pytest.approx(1 / 3)
+
+
+def test_vector_boundary_integral_is_per_component(square):
+    space = FunctionSpace(square, n_components=2)
+    field = space.interpolate(lambda p: [1.0, p[:, 0]])
+    np.testing.assert_allclose(field.boundary_integral(), [4.0, 2.0])
 
 
 def test_deformed_mesh_moves_the_vertices_by_the_field(square):
