@@ -54,6 +54,12 @@ def _poisson_p1_solves():
     return poisson_convergence((11, 21, 41))    # h = 0.1, 0.05, 0.025
 
 
+def _h1_study(solves):
+    """A `ConvergenceStudy` over the gradient error, so an H1 study reuses an L2 study's
+    solves rather than re-running them; the `h1_error` is set on the same `MMSSolve`s."""
+    return ConvergenceStudy(np.array([s.h for s in solves]), np.array([s.h1_error for s in solves]))
+
+
 @cache
 def poisson_p1_l2():
     return ConvergenceStudy.from_solves(_poisson_p1_solves())
@@ -61,13 +67,22 @@ def poisson_p1_l2():
 
 @cache
 def poisson_p1_h1():
-    solves = _poisson_p1_solves()
-    return ConvergenceStudy(np.array([s.h for s in solves]), np.array([s.h1_error for s in solves]))
+    return _h1_study(_poisson_p1_solves())
+
+
+@cache
+def _poisson_p2_solves():
+    return poisson_p2_convergence((5, 9, 17, 33))
 
 
 @cache
 def poisson_p2():
-    return ConvergenceStudy.from_solves(poisson_p2_convergence((5, 9, 17, 33)))
+    return ConvergenceStudy.from_solves(_poisson_p2_solves())
+
+
+@cache
+def poisson_p2_h1():
+    return _h1_study(_poisson_p2_solves())
 
 
 @cache
@@ -76,13 +91,33 @@ def variable_coefficient():
 
 
 @cache
+def _elastic_p1_solves():
+    return elastic_convergence((9, 17, 33))
+
+
+@cache
 def elastic_p1():
-    return ConvergenceStudy.from_solves(elastic_convergence((9, 17, 33)))
+    return ConvergenceStudy.from_solves(_elastic_p1_solves())
+
+
+@cache
+def elastic_p1_h1():
+    return _h1_study(_elastic_p1_solves())
+
+
+@cache
+def _elastic_p2_solves():
+    return elastic_p2_convergence((5, 9, 17))
 
 
 @cache
 def elastic_p2():
-    return ConvergenceStudy.from_solves(elastic_p2_convergence((5, 9, 17)))
+    return ConvergenceStudy.from_solves(_elastic_p2_solves())
+
+
+@cache
+def elastic_p2_h1():
+    return _h1_study(_elastic_p2_solves())
 
 
 @cache
@@ -104,8 +139,7 @@ def mixed_bc_l2():
 
 @cache
 def mixed_bc_h1():
-    solves = _mixed_bc_solves()
-    return ConvergenceStudy(np.array([s.h for s in solves]), np.array([s.h1_error for s in solves]))
+    return _h1_study(_mixed_bc_solves())
 
 
 STUDIES = [
@@ -121,15 +155,27 @@ STUDIES = [
     # below what P1 reaches at the same spacing (~1e-3 by h = 1/40): faster, not
     # merely converging.
     Study('poisson_p2', poisson_p2, 3, (2.7, 3.3), floor=1e-5),
+    # The gradient error of the same P2 solve, O(h^2), one order below its L2 rate. It
+    # reads grad_phi directly (never the assembled K), so a wrong P2 shape gradient or
+    # edge-node numbering degrades this while the L2 rate can still look right. Observed
+    # 1.95, 1.99, 2.00 with a coarse-end pre-asymptotic climb, so the band allows it.
+    Study('poisson_p2_h1', poisson_p2_h1, 2, (1.8, 2.2)),
     # kappa(x) and f both vary within an element, so both sides of the solve go
     # through the quadrature layer a constant-coefficient assembly lacks.
     Study('variable_coefficient', variable_coefficient, 2, (1.7, 2.3), floor=1e-2),
     # The coupled vector path: only u_x is nonzero, but the shear terms of sigma make
     # both components of f nonzero.
     Study('elastic_p1', elastic_p1, 2, (1.7, 2.3)),
+    # The gradient (strain) error of the vector P1 solve, O(h): the sharp probe of the
+    # elastic B-matrix and the coupled stiffness, measured against the closed-form
+    # deformation gradient rather than through K. Observed 0.98, 0.99.
+    Study('elastic_p1_h1', elastic_p1_h1, 1, (0.85, 1.15)),
     # The vector P2 path: the node numbering under n_components = 2 and the coupled
     # operator, at the scalar P2 rate.
     Study('elastic_p2', elastic_p2, 3, (2.7, 3.3)),
+    # Its gradient error, O(h^2): the vector P2 shape gradients under n_components = 2.
+    # Observed 1.94, 1.98.
+    Study('elastic_p2_h1', elastic_p2_h1, 2, (1.8, 2.2)),
     # The same scalar Poisson study in 3D, on a tetrahedral box: assembly and the P1
     # solve on tets, not only triangles. On the regular mesh it is in a tighter band
     # from a coarse sequence; observed orders 1.93, 1.98.

@@ -84,6 +84,21 @@ def test_isoparametric_solve_keeps_the_p2_rate():
     assert study.fitted_order > 2.7, f"expected ~3rd order, got orders {study.orders}"
 
 
+def test_isoparametric_solve_keeps_the_h1_rate():
+    """The gradient error is the sharper probe of the isoparametric geometry map: a wrong
+    curved-element Jacobian degrades the O(h^2) H1 seminorm rate before it shows in the L2
+    error above. Measured against the closed-form gradient (never the assembled K), and held
+    to a two-sided per-pair band. Observed orders 1.78, 1.88, 1.94, a pre-asymptotic climb
+    toward two that the band's lower edge allows."""
+    solves = annulus_convergence(RESOLUTIONS, IsoparametricTriangleElement)
+    study = ConvergenceStudy(np.array([s.h for s in solves]),
+                             np.array([s.h1_error for s in solves]))
+    for coarse, fine in zip(study.error[:-1], study.error[1:]):
+        assert fine < coarse, f"gradient error grew under refinement: {study.error}"
+    for p in study.orders:
+        assert 1.6 < p < 2.2, f"expected ~O(h^2) H1 seminorm, got orders {study.orders}"
+
+
 def test_curved_mass_matrix_integrates_the_curved_area():
     """The consistent mass matrix sums to the domain measure (the P2 hats are a
     partition of unity), a direct check that the curved MassForm integrates over the
