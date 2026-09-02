@@ -1,11 +1,14 @@
 """A plate with a hole, from outline to the stress concentration at its rim, against
-Kirsch and Howland.
+Kirsch and Howland — then the same plate in a metal that yields.
 
 The one demo that runs the whole pipeline, so it builds its own mesh: the outline, what
 Ruppert's was asked for, and where the conditions went are part of what it shows.
-`mesh_plate`, `plate_bc`, and `refine_to_the_rim` each do one step; `run` calls them
-and returns a `PlateStudy` of plain results. Nothing here draws: `figures.py` does
-that from the `PlateStudy`, and this file is what the gallery shows.
+`mesh_plate`, `plate_bc`, and `refine_to_the_rim` each do one step; `yield_at_the_rim`
+re-solves the refined plate under Ramberg-Osgood deformation plasticity, where the
+concentration the elastic solve predicts cannot exist: the rim yields and the stress
+redistributes. `run` calls them and returns a `PlateStudy` of plain results. Nothing
+here draws: `figures.py` does that from the `PlateStudy`, and this file is what the
+gallery shows.
 """
 from dataclasses import dataclass
 
@@ -13,9 +16,9 @@ import numpy as np
 
 from fem.analysis.adaptivity import AdaptiveRefinement
 from fem.boundary import Dirichlet, Neumann
-from fem.conditions import Conditions
+from fem.conditions import Conditions, Initial
 from fem.elements import IsoparametricTriangleElement
-from fem.physics.equations import LinearElastic
+from fem.physics.equations import DeformationPlasticity, LinearElastic
 from fem.analysis.estimators import RecoveryEstimator
 from fem.mesh.mesh import Mesh
 from fem.mesh.pslg import PSLG
@@ -23,6 +26,7 @@ from fem.regions import intersect, on_plane
 from fem.post.solution import ElasticSolution
 from fem.mesh.curves import Circle
 from fem.mesh.outline import Outline
+from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
 
 
 def plate_with_hole_outline(length: float = 6.0, height: float = 3.0,
@@ -111,6 +115,25 @@ def refine_to_the_rim(mesh: Mesh, bc: Conditions, refinement_iters,
     return refinement.mesh, solution
 
 
+def yield_at_the_rim(bc: Conditions, elastic: ElasticSolution,
+                     yield_stress: float, hardening_exponent: float) -> ElasticSolution:
+    """Re-solve the refined plate in a metal that yields at `yield_stress`.
+
+    Ramberg-Osgood deformation-theory plasticity, which is valid here because the
+    load is monotonic and (near the rim, where it matters) proportional. The elastic
+    concentration drives the rim past yield, so its stress cannot be carried; the
+    material there flows, sheds load to its neighbours, and the peak flattens toward
+    the flow stress. Stated on the elastic solution's own space (same mesh, same
+    curved quadratic elements, same conditions), so that solution seeds Newton as it
+    is, a few steps from the yielded answer.
+    """
+    metal = DeformationPlasticity(E=200, nu=0.3, yield_stress=yield_stress,
+                                  hardening_exponent=hardening_exponent)
+    problem = metal.problem(elastic.space, bc)
+    return problem.solve(strategy=NewtonSolve(line_search=BacktrackingLineSearch()),
+                         initial=Initial(elastic))
+
+
 @dataclass
 class PlateStudy:
     """Everything `run` computed, for the figures and the summary to read."""
@@ -130,6 +153,15 @@ class PlateStudy:
     y_strip: np.ndarray             # the strip through the hole centre, sorted by y
     ratio_strip: np.ndarray         # sigma_xx / traction along it
     peak: float                     # rim sigma_xx / traction
+    yield_stress: float             # where the metal's curve bends
+    plastic_solution: ElasticSolution
+    vm_elastic: np.ndarray          # nodal von Mises, elastic
+    vm_plastic: np.ndarray          # nodal von Mises, yielded
+    vm_strip_elastic: np.ndarray    # elastic von Mises / traction along y_strip
+    vm_strip_plastic: np.ndarray    # yielded von Mises / traction along the same strip
+    elastic_vm_peak: float          # rim von Mises / traction, elastic
+    plastic_vm_peak: float          # the same peak after yielding
+    plastic_zone_over_hole: float   # area stressed past yield, in units of the hole's
 
     @property
     def hole_over_width(self) -> float:
@@ -155,8 +187,10 @@ class PlateStudy:
 
 def run(traction=1.0, length=6.0, height=3.0, radius=0.15, min_angle=25,
         max_area_fraction=0.01, rim_chords=16, refinement_iters=36,
-        refinement_budget=40000) -> PlateStudy:
-    """Mesh the plate, refine into the rim, and read the concentration off it."""
+        refinement_budget=40000, yield_ratio=1.2, hardening_exponent=8.0) -> PlateStudy:
+    """Mesh the plate, refine into the rim, read the concentration off it, and re-solve
+    in a metal whose yield stress (`yield_ratio` times the applied stress) that
+    concentration exceeds."""
     pslg, mesh = mesh_plate(length, height, radius, rim_chords, min_angle,
                             max_area_fraction)
     n_initial, initial_worst_angle = len(mesh.elements), mesh.min_angle
@@ -190,6 +224,27 @@ def run(traction=1.0, length=6.0, height=3.0, radius=0.15, min_angle=25,
     # too stiff and the steepest gradient is the last thing it resolves: 2.97, 3.00,
     # 3.00, 3.03 over 624, 970, 1877 and 3301 elements. Thirty-six rounds is enough to
     # agree to within a hundredth.
+
+    # The sequel: a metal that yields at yield_ratio times the applied stress, which
+    # the ~3x elastic concentration exceeds, so the rim must flow. Read on the same
+    # strip and rim nodes so the two curves compare point for point.
+    yield_stress = yield_ratio * traction
+    plastic_solution = yield_at_the_rim(bc, solution, yield_stress, hardening_exponent)
+    vm_elastic = solution.nodal_von_mises()
+    vm_plastic = plastic_solution.nodal_von_mises()
+    vm_strip_elastic = (vm_elastic[strip] / traction)[order]
+    vm_strip_plastic = (vm_plastic[strip] / traction)[order]
+    elastic_vm_peak = float(vm_elastic[on_rim].max() / traction)
+    plastic_vm_peak = float(vm_plastic[on_rim].max() / traction)
+    # The plastic zone in units of the hole's own area, the length scale it grows on:
+    # a fraction of the whole plate would read as zero for any realistic hole.
+    measures = mesh.element_measures
+    plastic_zone_over_hole = float(
+        measures[plastic_solution.von_mises > yield_stress].sum() / (np.pi * radius ** 2))
+
     return PlateStudy(length, height, radius, traction, min_angle, pslg, bc,
                       n_initial, initial_worst_angle, initial_rim_facets, mesh, solution,
-                      sigma_xx, y_strip, ratio_strip, peak)
+                      sigma_xx, y_strip, ratio_strip, peak,
+                      yield_stress, plastic_solution, vm_elastic, vm_plastic,
+                      vm_strip_elastic, vm_strip_plastic,
+                      elastic_vm_peak, plastic_vm_peak, plastic_zone_over_hole)
