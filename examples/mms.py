@@ -33,7 +33,7 @@ from fem.elements import (
     QuadraticTriangleElement,
 )
 from fem.physics.equations import Heat, LinearElastic, Poisson
-from fem.physics.forms import DiffusionForm, LinearElasticForm
+from fem.physics.forms import DiffusionForm, LinearElasticForm, ThermalStrain
 from fem.algebra.integrators import ThetaMethod
 from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.mesh.curves import Circle
@@ -519,6 +519,81 @@ def solve_elastic_mms_p2(n: int) -> MMSSolve:
 def elastic_p2_convergence(resolutions: tuple[int, ...]) -> list[MMSSolve]:
     """Solve the manufactured elasticity problem on P2 per resolution, coarsest first."""
     return [solve_elastic_mms_p2(n) for n in sorted(resolutions)]
+
+
+# --- thermoelasticity: the elastic study under a manufactured temperature -------
+#
+# The same manufactured displacement, now with a temperature rise
+#
+#     dT(x, y) = sin(pi x) sin(pi y)
+#
+# entering through the thermal strain alpha dT I. The law is sigma = D eps - beta dT I
+# with beta = (3 lambda + 2 mu) alpha, so the body force that keeps `elastic_exact` the
+# answer gains the gradient of the thermal stress:
+#
+#     f = -div(sigma) = elastic_source + beta grad(dT)
+#
+# Both the thermal load and the corrected stress enter the rate. alpha is picked for
+# convenience (the thermal stress of the same order as the mechanical one), not
+# physics. Asserted in tests/test_convergence.py twice: with dT sampled at the
+# quadrature points, and handed over as its nodal interpolant on the same mesh, the
+# way a heat solve's `NodalField` is.
+
+THERMAL_ALPHA = 0.5
+
+
+def thermal_field(point: Vertices) -> FloatArray:
+    """dT = sin(pi x) sin(pi y), the same shape as the Poisson solution, at `point`."""
+    return exact_solution(point)
+
+
+def thermal_stress_modulus() -> float:
+    """beta = (3 lambda + 2 mu) alpha for the study's material."""
+    mu, lamb = Enu_to_Lame(ELASTIC_E, ELASTIC_NU)
+    return (3 * lamb + 2 * mu) * THERMAL_ALPHA
+
+
+def thermoelastic_source(point: Vertices) -> list[FloatArray]:
+    """The body force that makes `elastic_exact` the answer under the thermal strain:
+    the elastic forcing plus `beta grad(dT)`."""
+    mechanical = elastic_source(point)
+    thermal = thermal_stress_modulus() * exact_gradient(point)   # (n, 2)
+    return [mechanical[0] + thermal[:, 0], mechanical[1] + thermal[:, 1]]
+
+
+def solve_thermoelastic_mms(n: int, nodal: bool = False) -> MMSSolve:
+    """Solve the manufactured thermoelastic problem on an `n` x `n` grid.
+
+    With `nodal`, the temperature is handed over as its P1 interpolant on the mesh (a
+    `NodalField`, the coupling path from a heat solve) rather than sampled at the
+    quadrature points; the interpolation error is O(h^2), so the rate is the same.
+    """
+    mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
+    temperature = (FunctionSpace(mesh, n_components=1).interpolate(thermal_field)
+                   if nodal else thermal_field)
+    thermal = ThermalStrain(THERMAL_ALPHA, temperature)
+
+    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0]))
+    equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, thermal=thermal)
+    problem = equation.problem(mesh, bc + Source(thermoelastic_source))
+    solution = problem.solve()
+
+    exact = elastic_exact(mesh.vertices)
+    error = solution.dofs.reshape(exact.shape) - exact
+    return MMSSolve(
+        h=1.0 / (n - 1),
+        mesh=mesh,
+        dofs=solution.dofs,
+        exact=exact.flatten(),
+        l2_error=l2_norm(problem.space, error.flatten()),
+        h1_error=h1_seminorm_error(problem.space, solution.dofs.reshape(exact.shape),
+                                   elastic_exact_gradient),
+    )
+
+
+def thermoelastic_convergence(resolutions: tuple[int, ...], nodal: bool = False) -> list[MMSSolve]:
+    """Solve the manufactured thermoelastic problem per resolution, coarsest first."""
+    return [solve_thermoelastic_mms(n, nodal) for n in sorted(resolutions)]
 
 
 # --- curved (isoparametric) elements on an annulus ------------------------------
