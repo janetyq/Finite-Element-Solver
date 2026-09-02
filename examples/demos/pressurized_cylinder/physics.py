@@ -143,7 +143,7 @@ class CylinderStudy:
     mesh: Mesh
     pressures: np.ndarray        # the sweep, ascending
     fronts: np.ndarray           # measured plastic front radius at each pressure
-    showcase: list[tuple[float, ElasticSolution, np.ndarray]]   # (p, solution, nodal vm)
+    showcase: list[tuple[float, float, ElasticSolution, np.ndarray]]   # (p, front, solution, nodal vm)
 
     @property
     def first_yield(self) -> float:
@@ -154,6 +154,14 @@ class CylinderStudy:
     def limit_pressure(self) -> float:
         """The pressure at which the whole wall flows: Hill's p(b)."""
         return float(hill_pressure(self.outer, self.inner, self.outer, self.k))
+
+    @property
+    def reserve(self) -> float:
+        """Limit pressure over first-yield pressure: the post-yield capacity the
+        redistribution buys. Pure geometry, `2 ln(b/a) / (1 - a^2/b^2)`: large for a
+        thick wall with under-stressed material to recruit, 1 in the thin-wall limit,
+        where first yield and collapse coincide."""
+        return self.limit_pressure / self.first_yield
 
     @property
     def hill_fronts(self) -> np.ndarray:
@@ -195,7 +203,8 @@ def run(inner=1.0, outer=2.0, yield_stress=1.0, hardening_exponent=100.0,
 
     solutions = pressurize(mesh, inner, metal, pressures)
     fronts = np.array([plastic_front(s, yield_stress, inner) for s in solutions])
-    showcase = [(float(pressures[i]), solutions[i], solutions[i].nodal_von_mises())
+    showcase = [(float(pressures[i]), float(fronts[i]), solutions[i],
+                 solutions[i].nodal_von_mises())
                 for i in (0, (len(solutions) - 1) // 2, len(solutions) - 1)]
     return CylinderStudy(inner, outer, yield_stress, k, hardening_exponent,
                          mesh, pressures, fronts, showcase)
