@@ -125,7 +125,9 @@ def h1_seminorm_error(
 
     Uses `geometry.gradients` at every quadrature point rather than the P1 shortcut
     `space.gradient`, so it is correct for the quadratic space too, where the gradient
-    varies within an element.
+    varies within an element. A vector field passes `u` as `(n_nodes, n_components)` and
+    `exact_gradient` returns the deformation gradient `F[c, i] = du_c/dx_i`; `quadrature_l2`
+    takes the Frobenius norm over the component axes, so the same kernel serves both.
     """
     geometry = space.geometry_at(degree)
     grad_h = geometry.gradients(u[space.element_nodes])   # (n_el, n_qp, spatial_dim)
@@ -255,6 +257,21 @@ def elastic_exact(vertices: Vertices) -> FloatArray:
     return exact
 
 
+def elastic_exact_gradient(points: FloatArray) -> FloatArray:
+    """grad of the manufactured displacement: `F[c, i] = d u_c / d x_i`.
+
+    Only component 0 moves (`u_0 = prod_j sin(pi x_j)`), so its row is the scalar
+    `exact_gradient` and the rest are zero. Broadcasts over any leading axes:
+    `(..., d)` points give `(..., d, d)`, so it takes the `(n_elements, n_qp, d)`
+    quadrature points the H1 error integrates over. Closed form, so the seminorm error
+    it feeds is independent of the assembled elastic stiffness (see `h1_seminorm_error`).
+    """
+    dim = points.shape[-1]
+    grad = np.zeros(points.shape + (dim,))
+    grad[..., 0, :] = exact_gradient(points)
+    return grad
+
+
 def solve_elastic_mms(n: int, dim: int = 2, backend: Backend | None = None) -> MMSSolve:
     """Solve the manufactured elasticity problem on an `n`-per-side unit box in `dim`
     dimensions, with `backend` picking the linear solver (the default is direct)."""
@@ -275,6 +292,8 @@ def solve_elastic_mms(n: int, dim: int = 2, backend: Backend | None = None) -> M
         dofs=solution.dofs,
         exact=exact.flatten(),
         l2_error=l2_norm(problem.space, error.flatten()),
+        h1_error=h1_seminorm_error(problem.space, solution.dofs.reshape(exact.shape),
+                                   elastic_exact_gradient),
     )
 
 
@@ -457,7 +476,10 @@ def solve_poisson_mms_p2(n: int) -> MMSSolve:
         mesh=mesh,
         dofs=u,
         exact=exact,
+        # The P2 gradient is linear within an element; sample the seminorm error at a
+        # degree-4 rule so the norm's own quadrature error stays below the O(h^2) rate.
         l2_error=l2_norm(space, u - exact),
+        h1_error=h1_seminorm_error(space, u, exact_gradient, degree=4),
     )
 
 
@@ -490,6 +512,7 @@ def solve_elastic_mms_p2(n: int) -> MMSSolve:
         dofs=u,
         exact=exact.flatten(),
         l2_error=l2_norm(space, error.flatten()),
+        h1_error=h1_seminorm_error(space, u.reshape(exact.shape), elastic_exact_gradient, degree=4),
     )
 
 
