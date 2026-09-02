@@ -127,17 +127,20 @@ returns `LinearProblem(space, DiffusionForm(k), conditions)`, `FiniteStrainElast
 conditions)` a `Problem` over an `EnergyForm`, and a PDE with no name is just a different composition.
 
 A choice is a parameter when it changes numbers inside one computation (a modulus, a density,
-plane stress against plane strain) and a class when it changes what the object is: which solve
+plane stress against plane strain, a thermal strain) and a class when it changes what the object is: which solve
 runs, what it returns, what it composes with. `LinearElastic` and `FiniteStrainElastic` are two
-classes for that reason, as are the backends, the estimators, and `Problem` / `LinearProblem`.
+classes for that reason, as are the backends, the estimators, and `Problem` / `LinearProblem`;
+thermoelasticity is `LinearElastic(thermal=ThermalStrain(...))`, the same problem with one more
+load and a corrected stress.
 
 A form is one base class. Every `Form` writes `element_residuals` and `element_tangents` at a
 state; what else it can answer is a hook with a default of "no": `constant_tangent` (every
 `BilinearForm`, whose residual is `K u`), `has_energy` (a bilinear form's `½ uᵀ K u`, an
 `EnergyForm`'s density), `flux` (the recoverable flux), `near_null_space` (the AMG
-near-kernel). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses,
+near-kernel), `element_loads` (the state-free part of the residual, moved to the right-hand
+side: the thermal load of an elastic form with an eigenstrain). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses,
 and SIMP need a constant tangent; `NewtonSolve` needs nothing more and uses the energy as its
-line-search merit when there is one. `RecoversElasticState` stays a protocol: the interface the
+line-search merit when there is one; the `Problem` adds the form's load to its own. `RecoversElasticState` stays a protocol: the interface the
 two elastic forms share with `ElasticSolution` and `StressFlux`.
 
 ## Where the classes sit
@@ -265,7 +268,16 @@ assemble through `assemble_residual` / `assemble_tangent` / `total_energy`, at t
 element's default rule and the one the form asks for.
 
 `Material` owns the constitutive matrix `D`; the strain-displacement matrix `B` sits in
-`fem/physics/forms.py` next to the form that contracts it. An `EnergyDensity` returns the one thing an
+`fem/physics/forms.py` next to the form that contracts it. A stress-free strain (an
+`Eigenstrain`; `ThermalStrain`, the `α ΔT I` of a temperature that is a constant, a callable, or
+a `NodalField` from a heat solve on the same mesh) enters the small-strain law as
+`σ = D (ε − ε*)`: the stiffness is unchanged, `LinearElasticForm.element_loads` is the
+`∫ Bᵀ D ε*` the problem adds to its load, and `sample` subtracts the eigenstress. The
+eigenstrain is always a full 3x3 tensor and `Material.eigenstress` applies the 3D law to it,
+which is the plane-strain reduction for an eigenstrain: the blocked out-of-plane expansion
+loads the in-plane stress through `λ ε*_zz`, so a 2D eigenstrain pushed through `D_2D` would
+be wrong. The reduction is the material's, beside `out_of_plane_stress`, so a second eigenstrain
+(a plastic strain) inherits it. An `EnergyDensity` returns the one thing an
 `EnergyForm` contracts: the energy `W`, the first Piola-Kirchhoff stress `P = dW/dF`, and the
 material tangent `A = d²W/dF²`, all in F. How it gets there is the density's own business:
 `SmallStrain` and `StVenantKirchhoff` build the chain through a strain measure (small-strain `ε`
@@ -284,7 +296,9 @@ reduces them to frame-independent scalars.
 A `Problem` is the assembly-ready composition for one mesh: space, operator, load terms,
 constraints. `physics` is the form it was stated with and `operator` that form plus one
 `kappa * BoundaryMassForm` term per Robin condition; `loads` is the tuple of `Load` terms (the
-source, one `BoundaryLoad` per Neumann condition and per Robin value, any `PointLoad`). Its residual
+source, one `BoundaryLoad` per Neumann condition and per Robin value, any `PointLoad`), and
+`operator_load` the state-free load the operator itself carries (`Form.element_loads`, assembled
+once at construction and again by `with_operator`, since it is the new operator's). Its residual
 has two terms, each present in `energy`, `residual`, and `tangent` alike: the operator's (`Π`,
 `R`, `∂R/∂u`, summed over the operator's terms by the space) and the load's (`−fᵀu`, `−f`, `0`).
 `internal_residual` is the first, kept apart from `load` so a strategy can scale one against the
@@ -383,7 +397,7 @@ to copy: `Form` (`BilinearForm` by `element_matrices`, `EnergyForm` by an `Energ
 `IterativeBackend`, `MinresBackend`); `ErrorEstimator` (the three estimators, or any callable of
 `(problem, solution)`); `QuantityOfInterest` and `Parameterization` (`Compliance`, `PointValue`,
 `DensityParameterization`, `ModulusParameterization`); `Flux` (`GradientFlux`, `StressFlux`); `FieldShape`
-(`Scalar`, `Vector`).
+(`Scalar`, `Vector`); `Eigenstrain` (`ThermalStrain`).
 
 ### Error estimation and sensitivity
 
