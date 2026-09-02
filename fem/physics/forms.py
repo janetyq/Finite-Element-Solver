@@ -596,8 +596,8 @@ class GeometricStiffnessForm(BilinearForm[FieldSolution]):
 
 @dataclass(frozen=True)
 class ScaledForm(Form[S]):
-    '''A form scaled by a constant: `factor * form`, such as c² times the Laplacian for
-    the wave operator, or κ times a boundary mass for a Robin term.
+    '''A form scaled by a constant: `factor * form`, such as κ times a boundary mass for
+    a Robin term.
 
     Every hook is the wrapped form's; the energy, residual, tangent, and flux are scaled. A
     sum is never wrapped: `factor * (a + b)` distributes into a sum of scaled terms.

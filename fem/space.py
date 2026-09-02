@@ -607,13 +607,3 @@ class FunctionSpace:
     @cached_property
     def _boundary_vector_scatter(self) -> _VectorScatterPlan:
         return _VectorScatterPlan.build(self.dof_indices(self.boundary_nodes), self.n_dofs)
-
-    def _assemble(
-        self,
-        element_matrices: FloatArray,
-        boundary: bool = False,
-    ) -> SparseMatrix:
-        '''Scatter (n_elements, k, k) element matrices into the global operator,
-        summing entries that share a (row, col), through the cached `_ScatterPlan`.'''
-        plan = self._boundary_scatter if boundary else self._volume_scatter
-        return plan.scatter(element_matrices)
