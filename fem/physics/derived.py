@@ -188,7 +188,9 @@ class StressFlux:
     `form` is the elastic form that recovers the stress, needed by `sample` to recompute
     it from `u` at quadrature points; `evaluate` and `boundary_residual` read the stored
     state and work without it. `divergence` is the small-strain Navier operator, so it
-    needs a `LinearElasticForm` and refuses a finite-strain form.
+    needs a `LinearElasticForm` and refuses a finite-strain form; with an eigenstrain it
+    subtracts the divergence of the eigenstress's nodal interpolant (`−β ∇ΔT` for a
+    thermal strain), nonzero on P1 too.
     '''
 
     def __init__(self, form: 'RecoversElasticState | None' = None) -> None:
@@ -241,7 +243,21 @@ class StressFlux:
         mu, lamb = Enu_to_Lame(self.form.material.E, self.form.material.nu)
         grad_div = np.einsum('eikk->ei', hessian)
         laplacian = np.einsum('ejji->ei', hessian)
-        return (np.asarray(lamb) + np.asarray(mu))[..., None] * grad_div + np.asarray(mu)[..., None] * laplacian
+        navier = (np.asarray(lamb) + np.asarray(mu))[..., None] * grad_div + np.asarray(mu)[..., None] * laplacian
+        if self.form.eigenstrain is None:
+            return navier
+        # div(sigma*) of the eigenstress's nodal interpolant: sigma* at each element's
+        # nodes, differentiated through the shape-function gradients at the rule's
+        # points and averaged over them (exact for P1, the centroid value on P2).
+        space = solution.space
+        d = space.spatial_dim
+        at_nodes = self.form.material.eigenstress(
+            self.form.eigenstrain.evaluate(space.geometry_at_nodes))   # (n_el, N, 3, 3)
+        geometry = space.geometry
+        weights = geometry.weight_detJ / geometry.weight_detJ.sum(axis=1, keepdims=True)
+        div_eigenstress = np.einsum('eq,enij,eqnj->ei', weights, at_nodes[..., :d, :d],
+                                    geometry.grad_phi)
+        return navier - div_eigenstress
 
     def boundary_residual(
         self, flux_e0: FloatArray, outward_normal: FloatArray,
