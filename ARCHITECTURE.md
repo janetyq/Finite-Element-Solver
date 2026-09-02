@@ -85,7 +85,7 @@ is `kappa * BoundaryMassForm(mask)` added to the physics form and assembled besi
   red-green refinement, the SVG reader).
 - `fem/physics`: `forms`, `energies`, `materials`, `plasticity`, `fields`, the named `equations`,
   and `derived` (the `Flux` a form names).
-- `fem/algebra`: `system`, `backends`, `solve` strategies, `integrators`.
+- `fem/algebra`: `system`, `backends`, `solve` strategies, `integrators`, `stepping`.
 - `fem/analysis`: `buckling`, `modal`, `adaptivity`, `estimators`, `sensitivity`, `design`.
 - `fem/post`: the typed `solution`s, nodal `recovery`, `invariants`, `io`.
 - `fem/plot`: matplotlib only; `tessellation` builds the `PanelView` a panel draws.
@@ -118,7 +118,7 @@ refined mesh (1) without re-resolving constraints by hand (5).
 |---|---|---|
 | 1. Primitives | the parts a composition is built from | `Form` (the `BilinearForm`s, `EnergyForm`; combinators `SumForm`, `ScaledForm`; `BoundaryMassForm`, `PrecomputedForm`), `Load` (`Source`, `PointLoad`, and the `BoundaryLoad` a resolution builds), `Material`, `FunctionSpace`, `Conditions` / `ResolvedConditions`, `DiscreteSystem` + `Backend` |
 | 2. `Problem` | a composition: space + operator + load + constraints | `Problem`, and `LinearProblem` for a constant tangent; `Equation.problem` builds one from a named PDE |
-| 3. Solve strategy | consumes a `Problem`, returns the solution | `LinearSolve`, `NewtonSolve`, `EigenSolve`; integrators `ThetaMethod`, `NewmarkMethod` |
+| 3. Solve strategy | consumes a `Problem`, returns the solution | `LinearSolve`, `NewtonSolve`, `EigenSolve`; integrators `ThetaMethod`, `NewmarkMethod`; `QuasiStaticStepping` over the load path |
 | 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
 
 Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
@@ -160,6 +160,7 @@ two elastic forms share with `ElasticSolution` and `StressFlux`.
 | `DiscreteSystem` | | | | | ▒ | █ | | | |
 | `Backend` (`Direct`, `Iterative`, `Minres`) | | | | | | █ | | | |
 | `LinearSolve` / `NewtonSolve` / `EigenSolve` | | | | | | ▒ | | | |
+| `QuasiStaticStepping` | | | | | | ▒ | | | |
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
 | `BucklingAnalysis`, `ModalAnalysis` | | | | | | ▒ | | | ▒ |
 | `AdaptiveRefinement`, `SIMPModel` / `DesignOptimizer` | | | | | | | | █ | ▒ |
@@ -349,6 +350,21 @@ steady solve or an estimator works on the snapshot `problem.at(t)`; `problem.sol
 takes that step itself. `ThetaMethod` (Crank-Nicolson by default, backward Euler at θ=1)
 and `NewmarkMethod` (average acceleration, solving for the acceleration against the SPD
 `M + β dt² K`) both take a `Backend`.
+
+### Quasi-static stepping
+
+`QuasiStaticStepping` (`fem/algebra/stepping.py`) walks a nonlinear problem up its load path:
+`steps` steady equilibria from rest to `t_end`, each solved by its `NewtonSolve` seeded with the
+previous level, so the walk stays inside Newton's convergence region where a single solve at full
+load would not. A step that diverges is bisected toward the last converged level, at most
+`max_bisections` times per increment; exhausting them raises `SteppingDivergence` carrying the
+partial path. `t` is a dial on the loading, not physical time (no mass matrix enters): a problem
+with `TimeDependent` values is stepped through its own `at(t)`, and a steady one through
+`Problem.with_load_factor(t)`, the proportional loading (the assembled load and the prescribed
+Dirichlet values scaled together). The result is the same `TransientSolution` shape the
+integrators return, `history[i]` the typed equilibrium at level `i`, so a load-deflection curve
+reads straight off the series. Load control cannot pass a limit point (a fold); arc-length
+control of the same loop is the open sequel (`BACKLOG.md`, post-buckling).
 
 ### `Equation`
 
