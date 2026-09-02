@@ -16,6 +16,7 @@ DEMO_NAMES = [
     'linear_elastic',
     'elasticity_models',
     'stress_concentration',
+    'pressurized_cylinder',
     'bracket',
     'buckling',
     'modal',

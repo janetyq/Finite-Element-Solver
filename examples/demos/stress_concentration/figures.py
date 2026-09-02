@@ -51,50 +51,7 @@ def _pipeline_figure(s: PlateStudy) -> Figure:
         f'through the hole centre, peaking at {s.peak:.2f}x the applied value at the '
         f'rim. The classic Kirsch factor of 3 is for a hole in an infinite plate; '
         f"Howland's value for a hole {s.hole_over_width:.2f} of this plate's width is "
-        f'{s.finite_kt:.2f}.',
-        'pipeline',
-        thumbnail=True)
-
-
-def _plasticity_figure(s: PlateStudy) -> Figure:
-    # The elastic and yielded von Mises fields on one shared scale, and both read
-    # along the strip the elastic chart used, so the flattening is point-for-point.
-    figure = Plotter(1, 3, figsize=(14.0, 3.6),
-                     title='The same plate in a metal that yields')
-    clim = (0.0, s.elastic_vm_peak * s.traction)
-    figure.plot(s.solution, s.vm_elastic, mode='colored', idx=(0, 0),
-                label='von Mises', clim=clim, colorbar=False,
-                title=f'Elastic: peak {s.elastic_vm_peak:.2f}x the applied stress')
-    figure.plot(s.plastic_solution, s.vm_plastic, mode='colored', idx=(0, 1),
-                label='von Mises', clim=clim,
-                title=f'Ramberg-Osgood: peak {s.plastic_vm_peak:.2f}x')
-    ax = figure.chart_ax(idx=(0, 2), xlabel='y', ylabel='von Mises / applied')
-    below = s.y_strip < s.height / 2
-    for run_mask in (below, ~below):
-        ax.plot(s.y_strip[run_mask], s.vm_strip_elastic[run_mask], 'o-',
-                color='tab:blue', markersize=2,
-                label='elastic' if run_mask is below else None)
-        ax.plot(s.y_strip[run_mask], s.vm_strip_plastic[run_mask], 'o-',
-                color='tab:orange', markersize=2,
-                label='yielding metal' if run_mask is below else None)
-    ax.axhline(s.yield_stress / s.traction, color='tab:red', linestyle='--',
-               label=f'yield stress: {s.yield_stress / s.traction:.1f}x')
-    ax.set_title(f'Plastic zone: {100 * s.plastic_zone_over_hole:.0f}% of the hole\'s area')
-    ax.grid(alpha=0.3)
-    ax.legend(loc='center left', fontsize='small')
-    return Figure(
-        figure,
-        f'The elastic panel asks the rim to carry {s.elastic_vm_peak:.2f}x the applied '
-        f'stress, but this metal yields at {s.yield_stress / s.traction:.1f}x: that '
-        f'stress cannot exist in it. Re-solved with a Ramberg-Osgood law (deformation '
-        f'plasticity, valid for this monotonic load), the rim flows, sheds load to its '
-        f'neighbours, and the peak flattens to {s.plastic_vm_peak:.2f}x, just above '
-        f'yield, while the plastic lobes beside the hole grow to '
-        f'{100 * s.plastic_zone_over_hole:.0f}% of its area. The right chart reads both '
-        f'fields along the strip through the hole centre: same equilibrium, same total '
-        f'load carried, redistributed by the material\'s refusal to exceed its flow '
-        f'stress.',
-        'plasticity')
+        f'{s.finite_kt:.2f}.')
 
 
 def _summary(s: PlateStudy) -> str:
@@ -112,19 +69,14 @@ def _summary(s: PlateStudy) -> str:
             f'applied traction         {s.traction:.3g}\n'
             f'hole diameter / height   {s.hole_over_width:.2f}\n'
             f'peak sigma_xx / applied  {s.peak:.2f}   '
-            f'(Howland, finite plate: {s.finite_kt:.2f}; Kirsch, infinite plate: 3)\n'
-            f'yield stress / applied   {s.yield_stress / s.traction:.1f}\n'
-            f'peak von Mises / applied {s.elastic_vm_peak:.2f} elastic -> '
-            f'{s.plastic_vm_peak:.2f} yielded\n'
-            f'plastic zone / hole area {100 * s.plastic_zone_over_hole:.0f}%')
+            f'(Howland, finite plate: {s.finite_kt:.2f}; Kirsch, infinite plate: 3)')
 
 
 def demo(**kwargs) -> DemoResult:
     """A plate with a hole, from outline to the stress concentration at its rim, against
-    Kirsch and Howland; then the same plate in a metal that yields, where the
-    concentration flattens to the flow stress."""
+    Kirsch and Howland."""
     s = run(**kwargs)
-    return DemoResult([_pipeline_figure(s), _plasticity_figure(s)], text=_summary(s))
+    return DemoResult([_pipeline_figure(s)], text=_summary(s))
 
 
 # The pipeline demo builds its own domain, from an outline through to a stress.

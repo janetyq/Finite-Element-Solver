@@ -4,8 +4,9 @@ The law is history-free (stress is a function of the current strain), so the che
 mirror the hyperelastic ones: the scalar curve inverts exactly, P and A are the energy
 derivatives (finite differences, at a state well past yield), the law collapses to
 Hooke below yield, and a homogeneous simple-shear boundary-value problem reproduces
-the scalar curve through the full Newton path — the analytic anchor, since a constant
-stress field satisfies equilibrium exactly on any mesh.
+the scalar curve through the full Newton path, an analytic anchor since a constant
+stress field satisfies equilibrium exactly on any mesh. The inhomogeneous anchor is
+Hill's pressurized thick-walled cylinder, run through the demo physics.
 """
 import numpy as np
 import pytest
@@ -207,6 +208,22 @@ def test_yielding_softens_the_response(make_unit_square):
     # equilibrium. Loosely banded: under plane strain the out-of-plane restraint puts
     # the von Mises stress at ~sqrt(3)/2 of the axial stress, not equal to it.
     assert 0.7 * traction < np.median(plastic.von_mises) < 1.1 * traction
+
+
+def test_plastic_front_tracks_hills_cylinder():
+    """The classical benchmark: a thick-walled cylinder pressurized past first yield
+    develops a plastic front at the radius Hill's elastic-plastic solution gives for
+    that pressure. Run through the demo physics (quarter annulus, curved quadratic
+    elements, near-perfectly-plastic hardening) at a coarse setting: the front must
+    track Hill within a few percent of the wall thickness, sit at the bore below
+    first yield, and march monotonically outward with the pressure."""
+    from demos.pressurized_cylinder.physics import run
+
+    s = run(n_pressures=4, max_area_fraction=0.004, resolution=0.04)
+    wall = s.outer - s.inner
+    assert s.pressures[0] < s.first_yield and s.fronts[0] == s.inner
+    assert all(a < b for a, b in zip(s.fronts, s.fronts[1:])), 'the front must advance'
+    np.testing.assert_allclose(s.fronts, s.hill_fronts, rtol=0, atol=0.06 * wall)
 
 
 def test_equation_is_steady_only(make_unit_square):
