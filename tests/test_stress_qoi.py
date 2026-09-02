@@ -8,7 +8,8 @@ import pytest
 from fem.post import invariants
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
-from fem.elements import LinearTriangleElement, QuadraticTriangleElement
+from fem.elements import LinearTetrahedralElement, LinearTriangleElement, QuadraticTriangleElement
+from fem.mesh.structured import box_mesh
 from fem.physics.forms import LinearElasticForm, PrecomputedForm
 from fem.physics.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
@@ -101,6 +102,17 @@ def test_soft_max_between_mean_and_peak(make_unit_square):
 
     assert mean <= soft6 <= soft16 <= peak + 1e-9
     assert soft16 > soft6
+
+
+@pytest.mark.parametrize('qoi_cls', [MeanStress, SoftMaxStress, _VonMisesStress])
+def test_stress_qoi_refuses_a_3d_space(qoi_cls):
+    """The von Mises here is plane-strain 2D (sigma_zz = nu(sxx+syy) over three Voigt
+    components); a 3D space carries six, so the measure refuses rather than returning a
+    silently wrong gradient."""
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(2, 2, 2))
+    space = FunctionSpace(mesh, LinearTetrahedralElement, n_components=3)
+    with pytest.raises(NotImplementedError, match='plane-strain 2D'):
+        qoi_cls(space, LinearElasticMaterial(1.0, 0.3))
 
 
 def test_region_restricts_the_measure(make_unit_square):

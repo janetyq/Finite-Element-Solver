@@ -152,6 +152,20 @@ def _element_dof_indices(space: FunctionSpace) -> IntArray:
     return (nodes[:, :, None] * nc + np.arange(nc)).reshape(len(nodes), -1)
 
 
+def _require_plane_strain(space: FunctionSpace) -> None:
+    '''Guard the stress quantities of interest, which are plane-strain 2D only.
+
+    The von Mises here lives in three Voigt components with `sigma_zz = nu(sxx + syy)`;
+    a 3D space carries six, which `_Q` and its `dQ/ds` chain do not handle, so the measure
+    would return a silently wrong gradient. Refuse instead. A 3D measure is future work.
+    '''
+    if space.spatial_dim != 2:
+        raise NotImplementedError(
+            f'Stress quantities of interest are plane-strain 2D only; the space is '
+            f'{space.spatial_dim}D. A 3D measure needs the full six-component Voigt path.'
+        )
+
+
 @dataclass(frozen=True)
 class _VonMisesStress:
     '''Per-element von Mises stress and its derivative with respect to `u`, plane strain.
@@ -168,6 +182,9 @@ class _VonMisesStress:
     space: FunctionSpace
     material: LinearElasticMaterial
     region: BoolArray | None = None
+
+    def __post_init__(self) -> None:
+        _require_plane_strain(self.space)
 
     def _DB(self) -> FloatArray:
         '''(n_elements, 3, N*nc): the map `u_e -> in-plane Voigt stress`, D_e B_e.
@@ -248,6 +265,9 @@ class MeanStress:
     region: BoolArray | None = None
     self_adjoint: bool = False
 
+    def __post_init__(self) -> None:
+        _require_plane_strain(self.space)
+
     def _stress(self) -> _VonMisesStress:
         return _VonMisesStress(self.space, self.material, self.region)
 
@@ -276,6 +296,9 @@ class SoftMaxStress:
     region: BoolArray | None = None
     p: float = 8.0
     self_adjoint: bool = False
+
+    def __post_init__(self) -> None:
+        _require_plane_strain(self.space)
 
     def _stress(self) -> _VonMisesStress:
         return _VonMisesStress(self.space, self.material, self.region)
