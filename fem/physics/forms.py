@@ -21,6 +21,10 @@ writes a stored-energy density and gets all three by differentiating it at the s
 What else a form can answer (a constant tangent, an energy, a recoverable flux, an AMG
 near-kernel, a state-free load) is a hook on `Form` with a default answer of "no".
 
+A stress-free strain (an `Eigenstrain`: thermal expansion through `ThermalStrain`) enters
+the elastic form as `σ = D (ε − ε*)`. The stiffness is unchanged; the `−D ε*` part is a
+load the form carries (`element_loads`), and stress recovery subtracts it.
+
 Forms compose: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, each answering the hooks
 from its terms. A form names its integration `domain` (the volume elements or the boundary
 facets), so a sum may mix the two, as an operator with a Robin boundary term does, and the
@@ -34,11 +38,12 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, Protocol, Typ
 import numpy as np
 
 from fem.elements import ElementGeometry
+from fem.field import NodalField
 from fem.physics.energies import StrainEnergyDerivatives
 from fem.physics.materials import LinearElasticMaterial
 from fem.physics.derived import Flux, GradientFlux, ScaledFlux, StressFlux
 from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
-from fem.regions import evaluate_field
+from fem.regions import TimeDependent, evaluate_field
 from fem.typing import BoolArray, ElementValues, FieldValue, FloatArray, Vertices
 
 if TYPE_CHECKING:
@@ -521,6 +526,72 @@ class Eigenstrain(Protocol):
     def evaluate(self, geometry: ElementGeometry) -> FloatArray:
         '''`(n_elements, n_qp, 3, 3)` eigenstrain at every point of `geometry`'s rule.'''
         ...
+
+
+@dataclass(frozen=True, eq=False)
+class ThermalStrain:
+    '''The thermal strain `α ΔT I` of a temperature field, `ΔT = T − reference`.
+
+    `alpha` is the coefficient of thermal expansion, a scalar or a per-element array (a
+    bimetallic strip). `temperature` is a constant, a callable of position (sampled at
+    the quadrature points), or a `NodalField` (a `Poisson` or `Heat` solve on the same
+    mesh, contracted to the points through the shape functions: exact for its
+    interpolant, and the coupling path). Nodal values need their space to be read at
+    an interior point, so a bare array is refused; wrap it as `NodalField(space,
+    values)`. `reference` is the stress-free temperature. A `TimeDependent`
+    temperature is refused too: a transient thermal stress history is one quasi-static
+    solve per step of the heat solution, each with that step's `NodalField`.
+
+    Always a full 3x3 tensor, the `zz` entry included, which is what makes the 2D
+    (plane-strain) reduction come out right; see `LinearElasticMaterial.eigenstress`.
+    '''
+    alpha: float | ElementValues
+    temperature: FieldValue | NodalField
+    reference: float = 0.0
+    quadrature_degree: int = 2
+
+    def __post_init__(self) -> None:
+        if isinstance(self.temperature, TimeDependent):
+            raise TypeError(
+                'ThermalStrain takes the temperature at one instant; for a transient, '
+                'solve once per step with that step\'s NodalField'
+            )
+        if isinstance(self.temperature, np.ndarray) and self.temperature.size > 1:
+            raise TypeError(
+                'nodal temperatures need the space that numbers them: pass '
+                'NodalField(space, values), or a callable of position'
+            )
+
+    def delta_T(self, geometry: ElementGeometry) -> FloatArray:
+        '''`(n_elements, n_qp)` temperature rise above `reference` at the points of
+        `geometry`'s rule.'''
+        field = self.temperature
+        if isinstance(field, NodalField):
+            n_nodes = geometry.shape.shape[1]
+            if field.n_components != 1:
+                raise ValueError('a temperature is a scalar field')
+            if field.element_values.shape != (geometry.n_elements, n_nodes):
+                raise ValueError(
+                    f'the temperature lives on {field.space!r}, which does not match the '
+                    f'elastic geometry ({geometry.n_elements} elements of {n_nodes} '
+                    'nodes); solve the temperature on the same mesh and element type'
+                )
+            # T at each point is the interpolant: shape functions against the nodal values.
+            theta = np.einsum('qn,en->eq', geometry.shape, field.element_values)
+        else:
+            theta = sample_field(field, geometry, 1)[..., 0]
+        return theta - self.reference
+
+    def evaluate(self, geometry: ElementGeometry) -> FloatArray:
+        alpha = np.asarray(self.alpha, dtype=float)
+        if alpha.ndim:
+            if len(alpha) != geometry.n_elements:
+                raise ValueError(
+                    f'per-element alpha has {len(alpha)} entries but the geometry has '
+                    f'{geometry.n_elements} elements'
+                )
+            alpha = alpha[:, None]
+        return (alpha * self.delta_T(geometry))[..., None, None] * np.eye(3)
 
 
 @dataclass(frozen=True)

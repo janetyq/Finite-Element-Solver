@@ -13,6 +13,7 @@ for, and the solves check it: a steady solve needs order 0, `ThetaMethod` order 
 | heat                         | `Heat(conductivity, capacity)`          | `ThetaMethod(dt, steps).solve(p, u0)`  |
 | wave                         | `Wave(stiffness, density)`              | `NewmarkMethod(dt, steps).solve(p, u0, v0)` |
 | linear elasticity, static    | `LinearElastic(E, nu)`                  | `.solve()`, `BucklingAnalysis`, `ModalAnalysis` |
+| thermoelasticity             | `LinearElastic(E, nu, thermal=ThermalStrain(alpha, T))` | `.solve()`; `T` from a `Poisson` or `Heat` solve |
 | elastodynamics               | `LinearElastic(E, nu, density, damping)`| `NewmarkMethod`                        |
 | finite strain                | `FiniteStrainElastic(E, nu)`            | `.solve()` (Newton)                    |
 | L2 projection                | `Projection()`                          | `.solve()` with a `Source` to project  |
@@ -29,7 +30,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
 
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.fields import FieldShape, Scalar, Vector
-from fem.physics.forms import DiffusionForm, EnergyDensity, EnergyForm, Form, LinearElasticForm, MassForm
+from fem.physics.forms import (
+    DiffusionForm, EnergyDensity, EnergyForm, Form, LinearElasticForm, MassForm, ThermalStrain,
+)
 from fem.physics.materials import LinearElasticMaterial
 from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
 from fem.problem import LinearProblem, Problem, RayleighDamping
@@ -196,7 +199,9 @@ class Elasticity(Equation[P]):
     '''Base of the elastic equations: a vector unknown with Young's modulus `E`,
     Poisson's ratio `nu`, and a mass `density`. Static (order 0) or, under a
     `NewmarkMethod`, elastodynamic (order 2). `LinearElastic` and
-    `FiniteStrainElastic` name the two models.'''
+    `FiniteStrainElastic` name the two models. `thermal` is a `ThermalStrain` the
+    law subtracts (`σ = C : (ε − α ΔT I)`), a parameter rather than a model: the
+    stiffness, the solve, and the solution are the same.'''
     field: FieldShape = Vector()
     time_orders = frozenset({0, 2})
 
@@ -206,10 +211,12 @@ class Elasticity(Equation[P]):
         nu: float,
         density: float = 1.0,
         damping: RayleighDamping | None = None,
+        thermal: ThermalStrain | None = None,
     ) -> None:
         super().__init__(density, damping)
         self.E = E
         self.nu = nu
+        self.thermal = thermal
 
     def energy_density(self) -> EnergyDensity:
         '''The stored-energy density `W` of this model, for an `EnergyForm`.'''
@@ -229,17 +236,23 @@ class Elasticity(Equation[P]):
 class LinearElastic(Elasticity[LinearProblem[ElasticSolution]]):
     '''Small-strain linear elasticity: the infinitesimal strain `ε = ½(∇u + ∇uᵀ)`
     under Hooke's law, a constant stiffness solved in one linear solve. `E` may be a
-    scalar or a per-element array (a SIMP density-scaled modulus).'''
+    scalar or a per-element array (a SIMP density-scaled modulus). With `thermal`, a
+    `ThermalStrain`, it is thermoelasticity: the temperature's expansion enters as a
+    load and the stress is `C : (ε − α ΔT I)`.'''
 
     @property
     def material(self) -> LinearElasticMaterial:
         return LinearElasticMaterial(self.E, self.nu)
 
     def operator(self, space: FunctionSpace) -> LinearElasticForm:
-        return LinearElasticForm(self.material)
+        return LinearElasticForm(self.material, eigenstrain=self.thermal)
 
     def energy_density(self) -> SmallStrain:
         '''The quadratic energy the stiffness is the Hessian of.'''
+        if self.thermal is not None:
+            raise NotImplementedError(
+                'the energy densities take no thermal strain yet; the linear operator does'
+            )
         return SmallStrain(self._scalar_modulus(), self.nu)
 
 
