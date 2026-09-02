@@ -143,6 +143,20 @@ def voigt_to_tensor(voigt: FloatArray, shear_factor: float = 1.0) -> FloatArray:
     return tensor
 
 
+def tensor_to_voigt(tensor: FloatArray, reference_dim: int) -> FloatArray:
+    '''The Voigt stress rows of `(..., 3, 3)` tensors in a `reference_dim` solve:
+    `[xx, yy, xy]` for 2D, `[xx, yy, zz, xy, yz, xz]` for 3D, the order
+    `strain_displacement` and `voigt_to_tensor` use. Stress packing: a shear appears
+    once, unscaled.'''
+    t = np.asarray(tensor, dtype=float)
+    if reference_dim == 2:
+        return np.stack([t[..., 0, 0], t[..., 1, 1], t[..., 0, 1]], axis=-1)
+    if reference_dim == 3:
+        return np.stack([t[..., 0, 0], t[..., 1, 1], t[..., 2, 2],
+                         t[..., 0, 1], t[..., 1, 2], t[..., 0, 2]], axis=-1)
+    raise NotImplementedError(f'no Voigt packing for reference_dim={reference_dim}')
+
+
 def _with_out_of_plane(tensor: FloatArray, zz: FloatArray) -> FloatArray:
     '''Embed `(n_elements, 2, 2)` in-plane tensors into full 3x3 ones.
 
@@ -489,10 +503,55 @@ def rigid_body_modes(vertices: Vertices, n_components: int) -> FloatArray:
     raise ValueError(f'rigid-body modes are defined for 2D or 3D elasticity, not n_components={n_components}')
 
 
+class Eigenstrain(Protocol):
+    '''A stress-free strain `ε*` an elastic form subtracts before applying its law:
+    `σ = D (ε − ε*)`. Thermal expansion (`ThermalStrain`) is the first; a plastic
+    strain is the same contract with a history.
+
+    `evaluate` answers a full `(n_elements, n_qp, 3, 3)` tensor at every point of a
+    geometry's rule, in 2D as well as 3D: a plane-strain solve blocks the out-of-plane
+    component, and that blocked component loads the in-plane stress, so it has to be
+    there (`LinearElasticMaterial.eigenstress` does the reduction). `quadrature_degree`
+    is the rule the load integrates at.
+    '''
+
+    @property
+    def quadrature_degree(self) -> int: ...
+
+    def evaluate(self, geometry: ElementGeometry) -> FloatArray:
+        '''`(n_elements, n_qp, 3, 3)` eigenstrain at every point of `geometry`'s rule.'''
+        ...
+
+
 @dataclass(frozen=True)
 class LinearElasticForm(BilinearForm[ElasticSolution]):
-    '''Small-strain linear elasticity ∫ ε(u):D:ε(v), so G = B, C = D.'''
+    '''Small-strain linear elasticity ∫ ε(u):D:ε(v), so G = B, C = D.
+
+    With an `eigenstrain` the law is `σ = D (ε − ε*)`: the stiffness is the same, the
+    `∫ Bᵀ D ε*` term is the load the form carries (`element_loads`), and `sample`
+    reports the stress with it subtracted. The eigenstress is built by the material
+    from the full 3x3 eigenstrain, so the plane-strain reduction is the material's.
+    '''
     material: LinearElasticMaterial
+    eigenstrain: Eigenstrain | None = None
+
+    def load_quadrature_degree(self, shape_degree: int) -> int:
+        return 0 if self.eigenstrain is None else self.eigenstrain.quadrature_degree
+
+    def _eigenstress(self, geometry: ElementGeometry) -> tuple[FloatArray, FloatArray] | None:
+        '''`(voigt, zz)`: the eigenstress's Voigt rows `(n_el, n_qp, n_strains)` for this
+        dimension and its `zz` entry `(n_el, n_qp)`; None without an eigenstrain.'''
+        if self.eigenstrain is None:
+            return None
+        sigma = self.material.eigenstress(self.eigenstrain.evaluate(geometry))
+        return tensor_to_voigt(sigma, geometry.reference_dim), sigma[..., 2, 2]
+
+    def element_loads(self, geometry: ElementGeometry) -> FloatArray | None:
+        eigenstress = self._eigenstress(geometry)
+        if eigenstress is None:
+            return None
+        B = strain_displacement(geometry.grad_phi)   # (n_el, n_qp, n_strains, k)
+        return np.einsum('eqsk,eqs,eq->ek', B, eigenstress[0], geometry.weight_detJ)
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         B = strain_displacement(geometry.grad_phi)   # (n_el, n_qp, n_strains, k)
@@ -534,6 +593,11 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         strain_voigt = np.einsum('eqsk,ek->eqs', B, u_flat)
         stress_voigt = np.einsum('est,eqt->eqs', D, strain_voigt)   # (n_el, n_qp, n_strains)
 
+        # The eigenstress: sigma = D eps - sigma*, in the plane and out of it.
+        eigenstress = self._eigenstress(geometry)
+        if eigenstress is not None:
+            stress_voigt = stress_voigt - eigenstress[0]
+
         n_el, n_qp = stress_voigt.shape[:2]
         strain = voigt_to_tensor(strain_voigt.reshape(n_el * n_qp, -1), shear_factor=2.0)
         stress = voigt_to_tensor(stress_voigt.reshape(n_el * n_qp, -1), shear_factor=1.0)
@@ -543,6 +607,8 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
             # develops sigma_zz holding it there. von Mises without it is computed
             # on the wrong state.
             sigma_zz = self.material.out_of_plane_stress(strain)
+            if eigenstress is not None:
+                sigma_zz = sigma_zz - eigenstress[1].reshape(-1)
             strain = _with_out_of_plane(strain, np.zeros(len(strain)))
             stress = _with_out_of_plane(stress, sigma_zz)
 
@@ -555,13 +621,19 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         '''Element strain, stress, and compliance from nodal displacements.
 
         Strain and stress are the element mean of `sample` over the rule: the
-        exact value for P1 and the centroid value for a straight P2 triangle.
-        Compliance is `∫ sigma : eps` over the element.
+        exact value for P1 and the centroid value for a straight P2 triangle. The
+        strain is the total strain. Compliance is `∫ sigma : (eps − eps*)` over the
+        element, twice the elastic energy: the eigenstrain does no work against the
+        stress it does not cause.
         '''
         fields = self.sample(geometry, u_elements)
+        mechanical = fields.strain
+        if self.eigenstrain is not None:
+            mechanical = mechanical - self.eigenstrain.evaluate(geometry)
         # The full double contraction. eps_zz is zero under plane strain, so the
-        # lift above leaves this equal to the in-plane Voigt dot product it replaces.
-        compliance = np.einsum('eqij,eqij,eq->e', fields.stress, fields.strain,
+        # lift above leaves this equal to the in-plane Voigt dot product it replaces
+        # unless an eigenstrain has a zz part, which the out-of-plane stress works on.
+        compliance = np.einsum('eqij,eqij,eq->e', fields.stress, mechanical,
                                geometry.weight_detJ)
         return ElasticState(_element_mean(fields.strain, geometry.weight_detJ),
                              _element_mean(fields.stress, geometry.weight_detJ),
