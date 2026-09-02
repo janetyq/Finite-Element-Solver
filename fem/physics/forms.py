@@ -19,7 +19,7 @@ Two ways to write one: a `BilinearForm` writes the constant matrix `K` (mass,
 stiffness) and gets residual `K u`, tangent `K`, energy `½ uᵀ K u`; an `EnergyForm`
 writes a stored-energy density and gets all three by differentiating it at the state.
 What else a form can answer (a constant tangent, an energy, a recoverable flux, an AMG
-near-kernel) is a hook on `Form` with a default answer of "no".
+near-kernel, a state-free load) is a hook on `Form` with a default answer of "no".
 
 Forms compose: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, each answering the hooks
 from its terms. A form names its integration `domain` (the volume elements or the boundary
@@ -229,6 +229,9 @@ class Form(ABC, Generic[S]):
       (Poisson's gradient, elasticity's stress).
     - `near_null_space`: the AMG near-kernel an iterative solve of the tangent is
       built with (the rigid-body modes of elasticity).
+    - `element_loads`: the state-independent part of the residual, moved to the
+      right-hand side (the thermal load of an elastic form with an `Eigenstrain`). A
+      `Problem` adds it to its load, integrated at `load_quadrature_degree`.
 
     `domain` is where the form integrates: `'volume'` over the elements (the default) or
     `'boundary'` over the boundary facets. `terms` is the flat tuple of forms a sum is
@@ -282,6 +285,19 @@ class Form(ABC, Generic[S]):
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements,) stored energy per element at the state; defined when `has_energy`.'''
         raise NotImplementedError(f'{type(self).__name__} has no energy')
+
+    def load_quadrature_degree(self, shape_degree: int) -> int:
+        '''The rule degree `element_loads` integrates at; see `quadrature_degree`.'''
+        return 0
+
+    def element_loads(self, geometry: ElementGeometry) -> FloatArray | None:
+        '''(n_elements, k) state-free load blocks the form carries, or None for none.
+
+        The part of the residual that does not depend on the state, with its sign
+        flipped onto the right-hand side: residual `R(u) = R_int(u) − f_form`. A
+        `Problem` assembles it once beside the conditions' loads.
+        '''
+        return None
 
     def flux(self) -> Flux | None:
         return None
@@ -636,6 +652,13 @@ class ScaledForm(Form[S]):
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         return self.factor * self.form.element_energies(geometry, u_elements)
 
+    def load_quadrature_degree(self, shape_degree: int) -> int:
+        return self.form.load_quadrature_degree(shape_degree)
+
+    def element_loads(self, geometry: ElementGeometry) -> FloatArray | None:
+        loads = self.form.element_loads(geometry)
+        return None if loads is None else self.factor * loads
+
     def flux(self) -> Flux | None:
         flux = self.form.flux()
         return None if flux is None else ScaledFlux(self.factor, flux)
@@ -709,6 +732,9 @@ class SumForm(Form[S]):
         raise TypeError(_NO_BLOCKS)
 
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        raise TypeError(_NO_BLOCKS)
+
+    def element_loads(self, geometry: ElementGeometry) -> FloatArray | None:
         raise TypeError(_NO_BLOCKS)
 
 

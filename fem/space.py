@@ -505,6 +505,30 @@ class FunctionSpace:
         vectors = source.element_vectors(geometry, self.n_components)
         return self._volume_vector_scatter.scatter(vectors)
 
+    def assemble_loads(self, form: Form) -> DofVector | None:
+        '''The state-free load a form carries (`Form.element_loads`, summed over its
+        terms) as a global vector, or None when no term carries one.
+
+        Each term integrates at its own `load_quadrature_degree` (at least the
+        element's default), the way a sampled `Source` picks its rule, so a load that
+        samples a field within the element does not drag the stiffness onto a finer rule.
+        '''
+        total = None
+        for term in form.terms:
+            on_boundary = term.domain == 'boundary'
+            if on_boundary:
+                geometry = self.boundary_geometry
+            else:
+                degree = max(self.element_type.default_quadrature_degree(),
+                             term.load_quadrature_degree(self.element_type.SHAPE_DEGREE))
+                geometry = self.geometry_at(degree)
+            vectors = term.element_loads(geometry)
+            if vectors is None:
+                continue
+            load = self._term_vector_scatter(on_boundary).scatter(vectors)
+            total = load if total is None else total + load
+        return total
+
     # -- state-dependent assembly -------------------------------------------
     #
     # A form's element quantities may depend on the current state, so these take
