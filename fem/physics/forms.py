@@ -513,6 +513,13 @@ class Eigenstrain(Protocol):
     `σ = D (ε − ε*)`. Thermal expansion (`ThermalStrain`) is the first; a plastic
     strain is the same contract with a history.
 
+    "Eigen" is German for "own": the eigenstrain is the material's own strain, the
+    shape it would take with no stress on it, measured from the reference shape. A
+    heated bar wants to be longer; that longer bar is its zero-stress shape, and the
+    strain to it is `α ΔT I`. Stress comes only from the gap between the strain the
+    body actually has and this one: a body free to take on `ε*` is stress-free, and
+    one held at its reference shape carries `−D ε*`.
+
     `evaluate` answers a full `(n_elements, n_qp, 3, 3)` tensor at every point of a
     geometry's rule, in 2D as well as 3D: a plane-strain solve blocks the out-of-plane
     component, and that blocked component loads the in-plane stress, so it has to be
