@@ -17,7 +17,7 @@ Effort: 🟢 low · 🟡 medium · 🔴 high.
 | Numerics | Globalize the Newton direction (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Design | Lazy `pyamg` import | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Tooling | Coverage no-decrease gate, API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Tooling | Coverage gaps (svg, plot), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Demos | Stress-driven design beside compliance-driven; a motivated goal-oriented refinement demo | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
@@ -189,8 +189,9 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   and second-order systems; the seam for a third is in place, so this is additive.
 
 **Engineering**
-- 💡 **Coverage.** `pytest-cov` runs in CI (report-only, `--cov=fem`); still open are a no-decrease
-  gate once a baseline is stored, and the gaps the report names: `svg`'s path parsing is covered only
+- 💡 **Coverage gaps.** Coverage gates CI: a whole-suite `--cov-fail-under=90` floor plus a
+  `diff-cover --fail-under=85` patch gate on the changed lines, so new code is tested and the total
+  cannot decay. Still open are the gaps the report names: `svg`'s path parsing is covered only
   through the demos, and the plot layer is exercised end-to-end by `tests/test_demos.py` but has no
   assertions on what it draws.
 - 💡 **Report the minimum corner angle alongside the demo's simplification tolerance.** The minimum
@@ -224,8 +225,8 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
 
 ## Suggested Priority Order
 
-1. **Coverage + type hints** (§3): deepen the safety net.
-2. **Finish the P2 story**: 3D P2, then P2-aware plotting and adaptivity (§3), so the higher-order
-   path is complete rather than 2D-only.
+1. **Type hints + coverage gaps** (§3): deepen the safety net.
+2. **Finish the P2 story**: 3D P2, then curved-element adaptivity (§3), so the higher-order
+   path is complete rather than 2D-only. (P2-aware plotting shipped.)
 3. **Then the harder numerics**: mixed u-p for incompressibility (P2 is now in place as its
    displacement half), or the hand-rolled two-grid preconditioner.

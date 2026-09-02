@@ -260,8 +260,8 @@ def test_with_operator_leaves_the_original_alone(make_unit_square):
 
 
 def test_callable_source_is_sampled_at_the_quadrature_points(make_unit_square):
-    """A callable source builds the same load as the Source it is wrapped in, not
-    the mass matrix times its nodal values."""
+    """A callable source is integrated at the quadrature points, which differs from
+    the mass matrix times its nodal values; `nodal=True` selects the latter."""
     from fem.loads import Source
 
     mesh = make_unit_square(6)
@@ -271,9 +271,11 @@ def test_callable_source_is_sampled_at_the_quadrature_points(make_unit_square):
         return np.exp(-40 * np.sum((point - 0.5) ** 2, axis=1))
 
     sampled = LinearProblem(space, DiffusionForm(), Conditions(Source(peaked))).load
-    explicit = LinearProblem(space, DiffusionForm(), Conditions(Source(peaked))).load
+    interpolated = LinearProblem(space, DiffusionForm(), Conditions(Source(peaked, nodal=True))).load
     nodal = space.mass_matrix @ peaked(space.node_coords)
-    assert np.allclose(sampled, explicit)
+    # nodal=True reads the callable at the nodes and integrates its interpolant, so it
+    # equals mass @ nodal values; the default samples at the quadrature points, so it does not.
+    assert np.allclose(interpolated, nodal)
     assert not np.allclose(sampled, nodal)
 
 

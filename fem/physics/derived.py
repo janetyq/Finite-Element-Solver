@@ -152,10 +152,9 @@ class GradientFlux:
 class ScaledFlux:
     '''`factor * flux`: the flux of a `ScaledForm`, every reading scaled with the operator.
 
-    `c * DiffusionForm(kappa)` has the flux `c kappa grad u`, and the wave operator is
-    written that way (`c^2` times the Laplacian), so the scaled form's flux is its term's
-    scaled by the same factor. The boundary residual reads the already-scaled `flux_e0`,
-    so it delegates unchanged.
+    `c * DiffusionForm(kappa)` has the flux `c kappa grad u`, so the scaled form's flux is
+    its term's scaled by the same factor. The boundary residual reads the already-scaled
+    `flux_e0`, so it delegates unchanged.
     '''
 
     def __init__(self, factor: float, flux: Flux) -> None:
