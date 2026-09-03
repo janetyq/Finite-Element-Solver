@@ -14,6 +14,7 @@ for, and the solves check it: a steady solve needs order 0, `ThetaMethod` order 
 | wave                         | `Wave(stiffness, density)`              | `NewmarkMethod(dt, steps).solve(p, u0, v0)` |
 | linear elasticity, static    | `LinearElastic(E, nu)`                  | `.solve()`, `BucklingAnalysis`, `ModalAnalysis` |
 | thermoelasticity             | `LinearElastic(E, nu, thermal=ThermalStrain(alpha, T))` | `.solve()`; `T` from a `Poisson` or `Heat` solve |
+| thin plate (plane stress)    | `LinearElastic(E, nu, reduction='plane_stress')` | `.solve()`                            |
 | elastodynamics               | `LinearElastic(E, nu, density, damping)`| `NewmarkMethod`                        |
 | finite strain                | `FiniteStrainElastic(E, nu)`            | `.solve()` (Newton)                    |
 | deformation plasticity       | `DeformationPlasticity(E, nu, sigma_y, n)` | `.solve()` (Newton)                 |
@@ -35,7 +36,7 @@ from fem.physics.fields import FieldShape, Scalar, Vector
 from fem.physics.forms import (
     DiffusionForm, EnergyDensity, EnergyForm, Form, LinearElasticForm, MassForm, ThermalStrain,
 )
-from fem.physics.materials import LinearElasticMaterial
+from fem.physics.materials import LinearElasticMaterial, Reduction
 from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
 from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.space import FunctionSpace
@@ -203,7 +204,10 @@ class Elasticity(Equation[P]):
     `NewmarkMethod`, elastodynamic (order 2). `LinearElastic` and
     `FiniteStrainElastic` name the two models. `thermal` is a `ThermalStrain` the
     law subtracts (`σ = C : (ε − α ΔT I)`), a parameter rather than a model: the
-    stiffness, the solve, and the solution are the same.'''
+    stiffness, the solve, and the solution are the same. `reduction` is what a 2D
+    solve means for the third direction, `'plane_strain'` (the default, a long body
+    held in z) or `'plane_stress'` (a thin plate free in z); see
+    `LinearElasticMaterial`.'''
     field: FieldShape = Vector()
     time_orders = frozenset({0, 2})
 
@@ -214,11 +218,13 @@ class Elasticity(Equation[P]):
         density: float = 1.0,
         damping: RayleighDamping | None = None,
         thermal: ThermalStrain | None = None,
+        reduction: Reduction = 'plane_strain',
     ) -> None:
         super().__init__(density, damping)
         self.E = E
         self.nu = nu
         self.thermal = thermal
+        self.reduction: Reduction = reduction
 
     def energy_density(self) -> EnergyDensity:
         '''The stored-energy density `W` of this model, for an `EnergyForm`.'''
@@ -240,20 +246,27 @@ class LinearElastic(Elasticity[LinearProblem[ElasticSolution]]):
     under Hooke's law, a constant stiffness solved in one linear solve. `E` may be a
     scalar or a per-element array (a SIMP density-scaled modulus). With `thermal`, a
     `ThermalStrain`, it is thermoelasticity: the temperature's expansion enters as a
-    load and the stress is `C : (ε − α ΔT I)`.'''
+    load and the stress is `C : (ε − α ΔT I)`. Either `reduction` of a 2D solve.'''
 
     @property
     def material(self) -> LinearElasticMaterial:
-        return LinearElasticMaterial(self.E, self.nu)
+        return LinearElasticMaterial(self.E, self.nu, self.reduction)
 
     def operator(self, space: FunctionSpace) -> LinearElasticForm:
-        return LinearElasticForm(self.material, eigenstrain=self.thermal)
+        material = self.material
+        material.require_dimension(space.spatial_dim)
+        return LinearElasticForm(material, eigenstrain=self.thermal)
 
     def energy_density(self) -> SmallStrain:
         '''The quadratic energy the stiffness is the Hessian of.'''
         if self.thermal is not None:
             raise NotImplementedError(
                 'the energy densities take no thermal strain yet; the linear operator does'
+            )
+        if self.reduction != 'plane_strain':
+            raise NotImplementedError(
+                'the energy densities are plane strain only; the linear operator takes '
+                'plane stress'
             )
         return SmallStrain(self._scalar_modulus(), self.nu)
 
@@ -303,12 +316,17 @@ class FiniteStrainElastic(Elasticity[Problem[ElasticSolution]]):
         law: Callable[[float, float], EnergyDensity] = StVenantKirchhoff,
         damping: RayleighDamping | None = None,
         thermal: ThermalStrain | None = None,
+        reduction: Reduction = 'plane_strain',
     ) -> None:
         if thermal is not None:
             raise NotImplementedError(
                 'the energy densities take no thermal strain yet; use LinearElastic'
             )
-        super().__init__(E, nu, density, damping)
+        if reduction != 'plane_strain':
+            raise NotImplementedError(
+                'the energy densities are plane strain only; use LinearElastic for plane stress'
+            )
+        super().__init__(E, nu, density, damping, reduction=reduction)
         self.law = law
 
     def operator(self, space: FunctionSpace) -> EnergyForm:

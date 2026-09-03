@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable
 
 import numpy as np
@@ -224,7 +224,7 @@ class SIMPModel:
     def solution(self, rho: ElementValues, u: DofVector) -> ElasticSolution:
         '''The displacement `u` at density `rho` with the stress of the diluted material.'''
         # Stress wants the diluted material itself: sigma = D(E(rho)) eps.
-        form = LinearElasticForm(LinearElasticMaterial(self.scaled_modulus(rho), self._material.nu))
+        form = LinearElasticForm(replace(self._material, E=self.scaled_modulus(rho)))
         return ElasticSolution.from_solve(self.space, u, form)
 
 

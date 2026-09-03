@@ -216,11 +216,16 @@ answers the energy `W`, the stress `P = dW/dF`, and the tangent `A = d²W/dF²` 
 displacement gradients; how a density gets there (a strain measure, invariants, an inverted
 hardening curve) is its own business, so one contraction serves every law. The densities live in
 `fem/physics/energies.py` and `fem/physics/plasticity.py`; `Material` owns the constitutive matrix
-`D` of the linear law, beside the strain-displacement `B` in `fem/physics/forms.py`. In 2D the law
-is plane strain throughout. An `Eigenstrain` (`ThermalStrain`) is a strain the material takes on
-with no stress; the elastic form subtracts it, so its `D eps*` is the form's load and is subtracted
-again in stress recovery. The material converts it with the 3D law on a full 3x3 tensor, since
-under plane strain the expansion denied in z pushes on the plane and a 2D shortcut misses it.
+`D` of the linear law, beside the strain-displacement `B` in `fem/physics/forms.py`. A 2D solve
+reduces a 3D body, and the material owns the `reduction`: plane strain by default (the body held
+in z, so a stress `σ_zz` develops) or plane stress (a thin plate free in z, so a strain `ε_zz`
+develops instead). The in-plane law, the out-of-plane component, the constrained stress of an
+eigenstrain, and the Navier operator of the residual estimator all read it from the material; the
+finite-strain path is plane strain only. An `Eigenstrain` (`ThermalStrain`) is a strain the
+material takes on with no stress; the elastic form subtracts it, so its constrained stress is the
+form's load and is subtracted again in stress recovery. The material computes that stress on a
+full 3x3 tensor, since under plane strain the expansion denied in z pushes on the plane and a 2D
+shortcut misses it.
 Stress recovery is on the form (`RecoversElasticState`, the protocol
 the elastic forms share with `ElasticSolution` and `StressFlux`): full `(n_elements, 3, 3)`
 tensors cross the boundary, never Voigt vectors, and `fem/post/invariants.py` reduces them to

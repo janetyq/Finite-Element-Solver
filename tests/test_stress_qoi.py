@@ -106,12 +106,12 @@ def test_soft_max_between_mean_and_peak(make_unit_square):
 
 @pytest.mark.parametrize('qoi_cls', [MeanStress, SoftMaxStress, _VonMisesStress])
 def test_stress_qoi_refuses_a_3d_space(qoi_cls):
-    """The von Mises here is plane-strain 2D (sigma_zz = nu(sxx+syy) over three Voigt
+    """The von Mises here is 2D (sigma_zz a multiple of sxx+syy over three Voigt
     components); a 3D space carries six, so the measure refuses rather than returning a
     silently wrong gradient."""
     mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(2, 2, 2))
     space = FunctionSpace(mesh, LinearTetrahedralElement, n_components=3)
-    with pytest.raises(NotImplementedError, match='plane-strain 2D'):
+    with pytest.raises(NotImplementedError, match='2D only'):
         qoi_cls(space, LinearElasticMaterial(1.0, 0.3))
 
 

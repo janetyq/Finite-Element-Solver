@@ -189,7 +189,7 @@ class StressFlux:
     it from `u` at quadrature points; `evaluate` and `boundary_residual` read the stored
     state and work without it. `divergence` is the small-strain Navier operator, so it
     needs a `LinearElasticForm` and refuses a finite-strain form; with an eigenstrain it
-    subtracts the divergence of the eigenstress's nodal interpolant (`−β ∇ΔT` for a
+    subtracts the divergence of the eigenstrain's constrained stress, interpolated from the nodes (`−β ∇ΔT` for a
     thermal strain), nonzero on P1 too.
     '''
 
@@ -224,7 +224,6 @@ class StressFlux:
 
     def divergence(self, solution: FieldSolution) -> FloatArray:
         from fem.physics.forms import LinearElasticForm
-        from fem.physics.materials import Enu_to_Lame
         if not isinstance(solution, ElasticSolution):
             raise TypeError(
                 'the elastic flux needs a displacement solution; got a bare FieldSolution'
@@ -239,20 +238,21 @@ class StressFlux:
         hessian = solution.space.element_hessian(u_elements)   # (n_el, d, d, n_comp)
         # Navier form of div(sigma): (lambda + mu) grad(div u) + mu laplacian(u).
         # grad(div u)_i = sum_k d2 u_k / dx_i dx_k = sum_k H[i, k, k];
-        # laplacian(u)_i = sum_j H[j, j, i]. Both read off the per-component Hessian.
-        mu, lamb = Enu_to_Lame(self.form.material.E, self.form.material.nu)
+        # laplacian(u)_i = sum_j H[j, j, i]. Both read off the per-component Hessian,
+        # with the in-plane Lame constants (plane stress has its own lambda).
+        mu, lamb = self.form.material.in_plane_lame(solution.space.spatial_dim)
         grad_div = np.einsum('eikk->ei', hessian)
         laplacian = np.einsum('ejji->ei', hessian)
-        navier = (np.asarray(lamb) + np.asarray(mu))[..., None] * grad_div + np.asarray(mu)[..., None] * laplacian
+        navier = (lamb + mu)[..., None] * grad_div + mu[..., None] * laplacian
         if self.form.eigenstrain is None:
             return navier
-        # div(sigma*) of the eigenstress's nodal interpolant: sigma* at each element's
+        # div(sigma*) of the constrained stress's nodal interpolant: sigma* at each element's
         # nodes, differentiated through the shape-function gradients at the rule's
         # points and averaged over them (exact for P1, the centroid value on P2).
         from fem.physics.forms import _element_mean
         space = solution.space
         d = space.spatial_dim
-        at_nodes = self.form.material.eigenstress(
+        at_nodes = self.form.material.constrained_stress(
             self.form.eigenstrain.evaluate(space.geometry_at_nodes))   # (n_el, N, 3, 3)
         geometry = space.geometry
         div_at_points = np.einsum('enij,eqnj->eqi', at_nodes[..., :d, :d], geometry.grad_phi)

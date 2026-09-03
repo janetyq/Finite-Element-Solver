@@ -22,7 +22,7 @@ linear, symmetric problems are handled here.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 import numpy as np
@@ -131,7 +131,7 @@ class PointValue:
 # The forward map is `s = D B u_e` per element (in-plane Voigt stress from element
 # displacements); a stress measure `m(s)` then aggregates over elements. The adjoint
 # load is `∂J/∂u = Σ_e (∂agg/∂m_e)(∂m_e/∂s_e)(D_e B_e)`, scattered to the global DOFs.
-# Only the plane-strain 2D case is handled, the setting the elastic demos use.
+# Only the 2D case is handled, plane strain or plane stress by the material.
 #
 # Scope: these supply `∂J/∂u` (the adjoint load) for a fixed material. Used with
 # `SensitivityAnalysis` over a parameter the stress does not explicitly depend on (an
@@ -153,16 +153,17 @@ def _element_dof_indices(space: FunctionSpace) -> IntArray:
     return (nodes[:, :, None] * nc + np.arange(nc)).reshape(len(nodes), -1)
 
 
-def _require_plane_strain(space: FunctionSpace) -> None:
-    '''Guard the stress quantities of interest, which are plane-strain 2D only.
+def _require_2d(space: FunctionSpace) -> None:
+    '''Guard the stress quantities of interest, which are 2D only.
 
-    The von Mises here lives in three Voigt components with `sigma_zz = nu(sxx + syy)`;
-    a 3D space carries six, which `_Q` and its `dQ/ds` chain do not handle, so the measure
-    would return a silently wrong gradient. Refuse instead. A 3D measure is future work.
+    The von Mises here lives in three Voigt components with `sigma_zz` a fixed multiple
+    of `sxx + syy`; a 3D space carries six, which `_Q` and its `dQ/ds` chain do not
+    handle, so the measure would return a silently wrong gradient. Refuse instead. A
+    3D measure is future work.
     '''
     if space.spatial_dim != 2:
         raise NotImplementedError(
-            f'Stress quantities of interest are plane-strain 2D only; the space is '
+            f'Stress quantities of interest are 2D only; the space is '
             f'{space.spatial_dim}D. A 3D measure needs the full six-component Voigt path.'
         )
 
@@ -183,23 +184,25 @@ def _require_no_operator_load(problem: Problem) -> None:
 
 @dataclass(frozen=True)
 class _VonMisesStress:
-    '''Per-element von Mises stress and its derivative with respect to `u`, plane strain.
+    '''Per-element von Mises stress and its derivative with respect to `u`, in 2D.
 
     Shared machinery for the stress quantities of interest. `region` optionally restricts
     attention to a subset of elements (a mask over all elements); the aggregation weights
     are volume-weighted over whatever the region selects.
 
-    Plane strain: `sigma_zz = nu (sigma_xx + sigma_yy)`, so von Mises is a function of the
-    three in-plane Voigt components alone, and its gradient carries the `sigma_zz`
-    dependence through the chain rule. `evaluate` and `derivative` are consistent by
-    construction (both from `Q = von_mises^2`), which the finite-difference test pins.
+    In 2D `sigma_zz = c (sigma_xx + sigma_yy)` with `c` the material's
+    `out_of_plane_ratio` (`nu` under plane strain, 0 under plane stress), so von Mises
+    is a function of the three in-plane Voigt components alone, and its gradient carries
+    the `sigma_zz` dependence through the chain rule. `evaluate` and `derivative` are
+    consistent by construction (both from `Q = von_mises^2`), which the
+    finite-difference test pins.
     '''
     space: FunctionSpace
     material: LinearElasticMaterial
     region: BoolArray | None = None
 
     def __post_init__(self) -> None:
-        _require_plane_strain(self.space)
+        _require_2d(self.space)
 
     def _DB(self) -> FloatArray:
         '''(n_elements, 3, N*nc): the map `u_e -> in-plane Voigt stress`, D_e B_e.
@@ -224,9 +227,9 @@ class _VonMisesStress:
         return np.sqrt(np.maximum(self._Q(s), 0.0))
 
     def _Q(self, s: FloatArray) -> ElementValues:
-        '''von Mises squared from the in-plane Voigt stress, plane strain.'''
+        '''von Mises squared from the in-plane Voigt stress.'''
         sxx, syy, sxy = s[:, 0], s[:, 1], s[:, 2]
-        szz = self.material.nu * (sxx + syy)
+        szz = self.material.out_of_plane_ratio * (sxx + syy)
         # vm^2 = 1/2[(sxx-syy)^2 + (syy-szz)^2 + (szz-sxx)^2] + 3 sxy^2, expanded.
         return sxx**2 + syy**2 + szz**2 - sxx * syy - syy * szz - szz * sxx + 3.0 * sxy**2
 
@@ -235,15 +238,15 @@ class _VonMisesStress:
         DB = self._DB()
         s = np.einsum('esk,ek->es', DB, _element_dof_vectors(self.space, u))
         sxx, syy, sxy = s[:, 0], s[:, 1], s[:, 2]
-        nu = self.material.nu
-        szz = nu * (sxx + syy)
+        c = self.material.out_of_plane_ratio
+        szz = c * (sxx + syy)
         vm = np.sqrt(np.maximum(self._Q(s), 0.0))
 
-        # dQ/ds, total derivative through sigma_zz = nu(sxx + syy): the first terms are
-        # dQ/ds at fixed szz, the nu(...) terms add (dQ/dszz)(dszz/ds) = nu * dQ/dszz.
+        # dQ/ds, total derivative through sigma_zz = c (sxx + syy): the first terms are
+        # dQ/ds at fixed szz, the c(...) terms add (dQ/dszz)(dszz/ds) = c * dQ/dszz.
         dQ = np.empty_like(s)
-        dQ[:, 0] = 2 * sxx - syy - szz + nu * (2 * szz - syy - sxx)
-        dQ[:, 1] = 2 * syy - sxx - szz + nu * (2 * szz - sxx - syy)
+        dQ[:, 0] = 2 * sxx - syy - szz + c * (2 * szz - syy - sxx)
+        dQ[:, 1] = 2 * syy - sxx - szz + c * (2 * szz - sxx - syy)
         dQ[:, 2] = 6.0 * sxy
         # dvm/ds = dQ/ds / (2 vm), since vm = sqrt(Q); at vm = 0, dQ/ds is also 0, so 0 there.
         safe = vm > 0
@@ -281,7 +284,7 @@ class MeanStress:
     self_adjoint: bool = False
 
     def __post_init__(self) -> None:
-        _require_plane_strain(self.space)
+        _require_2d(self.space)
 
     def _stress(self) -> _VonMisesStress:
         return _VonMisesStress(self.space, self.material, self.region)
@@ -315,7 +318,7 @@ class SoftMaxStress:
     self_adjoint: bool = False
 
     def __post_init__(self) -> None:
-        _require_plane_strain(self.space)
+        _require_2d(self.space)
 
     def _stress(self) -> _VonMisesStress:
         return _VonMisesStress(self.space, self.material, self.region)
@@ -391,11 +394,13 @@ class DensityParameterization(_ElementModulusParameterization):
 
     @classmethod
     def create(
-        cls, space: FunctionSpace, rho: ElementValues, base_E: float, nu: float,
+        cls, space: FunctionSpace, rho: ElementValues, solid: LinearElasticMaterial,
         penalty: float = 3.0,
     ) -> 'DensityParameterization':
-        K0 = LinearElasticForm(LinearElasticMaterial(base_E, nu)).element_matrices(space.geometry)
-        return cls(space=space, nu=nu, _K0=K0, rho=np.asarray(rho, dtype=float), penalty=penalty)
+        '''At density `rho` over the `solid` material the density scales.'''
+        K0 = LinearElasticForm(solid).element_matrices(space.geometry)
+        return cls(space=space, nu=solid.nu, _K0=K0, rho=np.asarray(rho, dtype=float),
+                   penalty=penalty)
 
     def with_density(self, rho: ElementValues) -> 'DensityParameterization':
         '''The same parameterization at a new density, sharing the cached `K0`.'''
@@ -424,10 +429,11 @@ class ModulusParameterization(_ElementModulusParameterization):
     E: ElementValues = field(default_factory=lambda: np.zeros(0))
 
     @classmethod
-    def create(cls, space: FunctionSpace, E: ElementValues, nu: float) -> 'ModulusParameterization':
+    def create(cls, space: FunctionSpace, material: LinearElasticMaterial) -> 'ModulusParameterization':
+        '''At the `material`'s per-element modulus.'''
         # Unit-modulus solid stiffness: K_e(E_e) = E_e * K0_e, so ∂K/∂E_e = K0_e.
-        K0 = LinearElasticForm(LinearElasticMaterial(1.0, nu)).element_matrices(space.geometry)
-        return cls(space=space, nu=nu, _K0=K0, E=np.asarray(E, dtype=float))
+        K0 = LinearElasticForm(replace(material, E=1.0)).element_matrices(space.geometry)
+        return cls(space=space, nu=material.nu, _K0=K0, E=np.asarray(material.E, dtype=float))
 
     @property
     def size(self) -> int:

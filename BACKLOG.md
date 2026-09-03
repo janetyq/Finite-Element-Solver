@@ -15,7 +15,6 @@ Effort: 🟢 low · 🟡 medium · 🔴 high.
 | Numerics | Mixed (u-p) formulation for near-incompressible elasticity | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Hand-rolled two-grid preconditioner (drop `pyamg`) | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize the Newton direction (SPD tangents → iterative nonlinear solves) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Physics | Plane stress as an alternative 2D reduction | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Design | Lazy `pyamg` import | 🟢 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Coverage gaps (svg, plot), API docstrings, pre-commit | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Demos | Stress-driven design beside compliance-driven; a motivated goal-oriented refinement demo | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -145,13 +144,11 @@ elasticity's stress, `fem.physics.derived.Flux`), the typed `Solution` carries i
 a continuous per-node field for smooth output, P2 plotting, and the recovery estimator; a
 `TransientSolution` packages any step the same way through `history[i]`.
 
-- 💡 **Plane stress as an alternative 2D reduction.** 2D elasticity is plane strain throughout, now
-  named rather than implicit (`LinearElasticMaterial.out_of_plane_stress`, and the matching
-  `out_of_plane_stress` on the energy densities). Plane stress (a thin plate free to contract in z,
-  so `sigma_zz = 0` and `eps_zz = -nu/(1-nu) (eps_xx + eps_yy)`) needs a different `D` as well as a
-  different out-of-plane component, so it is a second branch in both places plus a way for a caller
-  to choose. Worth doing when a thin-plate problem actually appears; a single-member enum ahead of
-  that is generality with no second case.
+- 💡 **Plane stress for the finite-strain path.** `LinearElastic` takes `reduction='plane_stress'`;
+  the energy densities (`FiniteStrainElastic`, `DeformationPlasticity`) are plane strain only,
+  their `out_of_plane_stress` being the one place the assumption sits. Plane stress there means
+  solving `S_zz = 0` for the out-of-plane stretch per quadrature point, a small nonlinear
+  condensation inside `evaluate`. Worth doing when a thin-plate finite-strain problem appears.
 
 **Design / maintainability**
 

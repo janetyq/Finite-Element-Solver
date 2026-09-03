@@ -53,36 +53,36 @@ def unit_box(dim, n):
 # -- the material's reduction -----------------------------------------------------
 
 
-def test_eigenstress_of_an_isotropic_strain_is_beta_on_the_diagonal():
+def test_constrained_stress_of_an_isotropic_strain_is_beta_on_the_diagonal():
     """`C_3D : (alpha dT I)` is `beta dT I` with the 3D beta, whatever the mesh."""
     eigenstrain = ALPHA * DT * np.broadcast_to(np.eye(3), (4, 2, 3, 3))
-    sigma = LinearElasticMaterial(E, NU).eigenstress(eigenstrain)
+    sigma = LinearElasticMaterial(E, NU).constrained_stress(eigenstrain)
     assert sigma.shape == (4, 2, 3, 3)
     close(sigma, BETA * DT * np.eye(3), rtol=1e-12)
 
 
-def test_eigenstress_of_a_deviatoric_strain_has_no_lambda_part():
+def test_constrained_stress_of_a_deviatoric_strain_has_no_lambda_part():
     """A traceless eigenstrain (a plastic strain) gives `2 mu eps*`: the lambda term
     multiplies the trace, so it needs all three diagonal entries to vanish."""
     eps = np.array([[[[0.01, 0.002, 0.0], [0.002, -0.004, 0.0], [0.0, 0.0, -0.006]]]])
-    sigma = LinearElasticMaterial(E, NU).eigenstress(eps)
+    sigma = LinearElasticMaterial(E, NU).constrained_stress(eps)
     close(sigma, 2 * MU * eps, rtol=1e-12)
 
 
-def test_eigenstress_broadcasts_a_per_element_modulus():
+def test_constrained_stress_broadcasts_a_per_element_modulus():
     moduli = np.array([100.0, 200.0, 400.0])
     eigenstrain = ALPHA * DT * np.broadcast_to(np.eye(3), (3, 2, 3, 3))
-    sigma = LinearElasticMaterial(moduli, NU).eigenstress(eigenstrain)
+    sigma = LinearElasticMaterial(moduli, NU).constrained_stress(eigenstrain)
     mu, lamb = Enu_to_Lame(moduli, NU)
     expected = ((3 * lamb + 2 * mu) * ALPHA * DT)[:, None, None, None] * np.eye(3)
     close(sigma, expected, rtol=1e-12)
 
 
-def test_eigenstress_takes_a_full_3x3_tensor_only():
+def test_constrained_stress_takes_a_full_3x3_tensor_only():
     with pytest.raises(ValueError, match='3, 3'):
-        LinearElasticMaterial(E, NU).eigenstress(np.zeros((2, 1, 2, 2)))
+        LinearElasticMaterial(E, NU).constrained_stress(np.zeros((2, 1, 2, 2)))
     with pytest.raises(ValueError, match='per-element modulus'):
-        LinearElasticMaterial(np.ones(3), NU).eigenstress(np.zeros((2, 1, 3, 3)))
+        LinearElasticMaterial(np.ones(3), NU).constrained_stress(np.zeros((2, 1, 3, 3)))
 
 
 def test_tensor_to_voigt_inverts_voigt_to_tensor():
@@ -313,7 +313,7 @@ def test_energy_density_refuses_a_thermal_strain():
 # -- the estimator's interior term -------------------------------------------------
 
 
-def test_stress_divergence_carries_the_eigenstress_gradient(make_unit_square):
+def test_stress_divergence_carries_the_constrained_stress_gradient(make_unit_square):
     """At rest under a linear T, `div sigma = -beta grad(dT)`: a nonzero interior
     residual on P1, where the Navier part vanishes."""
     mesh = make_unit_square(5)
@@ -403,4 +403,4 @@ def test_the_adjoint_gradient_refuses_a_thermal_problem(make_unit_square):
     analysis = SensitivityAnalysis(problem)
     u = analysis.solve_forward()
     with pytest.raises(NotImplementedError, match='eigenstrain'):
-        analysis.gradient(Compliance(), ModulusParameterization.create(space, moduli, NU), u)
+        analysis.gradient(Compliance(), ModulusParameterization.create(space, LinearElasticMaterial(moduli, NU)), u)

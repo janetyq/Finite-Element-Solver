@@ -107,6 +107,11 @@ def elastic_p1_h1():
 
 
 @cache
+def elastic_plane_stress_p1():
+    return ConvergenceStudy.from_solves(elastic_convergence((9, 17, 33), reduction='plane_stress'))
+
+
+@cache
 def _elastic_p2_solves():
     return elastic_p2_convergence((5, 9, 17))
 
@@ -181,6 +186,9 @@ STUDIES = [
     # elastic B-matrix and the coupled stiffness, measured against the closed-form
     # deformation gradient rather than through K. Observed 0.98, 0.99.
     Study('elastic_p1_h1', elastic_p1_h1, 1, (0.85, 1.15)),
+    # The same vector solve under plane stress: the other 2D reduction's D and its
+    # forcing, at the P1 rate.
+    Study('elastic_plane_stress_p1', elastic_plane_stress_p1, 2, (1.7, 2.3)),
     # The vector P2 path: the node numbering under n_components = 2 and the coupled
     # operator, at the scalar P2 rate.
     Study('elastic_p2', elastic_p2, 3, (2.7, 3.3)),

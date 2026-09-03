@@ -167,7 +167,8 @@ def _with_out_of_plane(tensor: FloatArray, zz: FloatArray) -> FloatArray:
     '''Embed `(..., 2, 2)` in-plane tensors into full 3x3 ones.
 
     A 2D solve reduces a 3D state; the third direction still carries a component,
-    and which one is a property of the reduction (see `out_of_plane_stress`).
+    and which one is a property of the material's reduction (`out_of_plane_stress`
+    under plane strain, `out_of_plane_strain` under plane stress).
     '''
     full = np.zeros(tensor.shape[:-2] + (3, 3))
     full[..., :2, :2] = tensor
@@ -514,7 +515,7 @@ class Eigenstrain(Protocol):
     is the same idea with a history.
 
     `evaluate` returns the eigenstrain at every quadrature point as a full 3x3 tensor,
-    in 2D as well as 3D; see `LinearElasticMaterial.eigenstress` for why the z
+    in 2D as well as 3D; see `LinearElasticMaterial.constrained_stress` for why the z
     component matters on a 2D mesh. `degree` is the polynomial degree it is
     integrated as, which sets the rule for its load.
     '''
@@ -641,9 +642,9 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         eigenstrain = self._evaluate_eigenstrain(geometry)
         if eigenstrain is None:
             return None
-        eigenstress = self.material.eigenstress(eigenstrain)
+        constrained = self.material.constrained_stress(eigenstrain)
         B = strain_displacement(geometry.grad_phi)                  # (n_el, n_qp, n_strains, k)
-        rows = tensor_to_voigt(eigenstress, geometry.reference_dim)  # the components B has rows for
+        rows = tensor_to_voigt(constrained, geometry.reference_dim)  # the components B has rows for
         return np.einsum('eqsk,eqs,eq->ek', B, rows, geometry.weight_detJ)
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
@@ -674,8 +675,8 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         '''Strain and stress at every point of `geometry`'s rule.
 
         Full `(n_elements, n_qp, 3, 3)` tensors, not the Voigt vectors assembly works
-        in (see `voigt_to_tensor`); a 2D result is lifted to the 3D state its
-        plane-strain assumption implies. Constant across the points for P1, linear
+        in (see `voigt_to_tensor`); a 2D result is lifted to the 3D state the
+        material's reduction implies. Constant across the points for P1, linear
         within the element for a straight P2 triangle.
         '''
         return self._sample(geometry, u_elements, self._evaluate_eigenstrain(geometry))
@@ -700,16 +701,17 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         strain, stress = strain.reshape(n_el, n_qp, d, d), stress.reshape(n_el, n_qp, d, d)
 
         if d == 2:
-            # Plane strain: eps_zz is zero by definition, and the material
-            # develops sigma_zz holding it there. von Mises without it is computed
-            # on the wrong state.
+            # The third direction the 2D solve reduced away: under plane strain a
+            # stress holds the body flat, under plane stress the plate thins. von
+            # Mises without the missing component is computed on the wrong state.
             sigma_zz = self.material.out_of_plane_stress(strain)
-            strain = _with_out_of_plane(strain, np.zeros((n_el, n_qp)))
+            eps_zz = self.material.out_of_plane_strain(strain, eigenstrain)
+            strain = _with_out_of_plane(strain, eps_zz)
             stress = _with_out_of_plane(stress, sigma_zz)
 
         # sigma = D eps - D eps*, on full tensors so the z components are included.
         if eigenstrain is not None:
-            stress = stress - self.material.eigenstress(eigenstrain)
+            stress = stress - self.material.constrained_stress(eigenstrain)
 
         return ElasticPointState(strain, stress)
 
@@ -726,9 +728,9 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         eigenstrain = self._evaluate_eigenstrain(geometry)
         fields = self._sample(geometry, u_elements, eigenstrain)
         mechanical = fields.strain if eigenstrain is None else fields.strain - eigenstrain
-        # The full double contraction. eps_zz is zero under plane strain, so the
-        # lift above leaves this equal to the in-plane Voigt dot product it replaces,
-        # unless an eigenstrain has a z part for the out-of-plane stress to work on.
+        # The full double contraction. One of eps_zz and sigma_zz is zero under
+        # either reduction, so this equals the in-plane Voigt dot product it replaces
+        # unless an eigenstrain has a z part for a plane-strain sigma_zz to work on.
         compliance = np.einsum('eqij,eqij,eq->e', fields.stress, mechanical,
                                geometry.weight_detJ)
         return ElasticState(_element_mean(fields.strain, geometry.weight_detJ),

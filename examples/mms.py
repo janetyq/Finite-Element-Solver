@@ -35,7 +35,7 @@ from fem.elements import (
 from fem.physics.equations import Heat, LinearElastic, Poisson
 from fem.physics.forms import DiffusionForm, LinearElasticForm, ThermalStrain
 from fem.algebra.integrators import ThetaMethod
-from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial, Reduction
 from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh, boundary_facets
 from fem.mesh.structured import box_mesh
@@ -232,10 +232,14 @@ def poisson_convergence(resolutions: tuple[int, ...], dim: int = 2) -> list[MMSS
 ELASTIC_E, ELASTIC_NU = 200.0, 0.3
 
 
-def elastic_source(point: Vertices) -> list[FloatArray]:
-    """The body force that makes `elastic_exact` the answer, for a plane-strain solid
-    or a 3D one by the points' dimension."""
-    mu, lamb = Enu_to_Lame(ELASTIC_E, ELASTIC_NU)
+def elastic_source(point: Vertices, reduction: Reduction = 'plane_strain') -> list[FloatArray]:
+    """The body force that makes `elastic_exact` the answer, for a 2D solid under
+    `reduction` or a 3D one by the points' dimension.
+
+    Plane stress is the same Navier operator with the plane-stress lambda, so one
+    formula serves both reductions.
+    """
+    mu, lamb = LinearElasticMaterial(ELASTIC_E, ELASTIC_NU, reduction).in_plane_lame(point.shape[1])
     if point.shape[1] == 2:
         x, y = point.T
         return [
@@ -272,14 +276,16 @@ def elastic_exact_gradient(points: FloatArray) -> FloatArray:
     return grad
 
 
-def solve_elastic_mms(n: int, dim: int = 2, backend: Backend | None = None) -> MMSSolve:
+def solve_elastic_mms(n: int, dim: int = 2, backend: Backend | None = None,
+                      reduction: Reduction = 'plane_strain') -> MMSSolve:
     """Solve the manufactured elasticity problem on an `n`-per-side unit box in `dim`
-    dimensions, with `backend` picking the linear solver (the default is direct)."""
+    dimensions, with `backend` picking the linear solver (the default is direct) and
+    `reduction` the 2D model (plane strain or plane stress)."""
     mesh = box_mesh(corners=[[0.0] * dim, [1.0] * dim], resolution=(n,) * dim)
 
     bc = Conditions(Dirichlet(everywhere(), [0.0] * dim))
-    equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU)
-    problem = equation.problem(mesh, bc + Source(elastic_source))
+    equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, reduction=reduction)
+    problem = equation.problem(mesh, bc + Source(lambda p: elastic_source(p, reduction)))
     return _elastic_mms_solve(n, problem, backend)
 
 
@@ -304,9 +310,10 @@ def _elastic_mms_solve(n: int, problem: LinearProblem, backend: Backend | None =
 
 
 def elastic_convergence(resolutions: tuple[int, ...], dim: int = 2,
-                        backend: Backend | None = None) -> list[MMSSolve]:
+                        backend: Backend | None = None,
+                        reduction: Reduction = 'plane_strain') -> list[MMSSolve]:
     """Solve the manufactured elasticity problem once per resolution, coarsest first."""
-    return [solve_elastic_mms(n, dim, backend) for n in sorted(resolutions)]
+    return [solve_elastic_mms(n, dim, backend, reduction) for n in sorted(resolutions)]
 
 
 # --- variable coefficient: -div(kappa(x) grad u) = f ----------------------------
