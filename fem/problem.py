@@ -13,9 +13,8 @@ The operator is one `Form`, a sum of terms: the physics form the problem was sta
 with plus, for each Robin condition, `kappa` times the boundary mass over that
 region's facets. The load is the sum of the resolution's `fem.loads.Load` terms (the
 volume source, one `BoundaryLoad` per Neumann condition, one per Robin value, and any
-`PointLoad`) plus the state-free load the operator itself carries (`operator_load`,
-the thermal load of an elastic form with an eigenstrain). Energy, residual, and tangent
-then read
+`PointLoad`) plus any load the operator's own physics contributes (`operator_load`, the
+thermal load of a heated elastic body). Energy, residual, and tangent then read
 
     term        energy         residual      tangent
     operator    Π(u)           R(u)          ∂R/∂u
@@ -159,9 +158,9 @@ class Problem(Generic[S]):
 
     @property
     def operator_load(self) -> DofVector | None:
-        '''The state-free load the operator carries (`Form.element_loads`, assembled
-        once), or None: the thermal load of an elastic form with an eigenstrain. Part
-        of `load`, beside the conditions' terms.'''
+        '''The load the operator's own physics contributes, or None, such as the
+        thermal load of a heated elastic body. Assembled once from `Form.element_loads`
+        and included in `load` with the loads from the conditions.'''
         return self._operator_load
 
     def load_at(self, t: float) -> DofVector:

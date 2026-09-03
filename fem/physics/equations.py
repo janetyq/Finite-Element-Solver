@@ -268,7 +268,12 @@ class FiniteStrainElastic(Elasticity[Problem[ElasticSolution]]):
         density: float = 1.0,
         law: Callable[[float, float], EnergyDensity] = StVenantKirchhoff,
         damping: RayleighDamping | None = None,
+        thermal: ThermalStrain | None = None,
     ) -> None:
+        if thermal is not None:
+            raise NotImplementedError(
+                'the energy densities take no thermal strain yet; use LinearElastic'
+            )
         super().__init__(E, nu, density, damping)
         self.law = law
 

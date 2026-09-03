@@ -565,8 +565,8 @@ def solve_thermoelastic_mms(n: int, nodal: bool = False) -> MMSSolve:
     """Solve the manufactured thermoelastic problem on an `n` x `n` grid.
 
     With `nodal`, the temperature is handed over as its P1 interpolant on the mesh (a
-    `NodalField`, the coupling path from a heat solve) rather than sampled at the
-    quadrature points; the interpolation error is O(h^2), so the rate is the same.
+    `NodalField`, as a heat solution would be) rather than sampled at the quadrature
+    points; the interpolation error is O(h^2), so the rate is the same.
     """
     mesh = box_mesh(corners=[[0, 0], [1, 1]], resolution=(n, n))
     temperature = (FunctionSpace(mesh, n_components=1).interpolate(thermal_field)

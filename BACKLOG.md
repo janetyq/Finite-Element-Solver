@@ -179,20 +179,16 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
 - 💡 The README's roadmap (transport, fluid mechanics) fits the current
   architecture well, on the same `EnergyForm` / `Energies` machinery that now carries both the
   strain-measure densities and the invariant-based `NeohookeanEnergyDensity`.
-- 💡 **Thermoelasticity: follow-ups.** The core shipped: `Eigenstrain` on `LinearElasticForm`
-  (the state-free load `Form.element_loads` a `Problem` adds to its load, the corrected stress,
-  the plane-strain reduction in `LinearElasticMaterial.eigenstress`), `ThermalStrain` as its
-  first client, `LinearElastic(thermal=...)`, and the closed-form and MMS tests
-  (`tests/test_thermoelastic.py`, the `thermoelastic_*` rows of `tests/test_convergence.py`).
-  Open, each additive: a **demo**, extending `heat` (the warming heatsink's stress at the fin
-  roots, its base clamped to the chip) with the thick-walled cylinder (Timoshenko's logarithmic
-  temperature, closed-form hoop stress) as the benchmark test and a **critical temperature**
-  through `BucklingAnalysis` on a heated restrained bar; **finite-strain thermal strain**, an
-  eigenstrain argument on `EnergyDensity.evaluate` (the 2D density must then carry the third
-  eigenstrain component in `tr(eps_el)`, the same plane-strain point the material handles for
-  the linear path); **thermoelastic SIMP**, which `SIMPModel` refuses today because the thermal
-  load scales with the modulus and the compliance sensitivity needs the `d(load)/d(rho)` term;
-  and the second `Eigenstrain` client, a plastic strain with a history.
+- 💡 **Thermoelasticity: follow-ups.** The core shipped (`Eigenstrain` on `LinearElasticForm`,
+  `ThermalStrain`, `LinearElastic(thermal=...)`, closed-form and MMS tests). Open, each additive:
+  a **demo** extending `heat` with the warming heatsink's stress at the fin roots, with the
+  thick-walled cylinder (logarithmic temperature, closed-form hoop stress) as its benchmark test
+  and a critical temperature through `BucklingAnalysis` on a heated restrained bar;
+  **finite-strain thermal strain**, an eigenstrain argument on `EnergyDensity.evaluate`, where
+  the 2D density must keep the z component of the eigenstrain as the material does for the
+  linear path; **thermoelastic SIMP**, refused today because the thermal load scales with the
+  modulus and the compliance sensitivity needs a `d(load)/d(rho)` term; and a plastic strain as
+  the second `Eigenstrain`.
 - 💡 **Prescribed motion under Newmark.** A `TimeDependent` source, traction, or Robin value is
   re-evaluated per step by both integrators, and `ThetaMethod` takes a time-dependent Dirichlet
   value too. `NewmarkMethod` refuses one: a prescribed displacement `g(t)` at the fixed DOFs also

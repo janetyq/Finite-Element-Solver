@@ -137,10 +137,10 @@ A form is one base class. Every `Form` writes `element_residuals` and `element_t
 state; what else it can answer is a hook with a default of "no": `constant_tangent` (every
 `BilinearForm`, whose residual is `K u`), `has_energy` (a bilinear form's `½ uᵀ K u`, an
 `EnergyForm`'s density), `flux` (the recoverable flux), `near_null_space` (the AMG
-near-kernel), `element_loads` (the state-free part of the residual, moved to the right-hand
-side: the thermal load of an elastic form with an eigenstrain). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses,
+near-kernel), `element_loads` (a load from the form's own physics, such as the thermal load
+of a heated elastic body). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses,
 and SIMP need a constant tangent; `NewtonSolve` needs nothing more and uses the energy as its
-line-search merit when there is one; the `Problem` adds the form's load to its own. `RecoversElasticState` stays a protocol: the interface the
+line-search merit when there is one; the `Problem` adds the form's load to those from its conditions. `RecoversElasticState` stays a protocol: the interface the
 two elastic forms share with `ElasticSolution` and `StressFlux`.
 
 ## Where the classes sit
@@ -268,16 +268,16 @@ assemble through `assemble_residual` / `assemble_tangent` / `total_energy`, at t
 element's default rule and the one the form asks for.
 
 `Material` owns the constitutive matrix `D`; the strain-displacement matrix `B` sits in
-`fem/physics/forms.py` next to the form that contracts it. A stress-free strain (an
-`Eigenstrain`; `ThermalStrain`, the `α ΔT I` of a temperature that is a constant, a callable, or
-a `NodalField` from a heat solve on the same mesh) enters the small-strain law as
-`σ = D (ε − ε*)`: the stiffness is unchanged, `LinearElasticForm.element_loads` is the
-`∫ Bᵀ D ε*` the problem adds to its load, and `sample` subtracts the eigenstress. The
-eigenstrain is always a full 3x3 tensor and `Material.eigenstress` applies the 3D law to it,
-which is the plane-strain reduction for an eigenstrain: the blocked out-of-plane expansion
-loads the in-plane stress through `λ ε*_zz`, so a 2D eigenstrain pushed through `D_2D` would
-be wrong. The reduction is the material's, beside `out_of_plane_stress`, so a second eigenstrain
-(a plastic strain) inherits it. An `EnergyDensity` returns the one thing an
+`fem/physics/forms.py` next to the form that contracts it. An `Eigenstrain` is a strain the
+material takes on with no stress, such as thermal expansion; `ThermalStrain` builds it from a
+temperature given as a number, a function, or a heat solution on the same mesh. The elastic
+form subtracts it before applying Hooke's law, so stress comes only from the expansion the
+body was denied. That term does not depend on the displacement, so it is a load rather than a
+change to the stiffness: `LinearElasticForm.element_loads` supplies it, and stress recovery
+subtracts it again. The material converts the eigenstrain to a stress with the 3D law on a
+full 3x3 tensor, since under plane strain the expansion denied in z pushes on the plane and a
+2D shortcut misses it. A later eigenstrain, such as a plastic strain, inherits that. An
+`EnergyDensity` returns the one thing an
 `EnergyForm` contracts: the energy `W`, the first Piola-Kirchhoff stress `P = dW/dF`, and the
 material tangent `A = d²W/dF²`, all in F. How it gets there is the density's own business:
 `SmallStrain` and `StVenantKirchhoff` build the chain through a strain measure (small-strain `ε`
@@ -297,8 +297,8 @@ A `Problem` is the assembly-ready composition for one mesh: space, operator, loa
 constraints. `physics` is the form it was stated with and `operator` that form plus one
 `kappa * BoundaryMassForm` term per Robin condition; `loads` is the tuple of `Load` terms (the
 source, one `BoundaryLoad` per Neumann condition and per Robin value, any `PointLoad`), and
-`operator_load` the state-free load the operator itself carries (`Form.element_loads`, assembled
-once at construction and again by `with_operator`, since it is the new operator's). Its residual
+`operator_load` any load the operator's own physics contributes (`Form.element_loads`, assembled
+at construction and again by `with_operator`, since it belongs to the operator). Its residual
 has two terms, each present in `energy`, `residual`, and `tangent` alike: the operator's (`Π`,
 `R`, `∂R/∂u`, summed over the operator's terms by the space) and the load's (`−fᵀu`, `−f`, `0`).
 `internal_residual` is the first, kept apart from `load` so a strategy can scale one against the

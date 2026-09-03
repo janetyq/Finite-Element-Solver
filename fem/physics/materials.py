@@ -11,10 +11,10 @@ In 2D the law is plane strain throughout. `LinearElasticMaterial.out_of_plane_st
 names that assumption and supplies the `sigma_zz` a 2D Voigt vector omits, which
 post-processing needs to build a complete stress tensor.
 
-`eigenstress` is the same reduction for a stress-free strain (thermal expansion, a
-plastic strain): the eigenstrain is always a full 3x3 tensor, the eigenstress is the 3D
-law applied to it, and a 2D form reads the in-plane rows and the `zz` entry off that.
-The reduction is written here once, so no form has to remember it.
+`eigenstress` is the stress of a strain the material takes on with no stress (thermal
+expansion, a plastic strain), computed with the 3D law on a full 3x3 tensor so that the
+z component a 2D mesh cannot represent still counts. That is written here once, so no
+form has to remember it.
 """
 from dataclasses import dataclass
 
@@ -109,32 +109,16 @@ class LinearElasticMaterial:
         trace = np.einsum('eii->e', np.asarray(strain))
         return np.asarray(lamb) * trace
 
-    def thermal_stress_modulus(self, alpha: float | ElementValues) -> float | ElementValues:
-        '''`beta = (3 lambda + 2 mu) alpha`, the stress a fully restrained body develops
-        per degree of heating: the coefficient of the thermal term in
-        `sigma = C : eps - beta dT I`. Built from the 3D Lame constants in every
-        dimension; `eigenstress` is what the solve path uses, this is the closed-form
-        number the tests and the docs quote.'''
-        mu, lamb = Enu_to_Lame(self.E, self.nu)
-        return (3.0 * lamb + 2.0 * mu) * alpha
-
     def eigenstress(self, eigenstrain: FloatArray) -> FloatArray:
-        '''The 3D eigenstress `sigma* = C_3D : eps*` of a stress-free strain, `(..., 3, 3)`
-        in and out, batched over any leading axes (elements, then quadrature points).
+        '''The stress that would cancel an eigenstrain, `C : eps*` with `C` the 3D
+        elastic law, on `(..., 3, 3)` tensors; a per-element `E` broadcasts over the
+        leading element axis.
 
-        The eigenstrain is a full 3x3 tensor even for a 2D solve, and the law applied
-        to it is the 3D one, with `lambda tr(eps*)` summing all three diagonal entries.
-        That is the plane-strain reduction for an eigenstrain: with the total
-        `eps_zz = 0`, restricting the 3D law to the plane gives
-
-            sigma_ab = (D_2D eps)_ab - sigma*_ab,    sigma_zz = lambda tr(eps_in) - sigma*_zz
-
-        so a 2D form subtracts the in-plane rows of this tensor from `D_2D eps` and the
-        `zz` entry from `out_of_plane_stress`. Building the eigenstress from a 2D
-        eigenstrain through `D_2D` instead drops `lambda eps*_zz`, the blocked
-        out-of-plane expansion leaking into the plane through Poisson coupling: for a
-        thermal strain it gives `(2 lambda + 2 mu) alpha dT` where `(3 lambda + 2 mu)
-        alpha dT` is right. A per-element `E` broadcasts over the leading element axis.
+        The law is the 3D one even on a 2D mesh. Plane strain holds the body fixed in
+        z, and the expansion denied there pushes back on the plane through Poisson's
+        effect, supplying a third of the in-plane thermal stress. A 2D thermal strain
+        fed through the 2D Hooke matrix misses that push and comes out as
+        `(2 lambda + 2 mu) alpha dT` instead of `(3 lambda + 2 mu) alpha dT`.
         '''
         eigenstrain = np.asarray(eigenstrain, dtype=float)
         if eigenstrain.shape[-2:] != (3, 3):

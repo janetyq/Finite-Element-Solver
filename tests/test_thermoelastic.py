@@ -17,7 +17,7 @@ from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
 from fem.loads import Source
 from fem.mesh.structured import box_mesh
-from fem.physics.equations import LinearElastic, Poisson
+from fem.physics.equations import FiniteStrainElastic, LinearElastic, Poisson
 from fem.physics.forms import (
     LinearElasticForm, ThermalStrain, tensor_to_voigt, voigt_to_tensor,
 )
@@ -102,12 +102,6 @@ def test_eigenstress_takes_a_full_3x3_tensor_only():
         LinearElasticMaterial(E, NU).eigenstress(np.zeros((2, 1, 2, 2)))
     with pytest.raises(ValueError, match='per-element modulus'):
         LinearElasticMaterial(np.ones(3), NU).eigenstress(np.zeros((2, 1, 3, 3)))
-
-
-def test_thermal_stress_modulus_is_three_bulk_modulus_alpha():
-    K = E / (3 * (1 - 2 * NU))
-    close(LinearElasticMaterial(E, NU).thermal_stress_modulus(ALPHA),
-                               3 * K * ALPHA, rtol=1e-12)
 
 
 def test_tensor_to_voigt_inverts_voigt_to_tensor():
@@ -259,8 +253,8 @@ def test_per_element_alpha_length_is_checked(make_unit_square):
 
 
 def test_residual_is_the_gradient_of_the_energy(make_unit_square):
-    """The thermal load is the state-free part of an affine residual, so the energy
-    `½ uᵀ K u − (f + f_th)ᵀ u` must still have it as its gradient."""
+    """The thermal load enters the energy as `−f_thᵀ u`, so the residual must still be
+    the gradient of `½ uᵀ K u − (f + f_th)ᵀ u`."""
     mesh = make_unit_square(5)
     problem, _ = heated(mesh, clamped(2), temperature=lambda p: p[:, 0] * p[:, 1])
     rng = np.random.default_rng(0)
@@ -310,6 +304,8 @@ def test_simp_refuses_a_thermal_template(make_unit_square):
 def test_energy_density_refuses_a_thermal_strain():
     with pytest.raises(NotImplementedError, match='thermal'):
         LinearElastic(E, NU, thermal=thermal()).energy_density()
+    with pytest.raises(NotImplementedError, match='LinearElastic'):
+        FiniteStrainElastic(E, NU, thermal=thermal())
 
 
 # -- the estimator's interior term -------------------------------------------------
