@@ -7,20 +7,21 @@ map from strain to stress.
 `hooke_matrix` fixes the Voigt ordering of the constitutive matrix D; the
 strain-displacement matrix B in `fem.physics.forms` orders its strain rows the same way.
 
-In 2D the law is plane strain throughout. `LinearElasticMaterial.out_of_plane_stress`
-names that assumption and supplies the `sigma_zz` a 2D Voigt vector omits, which
-post-processing needs to build a complete stress tensor.
-
-`eigenstress` is the stress of a strain the material takes on with no stress (thermal
-expansion, a plastic strain), computed with the 3D law on a full 3x3 tensor so that the
-z component a 2D mesh cannot represent still counts. That is written here once, so no
-form has to remember it.
+A 2D solve reduces a 3D body, and the material owns the `reduction`: plane strain (the
+default, a long body held fixed in z) or plane stress (a thin plate free to contract in
+z). The two differ in the in-plane law, in which out-of-plane component is nonzero
+(`out_of_plane_stress` under plane strain, `out_of_plane_strain` under plane stress),
+and in how a stress-free strain such as thermal expansion loads the plane
+(`constrained_stress`). Everything else reads the material, so no form has to know which.
 """
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
 from fem.typing import ElementValues, FloatArray, Matrix
+
+Reduction = Literal['plane_strain', 'plane_stress']
 
 
 def Enu_to_Lame(E, nu):
@@ -80,6 +81,14 @@ def hooke_matrix(reference_dim: int, mu: float, lamb: float) -> Matrix:
     return mu * P_mu + lamb * P_lamb
 
 
+
+def isotropic_stress(mu: FloatArray, lamb: FloatArray, strain: FloatArray) -> FloatArray:
+    '''`lamb tr(eps) I + 2 mu eps` on `(..., d, d)` tensors, `mu` and `lamb` scalars or
+    arrays that broadcast against the leading axes.'''
+    d = strain.shape[-1]
+    trace = np.einsum('...ii->...', strain)
+    return (lamb * trace)[..., None, None] * np.eye(d) + (2.0 * mu)[..., None, None] * strain
+
 @dataclass(frozen=True)
 class LinearElasticMaterial:
     '''Isotropic linear-elastic constitutive law, parameterised by E and nu.
@@ -87,59 +96,116 @@ class LinearElasticMaterial:
     E may be a scalar or a per-element array (SIMP density design scales it by a
     density cubed each iteration), so the constitutive matrix is requested per
     element rather than built once. nu is uniform.
+
+    `reduction` is what a 2D solve means for the third direction. Plane strain, the
+    default, holds the body fixed in z, as in a long body or a thick section: the
+    strain `eps_zz` is zero and a stress `sigma_zz` develops. Plane stress leaves it
+    free, as in a thin plate: `sigma_zz` is zero and the plate thins or thickens by
+    `eps_zz`. A 3D solve has no reduction and accepts only the default.
+
+    Only plane stress changes the law. A 2D displacement has no z component, so
+    `eps_zz = 0` already holds and the 3D law on that state is plane strain: the
+    default names what the discretization does by itself, and in 3D it does nothing.
+    Plane stress instead asks for `sigma_zz = 0`, which the displacement cannot
+    express, so the material folds it into the in-plane constants (`in_plane_lame`)
+    and reconstructs the thinning afterwards (`out_of_plane_strain`).
     '''
     E: float | ElementValues
     nu: float
+    reduction: Reduction = 'plane_strain'
 
-    def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
-        '''The stress in the restrained z direction, which a 2D solve omits.
-
-        2D here means plane strain, the assumption `hooke_matrix(2, ...)`
-        already encodes: the body is held fixed in z, so `epsilon_zz = 0` and the
-        material develops `sigma_zz = lambda * tr(epsilon)` resisting that. The
-        stress is real, but it falls outside the three Voigt components a 2D
-        assembly produces, so von Mises or pressure built from those alone is
-        computed on an incomplete tensor.
-
-        Takes `(n_elements, ..., 2, 2)` in-plane strain tensors, one per point of
-        each element, and returns one value per tensor; a per-element `E` broadcasts
-        over the leading axis (see `_per_element`). The equivalent
-        `nu(sigma_xx + sigma_yy)` is the same number; `tests/test_materials.py` pins
-        both against the 3D law.
-        '''
-        trace = np.einsum('...ii->...', np.asarray(strain, dtype=float))
-        self._check_element_axis(trace.shape, 'the strain')
-        _, lamb = self._per_element(trace.ndim)
-        return lamb * trace
-
-    def _check_element_axis(self, leading: tuple[int, ...], what: str) -> None:
-        mu = np.asarray(self.E)
-        if mu.ndim and (not leading or leading[0] != len(mu)):
+    def __post_init__(self) -> None:
+        if self.reduction not in ('plane_strain', 'plane_stress'):
             raise ValueError(
-                f'per-element modulus has {len(mu)} entries but {what} has leading '
-                f'shape {leading}'
+                f"reduction must be 'plane_strain' or 'plane_stress', got {self.reduction!r}"
             )
 
-    def _per_element(self, ndim: int) -> tuple[FloatArray, FloatArray]:
-        '''`(mu, lamb)` shaped to broadcast against an `ndim`-dimensional array of
-        per-point values whose leading axis runs over the elements: scalars for a
-        uniform modulus, `(n_elements, 1, ...)` for a per-element one.'''
-        mu, lamb = (np.asarray(m, dtype=float) for m in Enu_to_Lame(self.E, self.nu))
-        if mu.ndim:
-            shape = (len(mu),) + (1,) * (ndim - 1)
-            mu, lamb = mu.reshape(shape), lamb.reshape(shape)
+    @property
+    def plane_stress(self) -> bool:
+        return self.reduction == 'plane_stress'
+
+    def lame(self) -> tuple[FloatArray, FloatArray]:
+        '''The 3D `(mu, lamb)` as arrays, one entry per element for a per-element `E`.'''
+        mu, lamb = Enu_to_Lame(self.E, self.nu)
+        return np.asarray(mu, dtype=float), np.asarray(lamb, dtype=float)
+
+    def require_dimension(self, spatial_dim: int) -> None:
+        '''Refuse a reduction a solve in `spatial_dim` has no meaning for.'''
+        if spatial_dim == 3 and self.plane_stress:
+            raise ValueError('plane stress is a 2D reduction; a 3D solve has none')
+
+    def in_plane_lame(self, reference_dim: int) -> tuple[FloatArray, FloatArray]:
+        '''`(mu, lamb)` of the law a solve in `reference_dim` assembles.
+
+        The 3D constants, except under plane stress, where the in-plane law is the
+        3D one with `lamb` replaced by `2 lamb mu / (lamb + 2 mu)`: the free z
+        direction relieves part of the volumetric coupling. Every in-plane formula
+        (`D`, the Navier operator, the constrained stress) reads its constants here.
+        '''
+        self.require_dimension(reference_dim)
+        mu, lamb = self.lame()
+        if reference_dim == 2 and self.plane_stress:
+            return mu, 2.0 * lamb * mu / (lamb + 2.0 * mu)
         return mu, lamb
 
-    def eigenstress(self, eigenstrain: FloatArray) -> FloatArray:
-        '''The stress that would cancel an eigenstrain, `C : eps*` with `C` the 3D
-        elastic law, on `(n_elements, ..., 3, 3)` tensors, one per point of each
-        element; a per-element `E` broadcasts over the leading axis.
+    def out_of_plane_stress(self, strain: FloatArray) -> FloatArray:
+        '''`sigma_zz` from `(n_elements, ..., 2, 2)` in-plane strain tensors, one per
+        point of each element; a per-element `E` broadcasts over the leading axis.
 
-        The law is the 3D one even on a 2D mesh. Plane strain holds the body fixed in
-        z, and the expansion denied there pushes back on the plane through Poisson's
-        effect, supplying a third of the in-plane thermal stress. A 2D thermal strain
-        fed through the 2D Hooke matrix misses that push and comes out as
-        `(2 lambda + 2 mu) alpha dT` instead of `(3 lambda + 2 mu) alpha dT`.
+        Under plane strain the body is held fixed in z, and holding it costs
+        `sigma_zz = lambda * tr(epsilon)`, a real stress that falls outside the three
+        Voigt components a 2D assembly produces, so von Mises built from those alone
+        would be wrong. The equivalent `nu(sigma_xx + sigma_yy)` is the same number;
+        `tests/test_materials.py` pins both against the 3D law. Under plane stress it
+        is zero by definition.
+        '''
+        trace = self._trace(strain, 'the strain')
+        if self.plane_stress:
+            return np.zeros_like(trace)
+        _, lamb = self._per_element(self.lame(), trace.ndim)
+        return lamb * trace
+
+    def out_of_plane_strain(self, strain: FloatArray,
+                            eigenstrain: FloatArray | None = None) -> FloatArray:
+        '''`eps_zz` from `(n_elements, ..., 2, 2)` in-plane strain tensors, laid out
+        as for `out_of_plane_stress`.
+
+        Zero under plane strain. Under plane stress the plate is free in z and thins
+        by Poisson's effect, `eps_zz = -lambda tr(epsilon) / (lambda + 2 mu)`; with an
+        `eigenstrain` it also takes on that strain's z component and thins only
+        against the in-plane mechanical strain.
+        '''
+        trace = self._trace(strain, 'the strain')
+        if not self.plane_stress:
+            return np.zeros_like(trace)
+        mu, lamb = self._per_element(self.lame(), trace.ndim)
+        ratio = lamb / (lamb + 2.0 * mu)
+        if eigenstrain is None:
+            return -ratio * trace
+        eigenstrain = np.asarray(eigenstrain, dtype=float)
+        mechanical = trace - np.einsum('...ii->...', eigenstrain[..., :2, :2])
+        return eigenstrain[..., 2, 2] - ratio * mechanical
+
+    @property
+    def out_of_plane_ratio(self) -> float:
+        '''`sigma_zz / (sigma_xx + sigma_yy)`: `nu` under plane strain, 0 under plane
+        stress. What a formula in the in-plane Voigt stress needs to complete the
+        tensor (the von Mises quantities of interest).'''
+        return 0.0 if self.plane_stress else self.nu
+
+    def constrained_stress(self, eigenstrain: FloatArray) -> FloatArray:
+        '''The stress an eigenstrain produces in a body held at its reference shape,
+        on `(n_elements, ..., 3, 3)` tensors, one per point of each element; a
+        per-element `E` broadcasts over the leading axis.
+
+        Under plane strain the body is held in every direction, so this is the 3D
+        law `C : eps*` on the full tensor. The z component matters: the expansion
+        denied in z pushes back on the plane through Poisson's effect and supplies a
+        third of the in-plane thermal stress, which a 2D thermal strain fed through
+        the 2D Hooke matrix misses (`(2 lambda + 2 mu) alpha dT` instead of
+        `(3 lambda + 2 mu) alpha dT`). Under plane stress the plate is free in z, so
+        its z component costs nothing: the in-plane block is the plane-stress law on
+        the in-plane eigenstrain and the third row and column are zero.
         '''
         eigenstrain = np.asarray(eigenstrain, dtype=float)
         if eigenstrain.shape[-2:] != (3, 3):
@@ -148,10 +214,38 @@ class LinearElasticMaterial:
                 f'shape {eigenstrain.shape}'
             )
         self._check_element_axis(eigenstrain.shape[:-2], 'the eigenstrain')
-        mu, lamb = self._per_element(eigenstrain.ndim - 2)
-        trace = np.einsum('...ii->...', eigenstrain)
-        return ((lamb * trace)[..., None, None] * np.eye(3)
-                + (2.0 * mu)[..., None, None] * eigenstrain)
+        if not self.plane_stress:
+            mu, lamb = self._per_element(self.lame(), eigenstrain.ndim - 2)
+            return isotropic_stress(mu, lamb, eigenstrain)
+        mu, lamb = self._per_element(self.in_plane_lame(2), eigenstrain.ndim - 2)
+        sigma = np.zeros_like(eigenstrain)
+        sigma[..., :2, :2] = isotropic_stress(mu, lamb, eigenstrain[..., :2, :2])
+        return sigma
+
+    def _trace(self, tensors: FloatArray, what: str) -> FloatArray:
+        '''The trace of `(n_elements, ..., d, d)` tensors, the element axis checked.'''
+        trace = np.einsum('...ii->...', np.asarray(tensors, dtype=float))
+        self._check_element_axis(trace.shape, what)
+        return trace
+
+    def _check_element_axis(self, leading: tuple[int, ...], what: str) -> None:
+        E = np.asarray(self.E)
+        if E.ndim and (not leading or leading[0] != len(E)):
+            raise ValueError(
+                f'per-element modulus has {len(E)} entries but {what} has leading '
+                f'shape {leading}'
+            )
+
+    @staticmethod
+    def _per_element(lame: tuple[FloatArray, FloatArray], ndim: int) -> tuple[FloatArray, FloatArray]:
+        '''`lame` shaped to broadcast against an `ndim`-dimensional array of per-point
+        values whose leading axis runs over the elements: scalars for a uniform
+        modulus, `(n_elements, 1, ...)` for a per-element one.'''
+        mu, lamb = lame
+        if mu.ndim:
+            shape = (len(mu),) + (1,) * (ndim - 1)
+            mu, lamb = mu.reshape(shape), lamb.reshape(shape)
+        return mu, lamb
 
     def constitutive_matrices(self, reference_dim: int, n_elements: int) -> FloatArray:
         '''(n_elements, s, s) Voigt D, one per element: the batched assembly path.
@@ -161,14 +255,12 @@ class LinearElasticMaterial:
         and `np.einsum` still contracts it against a per-element B.
         '''
         P_mu, P_lamb = hooke_patterns(reference_dim)
-        if isinstance(self.E, np.ndarray):
-            if len(self.E) != n_elements:
+        mu, lamb = self.in_plane_lame(reference_dim)
+        if mu.ndim:
+            if len(mu) != n_elements:
                 raise ValueError(
-                    f'per-element modulus has {len(self.E)} entries but the mesh has '
+                    f'per-element modulus has {len(mu)} entries but the mesh has '
                     f'{n_elements} elements'
                 )
-            mu, lamb = Enu_to_Lame(self.E, self.nu)
             return mu[:, None, None] * P_mu + lamb[:, None, None] * P_lamb
-
-        mu, lamb = Enu_to_Lame(self.E, self.nu)
         return np.broadcast_to(mu * P_mu + lamb * P_lamb, (n_elements, *P_mu.shape))

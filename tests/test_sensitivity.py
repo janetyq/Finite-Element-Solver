@@ -49,7 +49,7 @@ def test_compliance_density_gradient_matches_the_hand_written_sensitivity(make_u
     analysis = SensitivityAnalysis(problem)
     u = analysis.solve_forward()
 
-    parameterization = DensityParameterization.create(space, rho, base_E, nu, penalty)
+    parameterization = DensityParameterization.create(space, rho, LinearElasticMaterial(base_E, nu), penalty)
     core_gradient = analysis.gradient(Compliance(), parameterization, u)
 
     # The hand-written formula needs the per-element compliance u_e^T K_e u_e.
@@ -103,7 +103,7 @@ def test_compliance_density_gradient_matches_finite_differences(make_unit_square
     problem = _density_problem(space, rho0, base_E, nu, penalty)
     analysis = SensitivityAnalysis(problem)
     u = analysis.solve_forward()
-    adjoint_grad = analysis.gradient(Compliance(), DensityParameterization.create(space, rho0, base_E, nu, penalty), u)
+    adjoint_grad = analysis.gradient(Compliance(), DensityParameterization.create(space, rho0, LinearElasticMaterial(base_E, nu), penalty), u)
 
     fd_grad = _fd_gradient(objective, rho0, eps=1e-6)
     np.testing.assert_allclose(adjoint_grad, fd_grad, rtol=1e-5, atol=1e-7)
@@ -132,7 +132,7 @@ def test_point_displacement_gradient_matches_finite_differences(make_unit_square
     problem = modulus_problem(E0)
     analysis = SensitivityAnalysis(problem)
     u = analysis.solve_forward()
-    adjoint_grad = analysis.gradient(qoi, ModulusParameterization.create(space, E0, nu), u)
+    adjoint_grad = analysis.gradient(qoi, ModulusParameterization.create(space, LinearElasticMaterial(E0, nu)), u)
 
     fd_grad = _fd_gradient(objective, E0, eps=1e-6)
     np.testing.assert_allclose(adjoint_grad, fd_grad, rtol=1e-5, atol=1e-7)
