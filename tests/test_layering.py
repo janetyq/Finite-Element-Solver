@@ -26,7 +26,7 @@ ORDER = [
     'mesh.curves', 'mesh.mesh', 'mesh.refinement', 'mesh.delaunay', 'mesh.ruppert', 'mesh.structured',
     'mesh.pslg', 'mesh.outline', 'mesh.svg', 'mesh',
     # discretization and constraints
-    'elements', 'boundary', 'physics.energies', 'field',
+    'elements', 'boundary', 'physics.energies', 'physics.plasticity', 'field',
     # the typed solutions, which everything above the physics packages
     'post.recovery', 'post.solution', 'physics.derived',
     # physics, the space that assembles it, and the problem that composes it

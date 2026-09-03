@@ -59,6 +59,7 @@ from fem.physics.equations import (
     Elasticity,
     LinearElastic,
     FiniteStrainElastic,
+    DeformationPlasticity,
 )
 from fem.physics.forms import (
     BilinearForm,
@@ -76,6 +77,7 @@ from fem.physics.forms import (
 from fem.loads import Load, PointLoad, Source
 from fem.physics.materials import LinearElasticMaterial
 from fem.physics.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
+from fem.physics.plasticity import RambergOsgood
 from fem.physics.derived import Flux
 from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.algebra.solve import (
@@ -199,6 +201,8 @@ __all__ = [
     "Elasticity",
     "LinearElastic",
     "FiniteStrainElastic",
+    "DeformationPlasticity",
+    "RambergOsgood",
     "LinearProblem",
     "Problem",
     "RayleighDamping",
