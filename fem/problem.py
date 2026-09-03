@@ -11,9 +11,10 @@ elasticity, flux for Poisson).
 
 The operator is one `Form`, a sum of terms: the physics form the problem was stated
 with plus, for each Robin condition, `kappa` times the boundary mass over that
-region's facets. The load is the sum of the resolution's `fem.loads.Load` terms: the
+region's facets. The load is the sum of the resolution's `fem.loads.Load` terms (the
 volume source, one `BoundaryLoad` per Neumann condition, one per Robin value, and any
-`PointLoad`. Energy, residual, and tangent then read
+`PointLoad`) plus any load the operator's own physics contributes (`operator_load`, the
+thermal load of a heated elastic body). Energy, residual, and tangent then read
 
     term        energy         residual      tangent
     operator    Π(u)           R(u)          ∂R/∂u
@@ -124,7 +125,11 @@ class Problem(Generic[S]):
         self.physics: Form[S] = operator
         self._boundary_terms: tuple[Form, ...] = self._resolved.operator_terms
         self.operator: Form[S] = self._with_boundary_terms(operator)
-        self._b = self._resolved.load_at(0.0)
+        # The conditions' load and the operator's are kept apart: a driver restating
+        # the problem under a new operator replaces the second and keeps the first.
+        self._conditions_load = self._resolved.load_at(0.0)
+        self._operator_load = space.assemble_loads(self.operator)
+        self._b = self._sum_loads(self._conditions_load)
         # A constant tangent is assembled on first use, not here. Stating a problem
         # is cheap; assembling its operator is the expensive half, and a problem can
         # be built without ever being solved: a topology optimization iteration
@@ -146,8 +151,26 @@ class Problem(Generic[S]):
             return self
         snapshot = copy.copy(self)
         snapshot._resolved = self._resolved.at(t)
-        snapshot._b = snapshot._resolved.load_at(t)
+        snapshot._conditions_load = snapshot._resolved.load_at(t)
+        snapshot._b = snapshot._sum_loads(snapshot._conditions_load)
         return snapshot
+
+    def _total_load(self, t: float) -> DofVector:
+        '''The conditions' load at `t` plus the operator's own.'''
+        return self._sum_loads(self._resolved.load_at(t))
+
+    def _sum_loads(self, conditions_load: DofVector) -> DofVector:
+        '''`conditions_load` plus the operator's own load; the vector itself without one.'''
+        if self._operator_load is None:
+            return conditions_load
+        return conditions_load + self._operator_load
+
+    @property
+    def operator_load(self) -> DofVector | None:
+        '''The load the operator's own physics contributes, or None, such as the
+        thermal load of a heated elastic body. Assembled once from `Form.element_loads`
+        and included in `load` with the loads from the conditions.'''
+        return self._operator_load
 
     def with_load_factor(self: P, factor: float) -> P:
         '''This problem with its whole loading scaled by `factor`: the assembled load
@@ -169,6 +192,7 @@ class Problem(Generic[S]):
         snapshot = copy.copy(self)
         resolved = self._resolved
         snapshot._resolved = replace(resolved, fixed_values=factor * resolved.fixed_values)
+        snapshot._conditions_load = factor * self._conditions_load
         snapshot._b = factor * self._b
         return snapshot
 
@@ -176,7 +200,7 @@ class Problem(Generic[S]):
         '''The load at time `t`; `load` itself when nothing depends on time.'''
         if not self.is_time_dependent:
             return self._b
-        return self._resolved.load_at(t)
+        return self._total_load(t)
 
     def constraints_at(self, t: float) -> Constraints:
         '''The Dirichlet partition at time `t`: the same DOFs as `constraints`, with
@@ -255,7 +279,7 @@ class Problem(Generic[S]):
 
     @property
     def loads(self) -> tuple[Load, ...]:
-        '''The load terms whose sum is `load`.'''
+        '''The conditions' load terms, whose sum plus `operator_load` is `load`.'''
         return self._resolved.loads
 
     @property
@@ -280,12 +304,12 @@ class Problem(Generic[S]):
     def with_operator(self, operator: Form[S2]) -> 'Problem[S2]':
         '''The same problem stated with a different physics operator.
 
-        Which DOFs are constrained and what the load is follow from the boundary
-        conditions and the source, neither of which the operator enters, so a driver
-        re-solving under a rebuilt operator (a topology optimization iteration
+        Which DOFs are constrained and what the conditions' load is follow from the
+        boundary conditions and the source, neither of which the operator enters, so a
+        driver re-solving under a rebuilt operator (a topology optimization iteration
         rescaling the stiffness) keeps them rather than resolving the conditions and
-        reassembling the load per solve. The Robin terms of the operator are kept
-        alongside the new physics.
+        reassembling the load per solve. The operator's own load is the new operator's.
+        The Robin terms of the operator are kept alongside the new physics.
 
         A new problem rather than a mutation: the two share the constraints and load
         they agree on, and nothing here writes to either.
@@ -303,9 +327,13 @@ class Problem(Generic[S]):
         self.physics = operator
         self.operator = self._with_boundary_terms(operator)
         # The copy carries the original's assembled operator and damping, which are
-        # precisely what the derived one must not answer with.
+        # precisely what the derived one must not answer with, and the original
+        # operator's load, which the new operator's replaces. The conditions' load is
+        # kept as it was assembled.
         self._A = None
         self._C = None
+        self._operator_load = self.space.assemble_loads(self.operator)
+        self._b = self._sum_loads(self._conditions_load)
 
     def _with_boundary_terms(self, physics: Form[S2]) -> Form[S2]:
         operator = physics

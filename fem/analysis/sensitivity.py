@@ -70,7 +70,8 @@ class QuantityOfInterest(Protocol):
 
 @dataclass(frozen=True)
 class Compliance:
-    '''Total compliance `J = fᵀu`: the structure's strain energy under its load.
+    '''Total compliance `J = fᵀu`, twice the strain energy when the load is the
+    conditions' alone; with an operator load such as a thermal one, `f` includes it.
 
     Self-adjoint: `∂J/∂u = f` is the forward load, so `λ = u` and no adjoint solve is
     needed. Valid where the supports are homogeneous Dirichlet (zero prescribed
@@ -163,6 +164,20 @@ def _require_plane_strain(space: FunctionSpace) -> None:
         raise NotImplementedError(
             f'Stress quantities of interest are plane-strain 2D only; the space is '
             f'{space.spatial_dim}D. A 3D measure needs the full six-component Voigt path.'
+        )
+
+
+def _require_no_operator_load(problem: Problem) -> None:
+    '''Guard the stress quantities of interest against an eigenstrain.
+
+    They measure `D B u`, the stress of the displacement alone, and a problem whose
+    operator carries its own load (a thermal strain) has a stress `D (eps - eps*)`
+    they do not see. Refuse rather than report the wrong one.
+    '''
+    if problem.operator_load is not None:
+        raise NotImplementedError(
+            'the stress quantities of interest measure the stress of the displacement '
+            'alone and take no eigenstrain yet; the problem\'s operator carries a load'
         )
 
 
@@ -272,10 +287,12 @@ class MeanStress:
         return _VonMisesStress(self.space, self.material, self.region)
 
     def value(self, problem: Problem, u: DofVector) -> float:
+        _require_no_operator_load(problem)
         stress = self._stress()
         return float(stress._weights() @ stress.von_mises(u))
 
     def dJ_du(self, problem: Problem, u: DofVector) -> DofVector:
+        _require_no_operator_load(problem)
         stress = self._stress()
         _, dvm_du = stress._dvm_du(u)
         per_element = stress._weights()[:, None] * dvm_du
@@ -304,12 +321,14 @@ class SoftMaxStress:
         return _VonMisesStress(self.space, self.material, self.region)
 
     def value(self, problem: Problem, u: DofVector) -> float:
+        _require_no_operator_load(problem)
         stress = self._stress()
         w = stress._weights()
         vm = stress.von_mises(u)
         return float((w @ vm**self.p) ** (1.0 / self.p))
 
     def dJ_du(self, problem: Problem, u: DofVector) -> DofVector:
+        _require_no_operator_load(problem)
         stress = self._stress()
         w = stress._weights()
         vm, dvm_du = stress._dvm_du(u)
@@ -454,6 +473,17 @@ class SensitivityAnalysis:
     def gradient(
         self, qoi: QuantityOfInterest, parameterization: Parameterization, u: DofVector,
     ) -> FloatArray:
-        '''`dJ/dp` for every parameter: one adjoint solve, then a product per parameter.'''
+        '''`dJ/dp` for every parameter: one adjoint solve, then a product per parameter.
+
+        The parameterizations assume the load does not depend on the parameters. An
+        operator load does (a thermal load scales with the modulus), so a problem
+        carrying one is refused rather than given a wrong gradient.
+        '''
+        if self.problem.operator_load is not None:
+            raise NotImplementedError(
+                'the parameterizations take the load as independent of the parameters, '
+                'and the problem\'s operator carries a load of its own (an eigenstrain); '
+                'its derivative is not implemented'
+            )
         lam = self.adjoint(qoi, u)
         return parameterization.gradient(self.problem, u, lam)

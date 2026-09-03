@@ -179,9 +179,20 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   optimizer, for objectives the optimality-criteria update cannot take); and the **nonlinear tangent
   path** (a `Problem` with a state-dependent tangent, where the adjoint uses `tangent(u)` at the
   converged state).
-- 💡 The README's roadmap (thermal expansion, transport, fluid mechanics) fits the current
+- 💡 The README's roadmap (transport, fluid mechanics) fits the current
   architecture well, on the same `EnergyForm` / `Energies` machinery that now carries both the
   strain-measure densities and the invariant-based `NeohookeanEnergyDensity`.
+- 💡 **Thermoelasticity: follow-ups.** The core shipped (`Eigenstrain` on `LinearElasticForm`,
+  `ThermalStrain`, `LinearElastic(thermal=...)`, closed-form and MMS tests). Open, each additive:
+  a **demo** extending `heat` with the warming heatsink's stress at the fin roots, with the
+  thick-walled cylinder (logarithmic temperature, closed-form hoop stress) as its benchmark test
+  and a critical temperature through `BucklingAnalysis` on a heated restrained bar;
+  **finite-strain thermal strain**, an eigenstrain argument on `EnergyDensity.evaluate`, where
+  the 2D density must keep the z component of the eigenstrain as the material does for the
+  linear path; **thermoelastic sensitivities**, refused today by `SIMPModel`, `SensitivityAnalysis`, and
+  the stress quantities of interest because the thermal load scales with the modulus and the
+  measured stress omits the eigenstress, so the adjoint needs a `d(load)/d(rho)` term and the
+  stress measures a `D eps*` correction; and a plastic strain as the second `Eigenstrain`.
 - 💡 **Prescribed motion under Newmark.** A `TimeDependent` source, traction, or Robin value is
   re-evaluated per step by both integrators, and `ThetaMethod` takes a time-dependent Dirichlet
   value too. `NewmarkMethod` refuses one: a prescribed displacement `g(t)` at the fixed DOFs also

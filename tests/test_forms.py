@@ -247,10 +247,11 @@ def test_a_scale_distributes_over_a_sum_rather_than_wrapping_it():
         ScaledForm(2.0, DiffusionForm() + MassForm())
 
 
-@pytest.mark.parametrize('method', ['element_matrices', 'element_residuals', 'element_tangents', 'element_energies'])
+@pytest.mark.parametrize('method', ['element_matrices', 'element_residuals', 'element_tangents',
+                                    'element_energies', 'element_loads'])
 def test_a_sum_has_no_element_blocks_of_its_own(method):
     total = DiffusionForm() + MassForm()
-    args = (TRI,) if method == 'element_matrices' else (TRI, np.zeros((1, 3)))
+    args = (TRI,) if method in ('element_matrices', 'element_loads') else (TRI, np.zeros((1, 3)))
     with pytest.raises(TypeError, match='no element blocks'):
         getattr(total, method)(*args)
 

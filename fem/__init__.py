@@ -64,6 +64,7 @@ from fem.physics.equations import (
 from fem.physics.forms import (
     BilinearForm,
     DiffusionForm,
+    Eigenstrain,
     EnergyDensity,
     EnergyForm,
     Form,
@@ -72,6 +73,7 @@ from fem.physics.forms import (
     MassForm,
     ScaledForm,
     SumForm,
+    ThermalStrain,
     rigid_body_modes,
 )
 from fem.loads import Load, PointLoad, Source
@@ -214,6 +216,8 @@ __all__ = [
     "BilinearForm",
     "EnergyForm",
     "EnergyDensity",
+    "Eigenstrain",
+    "ThermalStrain",
     "MassForm",
     "BoundaryMassForm",
     "SumForm",

@@ -10,6 +10,11 @@ strain-displacement matrix B in `fem.physics.forms` orders its strain rows the s
 In 2D the law is plane strain throughout. `LinearElasticMaterial.out_of_plane_stress`
 names that assumption and supplies the `sigma_zz` a 2D Voigt vector omits, which
 post-processing needs to build a complete stress tensor.
+
+`eigenstress` is the stress of a strain the material takes on with no stress (thermal
+expansion, a plastic strain), computed with the 3D law on a full 3x3 tensor so that the
+z component a 2D mesh cannot represent still counts. That is written here once, so no
+form has to remember it.
 """
 from dataclasses import dataclass
 
@@ -96,13 +101,57 @@ class LinearElasticMaterial:
         assembly produces, so von Mises or pressure built from those alone is
         computed on an incomplete tensor.
 
-        Takes the in-plane strain tensor, matching the same method on the energy
-        densities. The equivalent `nu(sigma_xx + sigma_yy)` is the same number;
-        `tests/test_materials.py` pins both against the 3D law.
+        Takes `(n_elements, ..., 2, 2)` in-plane strain tensors, one per point of
+        each element, and returns one value per tensor; a per-element `E` broadcasts
+        over the leading axis (see `_per_element`). The equivalent
+        `nu(sigma_xx + sigma_yy)` is the same number; `tests/test_materials.py` pins
+        both against the 3D law.
         '''
-        _, lamb = Enu_to_Lame(self.E, self.nu)
-        trace = np.einsum('eii->e', np.asarray(strain))
-        return np.asarray(lamb) * trace
+        trace = np.einsum('...ii->...', np.asarray(strain, dtype=float))
+        self._check_element_axis(trace.shape, 'the strain')
+        _, lamb = self._per_element(trace.ndim)
+        return lamb * trace
+
+    def _check_element_axis(self, leading: tuple[int, ...], what: str) -> None:
+        mu = np.asarray(self.E)
+        if mu.ndim and (not leading or leading[0] != len(mu)):
+            raise ValueError(
+                f'per-element modulus has {len(mu)} entries but {what} has leading '
+                f'shape {leading}'
+            )
+
+    def _per_element(self, ndim: int) -> tuple[FloatArray, FloatArray]:
+        '''`(mu, lamb)` shaped to broadcast against an `ndim`-dimensional array of
+        per-point values whose leading axis runs over the elements: scalars for a
+        uniform modulus, `(n_elements, 1, ...)` for a per-element one.'''
+        mu, lamb = (np.asarray(m, dtype=float) for m in Enu_to_Lame(self.E, self.nu))
+        if mu.ndim:
+            shape = (len(mu),) + (1,) * (ndim - 1)
+            mu, lamb = mu.reshape(shape), lamb.reshape(shape)
+        return mu, lamb
+
+    def eigenstress(self, eigenstrain: FloatArray) -> FloatArray:
+        '''The stress that would cancel an eigenstrain, `C : eps*` with `C` the 3D
+        elastic law, on `(n_elements, ..., 3, 3)` tensors, one per point of each
+        element; a per-element `E` broadcasts over the leading axis.
+
+        The law is the 3D one even on a 2D mesh. Plane strain holds the body fixed in
+        z, and the expansion denied there pushes back on the plane through Poisson's
+        effect, supplying a third of the in-plane thermal stress. A 2D thermal strain
+        fed through the 2D Hooke matrix misses that push and comes out as
+        `(2 lambda + 2 mu) alpha dT` instead of `(3 lambda + 2 mu) alpha dT`.
+        '''
+        eigenstrain = np.asarray(eigenstrain, dtype=float)
+        if eigenstrain.shape[-2:] != (3, 3):
+            raise ValueError(
+                f'an eigenstrain is a full (..., 3, 3) tensor in every dimension, got '
+                f'shape {eigenstrain.shape}'
+            )
+        self._check_element_axis(eigenstrain.shape[:-2], 'the eigenstrain')
+        mu, lamb = self._per_element(eigenstrain.ndim - 2)
+        trace = np.einsum('...ii->...', eigenstrain)
+        return ((lamb * trace)[..., None, None] * np.eye(3)
+                + (2.0 * mu)[..., None, None] * eigenstrain)
 
     def constitutive_matrices(self, reference_dim: int, n_elements: int) -> FloatArray:
         '''(n_elements, s, s) Voigt D, one per element: the batched assembly path.
