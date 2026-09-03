@@ -104,15 +104,26 @@ def test_soft_max_between_mean_and_peak(make_unit_square):
     assert soft16 > soft6
 
 
-@pytest.mark.parametrize('qoi_cls', [MeanStress, SoftMaxStress, _VonMisesStress])
-def test_stress_qoi_refuses_a_3d_space(qoi_cls):
-    """The von Mises here is 2D (sigma_zz a multiple of sxx+syy over three Voigt
-    components); a 3D space carries six, so the measure refuses rather than returning a
-    silently wrong gradient."""
+@pytest.mark.parametrize('qoi_cls', [MeanStress, SoftMaxStress])
+def test_stress_qoi_in_3d(qoi_cls):
+    """Six Voigt components and no out-of-plane completion: the value is the invariant
+    of the recovered stress and the adjoint load matches finite differences."""
     mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(2, 2, 2))
     space = FunctionSpace(mesh, LinearTetrahedralElement, n_components=3)
-    with pytest.raises(NotImplementedError, match='2D only'):
-        qoi_cls(space, LinearElasticMaterial(1.0, 0.3))
+    nu = 0.3
+    bc = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0, 0.0]),
+                    Neumann(on_plane(0, 1.0), [0.0, -1.0, 0.5]))
+    problem = _modulus_problem(space, np.ones(len(space.element_nodes)), nu, bc)
+    u = SensitivityAnalysis(problem).solve_forward()
+    material = LinearElasticMaterial(1.0, nu)
+    qoi = qoi_cls(space, material)
+    solution = ElasticSolution.from_solve(space, u, LinearElasticForm(material))
+    vm = invariants.von_mises(solution.stress)
+    expected = (vm @ space.element_volumes / space.element_volumes.sum() if qoi_cls is MeanStress
+                else (space.element_volumes / space.element_volumes.sum() @ vm**8) ** (1 / 8))
+    np.testing.assert_allclose(qoi.value(problem, u), expected, rtol=1e-10)
+    np.testing.assert_allclose(qoi.dJ_du(problem, u), _fd_dJ_du(qoi, problem, u, 1e-6),
+                               rtol=1e-5, atol=1e-8)
 
 
 def test_region_restricts_the_measure(make_unit_square):
