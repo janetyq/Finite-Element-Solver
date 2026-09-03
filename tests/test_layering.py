@@ -32,7 +32,8 @@ ORDER = [
     # physics, the space that assembles it, and the problem that composes it
     'physics.forms', 'space', 'loads', 'conditions', 'problem', 'physics.equations', 'physics',
     # algebra
-    'algebra.backends', 'algebra.system', 'algebra.solve', 'algebra.integrators', 'algebra',
+    'algebra.backends', 'algebra.system', 'algebra.solve', 'algebra.integrators',
+    'algebra.stepping', 'algebra',
     # analyses and drivers
     'analysis.estimators', 'analysis.sensitivity', 'analysis.design', 'analysis.buckling',
     'analysis.modal', 'analysis.adaptivity', 'analysis',

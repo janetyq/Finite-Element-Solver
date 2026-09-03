@@ -98,6 +98,7 @@ from fem.algebra.backends import (
     MinresBackend,
 )
 from fem.algebra.integrators import ThetaMethod, NewmarkMethod
+from fem.algebra.stepping import QuasiStaticStepping, SteppingDivergence
 from fem.post.solution import (
     Solution,
     FieldSolution,
@@ -240,6 +241,8 @@ __all__ = [
     "rigid_body_modes",
     "ThetaMethod",
     "NewmarkMethod",
+    "QuasiStaticStepping",
+    "SteppingDivergence",
     "NodalField",
     "Solution",
     "FieldSolution",

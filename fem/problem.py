@@ -41,7 +41,7 @@ once; a driver that remeshes builds a new `Problem`. Named PDEs are `Equation`s
 consume a `Problem`, so the edge points up and stays function-local.
 """
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import numpy as np
@@ -147,6 +147,29 @@ class Problem(Generic[S]):
         snapshot = copy.copy(self)
         snapshot._resolved = self._resolved.at(t)
         snapshot._b = snapshot._resolved.load_at(t)
+        return snapshot
+
+    def with_load_factor(self: P, factor: float) -> P:
+        '''This problem with its whole loading scaled by `factor`: the assembled load
+        vector and the prescribed Dirichlet values alike, so `factor` walks the
+        proportional loading path from rest (0) to the stated problem (1) and beyond.
+        What quasi-static continuation (`QuasiStaticStepping`) solves at each step.
+
+        A snapshot sharing the space, operator, and constraint partition; only the
+        values scale. The load *terms* (`loads`, `source`) are left as stated, the way
+        `at(t)` leaves them: `load` and `constraints` are the scaled data a solve
+        reads. The initial state is not a loading and keeps its scale. A problem with
+        time-dependent values has no one loading to scale; fix it first with `at(t)`.
+        '''
+        if self.is_time_dependent:
+            raise ValueError(
+                'with_load_factor scales one fixed loading; a time-dependent problem '
+                'has a different one per t. Take a snapshot first: problem.at(t).'
+            )
+        snapshot = copy.copy(self)
+        resolved = self._resolved
+        snapshot._resolved = replace(resolved, fixed_values=factor * resolved.fixed_values)
+        snapshot._b = factor * self._b
         return snapshot
 
     def load_at(self, t: float) -> DofVector:
