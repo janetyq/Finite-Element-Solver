@@ -15,6 +15,9 @@ a residual) takes a field or a raw vector alike.
 Per-element data (a stress, a flux, a density) is not a `NodalField`; it stays an
 `ElementValues` array, one row per element, and is recovered onto the nodes by
 `fem.post.recovery` when a continuous field is wanted.
+
+`boundary_integral` imports `fem.physics.forms` lazily for its boundary mass form: the
+forms sit above the field, so the edge points up and stays function-local.
 """
 from dataclasses import dataclass
 from typing import TYPE_CHECKING

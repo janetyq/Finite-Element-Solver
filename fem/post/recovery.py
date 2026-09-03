@@ -15,7 +15,7 @@ space contributes its numbering, volumes, geometry, and `nodal_mass_matrix`.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import numpy as np
 from scipy.sparse.linalg import spsolve
@@ -26,11 +26,15 @@ if TYPE_CHECKING:
     from fem.elements import ElementGeometry
     from fem.space import FunctionSpace
 
-__all__ = ['average_to_nodal', 'nodal_gradient', 'project_to_nodal', 'recover_nodal']
+__all__ = ['RecoveryMethod', 'average_to_nodal', 'nodal_gradient', 'project_to_nodal',
+           'recover_nodal']
+
+# The two recoveries of the module docstring; every `method` parameter takes one.
+RecoveryMethod: TypeAlias = Literal['average', 'l2']
 
 
 def recover_nodal(space: FunctionSpace, values: ElementValues,
-                  method: str = 'average') -> NodalValues:
+                  method: RecoveryMethod = 'average') -> NodalValues:
     '''Recover a continuous nodal field from a per-element one.
 
     Takes `(n_elements,)` or `(n_elements, *component_shape)` and returns `(n_nodes,)`
@@ -136,7 +140,7 @@ def project_to_nodal(space: FunctionSpace, values_qp: FloatArray,
 
 
 def nodal_gradient(space: FunctionSpace, u: NodalValues,
-                   method: str = 'average') -> NodalValues:
+                   method: RecoveryMethod = 'average') -> NodalValues:
     '''(n_nodes, spatial_dim) continuous gradient of a nodal field.
 
     `'average'` evaluates each element's gradient at its own nodes and volume-averages

@@ -15,9 +15,6 @@ rather than four branches in one function.
 - `PointLoad`: a force applied at every node a region selects, no integral.
 
 A field may be `TimeDependent`; each term fixes it at `t` before evaluating.
-
-The space is imported lazily where a load resolves against one: `space` already imports
-`loads` at top level, so this side of the edge stays function-local.
 """
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
