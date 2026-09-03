@@ -29,7 +29,7 @@ from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.problem import LinearProblem
 from fem.regions import TimeDependent, on_plane
 from fem.space import FunctionSpace
-from tests.helpers import close, pinned, rollers, solved
+from helpers import close, pinned, rollers, solved
 
 E, NU = 200.0, 0.3
 ALPHA, DT = 1e-3, 50.0
