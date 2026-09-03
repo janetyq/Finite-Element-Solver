@@ -187,6 +187,12 @@ class SIMPModel:
             )
         if not isinstance(operator.material.E, int | float):
             raise ValueError('SIMP scales one solid modulus; E must be a scalar')
+        if operator.eigenstrain is not None:
+            raise NotImplementedError(
+                'SIMP takes a template without an eigenstrain: a thermal load scales '
+                'with the modulus, so the compliance sensitivity would need the '
+                'd(load)/d(rho) term, which DensityParameterization does not supply'
+            )
         self._material = operator.material
         solid = operator.element_matrices(self.space.geometry)
         self._density = DensityParameterization(

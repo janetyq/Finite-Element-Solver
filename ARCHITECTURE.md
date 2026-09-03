@@ -21,9 +21,11 @@ time-derivative orders it has a meaning for (`time_orders`), which the solves ch
 solve" is the `Problem`; "how" is the strategy.
 
 A choice is a parameter when it changes numbers inside one computation (a modulus, a density,
-plane stress against plane strain) and a class when it changes what the object is: which solve
-runs, what it returns, what it composes with. `LinearElastic` and `FiniteStrainElastic` are two
-classes for that reason, as are the backends, the estimators, and `Problem` / `LinearProblem`.
+plane stress against plane strain, a thermal strain) and a class when it changes what the object
+is: which solve runs, what it returns, what it composes with. `LinearElastic` and
+`FiniteStrainElastic` are two classes for that reason, as are the backends, the estimators, and
+`Problem` / `LinearProblem`; thermoelasticity is `LinearElastic(thermal=ThermalStrain(...))`, the
+same problem with one more load and a corrected stress.
 
 ## Building a solve
 
@@ -201,9 +203,11 @@ Every assembly path goes through a form, and a form is one base class. Every `Fo
 `element_residuals` and `element_tangents` at a state; what else it can answer is a hook with a
 default of "no": `constant_tangent` (every `BilinearForm`, whose residual is `K u`), `has_energy`
 (a bilinear form's `½ uᵀ K u`, an `EnergyForm`'s density), `flux` (the recoverable flux),
-`near_null_space` (the AMG near-kernel). A consumer reads the answer it needs: `LinearSolve`, the
-integrators, the analyses, and SIMP need a constant tangent; `NewtonSolve` needs nothing more and
-uses the energy as its line-search merit when there is one.
+`near_null_space` (the AMG near-kernel), `element_loads` (a load from the form's own physics,
+such as the thermal load of a heated body, integrated at the rule `load_quadrature_degree` asks
+for). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses, and SIMP
+need a constant tangent; `NewtonSolve` needs nothing more and uses the energy as its line-search
+merit when there is one; the `Problem` adds the form's load to those from its conditions.
 
 There are two ways to write a form. A `BilinearForm` writes the constant element matrix (the
 `Gᵀ C G` pattern: the element supplies the geometry `G`, the form the material `C`) and gets
@@ -213,7 +217,11 @@ displacement gradients; how a density gets there (a strain measure, invariants, 
 hardening curve) is its own business, so one contraction serves every law. The densities live in
 `fem/physics/energies.py` and `fem/physics/plasticity.py`; `Material` owns the constitutive matrix
 `D` of the linear law, beside the strain-displacement `B` in `fem/physics/forms.py`. In 2D the law
-is plane strain throughout. Stress recovery is on the form (`RecoversElasticState`, the protocol
+is plane strain throughout. An `Eigenstrain` (`ThermalStrain`) is a strain the material takes on
+with no stress; the elastic form subtracts it, so its `D eps*` is the form's load and is subtracted
+again in stress recovery. The material converts it with the 3D law on a full 3x3 tensor, since
+under plane strain the expansion denied in z pushes on the plane and a 2D shortcut misses it.
+Stress recovery is on the form (`RecoversElasticState`, the protocol
 the elastic forms share with `ElasticSolution` and `StressFlux`): full `(n_elements, 3, 3)`
 tensors cross the boundary, never Voigt vectors, and `fem/post/invariants.py` reduces them to
 frame-independent scalars.
@@ -221,7 +229,8 @@ frame-independent scalars.
 ### `Problem`: the narrow waist
 
 A `Problem` is the assembly-ready composition for one mesh: space, operator (`physics` plus the
-Robin boundary terms), load terms, constraints. Its residual has two terms, each present in
+Robin boundary terms), load terms (plus `operator_load`, the operator's own, which
+`with_operator` rebuilds), constraints. Its residual has two terms, each present in
 `energy`, `residual`, and `tangent` alike: the operator's and the load's; `internal_residual` is
 kept apart from `load` so a strategy can scale one against the other, and `with_load_factor`
 scales the whole loading for continuation. `mass` and `damping_matrix` are the transient side the
@@ -300,7 +309,7 @@ to copy: `Form` (`BilinearForm` by `element_matrices`, `EnergyForm` by an `Energ
 `IterativeBackend`, `MinresBackend`); `ErrorEstimator` (the three estimators, or any callable of
 `(problem, solution)`); `QuantityOfInterest` and `Parameterization` (`Compliance`, `PointValue`,
 `DensityParameterization`, `ModulusParameterization`); `Flux` (`GradientFlux`, `StressFlux`); `FieldShape`
-(`Scalar`, `Vector`).
+(`Scalar`, `Vector`); `Eigenstrain` (`ThermalStrain`).
 
 ## Conventions
 

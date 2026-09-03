@@ -32,6 +32,7 @@ from mms import (
     poisson_convergence,
     poisson_p2_convergence,
     solve_poisson_mms,
+    thermoelastic_convergence,
     variable_coefficient_convergence,
 )
 from helpers import solved
@@ -121,6 +122,16 @@ def elastic_p2_h1():
 
 
 @cache
+def thermoelastic_p1():
+    return ConvergenceStudy.from_solves(thermoelastic_convergence((9, 17, 33)))
+
+
+@cache
+def thermoelastic_nodal_p1():
+    return ConvergenceStudy.from_solves(thermoelastic_convergence((9, 17, 33), nodal=True))
+
+
+@cache
 def poisson_3d():
     # h = 1/4, 1/8, 1/12 on the default regular box mesh. Its near-regular tets are in
     # band from the coarsest level, where the Kuhn mesh read 1.74; observed 1.93, 1.98.
@@ -176,6 +187,12 @@ STUDIES = [
     # Its gradient error, O(h^2): the vector P2 shape gradients under n_components = 2.
     # Observed 1.94, 1.98.
     Study('elastic_p2_h1', elastic_p2_h1, 2, (1.8, 2.2)),
+    # The elastic study under a manufactured temperature: the thermal load
+    # (sampled at the quadrature points) and the corrected stress enter the rate.
+    Study('thermoelastic_p1', thermoelastic_p1, 2, (1.7, 2.3)),
+    # The same with the temperature handed over as its nodal interpolant, the
+    # coupling path from a heat solve; the interpolation error is O(h^2) too.
+    Study('thermoelastic_nodal_p1', thermoelastic_nodal_p1, 2, (1.7, 2.3)),
     # The same scalar Poisson study in 3D, on a tetrahedral box: assembly and the P1
     # solve on tets, not only triangles. On the regular mesh it is in a tighter band
     # from a coarse sequence; observed orders 1.93, 1.98.
