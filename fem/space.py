@@ -12,9 +12,6 @@ derives it from the equation one layer up.
 
 The cached operators are valid only while the mesh is not mutated underneath them.
 Build a new space instead of editing one.
-
-`assemble_load` imports `fem.loads` lazily: a `Source` is written against the space, so the
-edge points up and stays function-local (`loads` imports the space the same way).
 """
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
