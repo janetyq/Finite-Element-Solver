@@ -186,9 +186,10 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   and a critical temperature through `BucklingAnalysis` on a heated restrained bar;
   **finite-strain thermal strain**, an eigenstrain argument on `EnergyDensity.evaluate`, where
   the 2D density must keep the z component of the eigenstrain as the material does for the
-  linear path; **thermoelastic SIMP**, refused today because the thermal load scales with the
-  modulus and the compliance sensitivity needs a `d(load)/d(rho)` term; and a plastic strain as
-  the second `Eigenstrain`.
+  linear path; **thermoelastic sensitivities**, refused today by `SIMPModel`, `SensitivityAnalysis`, and
+  the stress quantities of interest because the thermal load scales with the modulus and the
+  measured stress omits the eigenstress, so the adjoint needs a `d(load)/d(rho)` term and the
+  stress measures a `D eps*` correction; and a plastic strain as the second `Eigenstrain`.
 - 💡 **Prescribed motion under Newmark.** A `TimeDependent` source, traction, or Robin value is
   re-evaluated per step by both integrators, and `ThetaMethod` takes a time-dependent Dirichlet
   value too. `NewmarkMethod` refuses one: a prescribed displacement `g(t)` at the fixed DOFs also
