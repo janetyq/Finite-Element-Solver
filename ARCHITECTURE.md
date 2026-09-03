@@ -91,7 +91,9 @@ Two views of one stack. The layers are the concerns that vary independently:
 
 Each layer can be swapped without touching its neighbours: direct for iterative algebra (6) without
 touching physics (3), Crank-Nicolson for backward Euler (7) without touching the operator, a
-refined mesh (1) without re-resolving constraints by hand (5).
+refined mesh (1) without re-resolving constraints by hand (5). Post-processing (9) is the one
+one-way layer: everything in it depends downward and nothing depends on it, so it grows freely
+and never needs a swap.
 
 The grid maps the classes onto those layers: `█` = owns the layer, `▒` = shares it. Each row is a
 family: a new class joins the row it belongs to (a new density joins the materials row, a new
@@ -122,6 +124,15 @@ strategy the strategies row), and a new row means a new kind of object.
 | `Plotter`, `PanelView` / `fem/plot` | | | | | | | | | █ |
 | `numerics` | | | | | | | | | ▒ |
 
+A class spans columns for one of three reasons. It is a composition waist (`Problem`, `Solution`):
+references across layers, logic in one, which is what lets everything else reference nothing. It
+is a handoff between a specification and its mechanism: `Problem` resolves the constraints that
+`DiscreteSystem` eliminates. Or it is data crossing layers (`NodalField`): data always does, and
+only behaviour layers. The one cut the mathematics refuses is assembly (4): the element matrices
+are the physics contracted against the discretization, and the `Gᵀ C G` split cuts as finely as
+that allows. A new `▒` should be one of these three; one that is not marks logic in the wrong
+place.
+
 The shared cells are the splits worth knowing. Constraints (5) have one owner, the `Problem`,
 whose constructor resolves the boundary conditions against the space and turns the Dirichlet
 partition into its `constraints`, each Neumann and Robin value into a `BoundaryLoad` load term,
@@ -136,7 +147,9 @@ owns the data it needs. A `NodalField` owns what a field on a space can answer b
 recoveries, each a function of a space; a `Form` owns `sample` / `recover` and `flux` (which flux
 is recoverable, read by the estimators off `problem.operator`); `Problem.solve` picks the typed
 `Solution` for its operator; `Solution` owns the packaging; `invariants` owns the
-frame-independent reductions.
+frame-independent reductions. A `▒` in column 9 is a convenience method bound by that rule: a
+one-line delegation into `fem/post`, never logic. The surface is closed: a new derived scalar is
+a function in `fem/post/invariants.py`, and a `Solution` wraps only the canonical plotting set.
 
 ## How the pieces meet
 
@@ -178,6 +191,10 @@ where the two meet:
 3. blocks = form.element_matrices(ElementGeometry)
 4. _ScatterPlan(dof_indices(element_nodes)).scatter(blocks)
 ```
+
+Assembly lives on the space because its working state — the DOF numbering, the cached
+geometries, the scatter plans — is the space's own. A second way to assemble (matrix-free, say)
+is the trigger to extract it into an object of its own.
 
 ### `Form` / `Material`: the physics
 
@@ -292,18 +309,22 @@ to copy: `Form` (`BilinearForm` by `element_matrices`, `EnergyForm` by an `Energ
 
 `tests/test_layering.py` holds the package's module order, bottom to top, and checks that every
 module's top-level imports name only modules at or below it. The list is the package inventory in
-reading order: what a module may assume exists. Function-local and `TYPE_CHECKING` imports are
-exempt; they are the documented back-edges, each named in the importing module's docstring:
+reading order: what a module may assume exists. `TYPE_CHECKING` imports are exempt outright: they
+are erased at runtime, so types flow upward freely. A function-local import that points upward is
+a back-edge, named in the importing module's docstring and checked against the `BACK_EDGES` list
+in the test, so a new one is a deliberate decision, not drift:
 
 - `problem -> algebra.solve`: `Problem.solve` picks `default_strategy`.
-- `space <-> loads`: a `Source` is integrated by the space, and assembling a load needs the space.
-- `physics.derived -> physics.forms, physics.materials`: a stress divergence reads the form's material.
+- `field -> physics.forms`: `boundary_integral` assembles a boundary mass form.
+- `physics.derived -> physics.forms`: a stress divergence builds the elastic form.
 - `analysis.estimators -> analysis.sensitivity`: the goal-oriented estimator solves the dual.
 - `mesh.mesh -> mesh.refinement, post.io` and `post.solution -> post.io`: `refined`, `save`, `load`
   as methods on the object they act on.
 - `mesh.pslg -> mesh.ruppert`: `PSLG.mesh` runs the mesher.
 - `mesh.outline -> mesh.svg`: `Outline.from_svg` runs the reader.
-- `fem -> fem.plot`: served through `__getattr__`, so matplotlib loads on first use.
+
+A function-local import that points downward (`fem`'s `__getattr__` serving the plot layer)
+defers cost, not layering, and needs no entry.
 
 Everything a user needs is re-exported from `fem`; `Plotter` / `PlotMode` are served lazily so
 `import fem` never imports matplotlib. The MMS convergence studies are demo and test support, not
@@ -317,17 +338,22 @@ Construction: `from_*` builds from another representation (`ElasticSolution.from
 `sample(geometry)` evaluates a field at a rule's points; `*_for(x)` resolves a choice against `x`
 (`element_type_for`, `backend_for`, `problem_for`).
 
-Algorithm objects: the strategies, the integrators, and the stepper are frozen dataclasses of
+### Algorithm objects
+
+The strategies, the integrators, and the stepper are frozen dataclasses of
 their parameters with one `solve`. What varies per call (the problem, an `initial` to continue
 from, the `backend`) is an argument, never a field, so one configured object serves many solves.
 Only the drivers (`AdaptiveRefinement`, `DesignOptimizer`) hold state.
 
-Exceptions: `NotImplementedError` for a capability an object does not have, naming the
+### Exceptions
+
+`NotImplementedError` for a capability an object does not have, naming the
 alternative (`'Use NewtonSolve.'`); `TypeError` for the wrong kind of object (a state-dependent
 form handed to `LinearSolve` or `SIMPModel`, an abstract base instantiated); `ValueError` for bad
 data (a field of the wrong length, a negative volume fraction); `RuntimeError` for a solve that
 ran and failed (a singular factorization, a backend that rejected every shift). A failure with a
-usable partial result carries it on the exception: `NewtonDivergence.u` is the last iterate.
+usable partial result carries it on the exception: `NewtonDivergence.u` is the last iterate,
+`SteppingDivergence.history` the steps that had converged.
 
 ### The recurring pattern
 
