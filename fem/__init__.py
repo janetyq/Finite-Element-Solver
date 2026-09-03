@@ -59,6 +59,7 @@ from fem.physics.equations import (
     Elasticity,
     LinearElastic,
     FiniteStrainElastic,
+    DeformationPlasticity,
 )
 from fem.physics.forms import (
     BilinearForm,
@@ -78,6 +79,7 @@ from fem.physics.forms import (
 from fem.loads import Load, PointLoad, Source
 from fem.physics.materials import LinearElasticMaterial
 from fem.physics.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
+from fem.physics.plasticity import RambergOsgood
 from fem.physics.derived import Flux
 from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.algebra.solve import (
@@ -98,6 +100,7 @@ from fem.algebra.backends import (
     MinresBackend,
 )
 from fem.algebra.integrators import ThetaMethod, NewmarkMethod
+from fem.algebra.stepping import QuasiStaticStepping, SteppingDivergence
 from fem.post.solution import (
     Solution,
     FieldSolution,
@@ -201,6 +204,8 @@ __all__ = [
     "Elasticity",
     "LinearElastic",
     "FiniteStrainElastic",
+    "DeformationPlasticity",
+    "RambergOsgood",
     "LinearProblem",
     "Problem",
     "RayleighDamping",
@@ -240,6 +245,8 @@ __all__ = [
     "rigid_body_modes",
     "ThetaMethod",
     "NewmarkMethod",
+    "QuasiStaticStepping",
+    "SteppingDivergence",
     "NodalField",
     "Solution",
     "FieldSolution",

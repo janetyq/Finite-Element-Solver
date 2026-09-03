@@ -42,7 +42,7 @@ once; a driver that remeshes builds a new `Problem`. Named PDEs are `Equation`s
 consume a `Problem`, so the edge points up and stays function-local.
 """
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import numpy as np
@@ -171,6 +171,30 @@ class Problem(Generic[S]):
         thermal load of a heated elastic body. Assembled once from `Form.element_loads`
         and included in `load` with the loads from the conditions.'''
         return self._operator_load
+
+    def with_load_factor(self: P, factor: float) -> P:
+        '''This problem with its whole loading scaled by `factor`: the assembled load
+        vector and the prescribed Dirichlet values alike, so `factor` walks the
+        proportional loading path from rest (0) to the stated problem (1) and beyond.
+        What quasi-static continuation (`QuasiStaticStepping`) solves at each step.
+
+        A snapshot sharing the space, operator, and constraint partition; only the
+        values scale. The load *terms* (`loads`, `source`) are left as stated, the way
+        `at(t)` leaves them: `load` and `constraints` are the scaled data a solve
+        reads. The initial state is not a loading and keeps its scale. A problem with
+        time-dependent values has no one loading to scale; fix it first with `at(t)`.
+        '''
+        if self.is_time_dependent:
+            raise ValueError(
+                'with_load_factor scales one fixed loading; a time-dependent problem '
+                'has a different one per t. Take a snapshot first: problem.at(t).'
+            )
+        snapshot = copy.copy(self)
+        resolved = self._resolved
+        snapshot._resolved = replace(resolved, fixed_values=factor * resolved.fixed_values)
+        snapshot._conditions_load = factor * self._conditions_load
+        snapshot._b = factor * self._b
+        return snapshot
 
     def load_at(self, t: float) -> DofVector:
         '''The load at time `t`; `load` itself when nothing depends on time.'''

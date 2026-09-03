@@ -3,6 +3,12 @@
 An overview of the object model: which concepts exist, which object owns each job, and how they
 fit together. Anchored on symbol names rather than line numbers. Open work lives in `BACKLOG.md`.
 
+This file describes the relationships between modules; each module's docstring describes the
+module. A change updates this file only when it adds or moves a seam, a layer, or a pattern. A new
+member of an existing family (a material, a strategy, an estimator, a named equation) updates its
+module's docstring — and the table in `fem/physics/equations.py` when it names a PDE — not this
+file; in the ownership grid it joins its family's row.
+
 ## The idea
 
 A solve is a composition assembled from parts, not a method looked up by PDE. The package has the
@@ -14,6 +20,13 @@ PDE type at the `Problem` level. An `Equation` names the PDE, its physical const
 time-derivative orders it has a meaning for (`time_orders`), which the solves check. "What to
 solve" is the `Problem`; "how" is the strategy.
 
+A choice is a parameter when it changes numbers inside one computation (a modulus, a density,
+plane stress against plane strain, a thermal strain) and a class when it changes what the object
+is: which solve runs, what it returns, what it composes with. `LinearElastic` and
+`FiniteStrainElastic` are two classes for that reason, as are the backends, the estimators, and
+`Problem` / `LinearProblem`; thermoelasticity is `LinearElastic(thermal=ThermalStrain(...))`, the
+same problem with one more load and a corrected stress.
+
 ## Building a solve
 
 The chain is the same for every problem. Each step has one required object and a few options with
@@ -24,9 +37,10 @@ The README's "What you choose at each step" table is the menu of options; this i
 |---|---|---|
 | Geometry | `Mesh` | |
 | Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) |
-| Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for finite strain |
-| Statement | `Problem(space, form)`, or `Equation.problem(mesh, conditions)` (which takes the Discretization step too) | `conditions` (none), `element_type`; a `LinearProblem` when the form has a constant tangent |
-| Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator or analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`; `initial=`, an `Initial` to start from instead of the conditions' own |
+| Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for the nonlinear laws; forms compose: `a + b`, `c * a`, each term naming its `domain` (volume or boundary) |
+| Conditions | `Conditions(Dirichlet(region, value), ...)` (default none) | `Neumann`, `Robin`; `Source`, `PointLoad`; `Initial`; a region geometric (`on_plane`, `in_box`, a callable of points) or `on_tag(k)`; a value constant, per-component (`None` = free), a callable of points, or `TimeDependent` |
+| Statement | `Problem(space, form, conditions)`, or `Equation.problem(mesh, conditions)` (which takes the Discretization step too) | `element_type`; a `LinearProblem` when the form has a constant tangent |
+| Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator, the load stepper, or an analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`; `initial=`, an `Initial` to start from instead of the conditions' own |
 | Result | a typed `Solution`, returned by every `solve`; a steady one is a `NodalField` | |
 | Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` |
 
@@ -48,53 +62,21 @@ solution = Poisson().problem(mesh, conditions).solve(backend=IterativeBackend())
 The two agree exactly: `Equation.problem` and `Problem.solve` hold no policy of their own, so
 anything they can do can be composed, and anything composed (a different form, a hand-built load,
 a custom strategy) needs neither. There is no third way: the equation builds, the problem solves.
+Named PDEs are `Equation`s, not dispatch keys: `Poisson(k).problem(mesh, conditions)` returns
+`LinearProblem(space, DiffusionForm(k), conditions)`, `FiniteStrainElastic(E, nu).problem(mesh,
+conditions)` a `Problem` over an `EnergyForm`, and a PDE with no name is just a different
+composition.
 
-Everything applied to the domain is a `Conditions` (`fem/conditions.py`): the boundary conditions
-`Dirichlet(region, value)`, `Neumann(region, value)`, `Robin(region, kappa, g)` (`fem/boundary.py`),
-the volume `Source`, any `PointLoad` (`fem/loads.py`), and the `Initial(u0, v0)` state,
-collected by `Conditions(*items)` or `conditions + item`, both frozen. The equation carries only the
-law and its material; the forcing and the starting state are the conditions'.
-`conditions.resolve(space)` is a `ResolvedConditions`: the Dirichlet DOF partition,
-one `kappa * BoundaryMassForm` operator term per Robin condition, the load terms, each a `Load`
-answering `vector(space, t)`: the source (a constant or a nodal array integrated exactly through the
-mass matrix, a callable sampled at the quadrature points, or with `nodal=True` its interpolant), one
-`BoundaryLoad` over its region's facets per Neumann or Robin value, and the point loads; and the
-`u0` state and its rate `v0` as `NodalField`s, the `Initial` interpolated at the nodes (a
-`NodalField` given as either is taken as is on its own space and evaluated at the nodes of another),
-or the Dirichlet lift at rest when none is given. An `Initial` is checked against the Dirichlet data
-at `t = 0` on resolution, and is what an integrator steps from and `NewtonSolve` iterates from; the
-`initial=` a solve takes overrides it, to continue a series from a previous step. A `Dirichlet`
-value may leave a component `None` (free) for a roller, and a `Neumann` value one the traction does not drive. A value given as a
-callable is called once with every point, an `(N, d)` array, and returns its components over them, the same
-layout a region reads. A region is geometric (`on_plane`, `in_box`,
-a callable of points) or, for a mesh with `boundary_tags`, `on_tag(k)`, which resolves from the
-facets rather than the coordinates. A field built by hand (a comparison field, a state to continue
-from) is `space.interpolate(value)`, a `NodalField` on every node of the space, P2 edge nodes
-included.
+The equation carries only the law and its material; the forcing and the starting state are the
+conditions', a frozen, mesh-independent specification that means the same thing on any mesh.
+`conditions.resolve(space)` is the `ResolvedConditions` a solver indexes into — the Dirichlet DOF
+partition, the Robin operator terms, the load terms, the starting state — with `at(t)`
+re-evaluating the `TimeDependent` values. The value and region forms and the merging and conflict
+rules are the docstrings of `fem/conditions.py`, `fem/boundary.py`, and `fem/regions.py`.
 
-Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
-names the `domain` it integrates over (the elements or the boundary facets), so a Robin condition
-is `kappa * BoundaryMassForm(mask)` added to the physics form and assembled beside it.
+## Where the classes sit
 
-## Package layout
-
-`fem/` keeps the core objects at the top level (`typing`, `numerics`, `quadrature`, `regions`,
-`elements`, `boundary`, `field`, `loads`, `space`, `problem`) and groups the rest by layer:
-
-- `fem/mesh`: geometry and meshing (`Mesh`, the pieces and `Outline`, its sampled `PSLG`, Ruppert,
-  red-green refinement, the SVG reader).
-- `fem/physics`: `forms`, `energies`, `materials`, `fields`, the named `equations`, and `derived`
-  (the `Flux` a form names).
-- `fem/algebra`: `system`, `backends`, `solve` strategies, `integrators`.
-- `fem/analysis`: `buckling`, `modal`, `adaptivity`, `estimators`, `sensitivity`, `design`.
-- `fem/post`: the typed `solution`s, nodal `recovery`, `invariants`, `io`.
-- `fem/plot`: matplotlib only; `tessellation` builds the `PanelView` a panel draws.
-
-Everything a user needs is re-exported from `fem`; `Plotter` / `PlotMode` are served lazily so
-`import fem` never imports matplotlib. The MMS convergence studies are demo and test support,
-not library, and live in `examples/mms.py`.
-
-## Layers
+Two views of one stack. The layers are the concerns that vary independently:
 
 | # | Layer | Question it answers | Varies with |
 |---|---|---|---|
@@ -110,42 +92,13 @@ not library, and live in `examples/mms.py`.
 
 Each layer can be swapped without touching its neighbours: direct for iterative algebra (6) without
 touching physics (3), Crank-Nicolson for backward Euler (7) without touching the operator, a
-refined mesh (1) without re-resolving constraints by hand (5).
+refined mesh (1) without re-resolving constraints by hand (5). Post-processing (9) is the one
+one-way layer: everything in it depends downward and nothing depends on it, so it grows freely
+and never needs a swap.
 
-## Tiers of a solve
-
-| Tier | Role | Objects |
-|---|---|---|
-| 1. Primitives | the parts a composition is built from | `Form` (the `BilinearForm`s, `EnergyForm`; combinators `SumForm`, `ScaledForm`; `BoundaryMassForm`, `PrecomputedForm`), `Load` (`Source`, `PointLoad`, and the `BoundaryLoad` a resolution builds), `Material`, `FunctionSpace`, `Conditions` / `ResolvedConditions`, `DiscreteSystem` + `Backend` |
-| 2. `Problem` | a composition: space + operator + load + constraints | `Problem`, and `LinearProblem` for a constant tangent; `Equation.problem` builds one from a named PDE |
-| 3. Solve strategy | consumes a `Problem`, returns the solution | `LinearSolve`, `NewtonSolve`, `EigenSolve`; integrators `ThetaMethod`, `NewmarkMethod` |
-| 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
-
-Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
-direct vs. iterative. Named PDEs are `Equation`s, not dispatch keys: `Poisson(k).problem(mesh, conditions)`
-returns `LinearProblem(space, DiffusionForm(k), conditions)`, `FiniteStrainElastic(E, nu).problem(mesh,
-conditions)` a `Problem` over an `EnergyForm`, and a PDE with no name is just a different composition.
-
-A choice is a parameter when it changes numbers inside one computation (a modulus, a density,
-plane stress against plane strain, a thermal strain) and a class when it changes what the object is: which solve
-runs, what it returns, what it composes with. `LinearElastic` and `FiniteStrainElastic` are two
-classes for that reason, as are the backends, the estimators, and `Problem` / `LinearProblem`;
-thermoelasticity is `LinearElastic(thermal=ThermalStrain(...))`, the same problem with one more
-load and a corrected stress.
-
-A form is one base class. Every `Form` writes `element_residuals` and `element_tangents` at a
-state; what else it can answer is a hook with a default of "no": `constant_tangent` (every
-`BilinearForm`, whose residual is `K u`), `has_energy` (a bilinear form's `½ uᵀ K u`, an
-`EnergyForm`'s density), `flux` (the recoverable flux), `near_null_space` (the AMG
-near-kernel), `element_loads` (a load from the form's own physics, such as the thermal load
-of a heated elastic body). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses,
-and SIMP need a constant tangent; `NewtonSolve` needs nothing more and uses the energy as its
-line-search merit when there is one; the `Problem` adds the form's load to those from its conditions. `RecoversElasticState` stays a protocol: the interface the
-two elastic forms share with `ElasticSolution` and `StressFlux`.
-
-## Where the classes sit
-
-`█` = owns the layer, `▒` = shares it.
+The grid maps the classes onto those layers: `█` = owns the layer, `▒` = shares it. Each row is a
+family: a new class joins the row it belongs to (a new density joins the materials row, a new
+strategy the strategies row), and a new row means a new kind of object.
 
 | Class | 1 Geom | 2 Space | 3 Phys | 4 Asm | 5 Cons | 6 Alg | 7 Time | 8 Drive | 9 Post |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -162,7 +115,7 @@ two elastic forms share with `ElasticSolution` and `StressFlux`.
 | `Problem` / `LinearProblem` | | | ▒ | ▒ | █ | | | | ▒ |
 | `DiscreteSystem` | | | | | ▒ | █ | | | |
 | `Backend` (`Direct`, `Iterative`, `Minres`) | | | | | | █ | | | |
-| `LinearSolve` / `NewtonSolve` / `EigenSolve` | | | | | | ▒ | | | |
+| `LinearSolve` / `NewtonSolve` / `EigenSolve` / `QuasiStaticStepping` | | | | | | ▒ | | | |
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
 | `BucklingAnalysis`, `ModalAnalysis` | | | | | | ▒ | | | ▒ |
 | `AdaptiveRefinement`, `SIMPModel` / `DesignOptimizer` | | | | | | | | █ | ▒ |
@@ -172,81 +125,66 @@ two elastic forms share with `ElasticSolution` and `StressFlux`.
 | `Plotter`, `PanelView` / `fem/plot` | | | | | | | | | █ |
 | `numerics` | | | | | | | | | ▒ |
 
-Constraints (5) have one owner, the `Problem`, whose constructor resolves the boundary conditions
-against the space and turns the Dirichlet partition into its `constraints`, each Neumann and Robin
-value into a `BoundaryLoad` load term, and each Robin coefficient into a boundary term of the operator. Algebra (6) is split: `DiscreteSystem` owns the Dirichlet elimination
-and the `Backend` owns how the free-free block is solved. Physics (3) is owned by the physics
-layer alone: an `Equation` answers `operator` itself, so no facade holds a mapping from equation
-to material.
+A class spans columns for one of three reasons. It is a composition waist (`Problem`, `Solution`):
+references across layers, logic in one, which is what lets everything else reference nothing. It
+is a handoff between a specification and its mechanism: `Problem` resolves the constraints that
+`DiscreteSystem` eliminates. Or it is data crossing layers (`NodalField`): data always does, and
+only behaviour layers. The one cut the mathematics refuses is assembly (4): the element matrices
+are the physics contracted against the discretization, and the `Gᵀ C G` split cuts as finely as
+that allows. A new `▒` should be one of these three; one that is not marks logic in the wrong
+place.
+
+The shared cells are the splits worth knowing. Constraints (5) have one owner, the `Problem`,
+whose constructor resolves the boundary conditions against the space and turns the Dirichlet
+partition into its `constraints`, each Neumann and Robin value into a `BoundaryLoad` load term,
+and each Robin coefficient into a boundary term of the operator. Algebra (6) is split:
+`DiscreteSystem` owns the Dirichlet elimination and the `Backend` owns how the free-free block is
+solved. Physics (3) is owned by the physics layer alone: an `Equation` answers `operator` itself,
+so no facade holds a mapping from equation to material.
 
 Post-processing (9) is distributed under one rule: a derived quantity lives on the object that
 owns the data it needs. A `NodalField` owns what a field on a space can answer by itself
-(`nodal_values`, `component`, `integrate`, `mean`, `boundary_integral` over a region's facets,
-the per-element `gradient`, `evaluate` at
-points, `deformed_mesh`); `fem/post/recovery.py` owns `recover_nodal`, `average_to_nodal`, `project_to_nodal`, and
-`nodal_gradient`, each a function of a space; a `Form` owns `sample` / `recover` and
-`flux` (which flux is recoverable, read
-by the estimators off `problem.operator`); `Problem.solve` picks the typed `Solution` for its
-operator (`solution(u)` packages a vector solved elsewhere); `Solution` owns the packaging (`ElasticSolution.stress`, `nodal_stress`);
-`invariants` owns the frame-independent reductions.
+(integrals, components, point evaluation, the mesh warp); `fem/post/recovery.py` owns the nodal
+recoveries, each a function of a space; a `Form` owns `sample` / `recover` and `flux` (which flux
+is recoverable, read by the estimators off `problem.operator`); `Problem.solve` picks the typed
+`Solution` for its operator; `Solution` owns the packaging; `invariants` owns the
+frame-independent reductions. A `▒` in column 9 is a convenience method bound by that rule: a
+one-line delegation into `fem/post`, never logic. The surface is closed: a new derived scalar is
+a function in `fem/post/invariants.py`, and a `Solution` wraps only the canonical plotting set.
 
-## Role by role
+## How the pieces meet
 
-### `Mesh` / `FunctionSpace`: geometry vs discretization
+What each piece is for and how it meets its neighbours; the pieces themselves are their modules'
+docstrings.
 
-`Mesh` is geometry: vertices, elements, boundary, topology queries (`edges`, `edge_elements`,
-`element_neighbours`, `locate`), element geometry (`bounds`, `centroids`, `element_measures`, `measure`,
-`element_diameters`, `min_angle`), and optionally the analytic `Curve` each boundary facet was
-sampled from. Its arrays are read-only, since every space, solution, and refiner built on it
-shares it and its derived tables are cached; a changed mesh is a new one (`displaced`,
-`refined`, `with_topology`). The boundary is derived from the elements unless given.
-`FunctionSpace` has a mesh and owns the discretization: element geometry, DOF numbering,
-cached operators. Two spaces (P1 and P2, scalar and vector) can share one mesh. `fem/mesh`
-imports no plot code.
+### Geometry and discretization
 
-`NodalField` (`fem/field.py`) is a DOF vector paired with the space that numbers it: what
-`space.interpolate` returns, what every steady `FieldSolution` is, and what an integrator or
-a plot takes. The pairing is what lets it read itself by node or component, integrate,
-evaluate at a point (`Mesh.locate` finds the element and reference coordinates), and warp
-the mesh; `np.asarray(field)` is the bare vector, so the numerics never see the wrapper.
-The values are frozen, like a mesh's arrays, so a solution and the views built on it share
-one copy. Per-element data (a stress, a flux, a density, an error estimate) is not a field
-on the space and stays an `ElementValues` array.
+`Mesh` is geometry and topology, its arrays read-only and its derived tables cached, so every
+space, solution, and refiner built on it shares it; a changed mesh is a new one (`displaced`,
+`refined`, `with_topology`). `FunctionSpace` has a mesh and owns the discretization: element
+geometry, DOF numbering, cached operators. Two spaces (P1 and P2, scalar and vector) can share one
+mesh, and DOFs are numbered by the space, never read off the mesh. `NodalField` (`fem/field.py`)
+is a frozen DOF vector paired with the space that numbers it — what `space.interpolate` returns,
+what every steady solution is, and what an integrator or a plot takes; `np.asarray(field)` is the
+bare vector, so the numerics never see the wrapper. Per-element data (a stress, a density, an
+error estimate) is not a field on the space and stays an `ElementValues` array.
 
-Meshes come from `box_mesh` (an axis-aligned line, rectangle, or box), an `Outline` (`fem/mesh/outline.py`), or `Mesh(vertices, elements)` directly. An `Outline` is
-closed loops of pieces (`Line`, `Arc`, `CubicBezier`, or a lone `Circle`; `fem/mesh/curves.py`)
-joined end to end, drawn by hand, from polygons (`Outline.from_polygons`), or from an SVG
-(`Outline.from_svg`), and holding no sampling of its own. `outline.mesh(min_angle,
-max_area_fraction, resolution)` samples it into a `PSLG` (the straight-line graph of chords,
-`outline.sample(resolution)`) and runs Ruppert's refinement on that; `simplified(tolerance)` is
-Douglas-Peucker over a loop's straight runs. This is the spec / resolution split again:
-`Outline` is the description and `PSLG` its resolution at one chord length, the way
-`Conditions` resolves to `ResolvedConditions`. `RuppertsAlgorithm` takes the `PSLG`, kept public
-for a caller that wants the refinement state; it grows its triangulation through
-`IncrementalDelaunay`, a Bowyer-Watson insertion over dicts that reports the triangles each point
-makes, so an insertion costs its cavity rather than the mesh. Every chord of a curved piece carries the piece as
-its `Curve`, so Ruppert's split points, red-green midpoints, and an isoparametric element's edge
-nodes all project onto the true shape; the mesh's `boundary_curves` carry it and `boundary_tags`
-name the loop each facet came from, both through refinement. `on_tag(k)` is the region that
-names a tagged outline, so a condition on the hole in a plate is written without coordinates and
-survives refinement.
+Meshes come from `box_mesh`, from an `Outline`, or from `Mesh(vertices, elements)` directly. An
+`Outline` (closed loops of curve pieces; `fem/mesh/outline.py`, `fem/mesh/curves.py`) is the
+mesh-independent description; `outline.mesh(...)` samples it into a `PSLG` and runs
+`RuppertsAlgorithm` on that. Every chord of a curved piece carries the piece as its `Curve`, so
+Ruppert's split points, red-green midpoints, and an isoparametric element's edge nodes all project
+onto the true shape, and `boundary_tags` name the loop each facet came from through refinement, so
+an `on_tag(k)` condition survives it.
 
-### Elements, quadrature, and assembly
+### Assembly
 
 The integration stack is `QuadratureRule -> Element -> ElementGeometry -> Form`. A `QuadratureRule`
 is reference-simplex data; an `Element` type is stateless and maps node coordinates to a batched
-`ElementGeometry` holding `grad_phi (n_el, n_qp, N, spatial)`, `weight_detJ`, and `points` for
-the whole mesh; a `Form` contracts that into element matrices in one vectorized pass. P1 is the
-`n_qp == 1` special case, so the same forms serve every order.
-
-DOFs are numbered by the space, never read off the mesh: `element_nodes`, `node_coords`, and
-`boundary_nodes` are the mesh's own arrays for P1, and for P2 the `NodeSet` that `p2_connectivity`
-builds (vertices, then one edge-midpoint node per edge). `Condition.resolve` takes either,
-so a geometric condition pins the edge DOFs too. An `IsoparametricTriangleElement` raises the
-geometry map to quadratic as well, placing its edge nodes on the mesh's curves so the boundary
-follows the true curve.
-
-`FunctionSpace.assemble` is where the two meet:
+`ElementGeometry` for the whole mesh; a `Form` contracts that into element blocks in one
+vectorized pass, at the larger of the element's default rule and the one the form asks for. P1 is
+the `n_qp == 1` special case, so the same forms serve every order. `FunctionSpace.assemble` is
+where the two meet:
 
 ```
 1. degree = form.quadrature_degree (or the element's default)
@@ -255,140 +193,113 @@ follows the true curve.
 4. _ScatterPlan(dof_indices(element_nodes)).scatter(blocks)
 ```
 
+Assembly lives on the space because its working state — the DOF numbering, the cached
+geometries, the scatter plans — is the space's own. A second way to assemble (matrix-free, say)
+is the trigger to extract it into an object of its own.
+
 ### `Form` / `Material`: the physics
 
-Every assembly path goes through a form. Bilinear forms (`MassForm`, `DiffusionForm`, `LinearElasticForm`, `GeometricStiffnessForm`) follow `Gᵀ C G` with the element
-supplying `G` and the form `C`; `SumForm` and `ScaledForm` are the combinators (`a + b`, `c * a`:
-the wave operator's `T K`, the Robin boundary term `kappa * BoundaryMassForm(mask)`, which names the
-boundary as its `domain`); `PrecomputedForm` lets a driver reuse element
-matrices it can derive more cheaply (SIMP rescales one set by `rho^p`). Each is a `BilinearForm`,
-which supplies the residual `K u` and the energy `½ uᵀ K u` from its matrix. `EnergyForm` is the
-state-dependent form, mapping an element and a state to energy, residual, and tangent; both kinds
-assemble through `assemble_residual` / `assemble_tangent` / `total_energy`, at the larger of the
-element's default rule and the one the form asks for; `assemble_loads` collects the load a
-form's own physics carries (`Form.element_loads`), at the rule `load_quadrature_degree` asks for.
+Every assembly path goes through a form, and a form is one base class. Every `Form` writes
+`element_residuals` and `element_tangents` at a state; what else it can answer is a hook with a
+default of "no": `constant_tangent` (every `BilinearForm`, whose residual is `K u`), `has_energy`
+(a bilinear form's `½ uᵀ K u`, an `EnergyForm`'s density), `flux` (the recoverable flux),
+`near_null_space` (the AMG near-kernel), `element_loads` (a load from the form's own physics,
+such as the thermal load of a heated body, integrated at the rule `load_quadrature_degree` asks
+for). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses, and SIMP
+need a constant tangent; `NewtonSolve` needs nothing more and uses the energy as its line-search
+merit when there is one; the `Problem` adds the form's load to those from its conditions.
 
-`Material` owns the constitutive matrix `D`; the strain-displacement matrix `B` sits in
-`fem/physics/forms.py` next to the form that contracts it. An `Eigenstrain` is a strain the
-material takes on with no stress, such as thermal expansion; `ThermalStrain` builds it from a
-temperature given as a number, a function, or a heat solution on the same mesh. The elastic
-form subtracts it before applying Hooke's law, so stress comes only from the expansion the
-body was denied. That term does not depend on the displacement, so it is a load rather than a
-change to the stiffness: `LinearElasticForm.element_loads` supplies it, and stress recovery
-subtracts it again. The material converts the eigenstrain to a stress with the 3D law on a
-full 3x3 tensor, since under plane strain the expansion denied in z pushes on the plane and a
-2D shortcut misses it. A later eigenstrain, such as a plastic strain, inherits that. An
-`EnergyDensity` returns the one thing an
-`EnergyForm` contracts: the energy `W`, the first Piola-Kirchhoff stress `P = dW/dF`, and the
-material tangent `A = d²W/dF²`, all in F. How it gets there is the density's own business:
-`SmallStrain` and `StVenantKirchhoff` build the chain through a strain measure (small-strain `ε`
-or Green-Lagrange `S`), while `NeohookeanEnergyDensity` is written in the invariants of `C = FᵀF`
-and writes `P` and `A` directly. The equation names the model: `LinearElastic` gives the constant
-stiffness `LinearElasticForm`, `FiniteStrainElastic` the `EnergyForm` over its `law`
-(`StVenantKirchhoff` by default). In 2D the law is plane strain throughout.
-
-Stress recovery is on the form (`RecoversElasticState`): `sample` gives strain and stress at
-every point of a geometry's rule, `recover` reduces that to one tensor per element. Full
-`(n_elements, 3, 3)` tensors cross the boundary, never Voigt vectors, and `fem/post/invariants.py`
-reduces them to frame-independent scalars.
+There are two ways to write a form. A `BilinearForm` writes the constant element matrix (the
+`Gᵀ C G` pattern: the element supplies the geometry `G`, the form the material `C`) and gets
+residual, tangent, and energy from it. An `EnergyForm` delegates to an `EnergyDensity`, which
+answers the energy `W`, the stress `P = dW/dF`, and the tangent `A = d²W/dF²` at a batch of
+displacement gradients; how a density gets there (a strain measure, invariants, an inverted
+hardening curve) is its own business, so one contraction serves every law. The densities live in
+`fem/physics/energies.py` and `fem/physics/plasticity.py`; `Material` owns the constitutive matrix
+`D` of the linear law, beside the strain-displacement `B` in `fem/physics/forms.py`. In 2D the law
+is plane strain throughout. An `Eigenstrain` (`ThermalStrain`) is a strain the material takes on
+with no stress; the elastic form subtracts it, so its `D eps*` is the form's load and is subtracted
+again in stress recovery. The material converts it with the 3D law on a full 3x3 tensor, since
+under plane strain the expansion denied in z pushes on the plane and a 2D shortcut misses it.
+Stress recovery is on the form (`RecoversElasticState`, the protocol
+the elastic forms share with `ElasticSolution` and `StressFlux`): full `(n_elements, 3, 3)`
+tensors cross the boundary, never Voigt vectors, and `fem/post/invariants.py` reduces them to
+frame-independent scalars.
 
 ### `Problem`: the narrow waist
 
-A `Problem` is the assembly-ready composition for one mesh: space, operator, load terms,
-constraints. `physics` is the form it was stated with and `operator` that form plus one
-`kappa * BoundaryMassForm` term per Robin condition; `loads` is the tuple of `Load` terms (the
-source, one `BoundaryLoad` per Neumann condition and per Robin value, any `PointLoad`), and
-`operator_load` any load the operator's own physics contributes (`Form.element_loads`, assembled
-at construction and again by `with_operator`, since it belongs to the operator). Its residual
-has two terms, each present in `energy`, `residual`, and `tangent` alike: the operator's (`Π`,
-`R`, `∂R/∂u`, summed over the operator's terms by the space) and the load's (`−fᵀu`, `−f`, `0`).
-`internal_residual` is the first, kept apart from `load` so a strategy can scale one against the
-other. `mass` is the problem's mass side, the equation's `density` times the space's consistent
-mass matrix, and `damping_matrix` the `RayleighDamping` `αM + βK` when the equation carries one,
-both assembled once for the integrators and the modal analysis. `LinearProblem` is the case whose operator has a
-constant tangent: `tangent()` with no state is the matrix, assembled once and held, and
-`residual(u) = A·u − b`; it is the type every consumer that needs one fixed operator asks for. The
-`Problem` owns its constraints, so nothing index-keyed is carried across a mesh change: a driver
-that remeshes builds a new one. `conditions` is the spec the constraints came from and `resolved`
-that resolution on this space. It also answers the two questions that depend on which physics it was
-composed from: `solution(u)`
-packages a solved vector as the typed `Solution` its operator recovers (`ElasticSolution` for a
-form that recovers stress, `DiffusionSolution` for one naming a flux, else `FieldSolution`), and
-`near_null_space()` is the operator's AMG near-kernel, if it has one. Both delegate to the form.
-The solution type is carried statically the same way: a form is a `Form[S]` for the solution it
-packages (`LinearElasticForm` is a `Form[ElasticSolution]`), a problem over it a `Problem[S]` whose
-`solve()` returns `S`, and an equation an `Equation[P]` whose `problem()` returns its `P`
-(`LinearElastic` builds a `LinearProblem[ElasticSolution]`), so nothing downstream narrows.
+A `Problem` is the assembly-ready composition for one mesh: space, operator (`physics` plus the
+Robin boundary terms), load terms (plus `operator_load`, the operator's own, which
+`with_operator` rebuilds), constraints. Its residual has two terms, each present in
+`energy`, `residual`, and `tangent` alike: the operator's and the load's; `internal_residual` is
+kept apart from `load` so a strategy can scale one against the other, and `with_load_factor`
+scales the whole loading for continuation. `mass` and `damping_matrix` are the transient side the
+integrators and modal analysis read. `LinearProblem` is the case whose operator has a constant
+tangent, assembled once and held: the type every consumer that needs one fixed operator asks for.
+The `Problem` owns its constraints, so nothing index-keyed is carried across a mesh change: a
+driver that remeshes builds a new one. It also answers the two questions that depend on its
+physics, by delegating to the form: `solution(u)` packages a solved vector as the typed `Solution`
+its operator recovers, and `near_null_space()` is the operator's AMG near-kernel. The solution
+type is carried statically: a form is a `Form[S]`, a problem over it a `Problem[S]` whose
+`solve()` returns `S`, an equation an `Equation[P]`, so nothing downstream narrows.
 
-### Solve strategies and backends
+### Solves: strategies, backends, integrators, the stepper
 
-`LinearSolve` and `NewtonSolve` sit on `DiscreteSystem` (matrix + Dirichlet partition +
-factor-once solve) and know nothing about the PDE. `LinearSolve` requires a constant tangent.
-`NewtonSolve` takes any `Problem` and an optional `BacktrackingLineSearch` that scales each step
-to decrease a merit (the energy `Π(u)` where the problem has one, else `½‖r‖²`).
-`default_strategy(problem)` is the one place the choice between them is made for a caller who
-names none: `LinearSolve` for a constant tangent, line-searched Newton otherwise. The strategy is
-how the problem is iterated; the `Backend` is how each linear system on the way is solved, and it
-is given at the call, `strategy.solve(problem, backend=...)` or `problem.solve(strategy, backend)`,
-so the two choices compose without either knowing the other. `NewtonSolve` reads the backend it
-is handed to decide its regularization (`'auto'`: a `TangentRegularization` under an iterative
-backend, none under the direct one).
+The strategy is how a problem is iterated; the `Backend` is how each linear system on the way is
+solved; the two compose without either knowing the other, and both are given at the call, never
+stored. `default_strategy(problem)` is the one place the choice is made for a caller who names
+none: `LinearSolve` for a constant tangent, line-searched `NewtonSolve` otherwise. Underneath,
+`DiscreteSystem` eliminates the Dirichlet DOFs and hands the free-free block to the backend, which
+prepares it into a `Factorization` solved against many right-hand sides; `backend_for` gives an
+iterative backend the problem's near-kernel. `EigenSolve` covers the solves that are not `Ax = b`
+(buckling, modal), sharing the elimination and lifting each mode back to a full DOF vector.
 
-`DiscreteSystem` eliminates the Dirichlet DOFs and hands the free-free block to a `Backend`, which
-prepares it into a `Factorization` solved against many right-hand sides. `DirectBackend` is sparse
-LU; `IterativeBackend` is AMG-preconditioned CG, SPD-only and opt-in; `MinresBackend` handles
-symmetric indefinite systems. `backend_for(problem, backend)` hands an `IterativeBackend` the
-problem's near-kernel (`LinearElasticForm.near_null_space`, the rigid-body modes, restricted to
-the free DOFs) unless the caller set one; `LinearSolve` and `SensitivityAnalysis` go through it.
-
-`EigenSolve` covers the solves that are not `Ax = b`: linearised buckling (`K φ = -λ K_g φ`) and
-modal analysis (`K φ = ω² M φ`) share the Dirichlet elimination, the `eigsh` call, and the lift of
-each eigenvector back to a full DOF vector. `BucklingAnalysis` and `ModalAnalysis` consume a
-`LinearProblem` and return a typed solution, buckling after solving it once for the prestress.
-
-### Time integration
-
-Heat is first order and wave second, so there is one integrator family per order. Each forms a
-constant effective operator from `problem.mass`, `problem.tangent()`, and (for `NewmarkMethod`)
-`problem.damping_matrix`, factors it once, and steps by updating the right-hand side. A `TimeDependent` source or boundary value (a callable of
-position and time) is re-evaluated each step through `problem.load_at(t)`; `ThetaMethod` also
-prescribes a time-dependent Dirichlet value per step through `problem.constraints_at(t)`, while
-`NewmarkMethod` refuses one (prescribed motion needs its velocity and acceleration too). Both
-step from `problem.u0` (and `v0`), the conditions' `Initial` resolved on the space, unless
-handed an `initial=` to continue from, and return a `TransientSolution`, a series whose `history[i]` is a step as the typed steady solution. A
-steady solve or an estimator works on the snapshot `problem.at(t)`; `problem.solve(t=...)`
-takes that step itself. `ThetaMethod` (Crank-Nicolson by default, backward Euler at θ=1)
-and `NewmarkMethod` (average acceleration, solving for the acceleration against the SPD
-`M + β dt² K`) both take a `Backend`.
+On top of the steady solves sit the two walks. The integrators (`fem/algebra/integrators.py`, one
+family per time order) form a constant effective operator from the problem's mass and stiffness,
+factor it once, and step the right-hand side, re-evaluating `TimeDependent` values per step
+through `problem.load_at(t)` / `constraints_at(t)`; a steady solve or an estimator works on the
+snapshot `problem.at(t)`. `QuasiStaticStepping` (`fem/algebra/stepping.py`) walks the *load* path
+instead: steady equilibria from rest to full load, each Newton solve seeded with the last, a
+diverging step bisected; `t` is a dial on the loading, not physical time. Integrators and stepper
+alike return a `TransientSolution`, `history[i]` the typed steady solution at step `i`.
 
 ### `Equation`
 
-`Equation` is typed data: `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`, and
-`FiniteStrainElastic` (the last two over the `Elasticity` base), each carrying its physical
-constants, a `density` for the time-derivative term where it has one, and `time_orders`, the
-time-derivative orders the PDE has a meaning for (`Poisson` {0}, `Heat` {1}, `Wave` {2}, the
-elastic equations {0, 2}). The three scalar equations share the `DiffusionForm` operator and
-differ in their orders and their constants' names; `Problem.solve`, the integrators, and
-`ModalAnalysis` refuse an order the equation lacks, naming the equation to use. `operator(space)`
-returns the form for its physics: the small-strain stiffness, or the `EnergyForm` of a
-finite-strain law. It refuses rather than approximates when the physics does not apply. The table
-in `fem/physics/equations.py` maps each PDE to its class and the solve that steps it.
-Two more resolve it against a discretization: `space(mesh, element_type)` builds the
-`FunctionSpace` with the component count the field implies, and `problem(mesh_or_space, conditions,
-element_type)` the `LinearProblem` for a constant tangent, else a `Problem`. Every driver goes
-through these two.
+`Equation` is typed data naming a PDE: its physical constants, the `density` on its
+time-derivative term, and `time_orders`, which `Problem.solve`, the integrators, and
+`ModalAnalysis` check, refusing an order the equation lacks rather than approximating.
+`operator(space)` answers the form of its physics, `space(mesh)` the discretization its field
+implies, and `problem(mesh_or_space, conditions)` the composition; every driver goes through these.
+The menu of named PDEs and the solve that steps each is the table in `fem/physics/equations.py`.
 
 ### Drivers
 
-Two drivers, each over one spec. `AdaptiveRefinement` owns a mesh and a `problem_for(mesh)`
-builder (`equation.problem(mesh, conditions)`), solves each round's problem with `Problem.solve` (the
-caller's strategy, else the default), hands `(problem, solution)` to the estimator,
-and refines. `DesignOptimizer` owns a `SIMPModel` (a small-strain elastic `LinearProblem` as
-the template, whose material, supports, and load every density shares) and each iteration
-derives the diluted `LinearProblem` from the current density with `with_operator`, solves it
-through `SensitivityAnalysis`, and moves the density by the optimality-criteria update. `run`
-returns a `DesignHistory`, a series like `TransientSolution`: `history[i]` is iterate `i` as an
-`ElasticSolution` with the diluted material's stress, beside its `rho` and `objective`.
+Two drivers, each over one spec, and the only stateful algorithm objects. `AdaptiveRefinement`
+owns a mesh and a `problem_for(mesh)` builder, solves each round's problem, hands
+`(problem, solution)` to the estimator, and refines. `DesignOptimizer` owns a `SIMPModel` and each
+iteration derives the diluted `LinearProblem` from the current density (`with_operator`), solves
+it through `SensitivityAnalysis`, and moves the density by the optimality-criteria update; its
+`DesignHistory` is a series like `TransientSolution`.
+
+### Error estimation and sensitivity
+
+An estimator has no physics of its own: each takes `(problem, solution)` and reads the `Flux` off
+the problem's operator and the source off the problem; a custom estimate is any callable of the
+same two arguments. `fem/analysis/sensitivity.py` computes `dJ/dp` for a `QuantityOfInterest`
+through one adjoint solve on the forward factorization; `fem/analysis/design.py` drives the
+optimality-criteria update from that gradient.
+
+### `Solution`
+
+One frozen dataclass per solve shape, each holding the `FunctionSpace` it was solved on: the
+steady solutions (a `NodalField` plus what the physics recovers: a gradient, the stress state),
+the series (`TransientSolution` / `WaveSolution`, `history[i]` a typed steady step), and the
+eigen-solutions (buckling, modal; `mode(i)` a `NodalField`). Derived scalars (`von_mises`,
+`pressure`) are computed on demand from the stored tensors; the nodal recoveries re-evaluate the
+form so a P2 field keeps its within-element variation. `save` / `load` round-trip any of them
+through `fem/post/io.py`. A solution is also what a plot takes: `Plotter.plot(solution, values)`
+builds a `PanelView` from its space, so a P2 or curved field draws on its true geometry and the
+drawing helpers never see a `FunctionSpace`.
 
 ### Extension seams
 
@@ -400,47 +311,34 @@ to copy: `Form` (`BilinearForm` by `element_matrices`, `EnergyForm` by an `Energ
 `DensityParameterization`, `ModulusParameterization`); `Flux` (`GradientFlux`, `StressFlux`); `FieldShape`
 (`Scalar`, `Vector`); `Eigenstrain` (`ThermalStrain`).
 
-### Error estimation and sensitivity
+## Conventions
 
-`fem/analysis/estimators.py` provides the residual estimator (2D, straight-sided), the Zienkiewicz-Zhu
-recovery estimator (dimension-general, curved elements included), and the goal-oriented estimator
-(the product of primal and dual recovery indicators). An estimator has no physics of its own: each
-takes `(problem, solution)` and reads the `Flux` off the problem's operator and the source
-off the problem. A custom estimate is any callable of the same two arguments.
-`fem/analysis/sensitivity.py` computes `dJ/dp` for a `QuantityOfInterest` through one adjoint solve on the
-forward factorization; `fem/analysis/design.py` drives an optimality-criteria update from that gradient.
-
-### `Solution`
-
-One dataclass per shape, each holding the `FunctionSpace` it was solved on: `FieldSolution` (the
-field `u`), `DiffusionSolution` (adds the gradient), `ElasticSolution` (adds strain, stress,
-compliance), `TransientSolution` / `WaveSolution` (time series indexed by step, `history[i]` a
-steady solution with its gradient or stress, `velocity(i)` a field), `BucklingSolution` (adds the
-prestress `reference` solve) / `ModalSolution` (eigenpairs; `mode(i)` is a `NodalField`). `ElasticSolution` stores the full tensors and derives
-`von_mises`, `pressure`, and `principal_stress` on demand; `nodal_stress` re-evaluates the form at
-the nodes so a P2 stress keeps its within-element variation. `save` / `load` round-trip any of them
-through `fem/post/io.py`. A solution is also what a plot takes: `Plotter.plot(solution, values)`
-builds a `PanelView` (`fem/plot/tessellation.py`) from its space, so a P2 or curved field draws on
-its true geometry and the drawing helpers never see a `FunctionSpace`.
-
-## Module order
+### Module order
 
 `tests/test_layering.py` holds the package's module order, bottom to top, and checks that every
-module's top-level imports name only modules at or below it. The list is the reading order: what a
-module may assume exists. Function-local and `TYPE_CHECKING` imports are exempt; they are the
-documented back-edges, each named in the importing module's docstring:
+module's top-level imports name only modules at or below it. The list is the package inventory in
+reading order: what a module may assume exists. `TYPE_CHECKING` imports are exempt outright: they
+are erased at runtime, so types flow upward freely. A function-local import that points upward is
+a back-edge, named in the importing module's docstring and checked against the `BACK_EDGES` list
+in the test, so a new one is a deliberate decision, not drift:
 
 - `problem -> algebra.solve`: `Problem.solve` picks `default_strategy`.
-- `space <-> loads`: a `Source` is integrated by the space, and assembling a load needs the space.
-- `physics.derived -> physics.forms, physics.materials`: a stress divergence reads the form's material.
+- `field -> physics.forms`: `boundary_integral` assembles a boundary mass form.
+- `physics.derived -> physics.forms`: a stress divergence builds the elastic form.
 - `analysis.estimators -> analysis.sensitivity`: the goal-oriented estimator solves the dual.
 - `mesh.mesh -> mesh.refinement, post.io` and `post.solution -> post.io`: `refined`, `save`, `load`
   as methods on the object they act on.
 - `mesh.pslg -> mesh.ruppert`: `PSLG.mesh` runs the mesher.
 - `mesh.outline -> mesh.svg`: `Outline.from_svg` runs the reader.
-- `fem -> fem.plot`: served through `__getattr__`, so matplotlib loads on first use.
 
-## Vocabulary
+A function-local import that points downward (`fem`'s `__getattr__` serving the plot layer)
+defers cost, not layering, and needs no entry.
+
+Everything a user needs is re-exported from `fem`; `Plotter` / `PlotMode` are served lazily so
+`import fem` never imports matplotlib. The MMS convergence studies are demo and test support, not
+library, and live in `examples/mms.py`.
+
+### Vocabulary
 
 Construction: `from_*` builds from another representation (`ElasticSolution.from_solve`,
 `Outline.from_polygons`); `with_*` returns a copy with one thing changed (`LinearProblem.with_operator`,
@@ -448,25 +346,28 @@ Construction: `from_*` builds from another representation (`ElasticSolution.from
 `sample(geometry)` evaluates a field at a rule's points; `*_for(x)` resolves a choice against `x`
 (`element_type_for`, `backend_for`, `problem_for`).
 
-Algorithm objects: a `SolveStrategy` (`LinearSolve`, `NewtonSolve`), an integrator
-(`ThetaMethod`, `NewmarkMethod`), and `EigenSolve` are frozen dataclasses of their parameters with
-one `solve`. What varies per call (the problem, an `initial` to continue from, the `backend`) is an
-argument, never a field, so one configured object serves many solves. Only the drivers
-(`AdaptiveRefinement`, `DesignOptimizer`) hold state.
+### Algorithm objects
 
-Exceptions: `NotImplementedError` for a capability an object does not have, naming the
+The strategies, the integrators, and the stepper are frozen dataclasses of
+their parameters with one `solve`. What varies per call (the problem, an `initial` to continue
+from, the `backend`) is an argument, never a field, so one configured object serves many solves.
+Only the drivers (`AdaptiveRefinement`, `DesignOptimizer`) hold state.
+
+### Exceptions
+
+`NotImplementedError` for a capability an object does not have, naming the
 alternative (`'Use NewtonSolve.'`); `TypeError` for the wrong kind of object (a state-dependent
 form handed to `LinearSolve` or `SIMPModel`, an abstract base instantiated); `ValueError` for bad
 data (a field of the wrong length, a negative volume fraction); `RuntimeError` for a solve that
 ran and failed (a singular factorization, a backend that rejected every shift). A failure with a
-usable partial result carries it on the exception: `NewtonDivergence.u` is the last iterate.
+usable partial result carries it on the exception: `NewtonDivergence.u` is the last iterate,
+`SteppingDivergence.history` the steps that had converged.
 
-## The recurring pattern
+### The recurring pattern
 
 `fem/regions.py` + `fem/conditions.py` is the model: a mesh-independent specification
 (`Conditions`, a frozen tuple of conditions and loads) separated from its resolution against one
 space (`ResolvedConditions`, frozen), with the time-dependent values a second, cheaper step on the
-resolution (`ResolvedConditions.at(t)`). The same
-shape recurs: `FunctionSpace` is the resolved
+resolution (`ResolvedConditions.at(t)`). The same shape recurs: `FunctionSpace` is the resolved
 discretization, `Form` the resolved view of an `Equation`'s physics, `Problem` the resolved
 composition, and `Factorization` a `Backend` resolved against one matrix.
