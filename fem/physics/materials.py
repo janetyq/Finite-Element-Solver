@@ -102,6 +102,13 @@ class LinearElasticMaterial:
     strain `eps_zz` is zero and a stress `sigma_zz` develops. Plane stress leaves it
     free, as in a thin plate: `sigma_zz` is zero and the plate thins or thickens by
     `eps_zz`. A 3D solve has no reduction and accepts only the default.
+
+    Only plane stress changes the law. A 2D displacement has no z component, so
+    `eps_zz = 0` already holds and the 3D law on that state is plane strain: the
+    default names what the discretization does by itself, and in 3D it does nothing.
+    Plane stress instead asks for `sigma_zz = 0`, which the displacement cannot
+    express, so the material folds it into the in-plane constants (`in_plane_lame`)
+    and reconstructs the thinning afterwards (`out_of_plane_strain`).
     '''
     E: float | ElementValues
     nu: float
