@@ -20,21 +20,28 @@ PDE type at the `Problem` level. An `Equation` names the PDE, its physical const
 time-derivative orders it has a meaning for (`time_orders`), which the solves check. "What to
 solve" is the `Problem`; "how" is the strategy.
 
+A choice is a parameter when it changes numbers inside one computation (a modulus, a density,
+plane stress against plane strain) and a class when it changes what the object is: which solve
+runs, what it returns, what it composes with. `LinearElastic` and `FiniteStrainElastic` are two
+classes for that reason, as are the backends, the estimators, and `Problem` / `LinearProblem`.
+
 ## Building a solve
 
 The chain is the same for every problem. Each step has one required object and a few options with
 defaults; `Equation.problem` is this chain with the defaults filled in from the equation.
-The README's "What you choose at each step" table is the menu of options; this is the chain.
+The README's "What you choose at each step" table is the menu of options; this is the chain. The
+last column names the layers (next section) each step exercises.
 
-| Step | Required | Options (default) |
-|---|---|---|
-| Geometry | `Mesh` | |
-| Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) |
-| Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for the nonlinear laws |
-| Statement | `Problem(space, form)`, or `Equation.problem(mesh, conditions)` (which takes the Discretization step too) | `conditions` (none), `element_type`; a `LinearProblem` when the form has a constant tangent |
-| Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator, the load stepper, or an analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`; `initial=`, an `Initial` to start from instead of the conditions' own |
-| Result | a typed `Solution`, returned by every `solve`; a steady one is a `NodalField` | |
-| Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` |
+| Step | Required | Options (default) | Layers |
+|---|---|---|:-:|
+| Geometry | `Mesh` | | 1 |
+| Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) | 2 |
+| Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for the nonlinear laws; forms compose: `a + b`, `c * a`, each term naming its `domain` (volume or boundary) | 3 |
+| Conditions | `Conditions(Dirichlet(region, value), ...)` (default none) | `Neumann`, `Robin`; `Source`, `PointLoad`; `Initial`; a region geometric (`on_plane`, `in_box`, a callable of points) or `on_tag(k)`; a value constant, per-component (`None` = free), a callable of points, or `TimeDependent` | 5 |
+| Statement | `Problem(space, form, conditions)`, or `Equation.problem(mesh, conditions)` (which takes the Discretization step too) | `element_type`; a `LinearProblem` when the form has a constant tangent | 3–5 |
+| Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator, the load stepper, or an analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`; `initial=`, an `Initial` to start from instead of the conditions' own | 4–7 |
+| Result | a typed `Solution`, returned by every `solve`; a steady one is a `NodalField` | | 9 |
+| Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` | 8 |
 
 Composed by hand:
 
@@ -54,40 +61,21 @@ solution = Poisson().problem(mesh, conditions).solve(backend=IterativeBackend())
 The two agree exactly: `Equation.problem` and `Problem.solve` hold no policy of their own, so
 anything they can do can be composed, and anything composed (a different form, a hand-built load,
 a custom strategy) needs neither. There is no third way: the equation builds, the problem solves.
+Named PDEs are `Equation`s, not dispatch keys: `Poisson(k).problem(mesh, conditions)` returns
+`LinearProblem(space, DiffusionForm(k), conditions)`, `FiniteStrainElastic(E, nu).problem(mesh,
+conditions)` a `Problem` over an `EnergyForm`, and a PDE with no name is just a different
+composition.
 
-Everything applied to the domain is a `Conditions` (`fem/conditions.py`): the boundary conditions
-(`Dirichlet`, `Neumann`, `Robin`; `fem/boundary.py`), the volume `Source`, any `PointLoad`
-(`fem/loads.py`), and the `Initial` state, a frozen, mesh-independent specification. The equation
-carries only the law and its material; the forcing and the starting state are the conditions'.
-`conditions.resolve(space)` reduces it to the `ResolvedConditions` a solver indexes into: the
-Dirichlet DOF partition, one boundary operator term per Robin condition, the load terms, and the
-starting state, with `at(t)` re-evaluating the `TimeDependent` values. Value and region forms,
-partial (`None`) components, and the merging and conflict rules are the docstrings of
-`fem/conditions.py`, `fem/boundary.py`, and `fem/regions.py`.
+The equation carries only the law and its material; the forcing and the starting state are the
+conditions', a frozen, mesh-independent specification that means the same thing on any mesh.
+`conditions.resolve(space)` is the `ResolvedConditions` a solver indexes into — the Dirichlet DOF
+partition, the Robin operator terms, the load terms, the starting state — with `at(t)`
+re-evaluating the `TimeDependent` values. The value and region forms and the merging and conflict
+rules are the docstrings of `fem/conditions.py`, `fem/boundary.py`, and `fem/regions.py`.
 
-Operators compose the same way: `a + b` is a `SumForm` and `c * a` a `ScaledForm`, and each form
-names the `domain` it integrates over (the elements or the boundary facets), so a Robin condition
-is `kappa * BoundaryMassForm(mask)` added to the physics form and assembled beside it.
+## Where the classes sit
 
-## Package layout
-
-`fem/` keeps the core objects at the top level (`typing`, `numerics`, `quadrature`, `regions`,
-`elements`, `boundary`, `field`, `loads`, `space`, `problem`) and groups the rest by layer:
-
-- `fem/mesh`: geometry and meshing (`Mesh`, the pieces and `Outline`, its sampled `PSLG`, Ruppert,
-  red-green refinement, the SVG reader).
-- `fem/physics`: `forms`, `energies`, `materials`, `plasticity`, `fields`, the named `equations`,
-  and `derived` (the `Flux` a form names).
-- `fem/algebra`: `system`, `backends`, `solve` strategies, `integrators`, `stepping`.
-- `fem/analysis`: `buckling`, `modal`, `adaptivity`, `estimators`, `sensitivity`, `design`.
-- `fem/post`: the typed `solution`s, nodal `recovery`, `invariants`, `io`.
-- `fem/plot`: matplotlib only; `tessellation` builds the `PanelView` a panel draws.
-
-Everything a user needs is re-exported from `fem`; `Plotter` / `PlotMode` are served lazily so
-`import fem` never imports matplotlib. The MMS convergence studies are demo and test support,
-not library, and live in `examples/mms.py`.
-
-## Layers
+Two views of one stack. The layers are the concerns that vary independently:
 
 | # | Layer | Question it answers | Varies with |
 |---|---|---|---|
@@ -105,39 +93,9 @@ Each layer can be swapped without touching its neighbours: direct for iterative 
 touching physics (3), Crank-Nicolson for backward Euler (7) without touching the operator, a
 refined mesh (1) without re-resolving constraints by hand (5).
 
-## Tiers of a solve
-
-| Tier | Role | Objects |
-|---|---|---|
-| 1. Primitives | the parts a composition is built from | `Form` and its combinators, `Load`, `Material` and the energy densities, `FunctionSpace`, `Conditions` / `ResolvedConditions`, `DiscreteSystem` + `Backend` |
-| 2. `Problem` | a composition: space + operator + load + constraints | `Problem`, and `LinearProblem` for a constant tangent; `Equation.problem` builds one from a named PDE |
-| 3. Solve strategy | consumes a `Problem`, returns the solution | the one-shot and iterative strategies (`LinearSolve`, `NewtonSolve`), `EigenSolve`, the time integrators, and the quasi-static load stepper |
-| 4. Driver | wraps a strategy, re-solving | `AdaptiveRefinement`, `DesignOptimizer` |
-
-Tier 3 has a second, orthogonal axis: the strategy picks linear vs. Newton, a `Backend` picks
-direct vs. iterative. Named PDEs are `Equation`s, not dispatch keys: `Poisson(k).problem(mesh, conditions)`
-returns `LinearProblem(space, DiffusionForm(k), conditions)`, `FiniteStrainElastic(E, nu).problem(mesh,
-conditions)` a `Problem` over an `EnergyForm`, and a PDE with no name is just a different composition.
-
-A choice is a parameter when it changes numbers inside one computation (a modulus, a density,
-plane stress against plane strain) and a class when it changes what the object is: which solve
-runs, what it returns, what it composes with. `LinearElastic` and `FiniteStrainElastic` are two
-classes for that reason, as are the backends, the estimators, and `Problem` / `LinearProblem`.
-
-A form is one base class. Every `Form` writes `element_residuals` and `element_tangents` at a
-state; what else it can answer is a hook with a default of "no": `constant_tangent` (every
-`BilinearForm`, whose residual is `K u`), `has_energy` (a bilinear form's `½ uᵀ K u`, an
-`EnergyForm`'s density), `flux` (the recoverable flux), `near_null_space` (the AMG
-near-kernel). A consumer reads the answer it needs: `LinearSolve`, the integrators, the analyses,
-and SIMP need a constant tangent; `NewtonSolve` needs nothing more and uses the energy as its
-line-search merit when there is one. `RecoversElasticState` stays a protocol: the interface the
-elastic forms share with `ElasticSolution` and `StressFlux`.
-
-## Where the classes sit
-
-`█` = owns the layer, `▒` = shares it. Each row is a family: a new class joins the row it belongs
-to (a new density joins the materials row, a new strategy the strategies row), and a new row means
-a new kind of object.
+The grid maps the classes onto those layers: `█` = owns the layer, `▒` = shares it. Each row is a
+family: a new class joins the row it belongs to (a new density joins the materials row, a new
+strategy the strategies row), and a new row means a new kind of object.
 
 | Class | 1 Geom | 2 Space | 3 Phys | 4 Asm | 5 Cons | 6 Alg | 7 Time | 8 Drive | 9 Post |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -180,7 +138,7 @@ is recoverable, read by the estimators off `problem.operator`); `Problem.solve` 
 `Solution` for its operator; `Solution` owns the packaging; `invariants` owns the
 frame-independent reductions.
 
-## Role by role
+## How the pieces meet
 
 What each piece is for and how it meets its neighbours; the pieces themselves are their modules'
 docstrings.
@@ -223,17 +181,26 @@ where the two meet:
 
 ### `Form` / `Material`: the physics
 
-Every assembly path goes through a form, and there are two ways to write one. A `BilinearForm`
-writes the constant element matrix (the `Gᵀ C G` pattern: the element supplies the geometry `G`,
-the form the material `C`) and gets residual, tangent, and energy from it. An `EnergyForm`
-delegates to an `EnergyDensity`, which answers the energy `W`, the stress `P = dW/dF`, and the
-tangent `A = d²W/dF²` at a batch of displacement gradients; how a density gets there (a strain
-measure, invariants, an inverted hardening curve) is its own business, so one contraction serves
-every law. The densities live in `fem/physics/energies.py` and `fem/physics/plasticity.py`;
-`Material` owns the constitutive matrix `D` of the linear law, beside the strain-displacement `B`
-in `fem/physics/forms.py`. In 2D the law is plane strain throughout. Stress recovery is on the
-form (`RecoversElasticState`): full `(n_elements, 3, 3)` tensors cross the boundary, never Voigt
-vectors, and `fem/post/invariants.py` reduces them to frame-independent scalars.
+Every assembly path goes through a form, and a form is one base class. Every `Form` writes
+`element_residuals` and `element_tangents` at a state; what else it can answer is a hook with a
+default of "no": `constant_tangent` (every `BilinearForm`, whose residual is `K u`), `has_energy`
+(a bilinear form's `½ uᵀ K u`, an `EnergyForm`'s density), `flux` (the recoverable flux),
+`near_null_space` (the AMG near-kernel). A consumer reads the answer it needs: `LinearSolve`, the
+integrators, the analyses, and SIMP need a constant tangent; `NewtonSolve` needs nothing more and
+uses the energy as its line-search merit when there is one.
+
+There are two ways to write a form. A `BilinearForm` writes the constant element matrix (the
+`Gᵀ C G` pattern: the element supplies the geometry `G`, the form the material `C`) and gets
+residual, tangent, and energy from it. An `EnergyForm` delegates to an `EnergyDensity`, which
+answers the energy `W`, the stress `P = dW/dF`, and the tangent `A = d²W/dF²` at a batch of
+displacement gradients; how a density gets there (a strain measure, invariants, an inverted
+hardening curve) is its own business, so one contraction serves every law. The densities live in
+`fem/physics/energies.py` and `fem/physics/plasticity.py`; `Material` owns the constitutive matrix
+`D` of the linear law, beside the strain-displacement `B` in `fem/physics/forms.py`. In 2D the law
+is plane strain throughout. Stress recovery is on the form (`RecoversElasticState`, the protocol
+the elastic forms share with `ElasticSolution` and `StressFlux`): full `(n_elements, 3, 3)`
+tensors cross the boundary, never Voigt vectors, and `fem/post/invariants.py` reduces them to
+frame-independent scalars.
 
 ### `Problem`: the narrow waist
 
@@ -319,12 +286,14 @@ to copy: `Form` (`BilinearForm` by `element_matrices`, `EnergyForm` by an `Energ
 `DensityParameterization`, `ModulusParameterization`); `Flux` (`GradientFlux`, `StressFlux`); `FieldShape`
 (`Scalar`, `Vector`).
 
-## Module order
+## Conventions
+
+### Module order
 
 `tests/test_layering.py` holds the package's module order, bottom to top, and checks that every
-module's top-level imports name only modules at or below it. The list is the reading order: what a
-module may assume exists. Function-local and `TYPE_CHECKING` imports are exempt; they are the
-documented back-edges, each named in the importing module's docstring:
+module's top-level imports name only modules at or below it. The list is the package inventory in
+reading order: what a module may assume exists. Function-local and `TYPE_CHECKING` imports are
+exempt; they are the documented back-edges, each named in the importing module's docstring:
 
 - `problem -> algebra.solve`: `Problem.solve` picks `default_strategy`.
 - `space <-> loads`: a `Source` is integrated by the space, and assembling a load needs the space.
@@ -336,7 +305,11 @@ documented back-edges, each named in the importing module's docstring:
 - `mesh.outline -> mesh.svg`: `Outline.from_svg` runs the reader.
 - `fem -> fem.plot`: served through `__getattr__`, so matplotlib loads on first use.
 
-## Vocabulary
+Everything a user needs is re-exported from `fem`; `Plotter` / `PlotMode` are served lazily so
+`import fem` never imports matplotlib. The MMS convergence studies are demo and test support, not
+library, and live in `examples/mms.py`.
+
+### Vocabulary
 
 Construction: `from_*` builds from another representation (`ElasticSolution.from_solve`,
 `Outline.from_polygons`); `with_*` returns a copy with one thing changed (`LinearProblem.with_operator`,
@@ -356,7 +329,7 @@ data (a field of the wrong length, a negative volume fraction); `RuntimeError` f
 ran and failed (a singular factorization, a backend that rejected every shift). A failure with a
 usable partial result carries it on the exception: `NewtonDivergence.u` is the last iterate.
 
-## The recurring pattern
+### The recurring pattern
 
 `fem/regions.py` + `fem/conditions.py` is the model: a mesh-independent specification
 (`Conditions`, a frozen tuple of conditions and loads) separated from its resolution against one
