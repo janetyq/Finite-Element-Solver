@@ -83,8 +83,8 @@ is `kappa * BoundaryMassForm(mask)` added to the physics form and assembled besi
 
 - `fem/mesh`: geometry and meshing (`Mesh`, the pieces and `Outline`, its sampled `PSLG`, Ruppert,
   red-green refinement, the SVG reader).
-- `fem/physics`: `forms`, `energies`, `materials`, `fields`, the named `equations`, and `derived`
-  (the `Flux` a form names).
+- `fem/physics`: `forms`, `energies`, `materials`, `plasticity`, `fields`, the named `equations`,
+  and `derived` (the `Flux` a form names).
 - `fem/algebra`: `system`, `backends`, `solve` strategies, `integrators`.
 - `fem/analysis`: `buckling`, `modal`, `adaptivity`, `estimators`, `sensitivity`, `design`.
 - `fem/post`: the typed `solution`s, nodal `recovery`, `invariants`, `io`.
@@ -270,9 +270,13 @@ element's default rule and the one the form asks for.
 material tangent `A = d²W/dF²`, all in F. How it gets there is the density's own business:
 `SmallStrain` and `StVenantKirchhoff` build the chain through a strain measure (small-strain `ε`
 or Green-Lagrange `S`), while `NeohookeanEnergyDensity` is written in the invariants of `C = FᵀF`
-and writes `P` and `A` directly. The equation names the model: `LinearElastic` gives the constant
+and writes `P` and `A` directly. `RambergOsgood` (`fem/physics/plasticity.py`) is J2
+deformation-theory plasticity on the small strain: nonlinear in the strain but history-free, so a
+metal's monotonic stress-strain curve solves through the same `EnergyForm` Newton path with no
+state to carry. The equation names the model: `LinearElastic` gives the constant
 stiffness `LinearElasticForm`, `FiniteStrainElastic` the `EnergyForm` over its `law`
-(`StVenantKirchhoff` by default). In 2D the law is plane strain throughout.
+(`StVenantKirchhoff` by default), `DeformationPlasticity` the `EnergyForm` over `RambergOsgood`.
+In 2D the law is plane strain throughout.
 
 Stress recovery is on the form (`RecoversElasticState`): `sample` gives strain and stress at
 every point of a geometry's rule, `recover` reduces that to one tensor per element. Full
@@ -348,11 +352,13 @@ and `NewmarkMethod` (average acceleration, solving for the acceleration against 
 
 ### `Equation`
 
-`Equation` is typed data: `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`, and
-`FiniteStrainElastic` (the last two over the `Elasticity` base), each carrying its physical
+`Equation` is typed data: `Projection`, `Poisson`, `Heat`, `Wave`, `LinearElastic`,
+`FiniteStrainElastic`, and `DeformationPlasticity` (the last three over the `Elasticity` base),
+each carrying its physical
 constants, a `density` for the time-derivative term where it has one, and `time_orders`, the
 time-derivative orders the PDE has a meaning for (`Poisson` {0}, `Heat` {1}, `Wave` {2}, the
-elastic equations {0, 2}). The three scalar equations share the `DiffusionForm` operator and
+elastic equations {0, 2}; `DeformationPlasticity` {0}, its history-free law having no meaning
+along a time-dependent path). The three scalar equations share the `DiffusionForm` operator and
 differ in their orders and their constants' names; `Problem.solve`, the integrators, and
 `ModalAnalysis` refuse an order the equation lacks, naming the equation to use. `operator(space)`
 returns the form for its physics: the small-strain stiffness, or the `EnergyForm` of a

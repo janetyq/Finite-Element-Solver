@@ -15,6 +15,7 @@ for, and the solves check it: a steady solve needs order 0, `ThetaMethod` order 
 | linear elasticity, static    | `LinearElastic(E, nu)`                  | `.solve()`, `BucklingAnalysis`, `ModalAnalysis` |
 | elastodynamics               | `LinearElastic(E, nu, density, damping)`| `NewmarkMethod`                        |
 | finite strain                | `FiniteStrainElastic(E, nu)`            | `.solve()` (Newton)                    |
+| deformation plasticity       | `DeformationPlasticity(E, nu, sigma_y, n)` | `.solve()` (Newton)                 |
 | L2 projection                | `Projection()`                          | `.solve()` with a `Source` to project  |
 
 What is applied to the domain (the boundary conditions, the volume source, point loads)
@@ -28,6 +29,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
 
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
+from fem.physics.plasticity import RambergOsgood
 from fem.physics.fields import FieldShape, Scalar, Vector
 from fem.physics.forms import DiffusionForm, EnergyDensity, EnergyForm, Form, LinearElasticForm, MassForm
 from fem.physics.materials import LinearElasticMaterial
@@ -241,6 +243,38 @@ class LinearElastic(Elasticity[LinearProblem[ElasticSolution]]):
     def energy_density(self) -> SmallStrain:
         '''The quadratic energy the stiffness is the Hessian of.'''
         return SmallStrain(self._scalar_modulus(), self.nu)
+
+
+class DeformationPlasticity(Elasticity[Problem[ElasticSolution]]):
+    '''Small-strain J2 deformation-theory plasticity under a Ramberg-Osgood curve:
+    Hooke's law below `yield_stress`, power-law hardening of exponent
+    `hardening_exponent` beyond it, minimised by Newton.
+
+    History-free (stress is a function of the current strain), so it is valid for
+    monotonic, proportional loading and has no transient meaning: steady only. See
+    `fem.physics.plasticity.RambergOsgood` for the law and its limits.
+    '''
+    time_orders = frozenset({0})
+
+    def __init__(
+        self,
+        E: float,
+        nu: float,
+        yield_stress: float,
+        hardening_exponent: float,
+        offset: float = 3.0 / 7.0,
+    ) -> None:
+        super().__init__(E, nu)
+        self.yield_stress = yield_stress
+        self.hardening_exponent = hardening_exponent
+        self.offset = offset
+
+    def operator(self, space: FunctionSpace) -> EnergyForm:
+        return EnergyForm(self.energy_density())
+
+    def energy_density(self) -> RambergOsgood:
+        return RambergOsgood(self._scalar_modulus(), self.nu, self.yield_stress,
+                             self.hardening_exponent, self.offset)
 
 
 class FiniteStrainElastic(Elasticity[Problem[ElasticSolution]]):
