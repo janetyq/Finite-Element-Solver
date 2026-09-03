@@ -29,19 +29,18 @@ classes for that reason, as are the backends, the estimators, and `Problem` / `L
 
 The chain is the same for every problem. Each step has one required object and a few options with
 defaults; `Equation.problem` is this chain with the defaults filled in from the equation.
-The README's "What you choose at each step" table is the menu of options; this is the chain. The
-last column names the layers (next section) each step exercises.
+The README's "What you choose at each step" table is the menu of options; this is the chain.
 
-| Step | Required | Options (default) | Layers |
-|---|---|---|:-:|
-| Geometry | `Mesh` | | 1 |
-| Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) | 2 |
-| Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for the nonlinear laws; forms compose: `a + b`, `c * a`, each term naming its `domain` (volume or boundary) | 3 |
-| Conditions | `Conditions(Dirichlet(region, value), ...)` (default none) | `Neumann`, `Robin`; `Source`, `PointLoad`; `Initial`; a region geometric (`on_plane`, `in_box`, a callable of points) or `on_tag(k)`; a value constant, per-component (`None` = free), a callable of points, or `TimeDependent` | 5 |
-| Statement | `Problem(space, form, conditions)`, or `Equation.problem(mesh, conditions)` (which takes the Discretization step too) | `element_type`; a `LinearProblem` when the form has a constant tangent | 3–5 |
-| Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator, the load stepper, or an analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`; `initial=`, an `Initial` to start from instead of the conditions' own | 4–7 |
-| Result | a typed `Solution`, returned by every `solve`; a steady one is a `NodalField` | | 9 |
-| Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` | 8 |
+| Step | Required | Options (default) |
+|---|---|---|
+| Geometry | `Mesh` | |
+| Discretization | `FunctionSpace(mesh, n_components)`, or `Equation.space(mesh)` | `element_type` (linear) |
+| Physics | a `Form`, or `Equation.operator` | a `Material` for elasticity; an `EnergyForm` over a strain-energy density for the nonlinear laws; forms compose: `a + b`, `c * a`, each term naming its `domain` (volume or boundary) |
+| Conditions | `Conditions(Dirichlet(region, value), ...)` (default none) | `Neumann`, `Robin`; `Source`, `PointLoad`; `Initial`; a region geometric (`on_plane`, `in_box`, a callable of points) or `on_tag(k)`; a value constant, per-component (`None` = free), a callable of points, or `TimeDependent` |
+| Statement | `Problem(space, form, conditions)`, or `Equation.problem(mesh, conditions)` (which takes the Discretization step too) | `element_type`; a `LinearProblem` when the form has a constant tangent |
+| Solve | `problem.solve()`: `LinearSolve` for a constant tangent, else `NewtonSolve`; or `.solve(problem, ...)` on an integrator, the load stepper, or an analysis | `strategy`, `Backend` (direct); Newton: `line_search`, `regularization`; integrator: `dt`, `steps`, `theta` / `beta`; `initial=`, an `Initial` to start from instead of the conditions' own |
+| Result | a typed `Solution`, returned by every `solve`; a steady one is a `NodalField` | |
+| Outer loop | | `AdaptiveRefinement` over a `problem_for(mesh)` builder; `DesignOptimizer` over a `SIMPModel` |
 
 Composed by hand:
 
