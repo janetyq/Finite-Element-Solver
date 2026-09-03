@@ -133,7 +133,10 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   indefinite region), and the load-stepping half now exists (`QuasiStaticStepping`,
   `fem/algebra/stepping.py`: the warm-started walk, the bisection retry, the history solution);
   what remains is arc-length control of that loop, so it can turn past the limit point where
-  load control stalls.
+  load control stalls. The thermal payoff is snap action: a domed bimetal disc under uniform
+  heating snaps between its two states at distinct up and down temperatures (a thermostat's click
+  and its hysteresis). That needs this item plus finite-strain thermal strain (below), and would
+  extend the `bimetallic_strip` demo from the strip that curls to the disc that clicks.
 
 **Post-processing coverage**
 
@@ -180,10 +183,12 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   architecture well, on the same `EnergyForm` / `Energies` machinery that now carries both the
   strain-measure densities and the invariant-based `NeohookeanEnergyDensity`.
 - 💡 **Thermoelasticity: follow-ups.** The core shipped (`Eigenstrain` on `LinearElasticForm`,
-  `ThermalStrain`, `LinearElastic(thermal=...)`, closed-form and MMS tests). Open, each additive:
-  a **demo** extending `heat` with the warming heatsink's stress at the fin roots, with the
-  thick-walled cylinder (logarithmic temperature, closed-form hoop stress) as its benchmark test
-  and a critical temperature through `BucklingAnalysis` on a heated restrained bar;
+  `ThermalStrain`, `LinearElastic(thermal=...)`, closed-form and MMS tests), and the
+  `bimetallic_strip` demo tells its story against Timoshenko's bimetal formula. Open, each
+  additive: the **thick-walled cylinder benchmark** (logarithmic temperature from a `Poisson`
+  solve on the curved quarter-annulus, closed-form hoop stress), as a test and possibly a panel
+  on `pressurized_cylinder`; a **critical temperature** through `BucklingAnalysis` on a heated
+  restrained bar (a panel on `buckling` if it earns a figure);
   **finite-strain thermal strain**, an eigenstrain argument on `EnergyDensity.evaluate`, where
   the 2D density must keep the z component of the eigenstrain as the material does for the
   linear path; **thermoelastic sensitivities**, refused today by `SIMPModel`, `SensitivityAnalysis`, and

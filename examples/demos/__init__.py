@@ -19,6 +19,7 @@ DEMO_NAMES = [
     'pressurized_cylinder',
     'bracket',
     'buckling',
+    'bimetallic_strip',
     'modal',
     'topology_optimization',
     'l2_projection',
