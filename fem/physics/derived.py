@@ -249,15 +249,14 @@ class StressFlux:
         # div(sigma*) of the eigenstress's nodal interpolant: sigma* at each element's
         # nodes, differentiated through the shape-function gradients at the rule's
         # points and averaged over them (exact for P1, the centroid value on P2).
+        from fem.physics.forms import _element_mean
         space = solution.space
         d = space.spatial_dim
         at_nodes = self.form.material.eigenstress(
             self.form.eigenstrain.evaluate(space.geometry_at_nodes))   # (n_el, N, 3, 3)
         geometry = space.geometry
-        weights = geometry.weight_detJ / geometry.weight_detJ.sum(axis=1, keepdims=True)
-        div_eigenstress = np.einsum('eq,enij,eqnj->ei', weights, at_nodes[..., :d, :d],
-                                    geometry.grad_phi)
-        return navier - div_eigenstress
+        div_at_points = np.einsum('enij,eqnj->eqi', at_nodes[..., :d, :d], geometry.grad_phi)
+        return navier - _element_mean(div_at_points, geometry.weight_detJ)
 
     def boundary_residual(
         self, flux_e0: FloatArray, outward_normal: FloatArray,

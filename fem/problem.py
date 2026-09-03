@@ -125,8 +125,11 @@ class Problem(Generic[S]):
         self.physics: Form[S] = operator
         self._boundary_terms: tuple[Form, ...] = self._resolved.operator_terms
         self.operator: Form[S] = self._with_boundary_terms(operator)
+        # The conditions' load and the operator's are kept apart: a driver restating
+        # the problem under a new operator replaces the second and keeps the first.
+        self._conditions_load = self._resolved.load_at(0.0)
         self._operator_load = space.assemble_loads(self.operator)
-        self._b = self._total_load(0.0)
+        self._b = self._sum_loads(self._conditions_load)
         # A constant tangent is assembled on first use, not here. Stating a problem
         # is cheap; assembling its operator is the expensive half, and a problem can
         # be built without ever being solved: a topology optimization iteration
@@ -148,13 +151,19 @@ class Problem(Generic[S]):
             return self
         snapshot = copy.copy(self)
         snapshot._resolved = self._resolved.at(t)
-        snapshot._b = snapshot._total_load(t)
+        snapshot._conditions_load = snapshot._resolved.load_at(t)
+        snapshot._b = snapshot._sum_loads(snapshot._conditions_load)
         return snapshot
 
     def _total_load(self, t: float) -> DofVector:
         '''The conditions' load at `t` plus the operator's own.'''
-        load = self._resolved.load_at(t)
-        return load if self._operator_load is None else load + self._operator_load
+        return self._sum_loads(self._resolved.load_at(t))
+
+    def _sum_loads(self, conditions_load: DofVector) -> DofVector:
+        '''`conditions_load` plus the operator's own load; the vector itself without one.'''
+        if self._operator_load is None:
+            return conditions_load
+        return conditions_load + self._operator_load
 
     @property
     def operator_load(self) -> DofVector | None:
@@ -294,13 +303,13 @@ class Problem(Generic[S]):
         self.physics = operator
         self.operator = self._with_boundary_terms(operator)
         # The copy carries the original's assembled operator and damping, which are
-        # precisely what the derived one must not answer with; the load it carries
-        # is the new operator's too. The resolution is fixed at whatever time the
-        # copy was taken at, so its load at 0 is the right one to add to.
+        # precisely what the derived one must not answer with, and the original
+        # operator's load, which the new operator's replaces. The conditions' load is
+        # kept as it was assembled.
         self._A = None
         self._C = None
         self._operator_load = self.space.assemble_loads(self.operator)
-        self._b = self._total_load(0.0)
+        self._b = self._sum_loads(self._conditions_load)
 
     def _with_boundary_terms(self, physics: Form[S2]) -> Form[S2]:
         operator = physics

@@ -512,7 +512,8 @@ class FunctionSpace:
         total = None
         for term in form.terms:
             on_boundary = term.domain == 'boundary'
-            vectors = term.element_loads(self._term_geometry(term, on_boundary))
+            geometry = self._term_geometry(term, on_boundary, load=True)
+            vectors = term.element_loads(geometry)
             if vectors is None:
                 continue
             load = self._term_vector_scatter(on_boundary).scatter(vectors)
@@ -525,19 +526,21 @@ class FunctionSpace:
     # `u` and evaluate each term at its elements' slice of it. Constraints stay with
     # the caller (the Problem and its solve strategy).
 
-    def _term_geometry(self, term: Form, on_boundary: bool) -> ElementGeometry:
+    def _term_geometry(self, term: Form, on_boundary: bool, load: bool = False) -> ElementGeometry:
         '''Geometry at a rule that integrates `term` over its domain.
 
         On the volume, the larger of the element's default and what the term asks
         for: a quartic St-Venant-Kirchhoff energy wants degree 4 on P2. One rule serves
         the energy, residual, and tangent, so the residual is the exact gradient of the
-        quadrature energy and Newton sees a matching tangent.
+        quadrature energy and Newton sees a matching tangent. The term's own `load`
+        has a rule of its own, since its integrand need not match the operator's.
         '''
         if on_boundary:
             return self.boundary_geometry
-        degree = max(self.element_type.default_quadrature_degree(),
-                     term.quadrature_degree(self.element_type.SHAPE_DEGREE))
-        return self.geometry_at(degree)
+        shape_degree = self.element_type.SHAPE_DEGREE
+        asked = (term.load_quadrature_degree(shape_degree) if load
+                 else term.quadrature_degree(shape_degree))
+        return self.geometry_at(max(self.element_type.default_quadrature_degree(), asked))
 
     def _term_state(self, u: DofVector, on_boundary: bool) -> FloatArray:
         '''(n_elements, N, n_components): each element's (or facet's) slice of the state.'''

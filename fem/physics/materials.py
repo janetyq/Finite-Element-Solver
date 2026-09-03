@@ -101,18 +101,39 @@ class LinearElasticMaterial:
         assembly produces, so von Mises or pressure built from those alone is
         computed on an incomplete tensor.
 
-        Takes the in-plane strain tensor, matching the same method on the energy
-        densities. The equivalent `nu(sigma_xx + sigma_yy)` is the same number;
-        `tests/test_materials.py` pins both against the 3D law.
+        Takes `(n_elements, ..., 2, 2)` in-plane strain tensors, one per point of
+        each element, and returns one value per tensor; a per-element `E` broadcasts
+        over the leading axis (see `_per_element`). The equivalent
+        `nu(sigma_xx + sigma_yy)` is the same number; `tests/test_materials.py` pins
+        both against the 3D law.
         '''
-        _, lamb = Enu_to_Lame(self.E, self.nu)
-        trace = np.einsum('eii->e', np.asarray(strain))
-        return np.asarray(lamb) * trace
+        trace = np.einsum('...ii->...', np.asarray(strain, dtype=float))
+        self._check_element_axis(trace.shape, 'the strain')
+        _, lamb = self._per_element(trace.ndim)
+        return lamb * trace
+
+    def _check_element_axis(self, leading: tuple[int, ...], what: str) -> None:
+        mu = np.asarray(self.E)
+        if mu.ndim and (not leading or leading[0] != len(mu)):
+            raise ValueError(
+                f'per-element modulus has {len(mu)} entries but {what} has leading '
+                f'shape {leading}'
+            )
+
+    def _per_element(self, ndim: int) -> tuple[FloatArray, FloatArray]:
+        '''`(mu, lamb)` shaped to broadcast against an `ndim`-dimensional array of
+        per-point values whose leading axis runs over the elements: scalars for a
+        uniform modulus, `(n_elements, 1, ...)` for a per-element one.'''
+        mu, lamb = (np.asarray(m, dtype=float) for m in Enu_to_Lame(self.E, self.nu))
+        if mu.ndim:
+            shape = (len(mu),) + (1,) * (ndim - 1)
+            mu, lamb = mu.reshape(shape), lamb.reshape(shape)
+        return mu, lamb
 
     def eigenstress(self, eigenstrain: FloatArray) -> FloatArray:
         '''The stress that would cancel an eigenstrain, `C : eps*` with `C` the 3D
-        elastic law, on `(..., 3, 3)` tensors; a per-element `E` broadcasts over the
-        leading element axis.
+        elastic law, on `(n_elements, ..., 3, 3)` tensors, one per point of each
+        element; a per-element `E` broadcasts over the leading axis.
 
         The law is the 3D one even on a 2D mesh. Plane strain holds the body fixed in
         z, and the expansion denied there pushes back on the plane through Poisson's
@@ -126,16 +147,8 @@ class LinearElasticMaterial:
                 f'an eigenstrain is a full (..., 3, 3) tensor in every dimension, got '
                 f'shape {eigenstrain.shape}'
             )
-        mu, lamb = (np.asarray(m, dtype=float) for m in Enu_to_Lame(self.E, self.nu))
-        if mu.ndim:
-            if eigenstrain.ndim < 3 or eigenstrain.shape[0] != len(mu):
-                raise ValueError(
-                    f'per-element modulus has {len(mu)} entries but the eigenstrain has '
-                    f'leading shape {eigenstrain.shape[:-2]}'
-                )
-            # The element axis leads; any axes between it and the tensor broadcast.
-            shape = (len(mu),) + (1,) * (eigenstrain.ndim - 3)
-            mu, lamb = mu.reshape(shape), lamb.reshape(shape)
+        self._check_element_axis(eigenstrain.shape[:-2], 'the eigenstrain')
+        mu, lamb = self._per_element(eigenstrain.ndim - 2)
         trace = np.einsum('...ii->...', eigenstrain)
         return ((lamb * trace)[..., None, None] * np.eye(3)
                 + (2.0 * mu)[..., None, None] * eigenstrain)

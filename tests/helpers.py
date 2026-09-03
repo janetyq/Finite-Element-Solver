@@ -22,6 +22,25 @@ def pinned(n_components: int = 1) -> Conditions:
     return Conditions(Dirichlet(everywhere(), value))
 
 
+def rollers(dim: int) -> Conditions:
+    """Each coordinate plane through the origin a roller: rigid modes removed, every
+    face free to move away from it."""
+    return Conditions(*[
+        Dirichlet(on_plane(axis, 0.0), [0.0 if c == axis else None for c in range(dim)])
+        for axis in range(dim)
+    ])
+
+
+def close(actual, expected, **tolerances) -> None:
+    """`assert_allclose` with `expected` broadcast to `actual`'s shape: a closed form is
+    one tensor, the solve reports one per element."""
+    actual, expected = np.asarray(actual), np.asarray(expected, dtype=float)
+    # Round-off against a closed form: an entry that should be zero comes out at
+    # machine precision times the largest entry, which a relative tolerance rejects.
+    tolerances.setdefault('atol', 1e-12 * max(1.0, float(np.abs(expected).max())))
+    np.testing.assert_allclose(actual, np.broadcast_to(expected, actual.shape), **tolerances)
+
+
 def cantilever_bc(traction: Sequence[float] = (0.0, -1.0), length: float = 1.0) -> Conditions:
     """A 2D cantilever: the edge x = 0 clamped, the edge x = `length` under `traction`."""
     return Conditions(

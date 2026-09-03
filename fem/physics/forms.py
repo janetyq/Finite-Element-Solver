@@ -43,7 +43,7 @@ from fem.field import NodalField
 from fem.physics.energies import StrainEnergyDerivatives
 from fem.physics.materials import LinearElasticMaterial
 from fem.physics.derived import Flux, GradientFlux, ScaledFlux, StressFlux
-from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
+from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution, TransientSolution
 from fem.regions import TimeDependent, evaluate_field
 from fem.typing import BoolArray, ElementValues, FieldValue, FloatArray, Vertices
 
@@ -164,15 +164,14 @@ def tensor_to_voigt(tensor: FloatArray, reference_dim: int) -> FloatArray:
 
 
 def _with_out_of_plane(tensor: FloatArray, zz: FloatArray) -> FloatArray:
-    '''Embed `(n_elements, 2, 2)` in-plane tensors into full 3x3 ones.
+    '''Embed `(..., 2, 2)` in-plane tensors into full 3x3 ones.
 
     A 2D solve reduces a 3D state; the third direction still carries a component,
     and which one is a property of the reduction (see `out_of_plane_stress`).
     '''
-    n = len(tensor)
-    full = np.zeros((n, 3, 3))
-    full[:, :2, :2] = tensor
-    full[:, 2, 2] = zz
+    full = np.zeros(tensor.shape[:-2] + (3, 3))
+    full[..., :2, :2] = tensor
+    full[..., 2, 2] = zz
     return full
 
 
@@ -310,6 +309,12 @@ class Form(ABC, Generic[S]):
         block per element, or None. The thermal load of a heated elastic body is one;
         the problem adds it to the loads from its conditions.'''
         return None
+
+    def load_quadrature_degree(self, shape_degree: int) -> int:
+        '''The lowest rule degree that integrates `element_loads` on a degree-
+        `shape_degree` element. Separate from `quadrature_degree`: the load is
+        assembled once, and its integrand need not share the operator's degree.'''
+        return 0
 
     def flux(self) -> Flux | None:
         return None
@@ -510,11 +515,12 @@ class Eigenstrain(Protocol):
 
     `evaluate` returns the eigenstrain at every quadrature point as a full 3x3 tensor,
     in 2D as well as 3D; see `LinearElasticMaterial.eigenstress` for why the z
-    component matters on a 2D mesh. `quadrature_degree` is the rule it is sampled at.
+    component matters on a 2D mesh. `degree` is the polynomial degree it is
+    integrated as, which sets the rule for its load.
     '''
 
     @property
-    def quadrature_degree(self) -> int: ...
+    def degree(self) -> int: ...
 
     def evaluate(self, geometry: ElementGeometry) -> FloatArray:
         '''`(n_elements, n_qp, 3, 3)` eigenstrain at every point of `geometry`'s rule.'''
@@ -529,26 +535,49 @@ class ThermalStrain:
     `alpha` is the expansion coefficient, one number or one per element, and
     `reference` the temperature at which the body is stress-free. `temperature` is a
     number, a function of position, or the solution of a `Poisson` or `Heat` problem
-    on the same mesh and element type. A temperature that varies in time is not
-    accepted; solve once per step with that step's temperature. A bare array of nodal
-    values is not accepted either, since it does not say which nodes it belongs to;
-    wrap it as `NodalField(space, values)`.
+    on the same mesh and element type. A solution is bound to its mesh, so under
+    adaptive refinement it must be solved again on each new mesh. A temperature that
+    varies in time is not accepted; solve once per step with that step's solution. A
+    bare array of nodal values is not accepted either, since it does not say which
+    nodes it belongs to; wrap it as `NodalField(space, values)`.
+
+    `degree` is the polynomial degree the temperature is integrated as: that of its
+    element for a solution, 0 for a number, and 2 for a function of position unless
+    `sampling_degree` says otherwise.
     '''
     alpha: float | ElementValues
     temperature: FieldValue | NodalField
     reference: float = 0.0
-    quadrature_degree: int = 2
+    sampling_degree: int = 2
+
+    @property
+    def degree(self) -> int:
+        T = self.temperature
+        if isinstance(T, NodalField):
+            return T.space.element_type.SHAPE_DEGREE
+        return self.sampling_degree if callable(T) else 0
 
     def __post_init__(self) -> None:
-        if isinstance(self.temperature, TimeDependent):
+        T = self.temperature
+        if isinstance(T, TimeDependent):
             raise TypeError(
                 'ThermalStrain takes the temperature at one instant; for a transient, '
-                'solve once per step with that step\'s NodalField'
+                'solve once per step with that step\'s solution'
             )
-        if isinstance(self.temperature, np.ndarray) and self.temperature.size > 1:
+        if isinstance(T, TransientSolution):
+            raise TypeError(
+                'ThermalStrain takes the temperature at one instant; pass one step of '
+                'the series, solution[i]'
+            )
+        if isinstance(T, (np.ndarray, list, tuple)) and np.asarray(T).size > 1:
             raise TypeError(
                 'nodal temperatures need the space that numbers them: pass '
                 'NodalField(space, values), or a callable of position'
+            )
+        if not (isinstance(T, (Real, np.ndarray, NodalField)) or callable(T)):
+            raise TypeError(
+                f'a temperature is a number, a callable of position, or a NodalField; '
+                f'got {type(T).__name__}'
             )
 
     def delta_T(self, geometry: ElementGeometry) -> FloatArray:
@@ -566,7 +595,8 @@ class ThermalStrain:
                 raise ValueError(
                     f'the temperature lives on {field.space!r}, which does not match the '
                     f'elastic space ({geometry.n_elements} elements of {n_nodes} '
-                    'nodes); solve it on the same mesh and element type'
+                    'nodes); solve it on the same mesh and element type, and again on '
+                    'each new mesh under refinement'
                 )
             # T at each point is the interpolant: shape functions against the nodal values.
             theta = np.einsum('qn,en->eq', geometry.shape, field.element_values)
@@ -599,19 +629,19 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
     material: LinearElasticMaterial
     eigenstrain: Eigenstrain | None = None
 
-    def quadrature_degree(self, shape_degree: int) -> int:
-        return 0 if self.eigenstrain is None else self.eigenstrain.quadrature_degree
+    def load_quadrature_degree(self, shape_degree: int) -> int:
+        # The load pairs the strain of a shape function with the eigenstrain.
+        return 0 if self.eigenstrain is None else shape_degree - 1 + self.eigenstrain.degree
 
-    def _eigenstress(self, geometry: ElementGeometry) -> FloatArray | None:
-        '''`(n_el, n_qp, 3, 3)` stress of the eigenstrain, `D eps*`; None without one.'''
-        if self.eigenstrain is None:
-            return None
-        return self.material.eigenstress(self.eigenstrain.evaluate(geometry))
+    def _evaluate_eigenstrain(self, geometry: ElementGeometry) -> FloatArray | None:
+        '''`(n_el, n_qp, 3, 3)` eigenstrain at the points of the rule; None without one.'''
+        return None if self.eigenstrain is None else self.eigenstrain.evaluate(geometry)
 
     def element_loads(self, geometry: ElementGeometry) -> FloatArray | None:
-        eigenstress = self._eigenstress(geometry)
-        if eigenstress is None:
+        eigenstrain = self._evaluate_eigenstrain(geometry)
+        if eigenstrain is None:
             return None
+        eigenstress = self.material.eigenstress(eigenstrain)
         B = strain_displacement(geometry.grad_phi)                  # (n_el, n_qp, n_strains, k)
         rows = tensor_to_voigt(eigenstress, geometry.reference_dim)  # the components B has rows for
         return np.einsum('eqsk,eqs,eq->ek', B, rows, geometry.weight_detJ)
@@ -648,6 +678,13 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         plane-strain assumption implies. Constant across the points for P1, linear
         within the element for a straight P2 triangle.
         '''
+        return self._sample(geometry, u_elements, self._evaluate_eigenstrain(geometry))
+
+    def _sample(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+        eigenstrain: FloatArray | None,
+    ) -> ElasticPointState:
+        '''`sample` with the eigenstrain already evaluated at the rule's points.'''
         B = strain_displacement(geometry.grad_phi)          # (n_el, n_qp, n_strains, k)
         D = self.material.constitutive_matrices(
             geometry.reference_dim, geometry.n_elements
@@ -659,22 +696,22 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         n_el, n_qp = stress_voigt.shape[:2]
         strain = voigt_to_tensor(strain_voigt.reshape(n_el * n_qp, -1), shear_factor=2.0)
         stress = voigt_to_tensor(stress_voigt.reshape(n_el * n_qp, -1), shear_factor=1.0)
+        d = strain.shape[-1]
+        strain, stress = strain.reshape(n_el, n_qp, d, d), stress.reshape(n_el, n_qp, d, d)
 
-        if strain.shape[-1] == 2:
+        if d == 2:
             # Plane strain: eps_zz is zero by definition, and the material
             # develops sigma_zz holding it there. von Mises without it is computed
             # on the wrong state.
             sigma_zz = self.material.out_of_plane_stress(strain)
-            strain = _with_out_of_plane(strain, np.zeros(len(strain)))
+            strain = _with_out_of_plane(strain, np.zeros((n_el, n_qp)))
             stress = _with_out_of_plane(stress, sigma_zz)
-        stress = stress.reshape(n_el, n_qp, 3, 3)
 
         # sigma = D eps - D eps*, on full tensors so the z components are included.
-        eigenstress = self._eigenstress(geometry)
-        if eigenstress is not None:
-            stress = stress - eigenstress
+        if eigenstrain is not None:
+            stress = stress - self.material.eigenstress(eigenstrain)
 
-        return ElasticPointState(strain.reshape(n_el, n_qp, 3, 3), stress)
+        return ElasticPointState(strain, stress)
 
     def recover(
         self, geometry: ElementGeometry, u_elements: FloatArray,
@@ -686,10 +723,9 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         strain is the total strain. Compliance is `∫ sigma : (eps − eps*)` over the
         element, twice the elastic energy.
         '''
-        fields = self.sample(geometry, u_elements)
-        mechanical = fields.strain
-        if self.eigenstrain is not None:
-            mechanical = mechanical - self.eigenstrain.evaluate(geometry)
+        eigenstrain = self._evaluate_eigenstrain(geometry)
+        fields = self._sample(geometry, u_elements, eigenstrain)
+        mechanical = fields.strain if eigenstrain is None else fields.strain - eigenstrain
         # The full double contraction. eps_zz is zero under plane strain, so the
         # lift above leaves this equal to the in-plane Voigt dot product it replaces,
         # unless an eigenstrain has a z part for the out-of-plane stress to work on.
@@ -787,6 +823,9 @@ class ScaledForm(Form[S]):
     def element_loads(self, geometry: ElementGeometry) -> FloatArray | None:
         loads = self.form.element_loads(geometry)
         return None if loads is None else self.factor * loads
+
+    def load_quadrature_degree(self, shape_degree: int) -> int:
+        return self.form.load_quadrature_degree(shape_degree)
 
     def flux(self) -> Flux | None:
         flux = self.form.flux()

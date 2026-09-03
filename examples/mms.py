@@ -280,6 +280,12 @@ def solve_elastic_mms(n: int, dim: int = 2, backend: Backend | None = None) -> M
     bc = Conditions(Dirichlet(everywhere(), [0.0] * dim))
     equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU)
     problem = equation.problem(mesh, bc + Source(elastic_source))
+    return _elastic_mms_solve(n, problem, backend)
+
+
+def _elastic_mms_solve(n: int, problem: LinearProblem, backend: Backend | None = None) -> MMSSolve:
+    """Solve a P1 elastic `problem` whose answer is `elastic_exact` and measure its errors."""
+    mesh = problem.space.mesh
     solution = problem.solve(backend=backend)
 
     exact = elastic_exact(mesh.vertices)
@@ -575,20 +581,7 @@ def solve_thermoelastic_mms(n: int, nodal: bool = False) -> MMSSolve:
 
     bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0]))
     equation = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU, thermal=thermal)
-    problem = equation.problem(mesh, bc + Source(thermoelastic_source))
-    solution = problem.solve()
-
-    exact = elastic_exact(mesh.vertices)
-    error = solution.dofs.reshape(exact.shape) - exact
-    return MMSSolve(
-        h=1.0 / (n - 1),
-        mesh=mesh,
-        dofs=solution.dofs,
-        exact=exact.flatten(),
-        l2_error=l2_norm(problem.space, error.flatten()),
-        h1_error=h1_seminorm_error(problem.space, solution.dofs.reshape(exact.shape),
-                                   elastic_exact_gradient),
-    )
+    return _elastic_mms_solve(n, equation.problem(mesh, bc + Source(thermoelastic_source)))
 
 
 def thermoelastic_convergence(resolutions: tuple[int, ...], nodal: bool = False) -> list[MMSSolve]:

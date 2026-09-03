@@ -265,7 +265,8 @@ matrices it can derive more cheaply (SIMP rescales one set by `rho^p`). Each is 
 which supplies the residual `K u` and the energy `½ uᵀ K u` from its matrix. `EnergyForm` is the
 state-dependent form, mapping an element and a state to energy, residual, and tangent; both kinds
 assemble through `assemble_residual` / `assemble_tangent` / `total_energy`, at the larger of the
-element's default rule and the one the form asks for.
+element's default rule and the one the form asks for; `assemble_loads` collects the load a
+form's own physics carries (`Form.element_loads`), at the rule `load_quadrature_degree` asks for.
 
 `Material` owns the constitutive matrix `D`; the strain-displacement matrix `B` sits in
 `fem/physics/forms.py` next to the form that contracts it. An `Eigenstrain` is a strain the
