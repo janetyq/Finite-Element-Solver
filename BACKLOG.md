@@ -131,7 +131,10 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   load-controlled and displacement-controlled Newton both stall. The pieces line up (a `Problem`
   over the St-VK `EnergyForm`, whose `internal_residual` and `load` an arc-length strategy scales
   against each other; the buckling mode for the imperfection shape; a globalized tangent for the
-  indefinite region), so this is additive once arc-length joins the `SolveStrategy` family.
+  indefinite region), and the load-stepping half now exists (`QuasiStaticStepping`,
+  `fem/algebra/stepping.py`: the warm-started walk, the bisection retry, the history solution);
+  what remains is arc-length control of that loop, so it can turn past the limit point where
+  load control stalls.
 
 **Post-processing coverage**
 

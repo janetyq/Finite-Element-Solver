@@ -1,9 +1,12 @@
 """One clamped block stretched four ways: a linear solve, energy minimisation, and two
-finite-strain material laws.
+finite-strain material laws — then the same stretch walked up from zero, so the
+force-stretch curve separates the laws quantitatively.
 
-`stretch_bc` states the condition and `stretch_four_ways` solves it; `run` calls them
-and returns a `StretchStudy` of plain results. Nothing here draws: `figures.py` does
-that from the `StretchStudy`, and this file is what the gallery shows.
+`stretch_bc` states the condition and `stretch_four_ways` solves it;
+`load_deflection` ramps the stretch through `QuasiStaticStepping` and reads the
+reaction force at every level. `run` calls them and returns a `StretchStudy` of plain
+results. Nothing here draws: `figures.py` does that from the `StretchStudy`, and this
+file is what the gallery shows.
 """
 from dataclasses import dataclass
 
@@ -15,10 +18,12 @@ from fem.physics.energies import NeohookeanEnergyDensity
 from fem.physics.equations import FiniteStrainElastic, LinearElastic
 from fem.physics.forms import EnergyForm
 from fem.mesh.mesh import Mesh
+from fem.mesh.structured import box_mesh
 from fem.problem import Problem
 from fem.regions import on_plane
 from fem.post.solution import ElasticSolution
 from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
+from fem.algebra.stepping import QuasiStaticStepping
 
 E, NU = 200.0, 0.4
 
@@ -76,6 +81,38 @@ def stretch_four_ways(mesh: Mesh, bc: Conditions):
     return solutions, energy_problem, energy_u
 
 
+def load_deflection(width, stretch, steps=10, resolution=24):
+    """Walk the stretch up from zero and read the force it takes, per material law.
+
+    The pulled edge is displacement-controlled, so the load is the reaction: the
+    internal force at that edge's x DOFs, summed. `QuasiStaticStepping` scales the
+    prescribed displacement to each level and warm-starts Newton from the last one,
+    which is also how a finite-strain solve is walked past a seed a single solve
+    would diverge from. A coarse mesh of its own: the curve is a global scalar per
+    level, converged long before the stress field of the main figure is.
+
+    Returns `[(name, stretches, forces)]`, one triple per law.
+    """
+    mesh = box_mesh([[0.0, 0.0], [width, width]], (resolution, resolution))
+    bc = stretch_bc(width, stretch)
+    models = [
+        ('Small strain', LinearElastic(E=E, nu=NU)),
+        ('St-Venant-Kirchhoff', FiniteStrainElastic(E=E, nu=NU)),
+        ('Neo-Hookean', FiniteStrainElastic(E=E, nu=NU, law=NeohookeanEnergyDensity)),
+    ]
+    stepping = QuasiStaticStepping(steps=steps)
+    curves = []
+    for name, equation in models:
+        problem = equation.problem(mesh, bc)
+        history = stepping.solve(problem)
+        pulled = np.isclose(problem.space.node_coords[:, 0], width)
+        x_dofs = 2 * np.flatnonzero(pulled)
+        forces = np.array([float(problem.internal_residual(u)[x_dofs].sum())
+                           for u in history.dofs])
+        curves.append((name, history.t * stretch, forces))
+    return curves
+
+
 @dataclass
 class StretchStudy:
     """Everything `run` computed, for the figures and the summary to read."""
@@ -85,6 +122,7 @@ class StretchStudy:
     solutions: list[tuple[str, ElasticSolution]]   # (panel name, solution)
     energy_problem: Problem
     energy_u: np.ndarray
+    curves: list[tuple[str, np.ndarray, np.ndarray]]   # (law, stretches, reaction forces)
 
     @property
     def von_mises(self) -> list[np.ndarray]:
@@ -101,8 +139,11 @@ class StretchStudy:
         return float(self.energy_problem.energy(self.energy_u))
 
 
-def run(mesh: Mesh, stretch=0.5) -> StretchStudy:
-    """Stretch the block on `mesh` by `stretch` of its width, four ways."""
-    bc = stretch_bc(np.max(mesh.vertices[:, 0]), stretch)
+def run(mesh: Mesh, stretch=0.5, curve_steps=10, curve_resolution=24) -> StretchStudy:
+    """Stretch the block on `mesh` by `stretch` of its width, four ways; then walk the
+    same stretch up from zero for the force-stretch curve of each law."""
+    width = np.max(mesh.vertices[:, 0])
+    bc = stretch_bc(width, stretch)
     solutions, energy_problem, energy_u = stretch_four_ways(mesh, bc)
-    return StretchStudy(mesh, stretch, bc, solutions, energy_problem, energy_u)
+    curves = load_deflection(width, stretch, curve_steps, curve_resolution)
+    return StretchStudy(mesh, stretch, bc, solutions, energy_problem, energy_u, curves)
