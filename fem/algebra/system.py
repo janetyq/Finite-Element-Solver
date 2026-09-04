@@ -26,7 +26,7 @@ from fem.algebra.backends import Backend, DirectBackend
 from fem.typing import DofIndices, DofVector, FloatArray, Operator
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Partition:
     '''The DOFs of a system split into `free` (solved for) and `fixed` (prescribed).
 
@@ -48,6 +48,16 @@ class Partition:
                 f'{len(self.free)} free and {len(self.fixed)} fixed DOFs do not partition '
                 f'{self.n_dofs}'
             )
+
+    def __eq__(self, other: object) -> bool:
+        # By content: the generated dataclass comparison would compare the index
+        # arrays elementwise and fail to reduce them to one truth value.
+        if not isinstance(other, Partition):
+            return NotImplemented
+        return (self.n_dofs == other.n_dofs and np.array_equal(self.free, other.free)
+                and np.array_equal(self.fixed, other.fixed))
+
+    __hash__ = None  # type: ignore[assignment]
 
     @property
     def n_free(self) -> int:

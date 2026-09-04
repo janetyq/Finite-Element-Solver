@@ -111,3 +111,10 @@ def test_partition_must_cover_the_dofs():
         Partition(np.array([0, 1]), np.array([2]), 4)
     with pytest.raises(ValueError, match='against a partition'):
         DiscreteSystem(_spd(5), Partition(np.arange(3), np.array([3]), 4))
+
+
+def test_partition_compares_by_content():
+    same = Partition(np.array([0, 2]), np.array([1]), 3)
+    assert same == Partition(np.array([0, 2]), np.array([1]), 3)
+    assert same != Partition(np.array([2, 0]), np.array([1]), 3)
+    assert same != Partition(np.array([0, 1]), np.array([2]), 3)
