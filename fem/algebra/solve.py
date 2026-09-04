@@ -16,9 +16,9 @@ from typing import Literal, Protocol
 
 import numpy as np
 from scipy.sparse import eye_array
-from scipy.sparse.linalg import ArpackNoConvergence, eigsh
+from scipy.sparse.linalg import ArpackNoConvergence, LinearOperator, eigsh
 
-from fem.algebra.backends import Backend, IterativeBackend, MinresBackend
+from fem.algebra.backends import Backend, DirectBackend, IterativeBackend, MinresBackend
 from fem.conditions import Initial
 from fem.problem import Problem
 from fem.algebra.system import DiscreteSystem
@@ -384,8 +384,17 @@ class EigenSolve:
 
         A_sym = (0.5 * (Aff + Aff.T)).tocsc()
         B_sym = (0.5 * (Bff + Bff.T)).tocsc()
+        # eigsh factors what it needs (M^-1 without a shift, (A - sigma M)^-1 with one)
+        # through a default-ordered splu; supplying the inverse through `DirectBackend`
+        # gives it the minimum-degree ordering a symmetric block wants, which every
+        # Lanczos step's back-substitution then pays less for.
+        direct = DirectBackend()
+        shifted = self.sigma is not None
+        Minv = None if shifted else _inverse_operator(B_sym, direct)
+        OPinv = _inverse_operator(A_sym - self.sigma * B_sym, direct) if shifted else None
         try:
-            mu, vecs = eigsh(A_sym, k=k, M=B_sym, sigma=self.sigma, which=self.which)
+            mu, vecs = eigsh(A_sym, k=k, M=B_sym, sigma=self.sigma, which=self.which,
+                             Minv=Minv, OPinv=OPinv)
         except ArpackNoConvergence as failure:
             # Keep whatever converged: the lower modes a caller wants resolve first;
             # only nothing-converged is fatal.
@@ -399,3 +408,17 @@ class EigenSolve:
         modes = np.zeros((len(mu), n_dofs))
         modes[:, free] = vecs.T
         return mu, modes
+
+
+def _inverse_operator(matrix: Operator, backend: Backend) -> LinearOperator:
+    '''`matrix`'s inverse, factored through `backend`, as the `LinearOperator` eigsh takes
+    for `OPinv` and `Minv`.'''
+    factorization = backend.prepare(matrix)
+    # A subclass rather than `LinearOperator(shape, matvec=...)`: scipy's stub types the
+    # base constructor as `(dtype, shape)`, which only the subclass form satisfies.
+
+    class Inverse(LinearOperator):
+        def _matvec(self, x):
+            return factorization.solve(np.asarray(x, dtype=float).reshape(-1))
+
+    return Inverse(dtype=np.dtype(np.float64), shape=matrix.shape)
