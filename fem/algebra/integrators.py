@@ -75,8 +75,7 @@ class ThetaMethod:
         K = problem.tangent(None)
         dt, theta = self.dt, self.theta
 
-        free, fixed, _ = problem.constraints
-        system = DiscreteSystem(M + theta * dt * K, free, fixed, problem.backend)
+        system = DiscreteSystem(M + theta * dt * K, problem.partition, problem.backend)
         rhs_operator = M - (1 - theta) * dt * K
 
         b = problem.load_at(0.0)
@@ -86,7 +85,7 @@ class ThetaMethod:
             t_next = dt * (i + 1)
             b_next = problem.load_at(t_next)
             rhs = rhs_operator @ u + dt * ((1 - theta) * b + theta * b_next)
-            u = system.solve(rhs, fixed_values=problem.constraints_at(t_next)[2])
+            u = system.solve(rhs, fixed_values=problem.fixed_values_at(t_next))
             b = b_next
             t_values.append(t_next)
             u_values.append(u.copy())
@@ -127,7 +126,6 @@ class NewmarkMethod:
         M = problem.mass
         K = problem.tangent(None)
         b = problem.load_at(0.0)
-        free, fixed, _ = problem.constraints
         u, v = _initial_state(problem, initial)
 
         dt, beta, gamma = self.dt, self.beta, self.gamma
@@ -139,11 +137,11 @@ class NewmarkMethod:
             '''The damping force C v, zero without a damping matrix.'''
             return np.zeros_like(velocity) if C is None else C @ velocity
 
-        a = DiscreteSystem(M, free, fixed, problem.backend).solve_homogeneous(b - damping(v) - K @ u)
+        a = DiscreteSystem(M, problem.partition, problem.backend).solve_homogeneous(b - damping(v) - K @ u)
         effective_operator = M + beta * dt**2 * K
         if C is not None:
             effective_operator = effective_operator + gamma * dt * C
-        effective = DiscreteSystem(effective_operator, free, fixed, problem.backend)
+        effective = DiscreteSystem(effective_operator, problem.partition, problem.backend)
 
         t_values: list[float] = [0.0]
         u_values: list[DofVector] = [u.copy()]

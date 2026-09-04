@@ -1,7 +1,7 @@
 """Solve strategies over an assembled system.
 
 `LinearSolve` and `NewtonSolve` consume a `Problem` and return a DOF vector;
-`EigenSolve` consumes an operator pair plus constraints and returns eigenpairs.
+`EigenSolve` consumes an operator pair plus a `Partition` and returns eigenpairs.
 The first two sit on `DiscreteSystem` (matrix + Dirichlet partition + factor-once
 solve) and know nothing about which PDE produced the `Problem`. Each linear system on
 the way is solved with the problem's own `backend`; a `LinearProblem` holds its
@@ -24,7 +24,7 @@ from scipy.sparse.linalg import ArpackNoConvergence, LinearOperator, eigsh
 from fem.algebra.backends import Backend, DirectBackend, IterativeBackend, MinresBackend
 from fem.conditions import Initial
 from fem.problem import Problem
-from fem.algebra.system import DiscreteSystem
+from fem.algebra.system import DiscreteSystem, Partition
 from fem.typing import DofIndices, DofVector, FloatArray, Operator
 
 
@@ -65,7 +65,7 @@ def default_backend(problem: Problem) -> Backend:
     if not (problem.is_linear and problem.operator.symmetric_positive_definite):
         return DirectBackend()
     threshold = ITERATIVE_ABOVE.get(problem.space.spatial_dim)
-    if threshold is None or len(problem.constraints[0]) <= threshold:
+    if threshold is None or problem.partition.n_free <= threshold:
         return DirectBackend()
     return IterativeBackend()
 
@@ -83,7 +83,7 @@ class LinearSolve:
                 f'LinearSolve needs a constant tangent; {type(problem.operator).__name__} '
                 'depends on the state. Use NewtonSolve.'
             )
-        return problem.system.solve(problem.load, problem.constraints[2])
+        return problem.system.solve(problem.load, problem.fixed_values)
 
 
 class LineSearchFailure(RuntimeError):
@@ -239,12 +239,12 @@ class NewtonSolve:
         return self.regularization
 
     def solve(self, problem: Problem, *, initial: Initial | None = None) -> DofVector:
-        free, fixed, fixed_values = problem.constraints
+        free = problem.partition.free
         # A seed is a guess, not a state, so it is not held to the Dirichlet data: the
         # fixed entries are overwritten and only the free ones are iterated.
         seed = problem.u0 if initial is None else problem.resolved.resolve_initial(initial, check=False)[0]
         u = seed.dofs.copy()
-        u[fixed] = fixed_values
+        u[problem.partition.fixed] = problem.fixed_values
 
         regularization = self.regularization_for(problem.backend)
         step_norm = np.inf
@@ -280,13 +280,13 @@ class NewtonSolve:
         common case pays no extra solve. The increment is pinned to zero at the fixed
         DOFs, so every solve here is the homogeneous one.
         '''
-        free, fixed, _ = problem.constraints
+        free = problem.partition.free
         rhs = -residual
 
         def system_for(operator: Operator, shifted: bool) -> DiscreteSystem:
             if not shifted and problem.is_linear:
                 return problem.system
-            return DiscreteSystem(operator, free, fixed, problem.backend)
+            return DiscreteSystem(operator, problem.partition, problem.backend)
 
         if regularization is None:
             return system_for(H, False).solve_homogeneous(rhs)
@@ -374,17 +374,19 @@ class EigenSolve:
     sigma: float | None = None
 
     def solve(
-        self, A: Operator, B: Operator, free: DofIndices, n_dofs: int,
+        self, A: Operator, B: Operator, partition: Partition,
     ) -> tuple[FloatArray, FloatArray]:
-        '''The `n_modes` eigenpairs of `A φ = μ B φ`, modes lifted to `n_dofs` vectors.
+        '''The `n_modes` eigenpairs of `A φ = μ B φ` on the free block of `partition`,
+        modes lifted to full DOF vectors.
 
         Returns `(mu, modes)`, shapes `(k,)` and `(k, n_dofs)` with `k <= n_modes` (fewer
         if the free block is small or higher modes stall). No ordering or sign beyond
         `eigsh`'s; the facade owns interpretation.
         '''
+        free, n_dofs = partition.free, partition.n_dofs
         Aff = A[np.ix_(free, free)]
         Bff = B[np.ix_(free, free)]
-        n_free = Aff.shape[0]
+        n_free = partition.n_free
 
         # eigsh (Lanczos) needs headroom above the modes requested; cap so a small system
         # asks for fewer rather than failing.

@@ -44,13 +44,11 @@ def test_with_load_factor_scales_load_and_dirichlet(make_unit_square):
     half = problem.with_load_factor(0.5)
 
     np.testing.assert_allclose(half.load, 0.5 * problem.load)
-    free, fixed, values = half.constraints
-    free0, fixed0, values0 = problem.constraints
-    np.testing.assert_array_equal(free, free0)
-    np.testing.assert_array_equal(fixed, fixed0)
-    np.testing.assert_allclose(values, 0.5 * values0)
+    values0 = problem.fixed_values
+    assert half.partition == problem.partition, 'the same DOFs are fixed; only the values scale'
+    np.testing.assert_allclose(half.fixed_values, 0.5 * values0)
     # A snapshot, not a mutation: the original still answers with its own loading.
-    np.testing.assert_allclose(problem.constraints[2], values0)
+    np.testing.assert_allclose(problem.fixed_values, values0)
 
 
 def test_with_load_factor_refuses_a_time_dependent_problem(make_unit_square):
@@ -145,7 +143,7 @@ class _Brittle:
     def solve(self, problem, *, initial=None):
         # The pulled edge is prescribed to t * pull with pull = 1, so the level is
         # the largest fixed value.
-        t = float(problem.constraints[2].max())
+        t = float(problem.fixed_values.max())
         self.attempts.append(t)
         if t - self.reached > self.max_step + 1e-12:
             raise NewtonDivergence('the step was refused', np.zeros(1), 1, np.inf)

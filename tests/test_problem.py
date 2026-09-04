@@ -329,7 +329,7 @@ def test_forced_finite_strain_problem_balances_its_load(make_unit_square):
     bc = _loaded_bc(scale)
     finite = FiniteStrainElastic(E=200, nu=0.4)
     problem = finite.problem(mesh, bc + Source([scale, -3 * scale]))
-    free = problem.constraints[0]
+    free = problem.partition.free
     load_scale = float(np.abs(problem.load).max())
     assert load_scale > 0
 

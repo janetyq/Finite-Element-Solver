@@ -136,7 +136,7 @@ place.
 
 The shared cells are the splits worth knowing. Constraints (5) have one owner, the `Problem`,
 whose constructor resolves the boundary conditions against the space and turns the Dirichlet
-partition into its `constraints`, each Neumann and Robin value into a `BoundaryLoad` load term,
+partition into its `partition` (structure) and `fixed_values` (data), each Neumann and Robin value into a `BoundaryLoad` load term,
 and each Robin coefficient into a boundary term of the operator. Algebra (6) is split:
 `DiscreteSystem` owns the Dirichlet elimination and the `Backend` owns how the free-free block is
 solved. Physics (3) is owned by the physics layer alone: an `Equation` answers `operator` itself,
@@ -268,7 +268,7 @@ eliminates the Dirichlet DOFs and hands the free-free block to the backend, whic
 On top of the steady solves sit the two walks. The integrators (`fem/algebra/integrators.py`, one
 family per time order) form a constant effective operator from the problem's mass and stiffness,
 factor it once, and step the right-hand side, re-evaluating `TimeDependent` values per step
-through `problem.load_at(t)` / `constraints_at(t)`; a steady solve or an estimator works on the
+through `problem.load_at(t)` / `fixed_values_at(t)`; a steady solve or an estimator works on the
 snapshot `problem.at(t)`. `QuasiStaticStepping` (`fem/algebra/stepping.py`) walks the *load* path
 instead: steady equilibria from rest to full load, each Newton solve seeded with the last, a
 diverging step bisected; `t` is a dial on the loading, not physical time. Integrators and stepper

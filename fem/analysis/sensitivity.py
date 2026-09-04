@@ -433,15 +433,14 @@ class SensitivityAnalysis:
 
     def __init__(self, problem: Problem) -> None:
         self.problem = problem
-        _, _, fixed_values = problem.constraints
         # The λ = u shortcut is exact only when the forward supports are homogeneous;
         # a prescribed nonzero displacement breaks the self-adjoint identity.
-        self._homogeneous_supports = bool(np.allclose(fixed_values, 0.0))
+        self._homogeneous_supports = bool(np.allclose(problem.fixed_values, 0.0))
         self._system = problem.system
 
     def solve_forward(self) -> DofVector:
         '''The forward solution `u` of `K u = f`.'''
-        return self._system.solve(self.problem.load, self.problem.constraints[2])
+        return self._system.solve(self.problem.load, self.problem.fixed_values)
 
     def adjoint(self, qoi: QuantityOfInterest, u: DofVector) -> DofVector:
         '''The adjoint field `λ` solving `Kᵀ λ = (∂J/∂u)ᵀ` with homogeneous supports.'''

@@ -33,7 +33,7 @@ def test_a_time_independent_problem_has_one_load(make_unit_square):
     problem = Poisson().problem(make_unit_square(4), Conditions(Source(lambda p: 1.0)))
     assert not problem.is_time_dependent
     assert problem.load_at(5.0) is problem.load
-    assert problem.constraints_at(5.0) == problem.constraints
+    assert problem.fixed_values_at(5.0) is problem.fixed_values
 
 
 def test_constant_time_dependent_source_matches_the_steady_load(make_unit_square):
@@ -86,7 +86,7 @@ def test_theta_method_follows_time_dependent_dirichlet_data(make_unit_square):
     bc = Conditions(Dirichlet(everywhere(), TimeDependent(lambda p, t: 1.0 + t)))
     problem = Heat().problem(mesh, bc + Source(TimeDependent(lambda p, t: 1.0)))
     assert problem.is_time_dependent
-    np.testing.assert_allclose(problem.constraints_at(2.0)[2], 3.0)
+    np.testing.assert_allclose(problem.fixed_values_at(2.0), 3.0)
     for theta in (0.5, 1.0):
         solution = ThetaMethod(dt=0.1, steps=10, theta=theta).solve(problem, initial=Initial(1.0))
         np.testing.assert_allclose(solution.dofs[-1], 2.0, atol=1e-10)
@@ -203,7 +203,7 @@ def test_snapshot_at_a_time_is_a_steady_problem(make_unit_square):
     snapshot = problem.at(3.0)
     assert not snapshot.is_time_dependent and problem.is_time_dependent
     np.testing.assert_allclose(snapshot.load, reference.load, atol=1e-14)
-    np.testing.assert_allclose(snapshot.constraints[2], reference.constraints[2])
+    np.testing.assert_allclose(snapshot.fixed_values, reference.fixed_values)
     assert snapshot.load_at(0.0) is snapshot.load
 
     with pytest.raises(ValueError, match='pass t='):

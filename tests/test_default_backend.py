@@ -65,7 +65,7 @@ def test_large_spd_problems_resolve_to_amg_cg_with_the_near_kernel(make_unit_squ
     monkeypatch.setitem(solve_module.ITERATIVE_ABOVE, 2, 10)
     mesh = make_unit_square(6)
     poisson = Poisson().problem(mesh, pinned() + Source(1.0))
-    assert len(poisson.constraints[0]) > 10
+    assert poisson.partition.n_free > 10
     assert isinstance(default_backend(poisson), IterativeBackend)
     assert isinstance(poisson.backend, IterativeBackend)
     assert poisson.backend.near_null_space is None
@@ -74,7 +74,7 @@ def test_large_spd_problems_resolve_to_amg_cg_with_the_near_kernel(make_unit_squ
     resolved = elastic.backend
     assert isinstance(resolved, IterativeBackend)
     assert resolved.near_null_space is not None
-    assert resolved.near_null_space.shape == (len(elastic.constraints[0]), 3)
+    assert resolved.near_null_space.shape == (elastic.partition.n_free, 3)
 
     # The default agrees with the direct solve to CG's tolerance.
     direct = elastic.with_backend(DirectBackend()).solve().dofs

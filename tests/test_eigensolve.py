@@ -8,6 +8,7 @@ import pytest
 from scipy.sparse import csr_array
 
 from fem.algebra.solve import EigenSolve
+from fem.algebra.system import Partition
 
 
 def diagonal(values):
@@ -22,7 +23,7 @@ def test_regular_mode_returns_largest_eigenvalues_lifted():
     B = diagonal([1.0, 1.0, 1.0, 1.0, 1.0])   # standard problem: mu = eigenvalues of A
     free = np.array([0, 1, 2, 3])
 
-    mu, modes = EigenSolve(n_modes=2, which='LA').solve(A, B, free, n_dofs=5)
+    mu, modes = EigenSolve(n_modes=2, which='LA').solve(A, B, Partition(free, np.array([4]), 5))
 
     assert np.allclose(np.sort(mu), [3.0, 4.0])
     assert modes.shape == (2, 5)
@@ -37,7 +38,7 @@ def test_shift_invert_returns_smallest_eigenvalues():
     B = diagonal([1.0, 1.0, 1.0, 1.0, 1.0])
     free = np.array([0, 1, 2, 3])
 
-    mu, modes = EigenSolve(n_modes=2, sigma=0.0, which='LM').solve(A, B, free, n_dofs=5)
+    mu, modes = EigenSolve(n_modes=2, sigma=0.0, which='LM').solve(A, B, Partition(free, np.array([4]), 5))
 
     assert np.allclose(np.sort(mu), [1.0, 2.0])
     support = {int(np.argmax(np.abs(row))) for row in modes}
@@ -51,7 +52,7 @@ def test_generalized_pencil_uses_the_mass_side():
     B = diagonal([1.0, 2.0, 3.0, 4.0, 1.0])
     free = np.array([0, 1, 2, 3])
 
-    mu, _ = EigenSolve(n_modes=2, sigma=0.0, which='LM').solve(A, B, free, n_dofs=5)
+    mu, _ = EigenSolve(n_modes=2, sigma=0.0, which='LM').solve(A, B, Partition(free, np.array([4]), 5))
 
     assert np.allclose(np.sort(mu), [2.0, 4.0])
 
@@ -62,7 +63,7 @@ def test_too_few_free_dofs_is_rejected():
     A = diagonal([1.0, 2.0])
     B = diagonal([1.0, 1.0])
     with pytest.raises(ValueError, match='too few free DOFs'):
-        EigenSolve(n_modes=1).solve(A, B, np.array([0, 1]), n_dofs=2)
+        EigenSolve(n_modes=1).solve(A, B, Partition(np.array([0, 1]), np.array([], dtype=int), 2))
 
 
 def test_modes_are_b_orthonormal():
@@ -71,7 +72,7 @@ def test_modes_are_b_orthonormal():
     B = diagonal([1.0, 1.0, 1.0, 1.0, 1.0])
     free = np.array([0, 1, 2, 3])
 
-    _, modes = EigenSolve(n_modes=2, sigma=0.0, which='LM').solve(A, B, free, n_dofs=5)
+    _, modes = EigenSolve(n_modes=2, sigma=0.0, which='LM').solve(A, B, Partition(free, np.array([4]), 5))
 
     gram = modes @ (B @ modes.T)
     assert np.allclose(gram, np.eye(2), atol=1e-10)

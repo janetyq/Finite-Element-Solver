@@ -2,8 +2,9 @@
 
 A `Problem` is the resolved view of a physics composition, built for one mesh: a
 space, an operator (`Form`), the load terms, and boundary conditions. It answers
-the questions a solver needs: `constraints` (which DOFs are fixed), `load` (the
-right-hand side), `residual(u)`, `tangent(u)`, and, where the operator has an energy,
+the questions a solver needs: `partition` (which DOFs are fixed), `fixed_values` (the
+values prescribed there) and `load` (the right-hand side), `residual(u)`, `tangent(u)`,
+and, where the operator has an energy,
 `energy(u)`. Below it, `DiscreteSystem` sees only a matrix and a partition, so a
 solve strategy never learns which PDE it is solving. After the solve, `solution(u)`
 packages the DOF vector as the typed `Solution` its physics recovers (stress for
@@ -26,8 +27,8 @@ with the operator's terms handled by the space (`assemble`, `assemble_residual`,
 A transient problem also has a mass side, `mass` = density times the space's consistent
 mass matrix, and optionally a `damping` matrix (`RayleighDamping`), which the
 integrators and modal analysis pair with the tangent. A source or boundary value may be
-a `TimeDependent` field; `load` and `constraints` are their values at `t = 0`, and
-`load_at(t)` / `constraints_at(t)` re-evaluate them, which the integrators call per
+a `TimeDependent` field; `load` and `fixed_values` are their values at `t = 0`, and
+`load_at(t)` / `fixed_values_at(t)` re-evaluate them, which the integrators call per
 step. `at(t)` is the steady snapshot with every value fixed at `t`, which a steady solve
 (`solve(t=...)`) or an estimator works on.
 
@@ -50,14 +51,14 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 import numpy as np
 
 from fem.algebra.backends import Backend, IterativeBackend
-from fem.algebra.system import DiscreteSystem
+from fem.algebra.system import DiscreteSystem, Partition
 from fem.conditions import Conditions, Initial, ResolvedConditions
 from fem.field import NodalField
 from fem.physics.forms import Form
 from fem.loads import Load, Source
 from fem.post.solution import FieldSolution
 from fem.space import FunctionSpace
-from fem.typing import Constraints, DofVector, FloatArray, Operator
+from fem.typing import DofVector, FloatArray, Operator
 
 S = TypeVar('S', bound=FieldSolution)     # the solution the operator packages
 S2 = TypeVar('S2', bound=FieldSolution)
@@ -118,7 +119,7 @@ class Problem(Generic[S]):
     '''R(u) = 0: an operator with conditions on one space.
 
     `conditions` is the mesh-independent `Conditions` (boundary conditions, the volume
-    source, point loads) and `resolved` its resolution on this space: the constraints,
+    source, point loads) and `resolved` its resolution on this space: the partition,
     the operator terms a Robin condition adds, and the load terms, whose sum is `load`.
     `source` and `loads` are the resolution's; the source is kept as a pointwise field
     so a residual estimator can read it. `density` scales the mass matrix (`mass`); it is the
@@ -216,7 +217,7 @@ class Problem(Generic[S]):
 
         A snapshot sharing the space, operator, and constraint partition; only the
         values scale. The load *terms* (`loads`, `source`) are left as stated, the way
-        `at(t)` leaves them: `load` and `constraints` are the scaled data a solve
+        `at(t)` leaves them: `load` and `fixed_values` are the scaled data a solve
         reads. The initial state is not a loading and keeps its scale. A problem with
         time-dependent values has no one loading to scale; fix it first with `at(t)`.
         '''
@@ -238,10 +239,10 @@ class Problem(Generic[S]):
             return self._b
         return self._total_load(t)
 
-    def constraints_at(self, t: float) -> Constraints:
-        '''The Dirichlet partition at time `t`: the same DOFs as `constraints`, with
-        the prescribed values of a `TimeDependent` condition taken at `t`.'''
-        return self._resolved.constraints_at(t)
+    def fixed_values_at(self, t: float) -> FloatArray:
+        '''The values prescribed at the fixed DOFs at time `t`; `fixed_values` itself
+        when no Dirichlet value depends on time. The `partition` does not move.'''
+        return self._resolved.fixed_values_at(t)
 
     @property
     def mass(self) -> Operator:
@@ -287,7 +288,7 @@ class Problem(Generic[S]):
         modes = self.near_null_space()
         if modes is None:
             return backend
-        return backend.with_near_null_space(modes[self.constraints[0]])
+        return backend.with_near_null_space(modes[self.partition.free])
 
     def with_backend(self: P, backend: Backend | None) -> P:
         '''This problem solved with `backend` (None: the default). A copy sharing the
@@ -312,8 +313,7 @@ class Problem(Generic[S]):
             )
         solver = self._solver
         if solver.system is None:
-            free, fixed, _ = self.constraints
-            solver.system = DiscreteSystem(self.tangent(), free, fixed, self.backend)
+            solver.system = DiscreteSystem(self.tangent(), self.partition, self.backend)
         return solver.system
 
     @property
@@ -375,8 +375,14 @@ class Problem(Generic[S]):
         return self._resolved.loads
 
     @property
-    def constraints(self) -> Constraints:
-        return self._resolved.constraints
+    def partition(self) -> Partition:
+        '''Which DOFs are free and which are fixed: structure, shared by every snapshot.'''
+        return self._resolved.partition
+
+    @property
+    def fixed_values(self) -> FloatArray:
+        '''The values prescribed at `partition.fixed`: the Dirichlet data beside `load`.'''
+        return self._resolved.fixed_values
 
     @property
     def u0(self) -> NodalField:
