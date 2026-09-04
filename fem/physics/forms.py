@@ -247,6 +247,13 @@ class Form(ABC, Generic[S]):
       of ½‖r‖²; the Newton iteration is the same either way.
     - `flux`: the flux post-processing recovers and estimators jump
       (Poisson's gradient, elasticity's stress).
+    - `symmetric_positive_definite`: the tangent is symmetric and positive
+      semidefinite by construction, so its free block is SPD once the constraints
+      remove its kernel (a well-posed problem): the condition for conjugate gradients,
+      which `default_backend` reads to pick an iterative solve of a large system.
+      The bilinear forms of a mass, a diffusion with positive coefficient, and
+      small-strain elasticity; not a geometric stiffness (a prestress may be
+      compressive) and not a nonlinear tangent (indefinite away from a convex minimum).
     - `near_null_space`: the AMG near-kernel an iterative solve of the tangent is
       built with (the rigid-body modes of elasticity).
     - `element_loads`: a load from the form's own physics (the thermal load of a
@@ -266,6 +273,7 @@ class Form(ABC, Generic[S]):
     '''
     constant_tangent: bool = False
     has_energy: bool = False
+    symmetric_positive_definite: bool = False
     domain: ClassVar[Literal['volume', 'boundary']] = 'volume'
 
     @property
@@ -372,7 +380,7 @@ class BilinearForm(Form[S]):
 
 @dataclass(frozen=True)
 class MassForm(BilinearForm[FieldSolution]):
-    '''The mass form ∫ u·v: the consistent P1 mass matrix.
+    '''The mass form ∫ u·v: the consistent P1 mass matrix. Symmetric positive definite.
 
     The scalar `∫ phi_i phi_j` is element geometry; a k-component field repeats it
     once per component, which is the Kronecker product with the k×k identity: DOFs
@@ -381,6 +389,7 @@ class MassForm(BilinearForm[FieldSolution]):
     the time-steppers) and as a system matrix (an L2 projection solves M u = b).
     '''
     n_components: int = 1
+    symmetric_positive_definite = True
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         if not geometry.is_affine:
@@ -418,7 +427,7 @@ class MassForm(BilinearForm[FieldSolution]):
 @dataclass(frozen=True, eq=False)
 class BoundaryMassForm(BilinearForm[FieldSolution]):
     '''The boundary mass form ∫_Γ u·v over the subset Γ of the boundary that `mask`
-    marks.
+    marks. Symmetric positive semidefinite (zero off Γ), so it keeps a sum definite.
 
     The Robin operator term κ ∫_Γ u·v is `kappa * BoundaryMassForm(n, mask)`, and the
     Neumann and Robin loads integrate through the same matrix. `mask` marks the
@@ -427,6 +436,7 @@ class BoundaryMassForm(BilinearForm[FieldSolution]):
     `mask` is aligned with the space's boundary facets.
     '''
     n_components: int
+    symmetric_positive_definite = True
     mask: BoolArray  # one entry per facet
     domain: ClassVar[Literal['volume', 'boundary']] = 'boundary'
 
@@ -465,6 +475,14 @@ class DiffusionForm(BilinearForm[DiffusionSolution]):
     @property
     def is_sampled(self) -> bool:
         return callable(self.coefficient)
+
+    @property
+    def symmetric_positive_definite(self) -> bool:
+        '''True for a positive constant κ; a callable κ is taken on trust, since a
+        conductivity is positive by physics and sampling it here would not prove it.'''
+        if self.is_sampled:
+            return True
+        return float(np.asarray(self.coefficient, dtype=float).reshape(-1)[0]) > 0.0
 
     def quadrature_degree(self, shape_degree: int) -> int:
         return self.rule_degree if self.is_sampled else 0
@@ -641,6 +659,7 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
     '''
     material: LinearElasticMaterial
     eigenstrain: Eigenstrain | None = None
+    symmetric_positive_definite = True
 
     def load_quadrature_degree(self, shape_degree: int) -> int:
         # The load pairs the strain of a shape function with the eigenstrain.
@@ -816,6 +835,10 @@ class ScaledForm(Form[S]):
         return self.form.has_energy
 
     @property
+    def symmetric_positive_definite(self) -> bool:
+        return self.factor > 0 and self.form.symmetric_positive_definite
+
+    @property
     def domain(self) -> Literal['volume', 'boundary']:
         return self.form.domain
 
@@ -885,6 +908,10 @@ class SumForm(Form[S]):
         return all(f.has_energy for f in self.forms)
 
     @property
+    def symmetric_positive_definite(self) -> bool:
+        return all(f.symmetric_positive_definite for f in self.forms)
+
+    @property
     def terms(self) -> tuple[Form[Any], ...]:
         return self.forms
 
@@ -945,9 +972,12 @@ class PrecomputedForm(BilinearForm[FieldSolution]):
     rather than re-contracting `B^T D B` over the mesh.
 
     Valid only for the geometry the matrices were computed on. The element count is
-    checked, the one mismatch a bare `matrices` array can reveal.
+    checked, the one mismatch a bare `matrices` array can reveal. The matrices are
+    taken as those of a symmetric positive definite form (SIMP's scaled stiffness);
+    a caller handing in others says so with `symmetric_positive_definite=False`.
     '''
     matrices: FloatArray   # (n_elements, k, k)
+    symmetric_positive_definite: bool = True
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         if len(self.matrices) != geometry.n_elements:

@@ -8,7 +8,7 @@ the way is solved with the problem's own `backend`; a `LinearProblem` holds its
 factored `system`, which `LinearSolve` reads and `NewtonSolve` reads for a constant
 tangent (reaching the solution in one step), while a state-dependent tangent is
 factored per iteration. `default_backend` is the backend a problem resolves to when
-given none.
+given none: iterative for a large SPD system, direct otherwise.
 
 `EigenSolve` is the eigen-analogue: no right-hand side, the same free-block Dirichlet
 elimination. `BucklingAnalysis` and `ModalAnalysis` interpret its eigenvalues.
@@ -44,9 +44,30 @@ def default_strategy(problem: Problem) -> 'SolveStrategy':
     return NewtonSolve(line_search=BacktrackingLineSearch())
 
 
+# Free DOFs above which an SPD system is solved iteratively by default, by spatial
+# dimension: the crossovers measured in the 2026-09-03 audit with the minimum-degree
+# direct ordering (3D elasticity: direct 0.33 s against AMG-CG 0.25 s at 10k free DOFs
+# and 1.4 s against 0.47 s at 21k; 2D P1 Poisson at 89k, 1.0 s against 0.6 s). Direct
+# fill grows super-linearly in 3D, so the 3D threshold is the lower one.
+ITERATIVE_ABOVE: dict[int, int] = {2: 50_000, 3: 10_000}
+
+
 def default_backend(problem: Problem) -> Backend:
-    '''The backend a problem resolves to when given none: the direct one.'''
-    return DirectBackend()
+    '''The backend a problem resolves to when given none.
+
+    `IterativeBackend` (AMG-preconditioned CG) when the operator is symmetric positive
+    definite by construction (`Form.symmetric_positive_definite`) and the free block has
+    more DOFs than `ITERATIVE_ABOVE` for the problem's dimension; `DirectBackend`
+    otherwise. Below the threshold the direct solve is as fast and exact to round-off;
+    above it the CG answer agrees to its `rtol` (1e-10). A state-dependent tangent is
+    indefinite away from a convex minimum, so a nonlinear problem stays direct.
+    '''
+    if not (problem.is_linear and problem.operator.symmetric_positive_definite):
+        return DirectBackend()
+    threshold = ITERATIVE_ABOVE.get(problem.space.spatial_dim)
+    if threshold is None or len(problem.constraints[0]) <= threshold:
+        return DirectBackend()
+    return IterativeBackend()
 
 
 @dataclass(frozen=True)

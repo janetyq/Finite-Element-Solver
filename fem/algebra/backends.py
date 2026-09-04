@@ -65,7 +65,8 @@ class Backend(Protocol):
 # -- the backends a caller picks from ------------------------------------------
 
 class DirectBackend:
-    '''Sparse LU factorization via `splu`. The default: robust for any operator.'''
+    '''Sparse LU factorization via `splu`. The default below the size threshold of
+    `default_backend`, and for any operator that is not SPD: robust for all of them.'''
 
     def prepare(self, A: Operator) -> Factorization:
         # splu wants CSC; the SuperLU it returns already satisfies Factorization
@@ -79,7 +80,8 @@ class DirectBackend:
 
 
 class IterativeBackend:
-    '''AMG-preconditioned CG for SPD systems. Opt-in per problem; the default is direct.
+    '''AMG-preconditioned CG for SPD systems. The default for a large SPD problem
+    (`default_backend`), opt-in per problem otherwise.
 
     `near_null_space` is the AMG near-kernel `B` (shape `(n_free, n_modes)`): the
     low-energy modes the smoother cannot damp, which the coarse levels must

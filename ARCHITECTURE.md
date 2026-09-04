@@ -259,7 +259,8 @@ one is a function of the problem (definiteness, size, near-kernel) and so is the
 produces: a `LinearProblem` holds its factored `system`, shared by its snapshots, so every solve of
 it after the first is a back-substitution. `default_strategy(problem)` and `default_backend(problem)`
 are the one place each choice is made for a caller who names none: `LinearSolve` for a constant
-tangent, line-searched `NewtonSolve` otherwise; the direct backend. Underneath, `DiscreteSystem`
+tangent, line-searched `NewtonSolve` otherwise; the direct backend, or AMG-CG for an operator that
+is SPD by construction (`Form.symmetric_positive_definite`) above a size threshold. Underneath, `DiscreteSystem`
 eliminates the Dirichlet DOFs and hands the free-free block to the backend, which prepares it into a
 `Factorization` solved against many right-hand sides. `EigenSolve` covers the solves that are not `Ax = b`
 (buckling, modal), sharing the elimination and lifting each mode back to a full DOF vector.
