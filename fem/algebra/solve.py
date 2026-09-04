@@ -390,8 +390,8 @@ class EigenSolve:
         # Lanczos step's back-substitution then pays less for.
         direct = DirectBackend()
         shifted = self.sigma is not None
-        Minv = None if shifted else _inverse_operator(B_sym, direct)
-        OPinv = _inverse_operator(A_sym - self.sigma * B_sym, direct) if shifted else None
+        Minv = None if shifted else _InverseOperator(B_sym, direct)
+        OPinv = _InverseOperator(A_sym - self.sigma * B_sym, direct) if shifted else None
         try:
             mu, vecs = eigsh(A_sym, k=k, M=B_sym, sigma=self.sigma, which=self.which,
                              Minv=Minv, OPinv=OPinv)
@@ -410,15 +410,13 @@ class EigenSolve:
         return mu, modes
 
 
-def _inverse_operator(matrix: Operator, backend: Backend) -> LinearOperator:
-    '''`matrix`'s inverse, factored through `backend`, as the `LinearOperator` eigsh takes
-    for `OPinv` and `Minv`.'''
-    factorization = backend.prepare(matrix)
-    # A subclass rather than `LinearOperator(shape, matvec=...)`: scipy's stub types the
-    # base constructor as `(dtype, shape)`, which only the subclass form satisfies.
+class _InverseOperator(LinearOperator):
+    '''A `Factorization` viewed as the `LinearOperator` eigsh takes for `OPinv` and `Minv`:
+    its matvec is one back-substitution.'''
 
-    class Inverse(LinearOperator):
-        def _matvec(self, x):
-            return factorization.solve(np.asarray(x, dtype=float).reshape(-1))
+    def __init__(self, matrix: Operator, backend: Backend) -> None:
+        super().__init__(dtype=np.dtype(np.float64), shape=matrix.shape)
+        self._factorization = backend.prepare(matrix)
 
-    return Inverse(dtype=np.dtype(np.float64), shape=matrix.shape)
+    def _matvec(self, x):
+        return self._factorization.solve(np.asarray(x, dtype=float).reshape(-1))
