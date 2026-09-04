@@ -8,18 +8,21 @@ recovery error estimator want it once per node instead. Two recoveries do that:
   node. Local and cheap; weighted so that on a graded mesh a sliver does not count as
   much as the large element beside it.
 - `'l2'`: the global L2 projection onto the nodal space, `M q = ∫ f φ`. A mass solve,
-  more accurate on a graded mesh, and it conserves the field's integral.
+  more accurate on a graded mesh, and it conserves the field's integral. The mass matrix
+  is factored once per space (`FunctionSpace.nodal_mass_solver`) and every projection on
+  that space reuses the factorization; a `backend` given to a call is prepared against
+  the matrix for that call alone.
 
 Every function takes the `FunctionSpace` whose nodes the field is recovered onto; the
-space contributes its numbering, volumes, geometry, and `nodal_mass_matrix`.
+space contributes its numbering, volumes, geometry, and the factored `nodal_mass_matrix`.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import numpy as np
-from scipy.sparse.linalg import spsolve
 
+from fem.algebra.backends import Backend, Factorization
 from fem.numerics import scatter_add
 from fem.typing import ElementValues, FloatArray, NodalValues
 
@@ -35,12 +38,14 @@ RecoveryMethod: TypeAlias = Literal['average', 'l2']
 
 
 def recover_nodal(space: FunctionSpace, values: ElementValues,
-                  method: RecoveryMethod = 'average') -> NodalValues:
+                  method: RecoveryMethod = 'average',
+                  backend: Backend | None = None) -> NodalValues:
     '''Recover a continuous nodal field from a per-element one.
 
     Takes `(n_elements,)` or `(n_elements, *component_shape)` and returns `(n_nodes,)`
     or `(n_nodes, *component_shape)`, each component recovered independently.
-    `method` is `'average'` or `'l2'` (see the module docstring).
+    `method` is `'average'` or `'l2'` (see the module docstring); `backend` solves the
+    `'l2'` mass system in place of the space's cached factorization.
     '''
     values = np.asarray(values, dtype=float)
     if len(values) != len(space.element_nodes):
@@ -53,7 +58,7 @@ def recover_nodal(space: FunctionSpace, values: ElementValues,
         per_node = np.repeat(values[:, None, ...], n_local, axis=1)
         return average_to_nodal(space, per_node)
     if method == 'l2':
-        return _recover_nodal_l2(space, values)
+        return _recover_nodal_l2(space, values, backend)
     raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
 
 
@@ -90,7 +95,24 @@ def average_to_nodal(space: FunctionSpace, values_at_nodes: FloatArray) -> Nodal
     return sums / norms
 
 
-def _recover_nodal_l2(space: FunctionSpace, values: FloatArray) -> NodalValues:
+def _mass_solver(space: FunctionSpace, backend: Backend | None) -> Factorization:
+    '''The factored scalar mass matrix a projection solves against: the space's own,
+    factored once and held, unless a `backend` is given for this call.'''
+    if backend is None:
+        return space.nodal_mass_solver
+    return backend.prepare(space.nodal_mass_matrix)
+
+
+def _project(solver: Factorization, load: FloatArray) -> FloatArray:
+    '''`M⁻¹ load` column by column: `load` is `(n_nodes, n_columns)`, one right-hand
+    side per trailing component. A column at a time, since a `Factorization` takes one
+    vector (the iterative backends have no multi-column solve); the factorization is
+    the cost, and a back-substitution per column is small beside it.'''
+    return np.stack([solver.solve(np.ascontiguousarray(column)) for column in load.T], axis=1)
+
+
+def _recover_nodal_l2(space: FunctionSpace, values: FloatArray,
+                      backend: Backend | None = None) -> NodalValues:
     '''The L2 projection of a per-element field onto the nodal space: solve M q = b.
 
     `b_i = ∫ f φ_i`, and with `f` element-constant that is `Σ_e f_e ∫_e φ_i`, built from
@@ -108,12 +130,13 @@ def _recover_nodal_l2(space: FunctionSpace, values: FloatArray) -> NodalValues:
                * values[:, None, ...])
     load = scatter_add(nodes, contrib.reshape(len(values) * n_local, *trailing), space.n_nodes)
 
-    projected = spsolve(space.nodal_mass_matrix, load.reshape(space.n_nodes, -1))
-    return np.asarray(projected).reshape(space.n_nodes, *trailing)
+    projected = _project(_mass_solver(space, backend), load.reshape(space.n_nodes, -1))
+    return projected.reshape(space.n_nodes, *trailing)
 
 
 def project_to_nodal(space: FunctionSpace, values_qp: FloatArray,
-                     geometry: ElementGeometry) -> NodalValues:
+                     geometry: ElementGeometry,
+                     backend: Backend | None = None) -> NodalValues:
     '''L2-project a per-quadrature-point field onto the continuous nodal space.
 
     `values_qp` is `(n_elements, n_qp, *component_shape)`, a field sampled at
@@ -124,7 +147,8 @@ def project_to_nodal(space: FunctionSpace, values_qp: FloatArray,
     This generalizes `recover_nodal('l2')` from an element-constant field to one that
     varies within the element, as a P2 derived field does. `geometry` must be the
     space's own geometry so its shape functions and node numbering line up with the
-    nodal space `M` is built on.
+    nodal space `M` is built on. `backend` solves the mass system in place of the
+    space's cached factorization.
     '''
     values_qp = np.asarray(values_qp, dtype=float)
     trailing = values_qp.shape[2:]
@@ -134,24 +158,26 @@ def project_to_nodal(space: FunctionSpace, values_qp: FloatArray,
     contrib = np.einsum('eq,qn,eq...->en...', geometry.weight_detJ, geometry.shape, values_qp,
                         optimize=True)
     load = scatter_add(nodes, contrib.reshape(len(nodes) * n_local, *trailing), space.n_nodes)
-    projected = spsolve(space.nodal_mass_matrix, load.reshape(space.n_nodes, -1))
-    return np.asarray(projected).reshape(space.n_nodes, *trailing)
+    projected = _project(_mass_solver(space, backend), load.reshape(space.n_nodes, -1))
+    return projected.reshape(space.n_nodes, *trailing)
 
 
 def nodal_gradient(space: FunctionSpace, u: NodalValues,
-                   method: RecoveryMethod = 'average') -> NodalValues:
+                   method: RecoveryMethod = 'average',
+                   backend: Backend | None = None) -> NodalValues:
     '''(n_nodes, spatial_dim) continuous gradient of a nodal field.
 
     `'average'` evaluates each element's gradient at its own nodes and volume-averages
     the elements sharing a node; `'l2'` projects the gradient sampled at quadrature
     points onto the nodal space. Both read a P2 gradient's variation within the
     element, so a boundary node gets the boundary value rather than an interior one.
-    For P1 both agree with `recover_nodal(space, space.gradient(u), method)`.
+    For P1 both agree with `recover_nodal(space, space.gradient(u), method)`. `backend`
+    solves the `'l2'` mass system in place of the space's cached factorization.
     '''
     u_elements = np.asarray(u)[space.element_nodes]
     if method == 'average':
         return average_to_nodal(space, space.geometry_at_nodes.gradients(u_elements))
     if method == 'l2':
         geometry = space.geometry_at(2 * space.element_type.SHAPE_DEGREE)
-        return project_to_nodal(space, geometry.gradients(u_elements), geometry)
+        return project_to_nodal(space, geometry.gradients(u_elements), geometry, backend)
     raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")

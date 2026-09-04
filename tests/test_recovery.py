@@ -113,3 +113,52 @@ def test_l2_and_average_recovery_differ_on_a_varying_field():
     average = recover_nodal(space, field, method='average')
     l2 = recover_nodal(space, field, method='l2')
     assert not np.allclose(average, l2)
+
+
+# -- the mass matrix is factored once per space -------------------------------------
+
+
+def _counting_prepare(monkeypatch):
+    """Count `DirectBackend.prepare` calls, the one factorization the recoveries make."""
+    from fem.algebra.backends import DirectBackend
+    calls = []
+    original = DirectBackend.prepare
+
+    def prepare(self, A):
+        calls.append(A.shape)
+        return original(self, A)
+
+    monkeypatch.setattr(DirectBackend, 'prepare', prepare)
+    return calls
+
+
+def test_l2_recoveries_share_one_factorization_per_space(monkeypatch):
+    """Every L2 projection on a space, whatever field it recovers, solves against the
+    space's cached `nodal_mass_solver`: a second recovery factors nothing."""
+    from fem.analysis.estimators import RecoveryEstimator
+    from fem.boundary import Dirichlet
+    from fem.conditions import Conditions
+    from fem.loads import Source
+    from fem.physics.equations import Poisson
+    from fem.regions import everywhere
+    problem = Poisson().problem(box_mesh([[0.0, 0.0], [1.0, 1.0]], [8, 8]),
+                                Conditions(Dirichlet(everywhere(), 0.0), Source(1.0)))
+    solution = problem.solve()
+    calls = _counting_prepare(monkeypatch)
+    solution.nodal_gradient('l2')
+    assert len(calls) == 1, 'the first projection factors the mass matrix'
+    solution.nodal_gradient('l2')
+    RecoveryEstimator().estimate(problem, solution)
+    recover_nodal(problem.space, solution.gradient, method='l2')
+    assert len(calls) == 1, 'later projections on the space reuse it'
+
+
+def test_a_supplied_backend_projects_the_same_field(make_unit_square):
+    """A `backend` given to a recovery is prepared for that call and gives the same
+    projection as the cached direct factorization; it is not cached on the space."""
+    from fem.algebra.backends import IterativeBackend
+    space = FunctionSpace(make_unit_square(7))
+    values = np.sin(3.0 * space.mesh.centroids[:, 0]) * space.mesh.centroids[:, 1]
+    cached = recover_nodal(space, values, method='l2')
+    iterative = recover_nodal(space, values, method='l2', backend=IterativeBackend(rtol=1e-12))
+    np.testing.assert_allclose(iterative, cached, rtol=1e-8, atol=1e-10)

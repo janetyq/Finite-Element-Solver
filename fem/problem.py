@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import numpy as np
 
+from fem.algebra.backends import Backend
 from fem.conditions import Conditions, Initial, ResolvedConditions
 from fem.field import NodalField
 from fem.physics.forms import Form
@@ -61,7 +62,6 @@ P = TypeVar('P', bound='Problem[Any]')      # the problem's own type, for copies
 
 if TYPE_CHECKING:
     from fem.boundary import Robin
-    from fem.algebra.backends import Backend
     from fem.algebra.solve import SolveStrategy
 
 __all__ = ['Problem', 'LinearProblem', 'RayleighDamping']
@@ -384,7 +384,7 @@ class Problem(Generic[S]):
     def solve(
         self,
         strategy: 'SolveStrategy | None' = None,
-        backend: 'Backend | None' = None,
+        backend: Backend | None = None,
         initial: Initial | None = None,
         t: float | None = None,
     ) -> S:

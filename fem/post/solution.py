@@ -28,6 +28,7 @@ S = TypeVar('S', bound='FieldSolution')   # the steady solution a step packages
 T = TypeVar('T', bound='Solution')
 
 if TYPE_CHECKING:
+    from fem.algebra.backends import Backend
     from fem.elements import Element
     from fem.physics.forms import ElasticPointState, Form, RecoversElasticState
     from fem.mesh.mesh import Mesh
@@ -100,12 +101,14 @@ class DiffusionSolution(FieldSolution):
         '''Package a scalar solve, recovering its per-element gradient.'''
         return cls(space, dofs, gradient=NodalField(space, dofs).gradient())
 
-    def nodal_gradient(self, method: RecoveryMethod = 'average') -> FloatArray:
+    def nodal_gradient(self, method: RecoveryMethod = 'average',
+                       backend: 'Backend | None' = None) -> FloatArray:
         '''(n_nodes, spatial_dim) continuous gradient at the nodes.
 
         `method` is the recovery (`'average'` or `'l2'`); see `fem.post.recovery`.
+        `backend` solves the `'l2'` mass system in place of the space's cached factorization.
         '''
-        return recovery.nodal_gradient(self.space, self.dofs, method=method)
+        return recovery.nodal_gradient(self.space, self.dofs, method=method, backend=backend)
 
 
 @dataclass(frozen=True, eq=False)
@@ -155,27 +158,38 @@ class ElasticSolution(FieldSolution):
         '''Von Mises equivalent stress per element: the usual scalar to plot.'''
         return invariants.von_mises(self.stress)
 
-    def nodal_stress(self, method: RecoveryMethod = 'average') -> FloatArray:
+    def nodal_stress(self, method: RecoveryMethod = 'average',
+                     backend: 'Backend | None' = None) -> FloatArray:
         '''(n_nodes, 3, 3) continuous stress at the nodes.
 
         `'average'` evaluates each element's stress at its own nodes and volume-averages
         the elements sharing a node; `'l2'` projects the stress sampled at quadrature
         points onto the nodal space. Both keep a P2 stress's variation within the
-        element, so a boundary node gets the boundary value. Without `form` (a loaded
-        solution) they fall back to recovering the per-element tensor.
+        element, so a boundary node gets the boundary value. On P1 without an
+        eigenstrain the stress is constant within the element, so `'average'` reads the
+        stored per-element tensor rather than sampling it again. Without `form` (a
+        loaded solution) both fall back to recovering the per-element tensor. `backend` solves the `'l2'` mass
+        system in place of the space's cached factorization.
         '''
-        return self._nodal_field(self.stress, lambda fields: fields.stress, method)
+        return self._nodal_field(self.stress, lambda fields: fields.stress, method, backend)
 
-    def nodal_strain(self, method: RecoveryMethod = 'average') -> FloatArray:
+    def nodal_strain(self, method: RecoveryMethod = 'average',
+                     backend: 'Backend | None' = None) -> FloatArray:
         '''(n_nodes, 3, 3) continuous strain at the nodes; see `nodal_stress`.'''
-        return self._nodal_field(self.strain, lambda fields: fields.strain, method)
+        return self._nodal_field(self.strain, lambda fields: fields.strain, method, backend)
 
     def _nodal_field(self, stored: FloatArray,
                      sampled: 'Callable[[ElasticPointState], FloatArray]',
-                     method: RecoveryMethod) -> FloatArray:
-        if self.form is None:
-            return recovery.recover_nodal(self.space, stored, method=method)
+                     method: RecoveryMethod, backend: 'Backend | None' = None) -> FloatArray:
         space = self.space
+        # A P1 displacement has a constant strain per element, so its stress is the stored
+        # tensor at every node and averaging that is the same recovery without the
+        # sampling. Not under an eigenstrain: `sigma = D (eps - eps*)` varies within the
+        # element wherever eps* does (a temperature field), and only sampling sees it.
+        element_constant = (space.element_type.SHAPE_DEGREE == 1
+                            and getattr(self.form, 'eigenstrain', None) is None)
+        if self.form is None or (method == 'average' and element_constant):
+            return recovery.recover_nodal(space, stored, method=method, backend=backend)
         u_elements = self.element_values
         if method == 'average':
             fields = self.form.sample(space.geometry_at_nodes, u_elements)
@@ -185,10 +199,11 @@ class ElasticSolution(FieldSolution):
             # product with a shape function exactly is 2p - 1, and 2p is the cached one.
             geometry = space.geometry_at(2 * space.element_type.SHAPE_DEGREE)
             fields = self.form.sample(geometry, u_elements)
-            return recovery.project_to_nodal(space, sampled(fields), geometry)
+            return recovery.project_to_nodal(space, sampled(fields), geometry, backend)
         raise ValueError(f"unknown recovery method {method!r}; use 'average' or 'l2'")
 
-    def nodal_von_mises(self, method: RecoveryMethod = 'average') -> FloatArray:
+    def nodal_von_mises(self, method: RecoveryMethod = 'average',
+                        backend: 'Backend | None' = None) -> FloatArray:
         '''(n_nodes,) von Mises stress at the nodes, the smooth field to plot.
 
         Recover-then-reduce: the stress tensor is recovered to the nodes first, then the
@@ -196,7 +211,7 @@ class ElasticSolution(FieldSolution):
         Mises is a different, less faithful number, since the reduction is nonlinear.
         `method` is the tensor recovery (`'average'` or `'l2'`).
         '''
-        return invariants.von_mises(self.nodal_stress(method=method))
+        return invariants.von_mises(self.nodal_stress(method=method, backend=backend))
 
     @property
     def pressure(self) -> ElementValues:
