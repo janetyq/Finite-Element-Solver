@@ -3,9 +3,12 @@
 `LinearSolve` and `NewtonSolve` consume a `Problem` and return a DOF vector;
 `EigenSolve` consumes an operator pair plus constraints and returns eigenpairs.
 The first two sit on `DiscreteSystem` (matrix + Dirichlet partition + factor-once
-solve) and know nothing about which PDE produced the `Problem`. `LinearSolve`
-assembles once and solves once; `NewtonSolve` iterates, and on a `LinearProblem`
-(constant tangent, affine residual) reaches the solution in one step.
+solve) and know nothing about which PDE produced the `Problem`. Each linear system on
+the way is solved with the problem's own `backend`; a `LinearProblem` holds its
+factored `system`, which `LinearSolve` reads and `NewtonSolve` reads for a constant
+tangent (reaching the solution in one step), while a state-dependent tangent is
+factored per iteration. `default_backend` is the backend a problem resolves to when
+given none.
 
 `EigenSolve` is the eigen-analogue: no right-hand side, the same free-block Dirichlet
 elimination. `BucklingAnalysis` and `ModalAnalysis` interpret its eigenvalues.
@@ -22,63 +25,44 @@ from fem.algebra.backends import Backend, DirectBackend, IterativeBackend, Minre
 from fem.conditions import Initial
 from fem.problem import Problem
 from fem.algebra.system import DiscreteSystem
-from fem.typing import Constraints, DofIndices, DofVector, FloatArray, Operator
+from fem.typing import DofIndices, DofVector, FloatArray, Operator
 
 
 class SolveStrategy(Protocol):
     '''How a `Problem` is iterated to its solution. Orthogonal to the `Backend`, which is
-    how each linear system on the way is solved and is given at the call.'''
+    how each linear system on the way is solved and is the problem's own.'''
 
-    def solve(self, problem: Problem, *, initial: Initial | None = None,
-              backend: Backend | None = None) -> DofVector: ...
+    def solve(self, problem: Problem, *, initial: Initial | None = None) -> DofVector: ...
 
 
 def default_strategy(problem: Problem) -> 'SolveStrategy':
     '''The strategy a caller gets by naming none: `LinearSolve` for a constant tangent,
     line-searched `NewtonSolve` otherwise (which regularizes its tangent by itself when
-    the backend it is handed is iterative).'''
+    the problem's backend is iterative).'''
     if problem.is_linear:
         return LinearSolve()
     return NewtonSolve(line_search=BacktrackingLineSearch())
 
 
-def backend_for(problem: Problem, backend: Backend | None) -> Backend | None:
-    '''`backend`, given the problem's AMG near-kernel if it is iterative and has none.
-
-    An elasticity stiffness has the rigid-body modes as its low-energy near-kernel,
-    and AMG needs them to keep CG's iteration count flat under refinement. The problem
-    supplies them over all DOFs; they are restricted here to the free block the backend
-    factors. A near-kernel the caller set is left untouched.
-    '''
-    if not isinstance(backend, IterativeBackend) or backend.near_null_space is not None:
-        return backend
-    modes = problem.near_null_space()
-    if modes is None:
-        return backend
-    free = problem.constraints[0]
-    return backend.with_near_null_space(modes[free])
+def default_backend(problem: Problem) -> Backend:
+    '''The backend a problem resolves to when given none: the direct one.'''
+    return DirectBackend()
 
 
 @dataclass(frozen=True)
 class LinearSolve:
-    '''Assemble once, solve once: for a `Problem` with a state-independent tangent.
-    Nothing to configure: a named choice.
-
-    `backend` (at the call) selects the linear algebra for the one solve: direct by
-    default, or an `IterativeBackend` for a large SPD system (Poisson, small-strain
-    elasticity), which is handed the problem's near-kernel (see `backend_for`).
+    '''Solve once: for a `Problem` with a state-independent tangent. Nothing to
+    configure: a named choice. Reads the problem's held `system`, so a second solve
+    of the same problem, or of one of its snapshots, is one back-substitution.
     '''
 
-    def solve(self, problem: Problem, *, initial: Initial | None = None,
-              backend: Backend | None = None) -> DofVector:
+    def solve(self, problem: Problem, *, initial: Initial | None = None) -> DofVector:
         if not problem.is_linear:
             raise TypeError(
                 f'LinearSolve needs a constant tangent; {type(problem.operator).__name__} '
                 'depends on the state. Use NewtonSolve.'
             )
-        backend = backend_for(problem, backend)
-        system = DiscreteSystem(problem.tangent(), problem.constraints, backend)
-        return system.solve(problem.load)
+        return problem.system.solve(problem.load, problem.constraints[2])
 
 
 class LineSearchFailure(RuntimeError):
@@ -210,9 +194,10 @@ class NewtonSolve:
     where the step descends but no length satisfies Armijo it raises `LineSearchFailure`
     rather than accept a non-descending step.
 
-    The `backend` given at the call selects the linear algebra for each tangent solve
-    (direct by default). A nonlinear tangent is indefinite away from a convex minimum, so
-    an iterative backend for it must handle that: `MinresBackend`, not the SPD-only CG
+    Each tangent is solved with the problem's `backend`; a linear problem's held
+    `system` serves every iteration, a state-dependent tangent is factored per
+    iteration. A nonlinear tangent is indefinite away from a convex minimum, so an
+    iterative backend for it must handle that: `MinresBackend`, not the SPD-only CG
     `IterativeBackend`. `regularization` (a `TangentRegularization`) steers each step to a
     descent direction by shifting an indefinite tangent; without it, an indefinite tangent
     falls back to the full step (line-search globalization only). The default `'auto'`
@@ -232,8 +217,7 @@ class NewtonSolve:
             return TangentRegularization() if iterative else None
         return self.regularization
 
-    def solve(self, problem: Problem, *, initial: Initial | None = None,
-              backend: Backend | None = None) -> DofVector:
+    def solve(self, problem: Problem, *, initial: Initial | None = None) -> DofVector:
         free, fixed, fixed_values = problem.constraints
         # A seed is a guess, not a state, so it is not held to the Dirichlet data: the
         # fixed entries are overwritten and only the free ones are iterated.
@@ -241,15 +225,13 @@ class NewtonSolve:
         u = seed.dofs.copy()
         u[fixed] = fixed_values
 
-        regularization = self.regularization_for(backend)
-        step_constraints = (free, fixed, np.zeros(len(fixed)))
+        regularization = self.regularization_for(problem.backend)
         step_norm = np.inf
         for _ in range(self.max_iters):
             # One pass evaluates both: the residual and the tangent are read at the same
             # iterate, and an energy form would otherwise evaluate its density twice.
             residual, tangent = problem.residual_and_tangent(u)
-            step = self._compute_step(tangent, residual, free, step_constraints,
-                                      backend, regularization)
+            step = self._compute_step(problem, tangent, residual, regularization)
             step_norm = float(np.linalg.norm(step))
             if step_norm < self.tol * max(1.0, float(np.linalg.norm(u))):
                 return u
@@ -263,22 +245,30 @@ class NewtonSolve:
         )
 
     def _compute_step(
-        self, H: Operator, residual: DofVector,
-        free: DofIndices, step_constraints: Constraints,
-        backend: Backend | None, regularization: TangentRegularization | None,
+        self, problem: Problem, H: Operator, residual: DofVector,
+        regularization: TangentRegularization | None,
     ) -> DofVector:
         '''The Newton increment from the tangent `H` and residual at the iterate,
         optionally regularized to a descent direction.
 
-        Plain Newton solves `H du = -r` once. With a `regularization`, `H` is shifted by
-        `tau*I` and re-solved, escalating tau until the step descends (`r_free . step < 0`),
-        so an indefinite tangent still yields a usable direction and an SPD-only backend
-        stays safe. A positive-definite tangent is accepted at the first (tau=0) shift, so
-        the common case pays no extra solve.
+        Plain Newton solves `H du = -r` once, through the problem's held system when
+        the tangent is constant. With a `regularization`, `H` is shifted by `tau*I` and
+        re-solved, escalating tau until the step descends (`r_free . step < 0`), so an
+        indefinite tangent still yields a usable direction and an SPD-only backend stays
+        safe. A positive-definite tangent is accepted at the first (tau=0) shift, so the
+        common case pays no extra solve. The increment is pinned to zero at the fixed
+        DOFs, so every solve here is the homogeneous one.
         '''
+        free, fixed, _ = problem.constraints
         rhs = -residual
+
+        def system_for(operator: Operator, shifted: bool) -> DiscreteSystem:
+            if not shifted and problem.is_linear:
+                return problem.system
+            return DiscreteSystem(operator, free, fixed, problem.backend)
+
         if regularization is None:
-            return DiscreteSystem(H, step_constraints, backend).solve(rhs)
+            return system_for(H, False).solve_homogeneous(rhs)
 
         identity = eye_array(H.shape[0], format='csr')
         diagonal_scale = float(np.abs(H.diagonal()).mean()) or 1.0
@@ -286,7 +276,7 @@ class NewtonSolve:
         for tau in regularization.schedule(diagonal_scale):
             operator = H if tau == 0.0 else H + tau * identity
             try:
-                step = DiscreteSystem(operator, step_constraints, backend).solve(rhs)
+                step = system_for(operator, tau != 0.0).solve_homogeneous(rhs)
             except RuntimeError:
                 # An SPD-only backend (CG) breaks down on a still-indefinite shift; escalate.
                 continue

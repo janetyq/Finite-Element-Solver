@@ -309,8 +309,8 @@ class GoalOrientedEstimator:
     heuristic, not the dual-weighted-residual estimate, which weights the primal element
     residual by the dual's interpolation error and can be much sharper. The dual (adjoint)
     solution `z` solves `Kᵀ z = ∂J/∂u` through `SensitivityAnalysis`. Built on the
-    recovery estimator, so it is dimension-general; the dual solve refactors the
-    operator once per round.
+    recovery estimator, so it is dimension-general; the dual solve reuses the
+    factorization of the forward solve.
     '''
     quantity_of_interest: 'QuantityOfInterest'
 

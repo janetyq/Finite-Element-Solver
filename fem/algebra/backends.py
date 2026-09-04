@@ -2,7 +2,9 @@
 
 `DiscreteSystem` owns the Dirichlet elimination but not how the remaining free-free
 block is solved. That choice is a `Backend`: a `SolveStrategy` picks linear vs.
-Newton, a `Backend` picks direct vs. iterative, and they compose.
+Newton, a `Backend` picks direct vs. iterative, and they compose. The backend is the
+problem's (`Problem(..., backend=)`, `problem.with_backend`), so every linear system
+of one problem, and of its snapshots, is solved the same way.
 
 What a caller touches, versus what is plumbing:
 
@@ -14,9 +16,9 @@ What a caller touches, versus what is plumbing:
 nonsingular system, indefinite ones included, but its fill-in on a 3D mesh grows
 super-linearly and caps the reachable resolution. `IterativeBackend` runs
 preconditioned conjugate gradients with an algebraic-multigrid preconditioner
-(`pyamg`); CG is SPD-only, so it is opt-in (Poisson, small-strain elasticity, mass,
-the time-stepping operators), and on a large 3D system it is O(n) where the direct
-factorization is not.
+(`pyamg`); CG is SPD-only, so it is opt-in per problem (Poisson, small-strain
+elasticity, mass, the time-stepping operators), and on a large 3D system it is O(n)
+where the direct factorization is not.
 
 `MinresBackend` is the iterative path for symmetric indefinite systems, which CG
 cannot take: a harmonic operator `K - w^2 M` above the first natural frequency, or a
@@ -77,7 +79,7 @@ class DirectBackend:
 
 
 class IterativeBackend:
-    '''AMG-preconditioned CG for SPD systems. Opt-in per solve; the default is direct.
+    '''AMG-preconditioned CG for SPD systems. Opt-in per problem; the default is direct.
 
     `near_null_space` is the AMG near-kernel `B` (shape `(n_free, n_modes)`): the
     low-energy modes the smoother cannot damp, which the coarse levels must

@@ -77,8 +77,7 @@ def _one_newton_step(problem):
     free, fixed, fixed_values = problem.constraints
     u = np.zeros(problem.space.n_dofs)
     u[fixed] = fixed_values
-    step = DiscreteSystem(problem.tangent(u), (free, fixed, np.zeros(len(fixed)))).solve(
-        -problem.residual(u))
+    step = DiscreteSystem(problem.tangent(u), free, fixed).solve_homogeneous(-problem.residual(u))
     return u + step
 
 
@@ -310,7 +309,7 @@ def test_finite_strain_solve_reaches_the_minres_backend(make_unit_square):
     mesh, equation, bc = _stretched_stvk(make_unit_square)
 
     direct = equation.problem(mesh, bc).solve().dofs
-    iterative = equation.problem(mesh, bc).solve(backend=MinresBackend()).dofs
+    iterative = equation.problem(mesh, bc).with_backend(MinresBackend()).solve().dofs
 
     assert np.abs(direct).max() > 0, "trivial solution; test proves nothing"
     np.testing.assert_allclose(iterative, direct, atol=1e-7 * np.abs(direct).max())
@@ -327,7 +326,7 @@ def test_problem_solve_uses_the_strategy_it_is_given(make_unit_square):
                                atol=1e-7 * np.abs(reference).max())
 
 
-def test_newton_regularizes_for_the_backend_it_is_handed(make_unit_square):
+def test_newton_regularizes_for_the_problems_backend(make_unit_square):
     """`regularization='auto'` shifts the tangent only under an iterative backend: a
     St-VK stretch solved with MINRES matches the direct solve, and both match plain
     Newton with regularization off."""
@@ -336,8 +335,8 @@ def test_newton_regularizes_for_the_backend_it_is_handed(make_unit_square):
     problem = equation.problem(mesh, bc)
     newton = NewtonSolve(line_search=BacktrackingLineSearch())
 
-    direct = newton.solve(problem, backend=DirectBackend())
-    minres = newton.solve(problem, backend=MinresBackend())
+    direct = newton.solve(problem.with_backend(DirectBackend()))
+    minres = newton.solve(problem.with_backend(MinresBackend()))
     off = NewtonSolve(line_search=BacktrackingLineSearch(), regularization=None).solve(problem)
     tol = 1e-6 * np.abs(direct).max()
     np.testing.assert_allclose(minres, direct, atol=tol)

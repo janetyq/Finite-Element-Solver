@@ -15,7 +15,6 @@ import numpy as np
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
 from fem.analysis.estimators import ErrorEstimator
-from fem.algebra.backends import Backend
 from fem.algebra.solve import SolveStrategy
 from fem.post.solution import FieldSolution
 
@@ -35,8 +34,9 @@ class AdaptiveRefinement(Generic[S]):
 
     `problem_for(mesh)` states the problem on any mesh (`equation.problem(mesh,
     bc)`); its boundary conditions must be geometric, since
-    they are resolved afresh on every mesh. `strategy` None is `default_strategy` for
-    each round's problem, over `backend`. `estimator` is an `ErrorEstimator` or a bare callable of
+    they are resolved afresh on every mesh, and the problem it builds carries the
+    backend each round solves with. `strategy` None is `default_strategy` for
+    each round's problem. `estimator` is an `ErrorEstimator` or a bare callable of
     `(problem, solution)`. After `run`, `mesh`, `problem`, and `solution` are the
     final round's.
     '''
@@ -47,7 +47,6 @@ class AdaptiveRefinement(Generic[S]):
         problem_for: Callable[[Mesh], Problem[S]],
         estimator: ErrorEstimator | Callable[[Problem, FieldSolution], ElementValues],
         strategy: SolveStrategy | None = None,
-        backend: Backend | None = None,
         max_triangles: int = 1000,
         max_iters: int = 20,
         refine_fraction: float = 0.9,
@@ -55,7 +54,6 @@ class AdaptiveRefinement(Generic[S]):
         self.mesh = mesh
         self.problem_for = problem_for
         self.strategy = strategy
-        self.backend = backend
         self._estimate = estimator.estimate if isinstance(estimator, ErrorEstimator) else estimator
         self.max_triangles = max_triangles
         self.max_iters = max_iters
@@ -65,7 +63,7 @@ class AdaptiveRefinement(Generic[S]):
 
     def _solve(self) -> S:
         assert self.problem is not None
-        self.solution = self.problem.solve(strategy=self.strategy, backend=self.backend)
+        self.solution = self.problem.solve(strategy=self.strategy)
         return self.solution
 
     def run(self) -> S:

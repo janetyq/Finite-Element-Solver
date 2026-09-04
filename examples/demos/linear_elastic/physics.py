@@ -47,7 +47,7 @@ def bend_3d(n_3d) -> tuple[Mesh, ElasticSolution]:
         Dirichlet(on_plane(0, 0.0), [0, 0, 0]),
         Neumann(on_plane(0, 4.0), [0, 0, -0.5]),
     )
-    solution = LinearElastic(E, NU).problem(box, bc_3d).solve(backend=IterativeBackend())
+    solution = LinearElastic(E, NU).problem(box, bc_3d).with_backend(IterativeBackend()).solve()
     return box, solution
 
 

@@ -86,3 +86,33 @@ def two_triangle_square() -> Mesh:
         elements=[[0, 1, 2], [0, 2, 3]],
         boundary=[[0, 1], [1, 2], [2, 3], [3, 0]],
     )
+
+
+class CountingBackend:
+    """A `Backend` that counts how often it factors and how often each factorization
+    solves, delegating the algebra to `inner` (direct by default).
+
+    For the performance contracts (`tests/test_perf_contracts.py`): a solve path's cost
+    is fixed by how many factorizations and back-substitutions it performs, which are
+    exact counts a test can assert where wall-clock time is not.
+    """
+
+    def __init__(self, inner=None) -> None:
+        from fem.algebra.backends import DirectBackend
+        self.inner = inner if inner is not None else DirectBackend()
+        self.factorizations = 0
+        self.solves = 0
+
+    def prepare(self, A):
+        self.factorizations += 1
+        return _CountingFactorization(self.inner.prepare(A), self)
+
+
+class _CountingFactorization:
+    def __init__(self, inner, backend: CountingBackend) -> None:
+        self._inner = inner
+        self._backend = backend
+
+    def solve(self, b):
+        self._backend.solves += 1
+        return self._inner.solve(b)
