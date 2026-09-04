@@ -30,13 +30,9 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
+from fem.numerics import scatter_add
 from fem.post.recovery import project_to_nodal
-from fem.quadrature import QuadratureRule
 from fem.regions import evaluate_field
-
-# The three edge midpoints in reference coordinates, ordered opposite corner 0, 1, 2 to
-# match `element_nodes[:, 3:6]`. The flux sampled here is each side's edge traction.
-_REFERENCE_EDGE_MIDPOINTS = np.array([[0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
 if TYPE_CHECKING:
     from fem.conditions import ResolvedConditions
@@ -191,8 +187,8 @@ class ResidualEstimator:
         flux_jump = edge_side_flux[is_interior, 0] - edge_side_flux[is_interior, 1]  # (Ei, k, d)
         jumps = np.einsum('ekd,ed->ek', flux_jump, normals)                  # (Ei, k)
         contribution = edge_lens * np.sum(jumps**2, axis=1)                   # (Ei,)
-        np.add.at(jump_term, e0, (h_K[e0] / 2) * contribution / 2)
-        np.add.at(jump_term, e1, (h_K[e1] / 2) * contribution / 2)
+        jump_term += scatter_add(e0, (h_K[e0] / 2) * contribution / 2, n_elements)
+        jump_term += scatter_add(e1, (h_K[e1] / 2) * contribution / 2, n_elements)
 
         # Boundary edges are comparatively few and the flux's boundary residual
         # is a per-edge physics hook, so these stay a Python loop.
@@ -226,16 +222,15 @@ class ResidualEstimator:
     ) -> FloatArray:
         '''(n_edges, 2, k, d) the flux each side carries at each edge's midpoint.
 
-        For every element the flux is sampled at its three edge midpoints, then scattered
-        into `[edge, side]` so an interior edge holds the value from both neighbours (side
-        0 is `edge_elements[:, 0]`). A boundary edge fills only side 0.
+        For every element the flux is sampled at its three edge midpoints (through the
+        space's cached `geometry_at_edge_midpoints`), then scattered into `[edge, side]` so
+        an interior edge holds the value from both neighbours (side 0 is
+        `edge_elements[:, 0]`). A boundary edge fills only side 0. Sampled on P1 as well:
+        a variable coefficient makes the flux vary within a P1 element even though the
+        gradient does not.
         '''
-        element_nodes = space.element_nodes
-        n_el = len(element_nodes)
-        # Sample the flux at the reference edge midpoints (slot s opposite corner s).
-        rule = QuadratureRule(_REFERENCE_EDGE_MIDPOINTS, np.ones(3), degree=2)
-        geometry = space.element_type.geometry(space.node_coords[element_nodes], rule)
-        edge_flux = flux.sample(solution, geometry)                # (n_el, 3, k, d)
+        n_el = len(space.element_nodes)
+        edge_flux = flux.sample(solution, space.geometry_at_edge_midpoints)   # (n_el, 3, k, d)
 
         # The global edge each (element, slot) names: the local edge opposite corner s
         # joins the other two corners, matched into the sorted `edges` table by key.

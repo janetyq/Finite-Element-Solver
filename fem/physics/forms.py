@@ -356,7 +356,7 @@ class BilinearForm(Form[S]):
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         K = self.element_matrices(geometry)
         u = np.asarray(u_elements).reshape(len(K), -1)
-        return 0.5 * np.einsum('ei,eij,ej->e', u, K, u)
+        return 0.5 * np.einsum('ei,eij,ej->e', u, K, u, optimize=True)
 
 
 @dataclass(frozen=True)
@@ -393,7 +393,7 @@ class MassForm(BilinearForm[FieldSolution]):
         `M[a, b]` when `d == e`.
         '''
         scalar = np.einsum(
-            'qi,qj,eq->eij', geometry.shape, geometry.shape, geometry.weight_detJ)
+            'qi,qj,eq->eij', geometry.shape, geometry.shape, geometry.weight_detJ, optimize=True)
         c = self.n_components
         if c == 1:
             return scalar
@@ -462,10 +462,11 @@ class DiffusionForm(BilinearForm[DiffusionSolution]):
         grad_phi = geometry.grad_phi
         if not self.is_sampled:
             kappa = float(np.asarray(self.coefficient, dtype=float).reshape(-1)[0])
-            return kappa * np.einsum('eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ)
+            return kappa * np.einsum(
+                'eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ, optimize=True)
         kappa = sample_field(self.coefficient, geometry, 1)[..., 0]   # (n_el, n_qp)
         return np.einsum(
-            'eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ * kappa)
+            'eqid,eqjd,eq->eij', grad_phi, grad_phi, geometry.weight_detJ * kappa, optimize=True)
 
     def flux(self) -> Flux:
         return GradientFlux(self.coefficient)
@@ -645,7 +646,7 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         constrained = self.material.constrained_stress(eigenstrain)
         B = strain_displacement(geometry.grad_phi)                  # (n_el, n_qp, n_strains, k)
         rows = tensor_to_voigt(constrained, geometry.reference_dim)  # the components B has rows for
-        return np.einsum('eqsk,eqs,eq->ek', B, rows, geometry.weight_detJ)
+        return np.einsum('eqsk,eqs,eq->ek', B, rows, geometry.weight_detJ, optimize=True)
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         B = strain_displacement(geometry.grad_phi)   # (n_el, n_qp, n_strains, k)
@@ -732,7 +733,7 @@ class LinearElasticForm(BilinearForm[ElasticSolution]):
         # either reduction, so this equals the in-plane Voigt dot product it replaces
         # unless an eigenstrain has a z part for a plane-strain sigma_zz to work on.
         compliance = np.einsum('eqij,eqij,eq->e', fields.stress, mechanical,
-                               geometry.weight_detJ)
+                               geometry.weight_detJ, optimize=True)
         return ElasticState(_element_mean(fields.strain, geometry.weight_detJ),
                              _element_mean(fields.stress, geometry.weight_detJ),
                              compliance)
@@ -1080,7 +1081,7 @@ class EnergyForm(Form[ElasticSolution]):
                 f'elements are inverted (det F <= 0); the state is not a physical '
                 f'deformation'
             )
-        cauchy = np.einsum('e,eci,eki->eck', 1.0 / J, P, F)
+        cauchy = np.einsum('e,eci,eki->eck', 1.0 / J, P, F, optimize=True)
 
         # The density's own measure: Green-Lagrange for St-VK, eps for its linearisation.
         strain = self.energy_density.strain(grad_u)

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 import numpy as np
 from scipy.sparse.linalg import spsolve
 
+from fem.numerics import scatter_add
 from fem.typing import ElementValues, FloatArray, NodalValues
 
 if TYPE_CHECKING:
@@ -77,12 +78,11 @@ def average_to_nodal(space: FunctionSpace, values_at_nodes: FloatArray) -> Nodal
     flat = nodes.ravel()
     trailing = values_at_nodes.shape[2:]
 
-    # Scatter each element's volume-weighted readings onto its own nodes; `add.at`
-    # accumulates, so a shared node sums its elements' contributions.
+    # Scatter each element's volume-weighted readings onto its own nodes; a shared node
+    # sums its elements' contributions.
     w = weights.reshape((-1, 1) + (1,) * len(trailing))
     weighted = (values_at_nodes * w).reshape(len(flat), *trailing)
-    sums = np.zeros((space.n_nodes, *trailing))
-    np.add.at(sums, flat, weighted)
+    sums = scatter_add(flat, weighted, space.n_nodes)
     norms = np.bincount(flat, weights=np.repeat(weights, n_local), minlength=space.n_nodes)
     # Every referenced node belongs to at least one element; an unreferenced one would
     # divide by zero, so it keeps 0 instead.
@@ -106,8 +106,7 @@ def _recover_nodal_l2(space: FunctionSpace, values: FloatArray) -> NodalValues:
 
     contrib = (shape_integral.reshape(len(values), n_local, *((1,) * len(trailing)))
                * values[:, None, ...])
-    load = np.zeros((space.n_nodes, *trailing))
-    np.add.at(load, nodes.ravel(), contrib.reshape(len(values) * n_local, *trailing))
+    load = scatter_add(nodes, contrib.reshape(len(values) * n_local, *trailing), space.n_nodes)
 
     projected = spsolve(space.nodal_mass_matrix, load.reshape(space.n_nodes, -1))
     return np.asarray(projected).reshape(space.n_nodes, *trailing)
@@ -132,9 +131,9 @@ def project_to_nodal(space: FunctionSpace, values_qp: FloatArray,
     nodes = space.element_nodes
     n_local = nodes.shape[1]
     # b[e, n, ...] = Σ_q weight_detJ[e,q] shape[q,n] f[e,q,...]
-    contrib = np.einsum('eq,qn,eq...->en...', geometry.weight_detJ, geometry.shape, values_qp)
-    load = np.zeros((space.n_nodes, *trailing))
-    np.add.at(load, nodes.ravel(), contrib.reshape(len(nodes) * n_local, *trailing))
+    contrib = np.einsum('eq,qn,eq...->en...', geometry.weight_detJ, geometry.shape, values_qp,
+                        optimize=True)
+    load = scatter_add(nodes, contrib.reshape(len(nodes) * n_local, *trailing), space.n_nodes)
     projected = spsolve(space.nodal_mass_matrix, load.reshape(space.n_nodes, -1))
     return np.asarray(projected).reshape(space.n_nodes, *trailing)
 
