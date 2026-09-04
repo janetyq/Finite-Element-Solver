@@ -7,6 +7,7 @@ import pytest
 
 from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial
+from fem.elements import QuadraticTriangleElement
 from fem.physics.energies import StVenantKirchhoff
 from fem.physics.equations import LinearElastic, Poisson
 from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, BoundaryMassForm, MassForm, SumForm
@@ -225,6 +226,23 @@ def test_a_uniform_source_sums_to_the_source_times_the_volume(dim):
     f = [1.0, -2.0, 0.5][:dim]
     vector = FunctionSpace(mesh, n_components=dim).assemble_load(Source(f))
     np.testing.assert_allclose(vector.reshape(-1, dim).sum(axis=0), f, atol=1e-12)
+
+
+@pytest.mark.parametrize('space_for', [
+    lambda: FunctionSpace(box_mesh([[0, 0], [1, 1]], (5, 5))),
+    lambda: FunctionSpace(box_mesh([[0, 0], [1, 1]], (5, 5)), QuadraticTriangleElement),
+    lambda: FunctionSpace(box_mesh([[0, 0, 0], [1, 1, 1]], (3, 3, 3)), n_components=3),
+], ids=['P1', 'P2', '3D vector'])
+def test_a_constant_source_integrates_element_wise_without_the_mass_matrix(space_for):
+    """A constant load is the mass matrix times the constant's nodal vector, but it is
+    integrated element by element so the load never assembles the mass matrix, which
+    is a full block scatter the steady solve otherwise has no use for."""
+    space = space_for()
+    value = 2.5 if space.n_components == 1 else [1.0, -2.0, 0.5]
+    load = Source(value).vector(space)
+    assert 'mass_matrix' not in space.__dict__
+    expected = space.mass_matrix @ space.interpolate(value).dofs
+    np.testing.assert_allclose(load, expected, rtol=1e-12, atol=1e-14)
 
 
 @pytest.mark.parametrize('dim', [2, 3])
