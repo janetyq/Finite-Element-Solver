@@ -135,7 +135,7 @@ def test_equation_resolves_its_space_and_problem(make_unit_square):
 
 def test_default_strategy_follows_the_tangent(make_unit_square):
     """A constant tangent gets `LinearSolve`; a state-dependent one gets line-searched
-    `NewtonSolve`, which regularizes only under the iterative backend it is handed."""
+    `NewtonSolve`, which regularizes only under an iterative backend."""
     from fem.algebra.backends import DirectBackend, MinresBackend
     from fem.algebra.solve import LinearSolve, NewtonSolve, default_strategy
 

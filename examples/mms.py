@@ -199,8 +199,8 @@ def solve_poisson_mms(n: int, dim: int = 2, backend: Backend | None = None) -> M
     mesh = box_mesh(corners=[[0.0] * dim, [1.0] * dim], resolution=(n,) * dim)
 
     bc = Conditions(Dirichlet(everywhere(), 0.0))
-    problem = Poisson().problem(mesh, bc + Source(source_term))
-    solution = problem.solve(backend=backend)
+    problem = Poisson().problem(mesh, bc + Source(source_term)).with_backend(backend)
+    solution = problem.solve()
     u = solution.dofs
 
     exact = exact_solution(mesh.vertices)
@@ -292,7 +292,7 @@ def solve_elastic_mms(n: int, dim: int = 2, backend: Backend | None = None,
 def _elastic_mms_solve(n: int, problem: LinearProblem, backend: Backend | None = None) -> MMSSolve:
     """Solve a P1 elastic `problem` whose answer is `elastic_exact` and measure its errors."""
     mesh = problem.space.mesh
-    solution = problem.solve(backend=backend)
+    solution = problem.with_backend(backend).solve()
 
     exact = elastic_exact(mesh.vertices)
     # The space's mass matrix is the scalar one repeated per component, so this is

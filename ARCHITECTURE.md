@@ -49,14 +49,14 @@ Composed by hand:
 ```python
 space = FunctionSpace(mesh, n_components=1)
 conditions = Conditions(Dirichlet(on_plane(0, 0), 0.0), Source(1.0))
-problem = LinearProblem(space, DiffusionForm(), conditions)
-solution = problem.solve(backend=IterativeBackend())
+problem = LinearProblem(space, DiffusionForm(), conditions, backend=IterativeBackend())
+solution = problem.solve()
 ```
 
 The same solve from the named equation, which builds the space and the problem:
 
 ```python
-solution = Poisson().problem(mesh, conditions).solve(backend=IterativeBackend())
+solution = Poisson().problem(mesh, conditions).with_backend(IterativeBackend()).solve()
 ```
 
 The two agree exactly: `Equation.problem` and `Problem.solve` hold no policy of their own, so
@@ -253,12 +253,15 @@ type is carried statically: a form is a `Form[S]`, a problem over it a `Problem[
 ### Solves: strategies, backends, integrators, the stepper
 
 The strategy is how a problem is iterated; the `Backend` is how each linear system on the way is
-solved; the two compose without either knowing the other, and both are given at the call, never
-stored. `default_strategy(problem)` is the one place the choice is made for a caller who names
-none: `LinearSolve` for a constant tangent, line-searched `NewtonSolve` otherwise. Underneath,
-`DiscreteSystem` eliminates the Dirichlet DOFs and hands the free-free block to the backend, which
-prepares it into a `Factorization` solved against many right-hand sides; `backend_for` gives an
-iterative backend the problem's near-kernel. `EigenSolve` covers the solves that are not `Ax = b`
+solved; the two compose without either knowing the other. The strategy is given at the call; the
+backend is the problem's (`backend=` at construction, `with_backend` for a copy), because the right
+one is a function of the problem (definiteness, size, near-kernel) and so is the factorization it
+produces: a `LinearProblem` holds its factored `system`, shared by its snapshots, so every solve of
+it after the first is a back-substitution. `default_strategy(problem)` and `default_backend(problem)`
+are the one place each choice is made for a caller who names none: `LinearSolve` for a constant
+tangent, line-searched `NewtonSolve` otherwise; the direct backend. Underneath, `DiscreteSystem`
+eliminates the Dirichlet DOFs and hands the free-free block to the backend, which prepares it into a
+`Factorization` solved against many right-hand sides. `EigenSolve` covers the solves that are not `Ax = b`
 (buckling, modal), sharing the elimination and lifting each mode back to a full DOF vector.
 
 On top of the steady solves sit the two walks. The integrators (`fem/algebra/integrators.py`, one
@@ -351,13 +354,13 @@ Construction: `from_*` builds from another representation (`ElasticSolution.from
 `Outline.from_polygons`); `with_*` returns a copy with one thing changed (`LinearProblem.with_operator`,
 `Mesh.with_topology`); `at(t)` fixes a time-dependent object at one instant, `history[i]` picks a step;
 `sample(geometry)` evaluates a field at a rule's points; `*_for(x)` resolves a choice against `x`
-(`element_type_for`, `backend_for`, `problem_for`).
+(`element_type_for`, `problem_for`).
 
 ### Algorithm objects
 
 The strategies, the integrators, and the stepper are frozen dataclasses of
 their parameters with one `solve`. What varies per call (the problem, an `initial` to continue
-from, the `backend`) is an argument, never a field, so one configured object serves many solves.
+from) is an argument, never a field, so one configured object serves many solves.
 Only the drivers (`AdaptiveRefinement`, `DesignOptimizer`) hold state.
 
 ### Exceptions

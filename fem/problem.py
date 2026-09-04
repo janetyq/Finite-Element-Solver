@@ -32,14 +32,16 @@ step. `at(t)` is the steady snapshot with every value fixed at `t`, which a stea
 (`solve(t=...)`) or an estimator works on.
 
 `LinearProblem` is the case whose operator has a constant tangent (every term a
-`BilinearForm`): the matrix is assembled once and held, and the residual is affine.
+`BilinearForm`): the matrix is assembled once and held, its factored `system` with it,
+and the residual is affine.
 Everything that needs one fixed operator (a direct solve, the integrators, an
 eigenproblem, SIMP) requires it. Both own their `Conditions`, resolved on the space
 once; a driver that remeshes builds a new `Problem`. Named PDEs are `Equation`s
 (`fem.physics.equations`), whose `problem` builds one of these.
 
-`Problem.solve` imports `fem.algebra.solve` lazily for `default_strategy`: the strategies
-consume a `Problem`, so the edge points up and stays function-local.
+`Problem.solve` and `backend` import `fem.algebra.solve` lazily for `default_strategy`
+and `default_backend`: the strategies consume a `Problem`, so the edge points up and
+stays function-local.
 """
 import copy
 from dataclasses import dataclass, replace
@@ -47,7 +49,8 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import numpy as np
 
-from fem.algebra.backends import Backend
+from fem.algebra.backends import Backend, IterativeBackend
+from fem.algebra.system import DiscreteSystem
 from fem.conditions import Conditions, Initial, ResolvedConditions
 from fem.field import NodalField
 from fem.physics.forms import Form
@@ -83,6 +86,34 @@ class RayleighDamping:
         return self.alpha * mass + self.beta * stiffness
 
 
+class _Matrices:
+    '''The assembled matrices of a problem, built on first use.
+
+    A problem's snapshots (`at(t)`, `with_load_factor`, `with_backend`) are shallow
+    copies, so the matrices live in this holder, shared by reference, rather than as
+    attributes of the problem: whichever copy assembles first fills it for all of them.
+    `with_operator` starts a new one.
+    '''
+    __slots__ = ('A', 'M', 'C')
+
+    def __init__(self, M: Operator | None = None) -> None:
+        self.A: Operator | None = None
+        self.M = M
+        self.C: Operator | None = None
+
+
+class _Solver:
+    '''The backend a problem was given, the one it resolved to, and the factored
+    system of its constant tangent, built on first use. Shared by reference like
+    `_Matrices`, but per backend: `with_backend` starts a new one.'''
+    __slots__ = ('given', 'resolved', 'system')
+
+    def __init__(self, given: Backend | None) -> None:
+        self.given = given
+        self.resolved: Backend | None = None
+        self.system: DiscreteSystem | None = None
+
+
 class Problem(Generic[S]):
     '''R(u) = 0: an operator with conditions on one space.
 
@@ -94,7 +125,9 @@ class Problem(Generic[S]):
     coefficient on the time-derivative term. `damping` is the `RayleighDamping` a second-order integrator
     reads, or None. `time_orders` is the set of time-derivative orders the problem has
     a meaning for (an `Equation`'s; every order for a problem composed by hand), which
-    `solve` and the integrators check.
+    `solve` and the integrators check. `backend` is how every linear system of the
+    problem is solved (`DirectBackend`, `IterativeBackend`, `MinresBackend`); None
+    resolves to `default_backend` on first use.
 
     `S` is the typed `Solution` the operator packages (`Form[S]`), so `solve` and
     `solution` return it: `Problem[ElasticSolution]` for an elastic operator.
@@ -109,6 +142,7 @@ class Problem(Generic[S]):
         density: float = 1.0,
         damping: RayleighDamping | None = None,
         time_orders: frozenset[int] = frozenset({0, 1, 2}),
+        backend: Backend | None = None,
     ) -> None:
         if density <= 0:
             raise ValueError(f'density must be positive, got {density}')
@@ -130,13 +164,14 @@ class Problem(Generic[S]):
         self._conditions_load = self._resolved.load_at(0.0)
         self._operator_load = space.assemble_loads(self.operator)
         self._b = self._sum_loads(self._conditions_load)
-        # A constant tangent is assembled on first use, not here. Stating a problem
-        # is cheap; assembling its operator is the expensive half, and a problem can
-        # be built without ever being solved: a topology optimization iteration
-        # derives its own operator from a template whose own operator is never assembled.
-        self._A: Operator | None = None
-        self._M: Operator | None = None
-        self._C: Operator | None = None
+        # A constant tangent is assembled on first use, not here, and factored on first
+        # use after that. Stating a problem is cheap; assembling its operator is the
+        # expensive half, and a problem can be built without ever being solved: a
+        # topology optimization iteration derives its own operator from a template
+        # whose own operator is never assembled. Both live in holders the snapshots of
+        # this problem share by reference (see `_Matrices`).
+        self._matrices = _Matrices()
+        self._solver = _Solver(backend)
 
     @property
     def is_time_dependent(self) -> bool:
@@ -210,9 +245,10 @@ class Problem(Generic[S]):
     @property
     def mass(self) -> Operator:
         '''`density` times the consistent mass matrix, assembled on first use and held.'''
-        if self._M is None:
-            self._M = self.density * self.space.mass_matrix
-        return self._M
+        held = self._matrices
+        if held.M is None:
+            held.M = self.density * self.space.mass_matrix
+        return held.M
 
     @property
     def damping_matrix(self) -> Operator | None:
@@ -220,9 +256,64 @@ class Problem(Generic[S]):
         constant tangent, assembled on first use and held.'''
         if self.damping is None:
             return None
-        if self._C is None:
-            self._C = self.damping.matrix(self.mass, self.tangent())
-        return self._C
+        held = self._matrices
+        if held.C is None:
+            held.C = self.damping.matrix(self.mass, self.tangent())
+        return held.C
+
+    @property
+    def backend(self) -> Backend:
+        '''The `Backend` every linear system of this problem is solved with.
+
+        The one given at construction or through `with_backend`, else
+        `default_backend(self)`, resolved on first use and held. An `IterativeBackend`
+        without a near-kernel is given the operator's (the rigid-body modes of an
+        elastic stiffness, restricted to the free DOFs), which AMG needs to keep CG's
+        iteration count flat under refinement.
+        '''
+        solver = self._solver
+        if solver.resolved is None:
+            backend = solver.given
+            if backend is None:
+                from fem.algebra.solve import default_backend
+                backend = default_backend(self)
+            solver.resolved = self._with_near_null_space(backend)
+        return solver.resolved
+
+    def _with_near_null_space(self, backend: Backend) -> Backend:
+        if not isinstance(backend, IterativeBackend) or backend.near_null_space is not None:
+            return backend
+        modes = self.near_null_space()
+        if modes is None:
+            return backend
+        return backend.with_near_null_space(modes[self.constraints[0]])
+
+    def with_backend(self: P, backend: Backend | None) -> P:
+        '''This problem solved with `backend` (None: the default). A copy sharing the
+        assembled matrices; the factorization is its own, since it is the backend's.'''
+        derived = copy.copy(self)
+        derived._solver = _Solver(backend)
+        return derived
+
+    @property
+    def system(self) -> DiscreteSystem:
+        '''The constant tangent over the Dirichlet partition, factored through
+        `backend` on first use and held: what every solve of a linear problem reads,
+        so a second solve, a snapshot's solve, or an adjoint solve costs one
+        back-substitution. The prescribed values are given per solve
+        (`system.solve(b, fixed_values)`), which is what lets snapshots differing only
+        in their values share it. Lives as long as the problem does.
+        '''
+        if not self.is_linear:
+            raise ValueError(
+                f'{type(self.operator).__name__} has a state-dependent tangent, so there is '
+                'no one system to hold; NewtonSolve factors each tangent as it goes.'
+            )
+        solver = self._solver
+        if solver.system is None:
+            free, fixed, _ = self.constraints
+            solver.system = DiscreteSystem(self.tangent(), free, fixed, self.backend)
+        return solver.system
 
     @property
     def is_linear(self) -> bool:
@@ -326,12 +417,13 @@ class Problem(Generic[S]):
         '''Rebind a copy to `operator`; its type parameter is the operator's.'''
         self.physics = operator
         self.operator = self._with_boundary_terms(operator)
-        # The copy carries the original's assembled operator and damping, which are
-        # precisely what the derived one must not answer with, and the original
-        # operator's load, which the new operator's replaces. The conditions' load is
-        # kept as it was assembled.
-        self._A = None
-        self._C = None
+        # The copy shares the original's assembled operator, damping, and factored
+        # system, which are precisely what the derived one must not answer with, and
+        # the original operator's load, which the new operator's replaces. The mass
+        # (the space's, scaled) and the conditions' load are kept as they were assembled;
+        # the backend stays the one given.
+        self._matrices = _Matrices(M=self._matrices.M)
+        self._solver = _Solver(self._solver.given)
         self._operator_load = self.space.assemble_loads(self.operator)
         self._b = self._sum_loads(self._conditions_load)
 
@@ -346,9 +438,10 @@ class Problem(Generic[S]):
         if self.is_linear:
             # Assembled once, on the first call, and held: the operator is constant,
             # so a Newton loop or a time-stepper asking repeatedly pays for one assembly.
-            if self._A is None:
-                self._A = self.space.assemble(self.operator)
-            return self._A
+            held = self._matrices
+            if held.A is None:
+                held.A = self.space.assemble(self.operator)
+            return held.A
         if u is None:
             raise ValueError(
                 f'{type(self.operator).__name__} has a state-dependent tangent; evaluate '
@@ -393,7 +486,6 @@ class Problem(Generic[S]):
     def solve(
         self,
         strategy: 'SolveStrategy | None' = None,
-        backend: Backend | None = None,
         initial: Initial | None = None,
         t: float | None = None,
     ) -> S:
@@ -401,10 +493,10 @@ class Problem(Generic[S]):
 
         `strategy` is how the problem is iterated (`LinearSolve`, `NewtonSolve`); None is
         `default_strategy`, `LinearSolve` for a constant tangent and line-searched
-        `NewtonSolve` otherwise. `backend` is how each linear system on the way is solved
-        (direct by default); the two are independent choices. `initial` seeds an
-        iterative strategy in place of the conditions' own `Initial`. A time-dependent problem is solved as its snapshot `at(t)`, so `t` is
-        required for one; an integrator steps it instead.
+        `NewtonSolve` otherwise. Each linear system on the way is solved with the
+        problem's `backend`. `initial` seeds an iterative strategy in place of the
+        conditions' own `Initial`. A time-dependent problem is solved as its snapshot
+        `at(t)`, so `t` is required for one; an integrator steps it instead.
         '''
         if 0 not in self.time_orders:
             raise TypeError(
@@ -417,17 +509,17 @@ class Problem(Generic[S]):
                     'the problem has a time-dependent source or boundary value; pass t= '
                     'for a steady solve at that time, or step it with an integrator'
                 )
-            return self.at(t).solve(strategy, backend, initial)
+            return self.at(t).solve(strategy, initial)
         if strategy is None:
             from fem.algebra.solve import default_strategy
             strategy = default_strategy(self)
-        return self.solution(strategy.solve(self, initial=initial, backend=backend))
+        return self.solution(strategy.solve(self, initial=initial))
 
     def near_null_space(self) -> FloatArray | None:
         '''The operator's AMG near-kernel over all DOFs, or None.
 
-        `LinearSolve` hands it to an `IterativeBackend`, so an elastic solve composed
-        by hand converges as well as one through the facade.
+        `backend` gives it to an `IterativeBackend` lacking one, so an elastic solve
+        composed by hand converges as well as one through the facade.
         '''
         return self.operator.near_null_space(self.space)
 
@@ -448,6 +540,7 @@ class LinearProblem(Problem[S]):
         density: float = 1.0,
         damping: RayleighDamping | None = None,
         time_orders: frozenset[int] = frozenset({0, 1, 2}),
+        backend: Backend | None = None,
     ) -> None:
         if not operator.constant_tangent:
             raise TypeError(
@@ -455,7 +548,7 @@ class LinearProblem(Problem[S]):
                 'Problem and solve it with NewtonSolve.'
             )
         super().__init__(space, operator, conditions, density=density, damping=damping,
-                         time_orders=time_orders)
+                         time_orders=time_orders, backend=backend)
 
     def with_operator(self, operator: Form[S2]) -> 'LinearProblem[S2]':
         if not operator.constant_tangent:

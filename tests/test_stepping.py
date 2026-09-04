@@ -142,14 +142,14 @@ class _Brittle:
     reached: float = 0.0
     attempts: list = field(default_factory=list)
 
-    def solve(self, problem, *, initial=None, backend=None):
+    def solve(self, problem, *, initial=None):
         # The pulled edge is prescribed to t * pull with pull = 1, so the level is
         # the largest fixed value.
         t = float(problem.constraints[2].max())
         self.attempts.append(t)
         if t - self.reached > self.max_step + 1e-12:
             raise NewtonDivergence('the step was refused', np.zeros(1), 1, np.inf)
-        u = self.inner.solve(problem, initial=initial, backend=backend)
+        u = self.inner.solve(problem, initial=initial)
         self.reached = t
         return u
 

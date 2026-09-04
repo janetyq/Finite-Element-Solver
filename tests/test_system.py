@@ -20,7 +20,7 @@ def test_matches_dense_elimination():
     fixed = np.array([1, 4])
     fixed_values = np.array([0.7, -0.3])
 
-    x = DiscreteSystem(A, (free, fixed, fixed_values)).solve(b)
+    x = DiscreteSystem(A, free, fixed).solve(b, fixed_values)
 
     # Reference: fixed DOFs held, free block solved directly.
     expected = np.zeros(6)
@@ -37,7 +37,7 @@ def test_residual_is_zero_on_free_rows():
     b = np.linspace(-1, 1, 8)
     free = np.array([0, 1, 4, 5, 6])
     fixed = np.array([2, 3, 7])
-    x = DiscreteSystem(A, (free, fixed, np.array([1.0, 2.0, 3.0]))).solve(b)
+    x = DiscreteSystem(A, free, fixed).solve(b, np.array([1.0, 2.0, 3.0]))
     np.testing.assert_allclose((A @ x - b)[free], 0, atol=1e-10)
 
 
@@ -47,11 +47,11 @@ def test_factorization_is_reused_across_right_hand_sides():
     free = np.arange(2, 10)
     fixed = np.array([0, 1])
     fixed_values = np.array([0.5, -0.5])
-    system = DiscreteSystem(A, (free, fixed, fixed_values))
+    system = DiscreteSystem(A, free, fixed)
 
     for seed in range(3):
         b = np.random.default_rng(seed).normal(size=10)
-        x = system.solve(b)
+        x = system.solve(b, fixed_values)
         b_free = b[free] - A[np.ix_(free, fixed)] @ fixed_values
         expected_free = np.linalg.solve(A[np.ix_(free, free)], b_free)
         np.testing.assert_allclose(x[free], expected_free)
@@ -65,7 +65,7 @@ def test_elimination_preserves_symmetry():
     A = _spd(9, seed=4)
     free = np.array([0, 1, 3, 5, 6, 8])
     fixed = np.array([2, 4, 7])
-    system = DiscreteSystem(A, (free, fixed, np.zeros(3)))
+    system = DiscreteSystem(A, free, fixed)
 
     rng = np.random.default_rng(5)
     b1, b2 = rng.normal(size=9), rng.normal(size=9)
@@ -77,5 +77,5 @@ def test_no_fixed_dofs_is_a_plain_solve():
     """With an empty fixed set the system is just A x = b."""
     A = _spd(5, seed=3)
     b = np.ones(5)
-    x = DiscreteSystem(A, (np.arange(5), np.array([], dtype=int), np.array([]))).solve(b)
+    x = DiscreteSystem(A, np.arange(5), np.array([], dtype=int)).solve_homogeneous(b)
     np.testing.assert_allclose(x, np.linalg.solve(A, b))

@@ -27,7 +27,6 @@ from typing import Protocol
 
 import numpy as np
 
-from fem.algebra.backends import Backend
 from fem.field import NodalField
 from fem.numerics import scatter_add
 from fem.physics.forms import LinearElasticForm
@@ -35,8 +34,6 @@ from fem.physics.materials import LinearElasticMaterial
 from fem.post import invariants
 from fem.problem import Problem
 from fem.space import FunctionSpace
-from fem.algebra.solve import backend_for
-from fem.algebra.system import DiscreteSystem
 from fem.typing import BoolArray, DofVector, ElementValues, FloatArray, IntArray
 
 
@@ -424,27 +421,27 @@ class ModulusParameterization(_ElementModulusParameterization):
 class SensitivityAnalysis:
     '''Forward solve, adjoint solve, and gradient, sharing one factorization.
 
-    Owns a `DiscreteSystem` built from the problem's constant tangent, so the forward
-    solve and every adjoint solve reuse the same factored free block. For a symmetric
-    operator (the linear problems here) that factorization serves the adjoint directly.
+    Reads the problem's held `system`, so the forward solve, every adjoint solve, and
+    any solve the caller already made of the problem reuse the same factored free
+    block. For a symmetric operator (the linear problems here) that factorization
+    serves the adjoint directly.
 
     The adjoint carries homogeneous Dirichlet data (`λ` is zero at the fixed DOFs),
     through `DiscreteSystem.solve_homogeneous` on the same factorization. A self-adjoint QoI under homogeneous supports skips the adjoint solve
     entirely and takes `λ = u`.
     '''
 
-    def __init__(self, problem: Problem, backend: Backend | None = None) -> None:
+    def __init__(self, problem: Problem) -> None:
         self.problem = problem
         _, _, fixed_values = problem.constraints
         # The λ = u shortcut is exact only when the forward supports are homogeneous;
         # a prescribed nonzero displacement breaks the self-adjoint identity.
         self._homogeneous_supports = bool(np.allclose(fixed_values, 0.0))
-        self._system = DiscreteSystem(
-            problem.tangent(None), problem.constraints, backend_for(problem, backend))
+        self._system = problem.system
 
     def solve_forward(self) -> DofVector:
         '''The forward solution `u` of `K u = f`.'''
-        return self._system.solve(self.problem.load)
+        return self._system.solve(self.problem.load, self.problem.constraints[2])
 
     def adjoint(self, qoi: QuantityOfInterest, u: DofVector) -> DofVector:
         '''The adjoint field `λ` solving `Kᵀ λ = (∂J/∂u)ᵀ` with homogeneous supports.'''

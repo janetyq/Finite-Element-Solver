@@ -365,15 +365,15 @@ def test_linear_problem_refuses_a_state_dependent_operator(make_unit_square):
 
 def test_problem_solve_is_the_strategy_solve_packaged(make_unit_square):
     """`Problem.solve()` returns the same typed solution as solving with the default
-    strategy by hand; a strategy and a backend are independent choices, so both may be
-    given."""
+    strategy by hand; a strategy and the problem's backend are independent choices, so
+    both may be given."""
     from fem.algebra.backends import DirectBackend
     problem = _poisson_problem(make_unit_square(8))
     by_hand = problem.solution(LinearSolve().solve(problem))
     solution = problem.solve()
     assert type(solution) is type(by_hand)
     np.testing.assert_array_equal(solution.dofs, by_hand.dofs)
-    both = problem.solve(strategy=LinearSolve(), backend=DirectBackend())
+    both = problem.with_backend(DirectBackend()).solve(strategy=LinearSolve())
     np.testing.assert_array_equal(both.dofs, by_hand.dofs)
 
 

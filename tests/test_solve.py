@@ -54,8 +54,8 @@ def test_regularization_gives_up_when_the_backend_rejects_every_shift(make_unit_
     """When no shift the schedule tries yields a solvable system (here because the
     backend breaks down on all of them), the regularized step is unreachable and the
     solve raises rather than return an unstepped state."""
-    problem = Poisson().problem(make_unit_square(4), pinned() + Source(1.0))
+    problem = Poisson().problem(make_unit_square(4), pinned() + Source(1.0)).with_backend(_AlwaysBreaks())
     solver = NewtonSolve(regularization=TangentRegularization(max_shifts=3))
 
     with pytest.raises(RuntimeError, match='rejected every shift'):
-        solver.solve(problem, backend=_AlwaysBreaks())
+        solver.solve(problem)

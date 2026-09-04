@@ -29,7 +29,6 @@ from typing import TypeVar
 
 import numpy as np
 
-from fem.algebra.backends import Backend
 from fem.algebra.solve import (
     BacktrackingLineSearch, LineSearchFailure, NewtonDivergence, NewtonSolve,
 )
@@ -82,13 +81,11 @@ class QuasiStaticStepping:
         if self.t_end <= 0:
             raise ValueError(f't_end must be positive, got {self.t_end}')
 
-    def solve(self, problem: Problem[S], *, initial: Initial | None = None,
-              backend: Backend | None = None) -> TransientSolution[S]:
+    def solve(self, problem: Problem[S], *, initial: Initial | None = None) -> TransientSolution[S]:
         '''Walk `problem` from rest to `t_end` and return the path.
 
-        `initial` seeds the first step in place of the problem's own `u0`; `backend`
-        solves each Newton tangent. On failure past the bisection budget, raises
-        `SteppingDivergence` carrying the partial path.
+        `initial` seeds the first step in place of the problem's own `u0`. On failure
+        past the bisection budget, raises `SteppingDivergence` carrying the partial path.
         '''
         if 0 not in problem.time_orders:
             raise TypeError(
@@ -113,8 +110,7 @@ class QuasiStaticStepping:
             target = pending[-1]
             try:
                 u = self.newton.solve(self._at(problem, target),
-                                      initial=Initial(NodalField(problem.space, u)),
-                                      backend=backend)
+                                      initial=Initial(NodalField(problem.space, u)))
             except (NewtonDivergence, LineSearchFailure) as failure:
                 midpoint = 0.5 * (t + target)
                 if midpoint - t < min_increment:

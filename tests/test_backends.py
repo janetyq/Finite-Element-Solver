@@ -55,8 +55,8 @@ def test_iterative_matches_direct_on_elasticity():
     )
     eq = LinearElastic(E=200, nu=0.3)
 
-    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).dofs
-    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).dofs
+    direct = eq.problem(mesh, bc).with_backend(DirectBackend()).solve().dofs
+    iterative = eq.problem(mesh, bc).with_backend(IterativeBackend()).solve().dofs
     # Scale the tolerance to the field magnitude: the displacements are O(1).
     np.testing.assert_allclose(iterative, direct, atol=1e-8 * np.abs(direct).max())
 
@@ -79,8 +79,8 @@ def test_iterative_matches_direct_on_3d_elasticity():
     )
     eq = LinearElastic(E=200, nu=0.3)
 
-    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).dofs
-    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).dofs
+    direct = eq.problem(mesh, bc).with_backend(DirectBackend()).solve().dofs
+    iterative = eq.problem(mesh, bc).with_backend(IterativeBackend()).solve().dofs
     np.testing.assert_allclose(iterative, direct, atol=1e-7 * np.abs(direct).max())
 
 
@@ -90,10 +90,10 @@ def test_backends_agree_on_a_constrained_dense_system():
     b = np.linspace(-1, 1, 12)
     free = np.arange(2, 12)
     fixed = np.array([0, 1])
-    constraints = (free, fixed, np.array([0.3, -0.4]))
+    values = np.array([0.3, -0.4])
 
-    direct = DiscreteSystem(A, constraints, DirectBackend()).solve(b)
-    iterative = DiscreteSystem(A, constraints, IterativeBackend()).solve(b)
+    direct = DiscreteSystem(A, free, fixed, DirectBackend()).solve(b, values)
+    iterative = DiscreteSystem(A, free, fixed, IterativeBackend()).solve(b, values)
     np.testing.assert_allclose(iterative, direct, atol=1e-8)
 
 
@@ -101,10 +101,10 @@ def test_iterative_solver_reuses_its_setup_across_right_hand_sides():
     """One DiscreteSystem, many b's: the AMG hierarchy is built once and reused."""
     A = _spd(15, seed=4)
     free = np.arange(15)
-    system = DiscreteSystem(A, (free, np.array([], dtype=int), np.array([])), IterativeBackend())
+    system = DiscreteSystem(A, free, np.array([], dtype=int), IterativeBackend())
     for seed in range(3):
         b = np.random.default_rng(seed).normal(size=15)
-        np.testing.assert_allclose(system.solve(b), np.linalg.solve(A, b), atol=1e-8)
+        np.testing.assert_allclose(system.solve_homogeneous(b), np.linalg.solve(A, b), atol=1e-8)
 
 
 @pytest.mark.parametrize('dim', [2, 3])
@@ -125,29 +125,28 @@ def _cantilever():
     return mesh, cantilever_bc(traction=(0.0, -20.0))
 
 
-def test_linear_solve_gives_elasticity_its_rigid_body_modes():
-    """An elastic problem composed by hand hands its rigid-body modes, restricted to the
-    free DOFs, to an iterative backend: the same near-kernel the facade path gets."""
-    from fem.algebra.solve import backend_for
-
+def test_an_elastic_problem_gives_its_iterative_backend_the_rigid_body_modes():
+    """An elastic problem resolves an iterative backend to one carrying its rigid-body
+    modes, restricted to the free DOFs: the near-kernel AMG needs."""
     mesh, bc = _cantilever()
     elastic = LinearElastic(E=200, nu=0.3)
-    problem = elastic.problem(mesh, bc)
-    backend = backend_for(problem, IterativeBackend())
+    problem = elastic.problem(mesh, bc).with_backend(IterativeBackend())
+    backend = problem.backend
     assert isinstance(backend, IterativeBackend)
     free = problem.constraints[0]
     assert backend.near_null_space is not None
     assert backend.near_null_space.shape == (len(free), 3)
     np.testing.assert_array_equal(backend.near_null_space, problem.near_null_space()[free])
+    assert problem.backend is backend, 'resolved once and held'
 
     # A near-kernel the caller set is kept; a scalar problem and a direct backend get none.
     preset = IterativeBackend(near_null_space=np.ones((len(free), 1)))
-    assert backend_for(problem, preset) is preset
-    scalar_bc = pinned()
-    scalar = backend_for(Poisson(1.0).problem(mesh, scalar_bc), IterativeBackend())
+    assert problem.with_backend(preset).backend is preset
+    scalar = Poisson(1.0).problem(mesh, pinned()).with_backend(IterativeBackend()).backend
     assert isinstance(scalar, IterativeBackend) and scalar.near_null_space is None
     direct = DirectBackend()
-    assert backend_for(problem, direct) is direct
+    assert problem.with_backend(direct).backend is direct
+    assert isinstance(elastic.problem(mesh, bc).backend, DirectBackend), 'the default'
 
 
 def test_iterative_elastic_solve_matches_direct_through_facade_and_composition():
@@ -155,13 +154,13 @@ def test_iterative_elastic_solve_matches_direct_through_facade_and_composition()
 
     mesh, bc = _cantilever()
     eq = LinearElastic(E=200, nu=0.3)
-    direct = eq.problem(mesh, bc).solve(backend=DirectBackend()).dofs
+    direct = eq.problem(mesh, bc).with_backend(DirectBackend()).solve().dofs
     tol = 1e-7 * np.abs(direct).max()
 
-    iterative = eq.problem(mesh, bc).solve(backend=IterativeBackend()).dofs
+    iterative = eq.problem(mesh, bc).with_backend(IterativeBackend()).solve().dofs
     np.testing.assert_allclose(iterative, direct, atol=tol)
-    problem = eq.problem(mesh, bc)
-    composed = LinearSolve().solve(problem, backend=IterativeBackend())
+    problem = eq.problem(mesh, bc).with_backend(IterativeBackend())
+    composed = LinearSolve().solve(problem)
     np.testing.assert_allclose(composed, direct, atol=tol)
 
 
@@ -176,7 +175,8 @@ def test_iterative_backend_matches_direct_through_a_time_step():
 
     start = Initial(NodalField(problem.space, u0))
     direct = ThetaMethod(dt=0.01, steps=5).solve(problem, initial=start).dofs[-1]
-    iterative = ThetaMethod(dt=0.01, steps=5).solve(problem, initial=start, backend=IterativeBackend()).dofs[-1]
+    iterative = ThetaMethod(dt=0.01, steps=5).solve(
+        problem.with_backend(IterativeBackend()), initial=start).dofs[-1]
     np.testing.assert_allclose(iterative, direct, atol=1e-7)
 
 
@@ -186,9 +186,9 @@ def test_non_convergence_raises():
     A = _spd(40, seed=5)
     free = np.arange(40)
     backend = IterativeBackend(rtol=1e-14, maxiter=1)
-    system = DiscreteSystem(A, (free, np.array([], dtype=int), np.array([])), backend)
+    system = DiscreteSystem(A, free, np.array([], dtype=int), backend)
     with pytest.raises(RuntimeError, match="CG failed"):
-        system.solve(np.ones(40))
+        system.solve_homogeneous(np.ones(40))
 
 
 # -- MINRES: the iterative path for symmetric indefinite systems ---------------
@@ -199,10 +199,10 @@ def test_minres_matches_direct_on_an_indefinite_system():
     A = _symmetric_indefinite(30, seed=1)
     b = np.linspace(-1, 1, 30)
     free = np.arange(30)
-    constraints = (free, np.array([], dtype=int), np.array([]))
+    none = np.array([], dtype=int)
 
-    minres = DiscreteSystem(A, constraints, MinresBackend()).solve(b)
-    direct = DiscreteSystem(A, constraints, DirectBackend()).solve(b)
+    minres = DiscreteSystem(A, free, none, MinresBackend()).solve_homogeneous(b)
+    direct = DiscreteSystem(A, free, none, DirectBackend()).solve_homogeneous(b)
     np.testing.assert_allclose(minres, direct, atol=1e-8)
 
 
@@ -212,10 +212,10 @@ def test_minres_matches_direct_through_dirichlet_elimination():
     b = np.ones(24)
     free = np.arange(2, 24)
     fixed = np.array([0, 1])
-    constraints = (free, fixed, np.array([0.2, -0.3]))
+    values = np.array([0.2, -0.3])
 
-    minres = DiscreteSystem(A, constraints, MinresBackend()).solve(b)
-    direct = DiscreteSystem(A, constraints, DirectBackend()).solve(b)
+    minres = DiscreteSystem(A, free, fixed, MinresBackend()).solve(b, values)
+    direct = DiscreteSystem(A, free, fixed, DirectBackend()).solve(b, values)
     np.testing.assert_allclose(minres, direct, atol=1e-8)
 
 
@@ -224,9 +224,8 @@ def test_minres_matches_direct_on_an_spd_system():
     A = _spd(20, seed=6)
     b = np.linspace(2, -2, 20)
     free = np.arange(20)
-    constraints = (free, np.array([], dtype=int), np.array([]))
 
-    minres = DiscreteSystem(A, constraints, MinresBackend()).solve(b)
+    minres = DiscreteSystem(A, free, np.array([], dtype=int), MinresBackend()).solve_homogeneous(b)
     np.testing.assert_allclose(minres, np.linalg.solve(A, b), atol=1e-8)
 
 
@@ -235,6 +234,6 @@ def test_minres_non_convergence_raises():
     A = _symmetric_indefinite(40, seed=7)
     free = np.arange(40)
     backend = MinresBackend(rtol=1e-14, maxiter=1)
-    system = DiscreteSystem(A, (free, np.array([], dtype=int), np.array([])), backend)
+    system = DiscreteSystem(A, free, np.array([], dtype=int), backend)
     with pytest.raises(RuntimeError, match="MINRES failed"):
-        system.solve(np.ones(40))
+        system.solve_homogeneous(np.ones(40))

@@ -18,7 +18,6 @@ from typing import TypeVar
 
 import numpy as np
 
-from fem.algebra.backends import Backend
 from fem.conditions import Initial
 from fem.problem import Problem
 from fem.post.solution import FieldSolution, TransientSolution, WaveSolution
@@ -67,17 +66,17 @@ class ThetaMethod:
     steps: int
     theta: float = 0.5
 
-    def solve(self, problem: Problem[S], *, initial: Initial | None = None,
-              backend: Backend | None = None) -> TransientSolution[S]:
-        '''Step from the problem's `u0`, or from `initial` to continue a series;
-        `backend` solves the factored-once step operator.'''
+    def solve(self, problem: Problem[S], *, initial: Initial | None = None) -> TransientSolution[S]:
+        '''Step from the problem's `u0`, or from `initial` to continue a series; the
+        factored-once step operator is solved with the problem's `backend`.'''
         _require_order(problem, 1, 'ThetaMethod integrates a first-order system', 'Heat')
         u, _ = _initial_state(problem, initial)
         M = problem.mass
         K = problem.tangent(None)
         dt, theta = self.dt, self.theta
 
-        system = DiscreteSystem(M + theta * dt * K, problem.constraints, backend)
+        free, fixed, _ = problem.constraints
+        system = DiscreteSystem(M + theta * dt * K, free, fixed, problem.backend)
         rhs_operator = M - (1 - theta) * dt * K
 
         b = problem.load_at(0.0)
@@ -114,10 +113,10 @@ class NewmarkMethod:
     beta: float = 0.25
     gamma: float = 0.5
 
-    def solve(self, problem: Problem[S], *, initial: Initial | None = None,
-              backend: Backend | None = None) -> WaveSolution[S]:
+    def solve(self, problem: Problem[S], *, initial: Initial | None = None) -> WaveSolution[S]:
         '''Step from the problem's `u0` and `v0`, or from `initial` to continue a
-        series; `backend` solves the factored-once effective operator.'''
+        series; the factored-once effective operator is solved with the problem's
+        `backend`.'''
         _require_order(problem, 2, 'NewmarkMethod integrates a second-order system',
                        'Wave or an elastic equation')
         if problem.conditions.has_time_dependent_dirichlet:
@@ -132,7 +131,6 @@ class NewmarkMethod:
         u, v = _initial_state(problem, initial)
 
         dt, beta, gamma = self.dt, self.beta, self.gamma
-        accel_constraints = (free, fixed, np.zeros(len(fixed)))
 
         # Initial acceleration from M a0 = b − C v0 − K u0, pinned to zero at fixed DOFs.
         C = problem.damping_matrix
@@ -141,11 +139,11 @@ class NewmarkMethod:
             '''The damping force C v, zero without a damping matrix.'''
             return np.zeros_like(velocity) if C is None else C @ velocity
 
-        a = DiscreteSystem(M, accel_constraints, backend).solve(b - damping(v) - K @ u)
+        a = DiscreteSystem(M, free, fixed, problem.backend).solve_homogeneous(b - damping(v) - K @ u)
         effective_operator = M + beta * dt**2 * K
         if C is not None:
             effective_operator = effective_operator + gamma * dt * C
-        effective = DiscreteSystem(effective_operator, accel_constraints, backend)
+        effective = DiscreteSystem(effective_operator, free, fixed, problem.backend)
 
         t_values: list[float] = [0.0]
         u_values: list[DofVector] = [u.copy()]
@@ -154,7 +152,7 @@ class NewmarkMethod:
             t_next = dt * (i + 1)
             u_pred = u + dt * v + dt**2 / 2 * (1 - 2 * beta) * a
             v_pred = v + dt * (1 - gamma) * a
-            a = effective.solve(problem.load_at(t_next) - damping(v_pred) - K @ u_pred)
+            a = effective.solve_homogeneous(problem.load_at(t_next) - damping(v_pred) - K @ u_pred)
             u = u_pred + beta * dt**2 * a
             v = v_pred + gamma * dt * a
             t_values.append(t_next)

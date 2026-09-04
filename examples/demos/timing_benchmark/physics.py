@@ -80,11 +80,12 @@ def benchmark(n: int) -> Timing:
         # Building the LinearProblem assembles the stiffness and the load.
         problem, t_assemble = _time(lambda: equation.problem(mesh, bc + Source(lambda p: [1.0, 0.0, 0.0])))
         A, b = problem.tangent(None), problem.load
+        free, fixed, values = problem.constraints
 
         # Each backend factors/preconditions in DiscreteSystem's constructor and solves
         # once; timing the whole construct+solve captures the setup each pays.
-        _, t_direct = _time(lambda: DiscreteSystem(A, problem.constraints, DirectBackend()).solve(b))
-        _, t_iter = _time(lambda: DiscreteSystem(A, problem.constraints, IterativeBackend()).solve(b))
+        _, t_direct = _time(lambda: DiscreteSystem(A, free, fixed, DirectBackend()).solve(b, values))
+        _, t_iter = _time(lambda: DiscreteSystem(A, free, fixed, IterativeBackend()).solve(b, values))
 
     return Timing(n, len(mesh.elements), problem.space.n_dofs, t_assemble, t_direct, t_iter)
 
