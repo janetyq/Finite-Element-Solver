@@ -322,11 +322,8 @@ to copy: `Form` (`BilinearForm` by `element_matrices`, `EnergyForm` by an `Energ
 
 `tests/test_layering.py` holds the package's module order, bottom to top, and checks that every
 module's top-level imports name only modules at or below it. The list is the package inventory in
-reading order: what a module may assume exists. The algebra layer has two halves in that order:
-the matrix-level `Backend`, `Factorization`, and `DiscreteSystem` sit among the leaves, below the
-space, so a space or a solution can hold a factorization of an operator it owns; the strategies,
-integrators, and stepper, which consume a `Problem`, sit above it. `TYPE_CHECKING` imports are
-exempt outright: they are erased at runtime, so types flow upward freely. A function-local import that points upward is
+reading order: what a module may assume exists. `TYPE_CHECKING` imports are exempt outright: they
+are erased at runtime, so types flow upward freely. A function-local import that points upward is
 a back-edge, named in the importing module's docstring and checked against the `BACK_EDGES` list
 in the test, so a new one is a deliberate decision, not drift:
 
