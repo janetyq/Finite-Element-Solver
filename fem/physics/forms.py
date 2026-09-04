@@ -251,6 +251,9 @@ class Form(ABC, Generic[S]):
       built with (the rigid-body modes of elasticity).
     - `element_loads`: a load from the form's own physics (the thermal load of a
       heated elastic body), which a `Problem` adds to the loads from its conditions.
+    - `element_residuals_and_tangents`: both blocks from one pass, for a form whose two
+      share their work (an `EnergyForm` evaluates its density once for both); the
+      default is the two separate calls.
 
     `domain` is where the form integrates: `'volume'` over the elements (the default) or
     `'boundary'` over the boundary facets. `terms` is the flat tuple of forms a sum is
@@ -300,6 +303,14 @@ class Form(ABC, Generic[S]):
     @abstractmethod
     def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, k, k) tangent blocks at the state.'''
+
+    def element_residuals_and_tangents(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> tuple[FloatArray, FloatArray]:
+        '''`(residuals, tangents)` at the state in one pass: what a Newton iteration
+        reads at each iterate. The two separate calls by default; a form whose residual
+        and tangent share their work overrides it.'''
+        return self.element_residuals(geometry, u_elements), self.element_tangents(geometry, u_elements)
 
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements,) stored energy per element at the state; defined when `has_energy`.'''
@@ -820,6 +831,12 @@ class ScaledForm(Form[S]):
     def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         return self.factor * self.form.element_tangents(geometry, u_elements)
 
+    def element_residuals_and_tangents(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> tuple[FloatArray, FloatArray]:
+        residuals, tangents = self.form.element_residuals_and_tangents(geometry, u_elements)
+        return self.factor * residuals, self.factor * tangents
+
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         return self.factor * self.form.element_energies(geometry, u_elements)
 
@@ -902,6 +919,11 @@ class SumForm(Form[S]):
     def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         raise TypeError(_NO_BLOCKS)
 
+    def element_residuals_and_tangents(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> tuple[FloatArray, FloatArray]:
+        raise TypeError(_NO_BLOCKS)
+
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         raise TypeError(_NO_BLOCKS)
 
@@ -937,13 +959,27 @@ class PrecomputedForm(BilinearForm[FieldSolution]):
 
 
 class EnergyDensity(Protocol):
-    '''The material law an `EnergyForm` integrates: `fem.physics.energies` implements it.'''
+    '''The material law an `EnergyForm` integrates: `fem.physics.energies` implements it.
+
+    Three tiers, each what one consumer reads and no more: `energy` for a line-search
+    merit, `stress` for a residual, `evaluate` (the full chain, with the tangent that is
+    most of the cost) for a Newton tangent. Extend `HyperelasticDensity`, which defaults
+    the first two to slices of the third, and override them where they are cheaper.
+    '''
 
     energy_degree: int
     '''Polynomial degree of W in the displacement gradient, setting the quadrature rule.'''
 
+    def energy(self, grad_u: FloatArray) -> FloatArray:
+        '''`(n_elements,)` stored energy W at `(n_elements, d, d)` displacement gradients.'''
+        ...
+
+    def stress(self, grad_u: FloatArray) -> tuple[FloatArray, FloatArray]:
+        '''`(W, P)`: the energy and the first Piola-Kirchhoff stress `dW/dF` at the gradients.'''
+        ...
+
     def evaluate(self, grad_u: FloatArray) -> StrainEnergyDerivatives:
-        '''Derivative chain at `(n_elements, d, d)` displacement gradients.'''
+        '''The full derivative chain `(W, P, A)` at the gradients.'''
         ...
 
     def strain(self, grad_u: FloatArray) -> FloatArray:
@@ -1009,8 +1045,7 @@ class EnergyForm(Form[ElasticSolution]):
         grad_u = geometry.gradients(u_elements)   # (n_el, n_qp, d, d)
         total = np.zeros(geometry.n_elements)
         for q in range(geometry.n_qp):
-            t = self.energy_density.evaluate(grad_u[:, q])
-            total += t.W * geometry.weight_detJ[:, q]
+            total += self.energy_density.energy(grad_u[:, q]) * geometry.weight_detJ[:, q]
         return total
 
     def element_residuals(
@@ -1021,30 +1056,53 @@ class EnergyForm(Form[ElasticSolution]):
         n_nodes, d = geometry.grad_phi.shape[2], geometry.spatial_dim
         residual = np.zeros((geometry.n_elements, n_nodes, d))
         for q in range(geometry.n_qp):
-            t = self.energy_density.evaluate(grad_u[:, q])
-            # dPi/du_{p,k} = P_ki grad_phi[p,i]: row k of P against node p's gradient.
-            dW_dx = np.einsum('eki,epi->epk', t.P, self._grad_phi(geometry, q))
-            residual += dW_dx * geometry.weight_detJ[:, q][:, None, None]
+            _, P = self.energy_density.stress(grad_u[:, q])
+            residual += self._residual_at(geometry, q, P)
         return residual.reshape(geometry.n_elements, n_nodes * d)
+
+    def _residual_at(self, geometry: ElementGeometry, q: int, P: FloatArray) -> FloatArray:
+        '''`(n_el, N, d)` weighted residual contribution of point `q` from its stress.'''
+        # dPi/du_{p,k} = P_ki grad_phi[p,i]: row k of P against node p's gradient.
+        dW_dx = np.einsum('eki,epi->epk', P, self._grad_phi(geometry, q))
+        return dW_dx * geometry.weight_detJ[:, q][:, None, None]
+
+    def _tangent_at(self, geometry: ElementGeometry, q: int, A: FloatArray) -> FloatArray:
+        '''`(n_el, N, d, N, d)` weighted tangent contribution of point `q` from its material
+        tangent: `A_{aibl} grad_phi[p,i] grad_phi[q,l]`, the DOF components a and b pinning
+        the row indices of the two F's while the gradients contract their column indices.'''
+        grad_phi = self._grad_phi(geometry, q)
+        d2W_dx2 = np.einsum('eaibl,epi,eql->epaqb', A, grad_phi, grad_phi, optimize=True)
+        return d2W_dx2 * geometry.weight_detJ[:, q][:, None, None, None, None]
 
     def element_tangents(
         self, geometry: ElementGeometry, u_elements: FloatArray,
     ) -> FloatArray:
         '''(n_elements, k, k) element tangents d²Pi/dx², k = N * d in the residual's order.'''
-        # d²Pi/du_{p,a} du_{q,b} = A_{aibl} grad_phi[p,i] grad_phi[q,l], with
-        # A = d²W/dF² the density's material tangent: the DOF components a and b pin
-        # the row indices of the two F's, the gradients contract their column indices.
-        # Summed over the quadrature points and weighted by `weight_detJ`.
         grad_u = geometry.gradients(u_elements)
         n_nodes, d = geometry.grad_phi.shape[2], geometry.spatial_dim
         tangent = np.zeros((geometry.n_elements, n_nodes, d, n_nodes, d))
         for q in range(geometry.n_qp):
             t = self.energy_density.evaluate(grad_u[:, q])
-            grad_phi = self._grad_phi(geometry, q)
-            d2W_dx2 = np.einsum('eaibl,epi,eql->epaqb', t.A, grad_phi, grad_phi, optimize=True)
-            tangent += d2W_dx2 * geometry.weight_detJ[:, q][:, None, None, None, None]
+            tangent += self._tangent_at(geometry, q, t.A)
         k = n_nodes * d
         return tangent.reshape(geometry.n_elements, k, k)
+
+    def element_residuals_and_tangents(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> tuple[FloatArray, FloatArray]:
+        '''`(residuals, tangents)` at the state from one evaluation of the density per
+        point: what a Newton iteration reads, which would otherwise evaluate the same
+        chain twice at the same state.'''
+        grad_u = geometry.gradients(u_elements)
+        n_nodes, d = geometry.grad_phi.shape[2], geometry.spatial_dim
+        residual = np.zeros((geometry.n_elements, n_nodes, d))
+        tangent = np.zeros((geometry.n_elements, n_nodes, d, n_nodes, d))
+        for q in range(geometry.n_qp):
+            t = self.energy_density.evaluate(grad_u[:, q])
+            residual += self._residual_at(geometry, q, t.P)
+            tangent += self._tangent_at(geometry, q, t.A)
+        k = n_nodes * d
+        return residual.reshape(geometry.n_elements, k), tangent.reshape(geometry.n_elements, k, k)
 
     def _point_state(
         self, geometry: ElementGeometry, u_elements: FloatArray,

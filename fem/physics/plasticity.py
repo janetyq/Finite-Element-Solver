@@ -41,7 +41,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from fem.physics.energies import StrainEnergyDerivatives
+from fem.physics.energies import HyperelasticDensity, StrainEnergyDerivatives
 from fem.physics.materials import Enu_to_Lame
 from fem.typing import FloatArray
 
@@ -55,7 +55,7 @@ class _DeviatoricState(NamedTuple):
     secant: FloatArray      # (n,) c = 2 sigma_eq / (3 e_eq): s = c e (2 mu at e = 0)
 
 
-class RambergOsgood:
+class RambergOsgood(HyperelasticDensity):
     """J2 deformation-theory plasticity with Ramberg-Osgood hardening: an `EnergyDensity`.
 
     Hyperelastic in the small strain `eps = sym(grad u)`: `W` is the strain energy the
@@ -190,20 +190,34 @@ class RambergOsgood:
 
     # -- the EnergyDensity interface ------------------------------------------
 
-    def evaluate(self, grad_u: FloatArray) -> StrainEnergyDerivatives:
-        '''Evaluate W, P = dW/dF, and A = d²W/dF² at `(n_elements, d, d)` gradients.
+    def _lifted_state(self, grad_u: FloatArray) -> _DeviatoricState:
+        '''The J2 state at the gradients' small strain, lifted to 3D.
 
-        The strain is lifted to 3D (plane strain: `eps_zz = 0`), the law evaluated
-        there, and the in-plane blocks returned: with the out-of-plane strain held
-        fixed, the in-plane stress is exactly the in-plane derivative of the 3D energy.
-        The strain is affine in F, so P is the stress itself and A the strain tangent,
-        as for the other small-strain density (`SmallStrain`).
+        Plane strain: `eps_zz = 0`. The law is evaluated there and the in-plane blocks
+        returned by the tiers below: with the out-of-plane strain held fixed, the
+        in-plane stress is exactly the in-plane derivative of the 3D energy. The strain
+        is affine in F, so P is the stress itself and A the strain tangent, as for the
+        other small-strain density (`SmallStrain`).
         '''
         d = grad_u.shape[-1]
         eps = 0.5 * (grad_u + np.swapaxes(grad_u, -2, -1))
         eps3 = np.zeros((len(eps), 3, 3))
         eps3[:, :d, :d] = eps
-        state = self._state(eps3)
+        return self._state(eps3)
+
+    def energy(self, grad_u: FloatArray) -> FloatArray:
+        return self._energy3(self._lifted_state(grad_u))
+
+    def stress(self, grad_u: FloatArray) -> tuple[FloatArray, FloatArray]:
+        d = grad_u.shape[-1]
+        state = self._lifted_state(grad_u)
+        return self._energy3(state), self._stress3(state)[:, :d, :d]
+
+    def evaluate(self, grad_u: FloatArray) -> StrainEnergyDerivatives:
+        '''Evaluate W, P = dW/dF, and A = d²W/dF² at `(n_elements, d, d)` gradients;
+        see `_lifted_state` for the plane-strain lift.'''
+        d = grad_u.shape[-1]
+        state = self._lifted_state(grad_u)
         P = self._stress3(state)[:, :d, :d]
         A = self._tangent3(state)[:, :d, :d, :d, :d]
         return StrainEnergyDerivatives(W=self._energy3(state), P=P, A=A)

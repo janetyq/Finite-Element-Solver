@@ -617,6 +617,23 @@ class FunctionSpace:
         assert total is not None
         return total
 
+    def assemble_residual_and_tangent(self, form: Form, u: DofVector) -> tuple[DofVector, SparseMatrix]:
+        '''`(residual, tangent)` at `u` in one pass through each term's
+        `element_residuals_and_tangents`: a form whose two share their work (an
+        `EnergyForm` evaluates its density once per point for both) does it once, where
+        `assemble_residual` then `assemble_tangent` would do it twice at the same state.'''
+        residual = np.zeros(self.n_dofs)
+        tangent = None
+        for term in form.terms:
+            on_boundary = term.domain == 'boundary'
+            residuals, tangents = term.element_residuals_and_tangents(
+                self._term_geometry(term, on_boundary), self._term_state(u, on_boundary))
+            residual = residual + self._term_vector_scatter(on_boundary).scatter(residuals)
+            matrix = self._term_matrix_scatter(on_boundary).scatter(tangents)
+            tangent = matrix if tangent is None else tangent + matrix
+        assert tangent is not None
+        return residual, tangent
+
     # -- the scatter -------------------------------------------------------
 
     def _scatter_plan(self, elements: Elements) -> _ScatterPlan:

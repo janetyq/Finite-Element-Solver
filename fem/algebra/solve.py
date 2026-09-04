@@ -245,8 +245,10 @@ class NewtonSolve:
         step_constraints = (free, fixed, np.zeros(len(fixed)))
         step_norm = np.inf
         for _ in range(self.max_iters):
-            residual = problem.residual(u)
-            step = self._compute_step(problem, u, residual, free, step_constraints,
+            # One pass evaluates both: the residual and the tangent are read at the same
+            # iterate, and an energy form would otherwise evaluate its density twice.
+            residual, tangent = problem.residual_and_tangent(u)
+            step = self._compute_step(tangent, residual, free, step_constraints,
                                       backend, regularization)
             step_norm = float(np.linalg.norm(step))
             if step_norm < self.tol * max(1.0, float(np.linalg.norm(u))):
@@ -261,11 +263,12 @@ class NewtonSolve:
         )
 
     def _compute_step(
-        self, problem: Problem, u: DofVector, residual: DofVector,
+        self, H: Operator, residual: DofVector,
         free: DofIndices, step_constraints: Constraints,
         backend: Backend | None, regularization: TangentRegularization | None,
     ) -> DofVector:
-        '''The Newton increment, optionally regularized to a descent direction.
+        '''The Newton increment from the tangent `H` and residual at the iterate,
+        optionally regularized to a descent direction.
 
         Plain Newton solves `H du = -r` once. With a `regularization`, `H` is shifted by
         `tau*I` and re-solved, escalating tau until the step descends (`r_free . step < 0`),
@@ -273,7 +276,6 @@ class NewtonSolve:
         stays safe. A positive-definite tangent is accepted at the first (tau=0) shift, so
         the common case pays no extra solve.
         '''
-        H = problem.tangent(u)
         rhs = -residual
         if regularization is None:
             return DiscreteSystem(H, step_constraints, backend).solve(rhs)

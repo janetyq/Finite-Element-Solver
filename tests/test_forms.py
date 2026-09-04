@@ -15,8 +15,7 @@ from fem.elements import (
 )
 from fem.physics.energies import StVenantKirchhoff
 from fem.physics.forms import (
-    BoundaryMassForm, DiffusionForm, EnergyForm, GeometricStiffnessForm, LinearElasticForm, MassForm,
-    PrecomputedForm, ScaledForm, SumForm, rigid_body_modes, strain_displacement, voigt_to_tensor,
+    BoundaryMassForm, DiffusionForm, EnergyForm, GeometricStiffnessForm, LinearElasticForm, MassForm, PrecomputedForm, ScaledForm, SumForm, rigid_body_modes, strain_displacement, voigt_to_tensor,
 )
 from fem.loads import Source
 from fem.mesh.structured import box_mesh
@@ -280,3 +279,18 @@ def test_voigt_to_tensor_takes_three_or_six_components():
 def test_strain_displacement_is_defined_in_2d_and_3d_only():
     with pytest.raises(NotImplementedError, match='no strain-displacement matrix for dim=1'):
         strain_displacement(LINE.grad_phi)
+
+
+def test_a_scaled_energy_form_takes_the_one_pass_path_and_matches_the_separate_calls():
+    """`ScaledForm.element_residuals_and_tangents` scales both blocks of its term's one
+    pass, equal to the two separate calls; a `SumForm` has no blocks of its own."""
+    space = FunctionSpace(box_mesh([[0, 0], [1, 1]], (4, 4)), n_components=2)
+    form = 2.5 * EnergyForm(StVenantKirchhoff(E=10.0, nu=0.3))
+    geometry = space.geometry_at(form.quadrature_degree(1))
+    rng = np.random.default_rng(6)
+    u = space._term_state(0.05 * rng.standard_normal(space.n_dofs), False)
+    residuals, tangents = form.element_residuals_and_tangents(geometry, u)
+    np.testing.assert_array_equal(residuals, form.element_residuals(geometry, u))
+    np.testing.assert_array_equal(tangents, form.element_tangents(geometry, u))
+    with pytest.raises(TypeError, match='no element blocks'):
+        SumForm((form, MassForm(2))).element_residuals_and_tangents(geometry, u)
