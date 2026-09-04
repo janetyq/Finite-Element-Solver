@@ -43,13 +43,14 @@ class Load(Protocol):
 class Source:
     '''Volume load L(v) = ∫ f(x)·v.
 
-    A constant, a per-component constant, or a nodal array integrates exactly through
-    the mass matrix; a callable of position is sampled at the quadrature points of a
-    rule of `quadrature_degree`, one element vector per element that
-    `FunctionSpace.assemble_load` scatters, so variation within an element is kept.
-    `nodal=True` reads a callable at the nodes instead and integrates its interpolant,
-    an approximation kept for comparison against the sampled path. `field` may be
-    `TimeDependent`. The component count is the space's, read at assembly.
+    Integrated element by element, one element vector per element that
+    `FunctionSpace.assemble_load` scatters. A constant or a per-component constant
+    multiplies the integral of each shape function over its element, exact at any rule;
+    a callable of position is sampled at the quadrature points of a rule of
+    `quadrature_degree`, so variation within an element is kept. `nodal=True` reads a
+    callable at the nodes instead and integrates its interpolant through the mass
+    matrix, an approximation kept for comparison against the sampled path. `field` may
+    be `TimeDependent`. The component count is the space's, read at assembly.
     '''
     field: FieldValue
     quadrature_degree: int = 2
@@ -62,8 +63,15 @@ class Source:
     @property
     def is_sampled(self) -> bool:
         '''Whether `field` is read at the quadrature points (a callable, unless
-        `nodal`) rather than integrated as its interpolant.'''
+        `nodal`) rather than taken as a constant or integrated as its interpolant.'''
         return not self.nodal and (callable(self.field) or self.is_time_dependent)
+
+    @property
+    def is_interpolated(self) -> bool:
+        '''Whether `field` is integrated as its nodal interpolant through the mass
+        matrix: a callable read with `nodal=True`. A constant needs neither sampling nor
+        the mass matrix and integrates element by element.'''
+        return self.nodal and (callable(self.field) or self.is_time_dependent)
 
     def at(self, t: float) -> 'Source':
         '''This source with a time-dependent field fixed at `t`; itself otherwise.'''
@@ -72,19 +80,28 @@ class Source:
         return Source(field_at(self.field, t), self.quadrature_degree, self.nodal)
 
     def vector(self, space: 'FunctionSpace', t: float = 0.0) -> DofVector:
-        if not self.is_sampled:
+        if self.is_interpolated:
             nodal = space.interpolate(field_at(self.field, t)).dofs
             return np.asarray(space.mass_matrix @ nodal).flatten()
         return space.assemble_load(self.at(t))
 
     def element_vectors(self, geometry: ElementGeometry, n_components: int) -> FloatArray:
         '''(n_elements, N*n_components) element load vectors, DOFs interleaved per node,
-        with `field` sampled at `geometry`'s points.'''
+        with a callable `field` sampled at `geometry`'s points.'''
         if self.is_time_dependent:
             raise TypeError('a time-dependent Source has no vectors without a time; use at(t)')
+        if not callable(self.field):
+            # A constant factors out of the integral: each shape function's integral
+            # over the element, `sum_q weight_detJ[e,q] shape[q,n]`, times the value.
+            # Exact at any rule, and it never touches the mass matrix, whose assembly
+            # would cost a full k x k block scatter for one vector.
+            value = evaluate_field(self.field, geometry.points[0, :1], n_components)[0]   # (c,)
+            shape_integral = geometry.weight_detJ @ geometry.shape                        # (n_el, N)
+            return (shape_integral[:, :, None] * value).reshape(geometry.n_elements, -1)
         f = sample_field(self.field, geometry, n_components)   # (n_el, n_qp, c)
-        # b[e, n, c] = sum_q weight_detJ[e,q] * shape[q,n] * f[e,q,c]
-        b = np.einsum('eq,qn,eqc->enc', geometry.weight_detJ, geometry.shape, f)
+        # b[e, n, c] = sum_q weight_detJ[e,q] * shape[q,n] * f[e,q,c], weighted per point
+        # first so the contraction is one matrix product rather than a three-way loop.
+        b = np.einsum('eqc,qn->enc', geometry.weight_detJ[..., None] * f, geometry.shape)
         return b.reshape(geometry.n_elements, -1)
 
 
