@@ -220,3 +220,56 @@ def test_newton_iterates_from_the_initial_state(make_unit_square):
     np.testing.assert_allclose(NewtonSolve().solve(warm), reference, atol=1e-10)
     np.testing.assert_allclose(NewtonSolve().solve(cold, initial=Initial(warm.u0)), reference, atol=1e-10)
     np.testing.assert_allclose(NewtonSolve().solve(cold, initial=Initial(5.0)), reference, atol=1e-10)
+
+
+def test_a_time_dependent_support_re_evaluates_values_without_re_partitioning(make_unit_square, monkeypatch):
+    """The DOFs a condition fixes are set by its region, resolved once; only the values
+    move in time. `constraints_at(t)` therefore reads the partition it already holds and
+    never partitions again, and agrees with a fresh resolution of the same value fixed
+    at `t`."""
+    import fem.conditions as conditions_module
+    mesh = make_unit_square(6)
+    space = FunctionSpace(mesh, n_components=2)
+    ramp = TimeDependent(lambda p, t: [t * p[:, 1], None])
+    moving = Conditions(Dirichlet(on_plane(0, 0.0), ramp), Dirichlet(on_plane(1, 0.0), [0.0, 0.0]))
+    resolved = moving.resolve(space)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError('constraints_at must not partition the DOFs again')
+
+    monkeypatch.setattr(conditions_module, '_partition', refuse)
+    free, fixed, values = resolved.constraints_at(0.7)
+    assert free is resolved.free_idxs and fixed is resolved.fixed_idxs
+    monkeypatch.undo()
+
+    frozen = Conditions(Dirichlet(on_plane(0, 0.0), lambda p: [0.7 * p[:, 1], None]),
+                        Dirichlet(on_plane(1, 0.0), [0.0, 0.0])).resolve(space)
+    np.testing.assert_array_equal(fixed, frozen.fixed_idxs)
+    np.testing.assert_allclose(values, frozen.fixed_values)
+    # The values at t = 0 are the resolution's own.
+    np.testing.assert_allclose(resolved.constraints_at(0.0)[2], resolved.fixed_values)
+
+    # A value that fixes different components at different times is refused.
+    flicker = Conditions(Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: [0.0, None if t > 0 else 0.0])))
+    with pytest.raises(ValueError, match='different set of components'):
+        flicker.resolve(space).constraints_at(1.0)
+
+
+def test_the_partition_merges_overlapping_conditions_and_free_components_by_hand():
+    """On a 2x2 vertex square with two components: the left edge pins x and leaves y free,
+    the bottom edge pins both; the corner they share takes x from either (they agree) and
+    y from the bottom edge. Fixed DOFs come out node-major, values in the same order, and
+    the free set is the complement."""
+    from fem.mesh.mesh import Mesh
+    mesh = Mesh([[0, 0], [1, 0], [0, 1], [1, 1]], [[0, 1, 3], [0, 3, 2]])
+    space = FunctionSpace(mesh, n_components=2)
+    resolved = Conditions(Dirichlet(on_plane(0, 0.0), [1.0, None]),
+                          Dirichlet(on_plane(1, 0.0), [1.0, 2.0])).resolve(space)
+    # vertex 0 (corner): x=1 from both, y=2 from the bottom; vertex 1 (bottom): x=1, y=2;
+    # vertex 2 (left): x=1 only; vertex 3: free.
+    np.testing.assert_array_equal(resolved.fixed_idxs, [0, 1, 2, 3, 4])
+    np.testing.assert_allclose(resolved.fixed_values, [1.0, 2.0, 1.0, 2.0, 1.0])
+    np.testing.assert_array_equal(resolved.free_idxs, [5, 6, 7])
+    with pytest.raises(ValueError, match='conflicting Dirichlet values at vertex 0'):
+        Conditions(Dirichlet(on_plane(0, 0.0), [1.0, None]),
+                   Dirichlet(on_plane(1, 0.0), [3.0, 2.0])).resolve(space)

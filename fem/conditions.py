@@ -209,7 +209,7 @@ class Conditions:
             else:
                 robin.append(contribution)
 
-        merged = _merge_dirichlet(tuple(dirichlet))
+        merged = _merge_dirichlet(n, n_components, tuple(dirichlet))
         # A fixed DOF ignores any traction on it, so the ambiguity to reject is per
         # (node, component): a component that is both pinned and loaded. Pinning one
         # component while a traction drives a different one (a roller carrying a
@@ -221,14 +221,11 @@ class Conditions:
         loaded = np.zeros((n, n_components), dtype=bool)
         for contribution in neumann:
             loaded |= contribution.loaded
-        conflicts = [
-            v for v, values in merged.items()
-            if np.any(~np.isnan(values) & loaded[v])
-        ]
+        conflicts = [int(v) for v in np.flatnonzero(np.any(~np.isnan(merged) & loaded, axis=1))]
         if conflicts:
             raise ValueError(
                 'vertices carry a Dirichlet and a Neumann condition on the same '
-                f'component: {sorted(conflicts)}. A traction on a pinned component is '
+                f'component: {conflicts}. A traction on a pinned component is '
                 'dropped by the elimination, so give None for the components the '
                 'traction does not drive.'
             )
@@ -357,7 +354,8 @@ class ResolvedConditions:
         the prescribed values of a `TimeDependent` condition taken at `t`.'''
         if not self.has_time_dependent_dirichlet:
             return self.constraints
-        return self._with_dirichlet_at(t).constraints
+        _, values = self._dirichlet_at(t)
+        return self.free_idxs, self.fixed_idxs, values
 
     def at(self, t: float) -> ResolvedConditions:
         '''This resolution with every time-dependent value fixed at `t`: the Dirichlet
@@ -383,40 +381,62 @@ class ResolvedConditions:
                                                 self.n_components, free_as_zero=True)
         return replace(c, value=value, nodal_values=nodal)
 
+    def _dirichlet_at(self, t: float) -> tuple[tuple[DirichletContribution, ...], FloatArray]:
+        '''The Dirichlet contributions re-evaluated at `t`, and the values they put at
+        `fixed_idxs`.
+
+        Only the values move in time: the DOFs a condition fixes are set by its region,
+        which was resolved once. So the merged table is read at the partition already
+        held rather than partitioned again, which an integrator calling this every step
+        would otherwise pay for. A value that fixes a different set of components at `t`
+        than at `t = 0` (a callable returning None at some times) is refused.
+        '''
+        dirichlet = tuple(d.at(t) for d in self.dirichlet)
+        flat = _merge_dirichlet(self.n_nodes, self.n_components, dirichlet).ravel()
+        given = ~np.isnan(flat)
+        if int(given.sum()) != len(self.fixed_idxs) or not given[self.fixed_idxs].all():
+            raise ValueError(
+                f'a TimeDependent Dirichlet value fixes a different set of components at '
+                f't = {t} than at t = 0; a component is fixed or free for all time'
+            )
+        return dirichlet, flat[self.fixed_idxs]
+
     def _with_dirichlet_at(self, t: float) -> ResolvedConditions:
         if not self.has_time_dependent_dirichlet:
             return self
-        dirichlet = tuple(d.at(t) for d in self.dirichlet)
-        fixed_idxs, fixed_values, free_idxs = _partition(self.n_nodes, self.n_components, dirichlet)
-        return replace(self, fixed_idxs=fixed_idxs, free_idxs=free_idxs,
-                       fixed_values=fixed_values, dirichlet=dirichlet)
+        dirichlet, values = self._dirichlet_at(t)
+        return replace(self, fixed_values=values, dirichlet=dirichlet)
 
 
 def _merge_dirichlet(
-    contributions: tuple[DirichletContribution, ...],
-) -> dict[int, FloatArray]:
-    '''Per-node Dirichlet values, merged across overlapping conditions.
+    n: int, n_components: int, contributions: tuple[DirichletContribution, ...],
+) -> FloatArray:
+    '''`(n, n_components)` table of the Dirichlet values, merged across overlapping
+    conditions; NaN where no condition fixes the component.
 
     Overlapping regions are normal (a corner belongs to two edges, or, for a roller,
     an edge and the one point that pins its other component); a component that both
     conditions specify but disagree on is a real conflict, and last-write-wins would
     bury it. A component either side leaves free (NaN) never conflicts; the other
-    side's value (fixed or itself free) wins.
+    side's value (fixed or itself free) wins. One vectorized pass per contribution.
     '''
-    merged: dict[int, FloatArray] = {}
+    table = np.full((n, n_components), np.nan)
     for contribution in contributions:
-        for v_idx, v in zip(contribution.node_idxs, contribution.values):
-            v_idx = int(v_idx)
-            if v_idx in merged:
-                existing = merged[v_idx]
-                both_given = ~np.isnan(existing) & ~np.isnan(v)
-                if both_given.any() and not np.allclose(existing[both_given], v[both_given]):
-                    raise ValueError(
-                        f'conflicting Dirichlet values at vertex {v_idx}: {existing} and {v}'
-                    )
-                v = np.where(np.isnan(v), existing, v)
-            merged[v_idx] = v
-    return merged
+        rows = np.asarray(contribution.node_idxs, dtype=int)
+        if not len(rows):
+            continue
+        new = np.asarray(contribution.values, dtype=float)
+        existing = table[rows]
+        both_given = ~np.isnan(existing) & ~np.isnan(new)
+        disagree = both_given & ~np.isclose(existing, new)
+        if disagree.any():
+            first = int(np.flatnonzero(disagree.any(axis=1))[0])
+            raise ValueError(
+                f'conflicting Dirichlet values at vertex {int(rows[first])}: '
+                f'{existing[first]} and {new[first]}'
+            )
+        table[rows] = np.where(np.isnan(new), existing, new)
+    return table
 
 
 def _partition(
@@ -425,19 +445,10 @@ def _partition(
     '''`(fixed_idxs, fixed_values, free_idxs)` from the merged Dirichlet values.
 
     Per (node, component): a NaN entry is a component a condition left free (a
-    roller's tangential direction, say), so it contributes no fixed DOF; free_idxs,
-    being the complement over the whole DOF range, picks it up.
+    roller's tangential direction, say), so it contributes no fixed DOF; free_idxs is
+    the complement over the whole DOF range. Both are in DOF order, node-major.
     '''
-    merged = _merge_dirichlet(contributions)
-    fixed_idxs = np.array(
-        [n_components * v + d for v in sorted(merged) for d in range(n_components)
-         if not np.isnan(merged[v][d])],
-        dtype=int,
-    )
-    fixed_values = np.array(
-        [merged[v][d] for v in sorted(merged) for d in range(n_components)
-         if not np.isnan(merged[v][d])],
-        dtype=float,
-    )
-    free_idxs = np.setdiff1d(np.arange(n * n_components), fixed_idxs)
-    return fixed_idxs, fixed_values, free_idxs
+    flat = _merge_dirichlet(n, n_components, contributions).ravel()
+    given = ~np.isnan(flat)
+    fixed_idxs = np.flatnonzero(given)
+    return fixed_idxs, flat[fixed_idxs], np.flatnonzero(~given)
