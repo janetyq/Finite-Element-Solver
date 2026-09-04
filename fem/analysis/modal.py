@@ -74,8 +74,7 @@ class ModalAnalysis:
         # Shift-invert about zero returns the smallest omega^2 (the lowest frequencies,
         # the ones a forcing resonates with) factoring K on the free block once.
         eigensolve = EigenSolve(self.n_modes, sigma=0.0, which='LM')
-        free = problem.constraints[0]
-        omega_squared, modes = eigensolve.solve(K, M, free, space.n_dofs)
+        omega_squared, modes = eigensolve.solve(K, M, problem.partition)
 
         frequencies, modes = _natural_frequencies(omega_squared, modes)
         return ModalSolution(space, frequencies, modes)

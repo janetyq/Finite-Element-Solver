@@ -72,11 +72,6 @@ SparseMatrix: TypeAlias = csr_array
 # than it documents.
 Operator: TypeAlias = Any
 
-# (free_idxs, fixed_idxs, fixed_values): the DOF partition a solve works in.
-# Passed explicitly when the fixed values differ from the field's own, as in the
-# Newton increment and the Newmark acceleration solve (both pinned to zero there).
-Constraints: TypeAlias = tuple[DofIndices, DofIndices, FloatArray]
-
 # A region: (n_vertices, spatial_dim) coordinates -> (n_vertices,) membership mask.
 # Any callable of that shape qualifies; `fem.regions` names the recurring cases.
 Region: TypeAlias = Callable[[Vertices], BoolArray]

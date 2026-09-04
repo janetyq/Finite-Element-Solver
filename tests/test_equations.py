@@ -130,7 +130,7 @@ def test_equation_resolves_its_space_and_problem(make_unit_square):
     assert isinstance(problem.operator, DiffusionForm)
     assert problem.space is space
     np.testing.assert_allclose(problem.load, 2.0 * space.mass_matrix @ np.ones(space.n_dofs))
-    assert len(problem.constraints[1]) == len(np.unique(space.boundary_nodes))
+    assert len(problem.partition.fixed) == len(np.unique(space.boundary_nodes))
 
 
 def test_default_strategy_follows_the_tangent(make_unit_square):

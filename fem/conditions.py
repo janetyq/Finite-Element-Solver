@@ -13,7 +13,7 @@ load terms (the source, one boundary integral per Neumann or Robin value, the po
 loads), and the initial state `u0` and its rate `v0` as fields on the space, the Dirichlet
 lift and zero when none is given. Resolution has two steps: the geometry (which nodes and facets a region selects)
 is done once, and the values are evaluated at a time. `load_at(t)` and
-`constraints_at(t)` re-evaluate the `TimeDependent` values without selecting again,
+`fixed_values_at(t)` re-evaluate the `TimeDependent` values without selecting again,
 which an integrator calls per step; `at(t)` is the whole resolution fixed at `t`, the
 steady snapshot a steady solve or an estimator works on.
 """
@@ -40,8 +40,9 @@ from fem.field import NodalField
 from fem.loads import BoundaryLoad, Load, PointLoad, Source, _EvaluatedLoad, total_load
 from fem.physics.forms import BoundaryMassForm, Form
 from fem.regions import TimeDependent, evaluate_field
+from fem.algebra.system import Partition
 from fem.typing import (
-    Constraints, DofIndices, DofVector, FieldValue, FloatArray, NodalValues, VertexIndices,
+    DofIndices, DofVector, FieldValue, FloatArray, NodalValues, VertexIndices,
 )
 
 if TYPE_CHECKING:
@@ -270,7 +271,7 @@ class ResolvedConditions:
     condition.
 
     Frozen and built per space so it cannot drift out of step with it. The values are
-    those at `t = 0`; `constraints_at(t)` and `load_at(t)` re-evaluate the
+    those at `t = 0`; `fixed_values_at(t)` and `load_at(t)` re-evaluate the
     time-dependent ones, and `at(t)` is the whole resolution fixed at `t`, no longer
     time-dependent.
     '''
@@ -297,9 +298,10 @@ class ResolvedConditions:
         return self.space.n_components
 
     @property
-    def constraints(self) -> Constraints:
-        '''`(free_idxs, fixed_idxs, fixed_values)`, the partition `DiscreteSystem` takes.'''
-        return self.free_idxs, self.fixed_idxs, self.fixed_values
+    def partition(self) -> Partition:
+        '''The free/fixed split of the DOFs, the `Partition` `DiscreteSystem` takes.
+        Structure only: the prescribed values are `fixed_values` and `fixed_values_at`.'''
+        return Partition(self.free_idxs, self.fixed_idxs, self.space.n_dofs)
 
     @property
     def has_time_dependent_dirichlet(self) -> bool:
@@ -349,13 +351,13 @@ class ResolvedConditions:
             return NodalField(self.space, value.evaluate(self.space.node_coords).reshape(-1))
         return self.space.interpolate(value)
 
-    def constraints_at(self, t: float) -> Constraints:
-        '''The Dirichlet partition at time `t`: the same DOFs as `constraints`, with
-        the prescribed values of a `TimeDependent` condition taken at `t`.'''
+    def fixed_values_at(self, t: float) -> FloatArray:
+        '''The values prescribed at `fixed_idxs` at time `t`: `fixed_values` with those
+        of a `TimeDependent` condition taken at `t`. The partition itself does not move.'''
         if not self.has_time_dependent_dirichlet:
-            return self.constraints
+            return self.fixed_values
         _, values = self._dirichlet_at(t)
-        return self.free_idxs, self.fixed_idxs, values
+        return values
 
     def at(self, t: float) -> ResolvedConditions:
         '''This resolution with every time-dependent value fixed at `t`: the Dirichlet

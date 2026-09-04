@@ -791,7 +791,7 @@ def theta_convergence(theta: float, step_counts: tuple[int, ...], T: float = 0.0
     u0 = exact_solution(mesh.vertices)   # an eigenmode, and zero on the boundary
 
     problem = Heat().problem(mesh, bc)
-    free = problem.constraints[0]
+    free = problem.partition.free
     M = problem.space.mass_matrix.toarray()
     K = problem.tangent(None).toarray()
     propagator = expm(-T * np.linalg.solve(M[np.ix_(free, free)], K[np.ix_(free, free)]))

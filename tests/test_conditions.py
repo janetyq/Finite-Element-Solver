@@ -66,7 +66,7 @@ def test_resolution_carries_constraints_operator_terms_and_loads(make_unit_squar
         Robin(on_plane(1, 1.0), 2.0, [0, 0]), Source([0, -1]), PointLoad(at_indices([0]), [0, -1]))
     resolved = conditions.resolve(space)
     assert isinstance(resolved, ResolvedConditions)
-    free, fixed, values = resolved.constraints
+    fixed = resolved.partition.fixed
     assert len(fixed) == 2 * len(Dirichlet(on_plane(0, 0.0), [0, 0]).select(mesh))
     assert len(resolved.operator_terms) == 1 and isinstance(resolved.operator_terms[0], ScaledForm)
     assert [type(t).__name__ for t in resolved.loads] == ['Source', 'BoundaryLoad', 'BoundaryLoad', 'PointLoad']
@@ -80,7 +80,7 @@ def test_a_snapshot_at_a_time_is_no_longer_time_dependent(make_unit_square):
     resolved = Conditions(Dirichlet(on_plane(0, 0.0), ramp), Source(ramp)).resolve(space)
     assert resolved.is_time_dependent and resolved.has_time_dependent_dirichlet
     np.testing.assert_array_equal(resolved.fixed_values, 0.0)
-    np.testing.assert_array_equal(resolved.constraints_at(2.0)[2], 2.0)
+    np.testing.assert_array_equal(resolved.fixed_values_at(2.0), 2.0)
     snapshot = resolved.at(2.0)
     assert not snapshot.is_time_dependent
     np.testing.assert_array_equal(snapshot.fixed_values, 2.0)
@@ -88,14 +88,14 @@ def test_a_snapshot_at_a_time_is_no_longer_time_dependent(make_unit_square):
 
 
 def test_a_problem_is_its_conditions_resolved(make_unit_square):
-    """The problem's constraints, operator terms, and loads are exactly the resolution's,
+    """The problem's partition, operator terms, and loads are exactly the resolution's,
     and a problem stated with the same conditions two ways solves the same."""
     mesh = _plate(make_unit_square)
     conditions = Conditions(Dirichlet(everywhere(), 0.0), Source(1.0))
     problem = Poisson().problem(mesh, conditions)
     assert problem.resolved.loads == problem.loads
     assert problem.source is problem.resolved.source
-    np.testing.assert_array_equal(problem.constraints[1], problem.resolved.fixed_idxs)
+    np.testing.assert_array_equal(problem.partition.fixed, problem.resolved.fixed_idxs)
     split = Poisson().problem(mesh, pinned() + Source(1.0))
     np.testing.assert_allclose(split.solve().dofs, problem.solve().dofs)
 
@@ -224,7 +224,7 @@ def test_newton_iterates_from_the_initial_state(make_unit_square):
 
 def test_a_time_dependent_support_re_evaluates_values_without_re_partitioning(make_unit_square, monkeypatch):
     """The DOFs a condition fixes are set by its region, resolved once; only the values
-    move in time. `constraints_at(t)` therefore reads the partition it already holds and
+    move in time. `fixed_values_at(t)` therefore reads the partition it already holds and
     never partitions again, and agrees with a fresh resolution of the same value fixed
     at `t`."""
     import fem.conditions as conditions_module
@@ -235,11 +235,12 @@ def test_a_time_dependent_support_re_evaluates_values_without_re_partitioning(ma
     resolved = moving.resolve(space)
 
     def refuse(*args, **kwargs):
-        raise AssertionError('constraints_at must not partition the DOFs again')
+        raise AssertionError('fixed_values_at must not partition the DOFs again')
 
     monkeypatch.setattr(conditions_module, '_partition', refuse)
-    free, fixed, values = resolved.constraints_at(0.7)
-    assert free is resolved.free_idxs and fixed is resolved.fixed_idxs
+    values = resolved.fixed_values_at(0.7)
+    fixed = resolved.partition.fixed
+    assert fixed is resolved.fixed_idxs
     monkeypatch.undo()
 
     frozen = Conditions(Dirichlet(on_plane(0, 0.0), lambda p: [0.7 * p[:, 1], None]),
@@ -247,12 +248,12 @@ def test_a_time_dependent_support_re_evaluates_values_without_re_partitioning(ma
     np.testing.assert_array_equal(fixed, frozen.fixed_idxs)
     np.testing.assert_allclose(values, frozen.fixed_values)
     # The values at t = 0 are the resolution's own.
-    np.testing.assert_allclose(resolved.constraints_at(0.0)[2], resolved.fixed_values)
+    np.testing.assert_allclose(resolved.fixed_values_at(0.0), resolved.fixed_values)
 
     # A value that fixes different components at different times is refused.
     flicker = Conditions(Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: [0.0, None if t > 0 else 0.0])))
     with pytest.raises(ValueError, match='different set of components'):
-        flicker.resolve(space).constraints_at(1.0)
+        flicker.resolve(space).fixed_values_at(1.0)
 
 
 def test_the_partition_merges_overlapping_conditions_and_free_components_by_hand():

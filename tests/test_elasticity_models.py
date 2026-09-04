@@ -74,10 +74,9 @@ def _minimise(problem):
 def _one_newton_step(problem):
     """Displacement after a single Newton step from the zero initial guess: the
     iterate itself, which `NewtonSolve` never hands out unconverged."""
-    free, fixed, fixed_values = problem.constraints
     u = np.zeros(problem.space.n_dofs)
-    u[fixed] = fixed_values
-    step = DiscreteSystem(problem.tangent(u), free, fixed).solve_homogeneous(-problem.residual(u))
+    u[problem.partition.fixed] = problem.fixed_values
+    step = DiscreteSystem(problem.tangent(u), problem.partition).solve_homogeneous(-problem.residual(u))
     return u + step
 
 
@@ -94,11 +93,10 @@ def test_newton_refuses_to_return_an_unconverged_state(make_unit_square):
     # in place, and a seed from which the solve completes.
     attempt = info.value
     assert attempt.iterations == 1 and np.isfinite(attempt.step_norm)
-    free, fixed, fixed_values = problem.constraints
-    np.testing.assert_allclose(attempt.u[fixed], fixed_values)
-    assert np.any(attempt.u[free] != 0.0)
+    np.testing.assert_allclose(attempt.u[problem.partition.fixed], problem.fixed_values)
+    assert np.any(attempt.u[problem.partition.free] != 0.0)
     u = NewtonSolve().solve(problem, initial=Initial(NodalField(problem.space, attempt.u)))
-    np.testing.assert_allclose(problem.residual(u)[free], 0.0, atol=1e-8)
+    np.testing.assert_allclose(problem.residual(u)[problem.partition.free], 0.0, atol=1e-8)
 
 
 def test_stress_recovery_refuses_an_inverted_state(make_unit_square):
@@ -146,7 +144,7 @@ def test_regularized_line_search_descends_where_the_full_step_overshoots(make_un
         Dirichlet(on_plane(0, 1.0), [-0.2, 0]),
     )
     problem = FiniteStrainElastic(E=200, nu=0.4).problem(mesh, bc)
-    free = problem.constraints[0]
+    free = problem.partition.free
     energy_at_seed = problem.energy(problem.u0.dofs)
 
     # One full step from the seed overshoots: the energy goes up, not down.

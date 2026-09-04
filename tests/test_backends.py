@@ -18,7 +18,7 @@ from fem.mesh.structured import box_mesh
 from fem.regions import on_plane
 from fem.physics.equations import Heat, LinearElastic, Poisson
 from fem.space import FunctionSpace
-from fem.algebra.system import DiscreteSystem
+from fem.algebra.system import DiscreteSystem, Partition
 from helpers import cantilever_bc, pinned
 from mms import ConvergenceStudy, solve_poisson_mms
 
@@ -92,8 +92,8 @@ def test_backends_agree_on_a_constrained_dense_system():
     fixed = np.array([0, 1])
     values = np.array([0.3, -0.4])
 
-    direct = DiscreteSystem(A, free, fixed, DirectBackend()).solve(b, values)
-    iterative = DiscreteSystem(A, free, fixed, IterativeBackend()).solve(b, values)
+    direct = DiscreteSystem(A, Partition(free, fixed, A.shape[0]), DirectBackend()).solve(b, values)
+    iterative = DiscreteSystem(A, Partition(free, fixed, A.shape[0]), IterativeBackend()).solve(b, values)
     np.testing.assert_allclose(iterative, direct, atol=1e-8)
 
 
@@ -101,7 +101,7 @@ def test_iterative_solver_reuses_its_setup_across_right_hand_sides():
     """One DiscreteSystem, many b's: the AMG hierarchy is built once and reused."""
     A = _spd(15, seed=4)
     free = np.arange(15)
-    system = DiscreteSystem(A, free, np.array([], dtype=int), IterativeBackend())
+    system = DiscreteSystem(A, Partition(free, np.array([], dtype=int), A.shape[0]), IterativeBackend())
     for seed in range(3):
         b = np.random.default_rng(seed).normal(size=15)
         np.testing.assert_allclose(system.solve_homogeneous(b), np.linalg.solve(A, b), atol=1e-8)
@@ -133,7 +133,7 @@ def test_an_elastic_problem_gives_its_iterative_backend_the_rigid_body_modes():
     problem = elastic.problem(mesh, bc).with_backend(IterativeBackend())
     backend = problem.backend
     assert isinstance(backend, IterativeBackend)
-    free = problem.constraints[0]
+    free = problem.partition.free
     assert backend.near_null_space is not None
     assert backend.near_null_space.shape == (len(free), 3)
     np.testing.assert_array_equal(backend.near_null_space, problem.near_null_space()[free])
@@ -186,7 +186,7 @@ def test_non_convergence_raises():
     A = _spd(40, seed=5)
     free = np.arange(40)
     backend = IterativeBackend(rtol=1e-14, maxiter=1)
-    system = DiscreteSystem(A, free, np.array([], dtype=int), backend)
+    system = DiscreteSystem(A, Partition(free, np.array([], dtype=int), A.shape[0]), backend)
     with pytest.raises(RuntimeError, match="CG failed"):
         system.solve_homogeneous(np.ones(40))
 
@@ -201,8 +201,8 @@ def test_minres_matches_direct_on_an_indefinite_system():
     free = np.arange(30)
     none = np.array([], dtype=int)
 
-    minres = DiscreteSystem(A, free, none, MinresBackend()).solve_homogeneous(b)
-    direct = DiscreteSystem(A, free, none, DirectBackend()).solve_homogeneous(b)
+    minres = DiscreteSystem(A, Partition(free, none, A.shape[0]), MinresBackend()).solve_homogeneous(b)
+    direct = DiscreteSystem(A, Partition(free, none, A.shape[0]), DirectBackend()).solve_homogeneous(b)
     np.testing.assert_allclose(minres, direct, atol=1e-8)
 
 
@@ -214,8 +214,8 @@ def test_minres_matches_direct_through_dirichlet_elimination():
     fixed = np.array([0, 1])
     values = np.array([0.2, -0.3])
 
-    minres = DiscreteSystem(A, free, fixed, MinresBackend()).solve(b, values)
-    direct = DiscreteSystem(A, free, fixed, DirectBackend()).solve(b, values)
+    minres = DiscreteSystem(A, Partition(free, fixed, A.shape[0]), MinresBackend()).solve(b, values)
+    direct = DiscreteSystem(A, Partition(free, fixed, A.shape[0]), DirectBackend()).solve(b, values)
     np.testing.assert_allclose(minres, direct, atol=1e-8)
 
 
@@ -225,7 +225,7 @@ def test_minres_matches_direct_on_an_spd_system():
     b = np.linspace(2, -2, 20)
     free = np.arange(20)
 
-    minres = DiscreteSystem(A, free, np.array([], dtype=int), MinresBackend()).solve_homogeneous(b)
+    minres = DiscreteSystem(A, Partition(free, np.array([], dtype=int), A.shape[0]), MinresBackend()).solve_homogeneous(b)
     np.testing.assert_allclose(minres, np.linalg.solve(A, b), atol=1e-8)
 
 
@@ -234,6 +234,6 @@ def test_minres_non_convergence_raises():
     A = _symmetric_indefinite(40, seed=7)
     free = np.arange(40)
     backend = MinresBackend(rtol=1e-14, maxiter=1)
-    system = DiscreteSystem(A, free, np.array([], dtype=int), backend)
+    system = DiscreteSystem(A, Partition(free, np.array([], dtype=int), A.shape[0]), backend)
     with pytest.raises(RuntimeError, match="MINRES failed"):
         system.solve_homogeneous(np.ones(40))

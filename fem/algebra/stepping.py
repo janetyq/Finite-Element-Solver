@@ -98,8 +98,7 @@ class QuasiStaticStepping:
         u = seed.dofs.copy()
         # Step 0 is the state at t = 0, so the fixed DOFs carry that level's values
         # (zero under proportional loading), not the stated problem's lift.
-        _, fixed0, values0 = self._at(problem, 0.0).constraints
-        u[fixed0] = values0
+        u[problem.partition.fixed] = self._at(problem, 0.0).fixed_values
 
         t_values: list[float] = [0.0]
         u_values: list[DofVector] = [u.copy()]

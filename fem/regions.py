@@ -128,7 +128,7 @@ class TimeDependent:
 
     A source, a traction, a Robin `g`, or a Dirichlet value may be one; the
     integrators evaluate it at each step through `Problem.load_at` and
-    `Problem.constraints_at`. `at(t)` fixes the time and returns the plain field of
+    `Problem.fixed_values_at`. `at(t)` fixes the time and returns the plain field of
     position every other consumer takes.
     '''
 

@@ -89,8 +89,7 @@ class BucklingAnalysis:
         # -K_g φ = μ K φ with K the PD side; μ = 1/λ, so the largest μ ('LA') are the
         # smallest load factors, reached directly without shift-invert.
         eigensolve = EigenSolve(self.n_modes, which='LA')
-        free = problem.constraints[0]
-        mu, modes = eigensolve.solve(-K_g, K, free, space.n_dofs)
+        mu, modes = eigensolve.solve(-K_g, K, problem.partition)
         factors, modes = _buckling_factors(mu, modes)
         return BucklingSolution(space, factors, modes, reference=reference)
 
