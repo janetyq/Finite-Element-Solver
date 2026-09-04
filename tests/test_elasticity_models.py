@@ -113,32 +113,61 @@ def test_stress_recovery_refuses_an_inverted_state(make_unit_square):
         problem.solution(folded.dofs)
 
 
-def test_line_search_converges_from_a_seed_a_full_step_diverges_from(make_unit_square):
-    """Under strong compression (the right edge pushed 70% through the block) the St-VK
-    tangent loses ellipticity and full Newton steps from the zero seed wander (the
-    iterate is still a unit or so off after 20 steps, and where it eventually lands
-    depends on round-off); backtracking on the energy reaches equilibrium."""
+def _newton_iterates(problem, solve_for):
+    """The iterates of `solve_for(max_iters)` up to convergence, by re-running it with a
+    growing budget: `NewtonDivergence.u` is the last iterate of an unfinished solve, so
+    the k-th run's iterate is the k-th step of the one trajectory (the iteration is
+    deterministic). Quadratic in the step count, which is fine for a small mesh."""
+    iterates = []
+    for k in range(1, 200):
+        try:
+            iterates.append(solve_for(k))
+            return iterates
+        except NewtonDivergence as unfinished:
+            iterates.append(unfinished.u)
+    raise AssertionError('Newton did not converge in 200 iterations')
+
+
+def test_regularized_line_search_descends_where_the_full_step_overshoots(make_unit_square):
+    """A block squashed by 20%, seeded from the Dirichlet lift (the whole compression in
+    the last column of elements, which the seed inverts). The full Newton step from
+    there raises the energy by orders of magnitude, so a step length has to be chosen.
+    With the direction regularized to descend and the length backtracked on the energy,
+    the energy never increases and the iteration reaches equilibrium. Those are the two
+    guarantees of the globalization (`TangentRegularization` makes the step a descent
+    direction, `BacktrackingLineSearch` then decreases the merit), stated as the test.
+
+    A 70% squash also converges this way, but it sits on a nearly singular St-VK tangent
+    (the model loses ellipticity under strong compression), where how finely the last
+    decades polish depends on round-off and differs between CPUs; 20% has a
+    well-conditioned minimum and passes anywhere."""
     mesh = make_unit_square(8)
     bc = Conditions(
         Dirichlet(on_plane(0, 0.0), [0, 0]),
-        Dirichlet(on_plane(0, 1.0), [-0.7, 0]),
+        Dirichlet(on_plane(0, 1.0), [-0.2, 0]),
     )
-    equation = FiniteStrainElastic(E=200, nu=0.4)
-    problem = equation.problem(mesh, bc)
+    problem = FiniteStrainElastic(E=200, nu=0.4).problem(mesh, bc)
     free = problem.constraints[0]
+    energy_at_seed = problem.energy(problem.u0.dofs)
 
-    with pytest.raises(NewtonDivergence, match="did not converge") as info:
-        NewtonSolve(max_iters=20, line_search=None).solve(problem)
-    assert info.value.step_norm > 0.1
+    # One full step from the seed overshoots: the energy goes up, not down.
+    with pytest.raises(NewtonDivergence) as one_step:
+        NewtonSolve(max_iters=1, line_search=None).solve(problem)
+    assert problem.energy(one_step.value.u) > 100 * energy_at_seed
 
-    u = NewtonSolve(max_iters=50, line_search=BacktrackingLineSearch()).solve(problem)
-    r_searched = float(np.linalg.norm(problem.residual(u)[free]))
+    def solve_for(max_iters):
+        return NewtonSolve(max_iters=max_iters, line_search=BacktrackingLineSearch(),
+                           regularization=TangentRegularization()).solve(problem)
 
-    # The point is that the line search reaches equilibrium at all where the full step
-    # blows up. The residual bound is deliberately loose: the tangent is near-singular
-    # here, so the residual at the minimum amplifies floating-point noise in the
-    # displacement and is not a stable polish target.
-    assert r_searched < 1e-3, f"line search should converge, got residual {r_searched:.2e}"
+    iterates = _newton_iterates(problem, solve_for)
+    energies = [energy_at_seed] + [problem.energy(u) for u in iterates]
+    for before, after in zip(energies, energies[1:]):
+        assert after <= before * (1 + 1e-12), 'the line search let the energy rise'
+    assert energies[-1] < energy_at_seed
+
+    residual = float(np.linalg.norm(problem.residual(iterates[-1])[free]))
+    reactions = float(np.linalg.norm(problem.internal_residual(iterates[-1])))
+    assert residual < 1e-6 * reactions, f'not at equilibrium: residual {residual:.2e} of {reactions:.2e}'
 
 
 def test_each_elastic_model_names_its_energy_density():
