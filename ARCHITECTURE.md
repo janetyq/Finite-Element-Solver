@@ -213,8 +213,10 @@ There are two ways to write a form. A `BilinearForm` writes the constant element
 `Gᵀ C G` pattern: the element supplies the geometry `G`, the form the material `C`) and gets
 residual, tangent, and energy from it. An `EnergyForm` delegates to an `EnergyDensity`, which
 answers the energy `W`, the stress `P = dW/dF`, and the tangent `A = d²W/dF²` at a batch of
-displacement gradients; how a density gets there (a strain measure, invariants, an inverted
-hardening curve) is its own business, so one contraction serves every law. The densities live in
+displacement gradients, in three tiers (`energy`, `stress`, `evaluate`) so a line search or a
+residual never pays for the tangent it does not read; how a density gets there (a strain
+measure, invariants, an inverted hardening curve) is its own business, so one contraction
+serves every law. The densities live in
 `fem/physics/energies.py` and `fem/physics/plasticity.py`; `Material` owns the constitutive matrix
 `D` of the linear law, beside the strain-displacement `B` in `fem/physics/forms.py`. A 2D solve
 reduces a 3D body, and the material owns the `reduction`: plane strain by default (the body held

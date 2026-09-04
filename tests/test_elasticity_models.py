@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from fem.algebra.backends import MinresBackend
-from fem.boundary import Dirichlet
+from fem.boundary import Dirichlet, Robin
 from fem.conditions import Conditions, Initial
 from fem.field import NodalField
 from fem.physics.materials import LinearElasticMaterial
@@ -24,7 +24,8 @@ from fem.regions import on_plane
 from fem.physics.equations import LinearElastic, FiniteStrainElastic
 from fem.algebra.solve import BacktrackingLineSearch, NewtonDivergence, NewtonSolve, TangentRegularization
 from fem.algebra.system import DiscreteSystem
-from fem.physics.energies import SmallStrain, StVenantKirchhoff
+from fem.physics.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
+from fem.physics.plasticity import RambergOsgood
 from fem.physics.forms import EnergyForm
 from fem.numerics import central_difference_order
 
@@ -327,3 +328,83 @@ def test_regularization_leaves_an_spd_tangent_unshifted(make_unit_square):
     plain = NewtonSolve().solve(problem)
     regularized = NewtonSolve(regularization=TangentRegularization()).solve(problem)
     np.testing.assert_allclose(regularized, plain, atol=1e-12)
+
+
+@pytest.mark.parametrize('d', [2, 3])
+def test_stvk_closed_form_stress_and_tangent_are_the_energy_derivatives(d):
+    """`P = F S'` is `dW/dF` and `A = δ S' + F C F` is `dP/dF` to O(eps^2), in 2D and 3D.
+    A density-level check: the assembly test above cannot tell a wrong `C` index pairing
+    from a right one at a state where the two coincide. The quartic energy gives the
+    central differences a clean O(eps^2) slope."""
+    density = StVenantKirchhoff(E=200, nu=0.3)
+    rng = np.random.default_rng(3)
+    grad0 = 0.2 * rng.standard_normal((d, d))
+
+    def energy(g):
+        return float(density.energy(g.reshape(1, d, d))[0])
+
+    def stress(g):
+        return density.stress(g.reshape(1, d, d))[1][0].ravel()
+
+    derivatives = density.evaluate(grad0.reshape(1, d, d))
+    p0, a0 = derivatives.P[0].ravel(), derivatives.A[0].reshape(d * d, d * d)
+    p_order = central_difference_order(energy, lambda h: p0 @ h, grad0.ravel())
+    a_order = central_difference_order(stress, lambda h: a0 @ h, grad0.ravel())
+    assert 1.9 < p_order < 2.1, f'P is not dW/dF: order {p_order:.3f}'
+    assert 1.9 < a_order < 2.1, f'A is not dP/dF: order {a_order:.3f}'
+    # d²W/dF² is symmetric under exchange of the two derivatives.
+    np.testing.assert_allclose(a0, a0.T, rtol=0, atol=1e-12 * np.abs(a0).max())
+
+
+@pytest.mark.parametrize('d', [2, 3])
+def test_small_strain_closed_forms_are_the_exact_derivatives(d):
+    """Small strain's energy is quadratic in `F`, so a central difference of `W` is `P`
+    exactly and one of `P` is `A` exactly (no O(eps^2) slope to read): `P = S'` and the
+    constant `A = C`, checked directly at one step, in 2D and 3D."""
+    density = SmallStrain(E=200, nu=0.3)
+    rng = np.random.default_rng(3)
+    grad0 = 0.2 * rng.standard_normal((d, d))
+    derivatives = density.evaluate(grad0.reshape(1, d, d))
+    p0, a0 = derivatives.P[0].ravel(), derivatives.A[0].reshape(d * d, d * d)
+    h = 1e-3
+    for k in range(d * d):
+        step = np.zeros(d * d)
+        step[k] = h
+        plus, minus = (grad0.ravel() + step).reshape(1, d, d), (grad0.ravel() - step).reshape(1, d, d)
+        dW = (density.energy(plus)[0] - density.energy(minus)[0]) / (2 * h)
+        dP = (density.stress(plus)[1][0].ravel() - density.stress(minus)[1][0].ravel()) / (2 * h)
+        np.testing.assert_allclose(dW, p0[k], rtol=1e-9)
+        np.testing.assert_allclose(dP, a0[:, k], rtol=1e-9, atol=1e-9 * np.abs(a0).max())
+
+
+@pytest.mark.parametrize('density', [
+    StVenantKirchhoff(E=200, nu=0.3), SmallStrain(E=200, nu=0.3),
+    NeohookeanEnergyDensity(E=200, nu=0.3), RambergOsgood(E=200, nu=0.3, yield_stress=1.0, hardening_exponent=5.0),
+], ids=lambda density: type(density).__name__)
+@pytest.mark.parametrize('d', [2, 3])
+def test_density_tiers_agree_with_the_full_chain(density, d):
+    """`energy` and `stress` are the cheap tiers of `evaluate`: the same `W` and `P`
+    without the tangent, to round-off."""
+    rng = np.random.default_rng(4)
+    grad_u = 0.05 * rng.standard_normal((40, d, d))
+    full = density.evaluate(grad_u)
+    W, P = density.stress(grad_u)
+    np.testing.assert_allclose(density.energy(grad_u), full.W, rtol=1e-14, atol=0)
+    np.testing.assert_allclose(W, full.W, rtol=1e-14, atol=0)
+    np.testing.assert_allclose(P, full.P, rtol=1e-14, atol=0)
+
+
+def test_residual_and_tangent_pass_matches_the_separate_calls(make_unit_square):
+    """`Problem.residual_and_tangent` is `(residual, tangent)` from one density evaluation
+    per point, on an energy form with a Robin boundary term (which takes the separate
+    path) and on a linear problem (which answers from its held tangent)."""
+    mesh = make_unit_square(5)
+    conditions = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
+                            Robin(on_plane(0, 1.0), 2.0, [0.1, 0.0]))
+    rng = np.random.default_rng(5)
+    for equation in (FiniteStrainElastic(E=200, nu=0.3), LinearElastic(E=200, nu=0.3)):
+        problem = equation.problem(mesh, conditions)
+        u = 0.05 * rng.standard_normal(problem.space.n_dofs)
+        residual, tangent = problem.residual_and_tangent(u)
+        np.testing.assert_array_equal(residual, problem.residual(u))
+        assert abs(tangent - problem.tangent(u)).max() == 0.0

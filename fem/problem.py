@@ -367,6 +367,15 @@ class Problem(Generic[S]):
     def residual(self, u: DofVector) -> DofVector:
         return self.internal_residual(u) - self._b
 
+    def residual_and_tangent(self, u: DofVector) -> tuple[DofVector, Operator]:
+        '''`(residual(u), tangent(u))` from one pass over the operator: what a Newton
+        iteration reads at each iterate, evaluated once rather than twice at the same
+        state. A linear problem answers from its held tangent.'''
+        if self.is_linear:
+            return self.residual(u), self.tangent()
+        residual, tangent = self.space.assemble_residual_and_tangent(self.operator, u)
+        return residual - self._b, tangent
+
     def energy(self, u: DofVector) -> float:
         '''The potential Π(u) whose gradient is `residual(u)`, for an operator with an energy.'''
         if not self.has_energy:
