@@ -157,3 +157,73 @@ def test_refinement_conserves_area(make_unit_square):
     for targets in ([0], [0, 1], list(range(len(mesh.elements)))):
         refined = RedGreenRefiner(mesh).refine(targets)
         assert refined.area == pytest.approx(mesh.area, rel=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Heavier multi-round refinement: rollbacks meeting rollbacks
+# ---------------------------------------------------------------------------
+
+def _assert_boundary_is_the_single_edges(mesh):
+    """The boundary facets are exactly the edges one element uses: a hanging node
+    would show up as an interior edge used once."""
+    single = {edge for edge, count in _edge_counts(mesh).items() if count == 1}
+    assert single == {tuple(sorted(edge)) for edge in mesh.boundary}
+
+
+def test_two_elements_a_round_on_a_small_square_stays_conforming(make_unit_square):
+    """Three rounds of two elements each on a 4x4 square, over 200 seeds: enough for
+    a round to touch a green pair whose parent's neighbour is itself green, the case
+    the per-triangle tree left a hanging node in (seed 32, its second round)."""
+    for seed in range(200):
+        rng = np.random.default_rng(seed)
+        mesh = make_unit_square(4)
+        refiner = RedGreenRefiner(mesh)
+        for _ in range(3):
+            targets = rng.choice(len(mesh.elements), size=2, replace=False).tolist()
+            mesh = refiner.refine(targets)
+            _assert_conforming(mesh)
+            _assert_boundary_is_the_single_edges(mesh)
+
+
+def test_refining_a_fifth_of_the_mesh_each_round_stays_conforming():
+    """Six rounds, a fifth of the elements each, on a rectangle: many rollbacks per
+    round, some of them adjacent. Conforming, boundary exact, area kept, no orphan."""
+    from fem.mesh.structured import box_mesh
+
+    source = box_mesh([[0, 0], [2, 1]], (13, 7))
+    refiner = RedGreenRefiner(source)
+    rng = np.random.default_rng(1)
+    mesh = source
+    for _ in range(6):
+        n = len(mesh.elements)
+        mesh = refiner.refine(rng.choice(n, size=n // 5, replace=False).tolist())
+        _assert_conforming(mesh)
+        _assert_boundary_is_the_single_edges(mesh)
+        assert len(refiner.leaf_classifications()) == len(mesh.elements)
+    _assert_no_orphan_vertices(mesh)
+    assert mesh.area == pytest.approx(source.area, rel=1e-12)
+
+
+def test_boundary_tags_follow_their_facets_through_rounds():
+    """A tag names the side a facet came from; through rounds of splitting and
+    rollback every facet still carries the tag of the side it lies on."""
+    from fem.mesh.mesh import Mesh
+    from fem.mesh.structured import box_mesh
+
+    base = box_mesh([[0, 0], [1, 1]], (4, 4))
+    midpoints = base.vertices[base.boundary].mean(axis=1)
+    sides = np.select(
+        [np.isclose(midpoints[:, 1], 0), np.isclose(midpoints[:, 0], 1),
+         np.isclose(midpoints[:, 1], 1)], [0, 1, 2], default=3)
+    mesh = Mesh(base.vertices, base.elements, base.boundary, boundary_tags=sides)
+    refiner = RedGreenRefiner(mesh)
+    rng = np.random.default_rng(3)
+    for _ in range(4):
+        mesh = refiner.refine(rng.choice(len(mesh.elements), size=3, replace=False).tolist())
+        assert mesh.boundary_tags is not None
+        assert len(mesh.boundary_tags) == len(mesh.boundary)
+        mid = mesh.vertices[mesh.boundary].mean(axis=1)
+        on_side = [np.isclose(mid[:, 1], 0), np.isclose(mid[:, 0], 1),
+                   np.isclose(mid[:, 1], 1), np.isclose(mid[:, 0], 0)]
+        for tag, mask in enumerate(on_side):
+            assert np.all(mesh.boundary_tags[mask] == tag)

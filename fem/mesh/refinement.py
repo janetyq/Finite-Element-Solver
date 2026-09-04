@@ -1,91 +1,45 @@
 """Red-green triangle refinement.
 
-`RedGreenRefiner` owns a parent/child tree recording how each triangle was produced,
-so that when a green child is later marked for refinement its parent is recovered
-and re-refined red, preserving mesh quality across rounds. Callers see only
-``refine(idxs) -> Mesh``.
+`RedGreenRefiner` refines a triangle mesh round by round: an element marked for
+refinement is split red (into four similar triangles at its edge midpoints), and a
+neighbour that thereby gains one split edge is closed green (into two, from the
+midpoint to the opposite corner) so the mesh stays conforming. A neighbour that gains
+two split edges is promoted to red. Green triangles are provisional: when a later round
+asks for one, or splits one of its edges, its parent is restored and refined red
+instead, so green closures never stack and the angles stay bounded.
+
+Each round is a handful of numpy passes over the whole leaf mesh: mark the edges of the
+requested elements, iterate the closure (promotions and green rollbacks) to a fixed
+point, place one midpoint per marked edge, and emit the children. The state carried
+between rounds is the leaf mesh itself plus, for each green leaf, the parent it came
+from and the edge that was split, which is all a rollback needs; no tree of every
+triangle ever made is kept. Callers see only ``refine(idxs) -> Mesh``.
 """
 from __future__ import annotations
 
-import logging
 from collections.abc import Sequence
-from enum import Enum, auto
-from typing import TypeVar
 
 import numpy as np
 
 from fem.mesh.curves import Curve
-from fem.mesh.mesh import Edge, Mesh
-from fem.typing import Vertices
+from fem.mesh.mesh import Mesh
+from fem.typing import BoolArray, Elements, IntArray, Vertices
 
-logger = logging.getLogger(__name__)
-
-class _Status(Enum):
-    RED_CHILD = auto()
-    RED_PARENT = auto()
-    GREEN_CHILD = auto()
-    GREEN_PARENT = auto()
-    GONE = auto()
-
-
-class _Triangle:
-    """A node in the red-green refinement tree."""
-
-    __slots__ = ('vertex_idxs', 'status', 'parent', 'children', 'idx')
-
-    def __init__(
-        self,
-        vertex_idxs: list[int],
-        parent: _Triangle | None = None,
-        status: _Status = _Status.RED_CHILD,
-    ) -> None:
-        self.vertex_idxs = vertex_idxs
-        self.status = status
-        self.parent = parent
-        self.children: list[_Triangle] = []
-        self.idx: int = -1
-
-    def __repr__(self) -> str:
-        return (
-            f'_Triangle(verts={self.vertex_idxs}, status={self.status.name}, '
-            f'parent={self.parent is not None}, children={len(self.children)})'
-        )
-
-
-T = TypeVar('T')
-
-
-def _carry_onto_halves(table: dict[Edge, T], edge: list[int], mid_idx: int) -> None:
-    """Whatever `table` holds for `edge`, held for both halves it was split into."""
-    value = table.get(_edge_key(edge[0], edge[1]))
-    if value is not None:
-        table[_edge_key(edge[0], mid_idx)] = value
-        table[_edge_key(mid_idx, edge[1])] = value
-
-
-def _edge_key(v0: int, v1: int) -> Edge:
-    return (v0, v1) if v0 < v1 else (v1, v0)
-
-
-def _tri_edges(tri: _Triangle) -> list[Edge]:
-    v = tri.vertex_idxs
-    return [_edge_key(v[0], v[1]), _edge_key(v[1], v[2]), _edge_key(v[0], v[2])]
+# Local edge i of a triangle [v0, v1, v2] joins corners i and i + 1: (0, 1), (1, 2), (2, 0).
+_EDGE_CORNERS = np.array([[0, 1], [1, 2], [2, 0]])
 
 
 class RedGreenRefiner:
     """Persistent red-green refinement session over a triangle mesh.
 
-    Wraps a mesh and maintains an internal hierarchy so that successive calls
-    to `refine` can roll back green closures when needed. The working arrays
-    are private copies; the input mesh is never mutated.
+    Wraps a mesh and keeps the leaf mesh between calls, so successive `refine` rounds
+    can roll a green closure back to its parent before refining it red. The input mesh
+    is never mutated; every round returns a new `Mesh` built through
+    `Mesh.with_topology`, so boundary curves and tags carry onto the split facets.
 
-    Internal arrays (vertices, triangles, boundary) grow monotonically and are
-    never compacted. Dead triangles are tombstoned via `_Status.GONE`, not
-    removed, so every index structure stays valid across rounds.
-
-    Every per-edge lookup is a dict keyed by the sorted vertex pair, and new vertices
-    are accumulated in a list and stacked once at emission, so a round costs time
-    linear in the triangles it touches rather than in the mesh.
+    Vertex indices are stable across rounds (a midpoint, once placed, keeps its index)
+    and the elements of the returned mesh are exactly the refiner's leaves, so the
+    indices `refine` takes are positions in the mesh it last returned.
     """
 
     def __init__(self, mesh: Mesh) -> None:
@@ -96,52 +50,28 @@ class RedGreenRefiner:
                 f'got {n_nodes}-node elements'
             )
         self._source_mesh: Mesh = mesh
-        # The source vertices, then the midpoints created so far in index order; they
-        # are stacked into one array only when a mesh is emitted.
-        self._source_vertices: Vertices = mesh.vertices
-        self._new_vertices: list[Vertices] = []
-        # Boundary facets keyed by sorted edge, holding the facet's own orientation.
-        # Insertion-ordered, so the emitted facets are the source facets in order with
-        # each split facet replaced by its halves at the end.
-        self._boundary: dict[Edge, tuple[int, int]] = {
-            _edge_key(int(a), int(b)): (int(a), int(b)) for a, b in mesh.boundary}
-
-        self._triangles: list[_Triangle] = []
-        self._edge_to_tris: dict[Edge, set[int]] = {}
-        self._edge_midpoints: dict[Edge, int] = {}
-        # Curve each boundary edge lies on, so a new boundary vertex lands on the true
-        # curve rather than the chord midpoint, and its two halves inherit the curve.
-        # Empty for a straight-sided mesh, leaving midpoints exactly where they were.
-        self._edge_curve: dict[Edge, Curve] = {}
-        if mesh.boundary_curves is not None:
-            for facet, curve in zip(mesh.boundary, mesh.boundary_curves):
-                if curve is not None:
-                    self._edge_curve[_edge_key(int(facet[0]), int(facet[1]))] = curve
-        # Likewise the outline each boundary edge came from, so its halves keep the tag.
-        self._edge_tag: dict[Edge, int] = {}
-        if mesh.boundary_tags is not None:
-            for facet, tag in zip(mesh.boundary, mesh.boundary_tags):
-                self._edge_tag[_edge_key(int(facet[0]), int(facet[1]))] = int(tag)
-        for element in mesh.elements:
-            self._append_triangle(_Triangle(list(element)))
-
-        self._tri_index_map: dict[int, int] = {
-            idx: idx for idx in range(len(self._triangles))
-        }
-        self._pending: set[int] = set()
+        self._vertices: Vertices = np.array(mesh.vertices, dtype=float)
+        self._elements: Elements = np.array(mesh.elements, dtype=int)
+        n = len(self._elements)
+        # The green record: for a green leaf, the corners of the parent it halves, the
+        # endpoints of the edge that was split, the midpoint on it, and the position of
+        # its sibling. -1 throughout for a red leaf.
+        self._is_green: BoolArray = np.zeros(n, dtype=bool)
+        self._green_parent: IntArray = np.full((n, 3), -1, dtype=int)
+        self._green_edge: IntArray = np.full((n, 2), -1, dtype=int)
+        self._green_mid: IntArray = np.full(n, -1, dtype=int)
+        self._green_sibling: IntArray = np.full(n, -1, dtype=int)
+        # Boundary facets in their own orientation, with the curve and tag of each.
+        self._boundary: IntArray = np.array(mesh.boundary, dtype=int).reshape(-1, 2)
+        self._curves: list[Curve | None] | None = (
+            list(mesh.boundary_curves) if mesh.boundary_curves is not None else None)
+        self._tags: IntArray | None = (
+            np.array(mesh.boundary_tags, dtype=int) if mesh.boundary_tags is not None else None)
 
     def leaf_classifications(self) -> list[str]:
-        """Return ``'red'`` or ``'green'`` for each leaf triangle.
-
-        The order matches the elements array of the most recently emitted mesh.
-        """
-        classifications: list[str] = []
-        for tri in self._triangles:
-            if tri.status is _Status.RED_CHILD:
-                classifications.append('red')
-            elif tri.status is _Status.GREEN_CHILD:
-                classifications.append('green')
-        return classifications
+        """``'red'`` or ``'green'`` for each leaf triangle, in the order of the elements
+        of the most recently emitted mesh."""
+        return ['green' if g else 'red' for g in self._is_green]
 
     def refine(self, element_idxs: Sequence[int]) -> Mesh:
         """Refine the given elements and return the updated mesh.
@@ -149,227 +79,240 @@ class RedGreenRefiner:
         ``element_idxs`` are indices into the most recently emitted mesh (or the
         original mesh, on the first call).
         """
-        # Every triangle still queued is known up front, so a neighbour that is about
-        # to be refined red is not first closed green and then rolled back.
-        self._pending = {self._tri_index_map[e_idx] for e_idx in element_idxs}
-        while self._pending:
-            self._refine_single(self._pending.pop())
+        requested = np.zeros(len(self._elements), dtype=bool)
+        requested[np.asarray(list(element_idxs), dtype=int)] = True
+
+        # Edge keys are `lo * stride + hi`; the midpoints placed this round get indices
+        # past the current vertices, so the stride leaves room for one per edge.
+        stride = len(self._vertices) + 3 * len(self._elements) + 1
+        elements, is_green, parent, split_edge, split_mid, sibling = (
+            self._elements, self._is_green, self._green_parent, self._green_edge,
+            self._green_mid, self._green_sibling)
+        marked = np.zeros(0, dtype=np.int64)          # sorted unique keys of split edges
+        known_keys = np.zeros(0, dtype=np.int64)      # split edges whose midpoint already exists
+        known_mids = np.zeros(0, dtype=int)
+
+        # The closure: a requested element marks its three edges; an element with two
+        # marked edges is promoted and marks its third; a green leaf with any marked edge
+        # is rolled back to its parent, which is refined red. Each pass is over the whole
+        # working set, and the passes stop when nothing changes.
+        while True:
+            keys = self._edge_keys(elements, stride)                     # (n, 3)
+            # A requested green leaf marks nothing itself: it is rolled back and its
+            # parent marks the parent's edges, whose halves the pair's own edges are.
+            marked = np.union1d(marked, keys[requested & ~is_green].ravel())
+            count = np.isin(keys, marked).sum(axis=1)
+            promote = (count >= 2) & ~requested & ~is_green
+            rollback = is_green & (requested | (count >= 1))
+            if not promote.any() and not rollback.any():
+                break
+            requested = requested | promote
+            if rollback.any():
+                # Both siblings of a rolled-back pair go, whichever was touched.
+                gone = rollback | np.isin(np.arange(len(elements)), sibling[rollback])
+                gone_green = gone & is_green
+                # One parent per pair: take it from the sibling with the lower position.
+                first_of_pair = gone_green & (sibling > np.arange(len(elements)))
+                parents = parent[first_of_pair]
+                known_keys = np.concatenate([known_keys, self._pair_keys(split_edge[first_of_pair], stride)])
+                known_mids = np.concatenate([known_mids, split_mid[first_of_pair]])
+                keep = ~gone
+                n_parents = len(parents)
+                elements = np.vstack([elements[keep], parents])
+                requested = np.concatenate([requested[keep], np.ones(n_parents, dtype=bool)])
+                is_green = np.concatenate([is_green[keep], np.zeros(n_parents, dtype=bool)])
+                # The survivors' sibling positions shift with the compaction.
+                new_position = np.cumsum(keep) - 1
+                sib = sibling[keep]
+                sib = np.where(sib >= 0, new_position[np.maximum(sib, 0)], -1)
+                sibling = np.concatenate([sib, np.full(n_parents, -1, dtype=int)])
+                parent = np.vstack([parent[keep], np.full((n_parents, 3), -1, dtype=int)])
+                split_edge = np.vstack([split_edge[keep], np.full((n_parents, 2), -1, dtype=int)])
+                split_mid = np.concatenate([split_mid[keep], np.full(n_parents, -1, dtype=int)])
+
+        keys = self._edge_keys(elements, stride)
+        is_marked = np.isin(keys, marked)                                # (n, 3)
+        assert not np.any(is_marked.sum(axis=1) == 2), 'closure left an element with two split edges'
+
+        # One midpoint per marked edge that still exists: a rolled-back parent's split
+        # edge already has its vertex, every other marked edge gets a new one.
+        split_keys = np.unique(keys[is_marked])
+        mid_of_key = self._place_midpoints(split_keys, known_keys, known_mids, stride)
+        self._elements, self._is_green, self._green_parent, self._green_edge, self._green_mid,             self._green_sibling = elements, is_green, parent, split_edge, split_mid, sibling
+
+        # Two emissions. The first turns the working set into its children. A red child of
+        # a rolled-back parent can then carry a split edge of its own: half of the
+        # parent's old split edge, marked by the neighbour across it, which is refining
+        # red this round. The second emission closes those children green; nothing it
+        # emits can have a split edge (a green child's outer edges are full edges of a
+        # parent that was not promoted), so it is the last.
+        for _ in range(2):
+            count, mids = self._split_edges(self._elements, split_keys, mid_of_key, stride)
+            if not count.any():
+                break
+            self._emit(count, mids)
+        assert not self._split_edges(self._elements, split_keys, mid_of_key, stride)[0].any()
+
+        self._split_boundary(split_keys, mid_of_key, stride)
         return self._emit_mesh()
 
-    # -- internal: triangle list management ---------------------------------
+    @classmethod
+    def _split_edges(cls, elements: Elements, split_keys: IntArray, mid_of_key: IntArray,
+                     stride: int) -> tuple[IntArray, IntArray]:
+        '''Per element, how many of its edges are split and the midpoint on each
+        (-1 on an unsplit edge).'''
+        keys = cls._edge_keys(elements, stride)
+        is_split = np.isin(keys, split_keys)
+        mids = np.full(keys.shape, -1, dtype=int)
+        mids[is_split] = mid_of_key[np.searchsorted(split_keys, keys[is_split])]
+        return is_split.sum(axis=1), mids
 
-    def _append_triangle(self, tri: _Triangle) -> int:
-        tri.idx = len(self._triangles)
-        self._triangles.append(tri)
-        for edge in _tri_edges(tri):
-            self._edge_to_tris.setdefault(edge, set()).add(tri.idx)
-        return tri.idx
+    # -- keys ----------------------------------------------------------------
 
-    def _mark_gone(self, tri: _Triangle) -> None:
-        tri.status = _Status.GONE
-        for edge in _tri_edges(tri):
-            s = self._edge_to_tris.get(edge)
-            if s is not None:
-                s.discard(tri.idx)
+    @staticmethod
+    def _pair_keys(pairs: IntArray, stride: int) -> IntArray:
+        """One integer per (a, b) row, the same for either orientation."""
+        lo = np.minimum(pairs[:, 0], pairs[:, 1]).astype(np.int64)
+        hi = np.maximum(pairs[:, 0], pairs[:, 1]).astype(np.int64)
+        return lo * stride + hi
 
-    # -- internal: dispatch -------------------------------------------------
+    @classmethod
+    def _edge_keys(cls, elements: Elements, stride: int) -> IntArray:
+        """(n_elements, 3) keys of the local edges (0, 1), (1, 2), (2, 0)."""
+        pairs = elements[:, _EDGE_CORNERS]                               # (n, 3, 2)
+        return cls._pair_keys(pairs.reshape(-1, 2), stride).reshape(len(elements), 3)
 
-    def _refine_single(self, tri_idx: int) -> None:
-        tri = self._triangles[tri_idx]
-        if tri.status is _Status.RED_PARENT:
-            return
-        elif tri.status is _Status.RED_CHILD:
-            self._refine_red(tri_idx)
-        elif tri.status in (_Status.GREEN_PARENT, _Status.GREEN_CHILD):
-            parent_idx = self._rollback_green(tri_idx)
-            self._refine_red(parent_idx)
-        elif tri.status is _Status.GONE:
-            pass
+    # -- midpoints -----------------------------------------------------------
 
-    # -- internal: red / green / rollback -----------------------------------
+    def _place_midpoints(self, split_keys: IntArray, known_keys: IntArray,
+                         known_mids: IntArray, stride: int) -> IntArray:
+        """The vertex index of the midpoint of each of `split_keys` (sorted), creating
+        the vertices that do not exist yet; a boundary midpoint on a curve is projected
+        onto it."""
+        mid_of_key = np.full(len(split_keys), -1, dtype=int)
+        if len(known_keys):
+            found = np.isin(split_keys, known_keys)
+            order = np.argsort(known_keys)
+            mid_of_key[found] = known_mids[order][np.searchsorted(known_keys[order], split_keys[found])]
+        new = mid_of_key < 0
+        new_keys = split_keys[new]
+        a, b = new_keys // stride, new_keys % stride
+        points = 0.5 * (self._vertices[a] + self._vertices[b])
+        if self._curves is not None and len(new_keys):
+            facet_keys = self._pair_keys(self._boundary, stride)
+            # Each curve projects the midpoints of all its split facets in one call.
+            for curve in {id(c): c for c in self._curves if c is not None}.values():
+                on_curve = facet_keys[[c is curve for c in self._curves]]
+                which = np.flatnonzero(np.isin(new_keys, on_curve))
+                if len(which):
+                    points[which] = curve.project(points[which])
+        mid_of_key[new] = len(self._vertices) + np.arange(len(new_keys))
+        self._vertices = np.vstack([self._vertices, points])
+        return mid_of_key
 
-    def _refine_red(self, tri_idx: int) -> list[int]:
-        tri = self._triangles[tri_idx]
-        new_point_idxs: list[int] = []
-        for i in range(3):
-            v0 = tri.vertex_idxs[i]
-            v1 = tri.vertex_idxs[(i + 1) % 3]
-            edge = [v0, v1]
-            mid_idx = self._get_or_create_midpoint(v0, v1)
-            new_point_idxs.append(mid_idx)
-            self._update_boundary(edge, mid_idx)
+    # -- emission ------------------------------------------------------------
 
-        new_tris = [
-            _Triangle(
-                [tri.vertex_idxs[0], new_point_idxs[0], new_point_idxs[2]],
-                parent=tri,
-            ),
-            _Triangle(
-                [tri.vertex_idxs[1], new_point_idxs[1], new_point_idxs[0]],
-                parent=tri,
-            ),
-            _Triangle(
-                [tri.vertex_idxs[2], new_point_idxs[2], new_point_idxs[1]],
-                parent=tri,
-            ),
-            _Triangle(
-                [new_point_idxs[0], new_point_idxs[1], new_point_idxs[2]],
-                parent=tri,
-            ),
-        ]
-        tri.children = new_tris
-        new_tri_idxs = [self._append_triangle(t) for t in new_tris]
-        tri.status = _Status.RED_PARENT
+    def _emit(self, count: IntArray, mids: IntArray) -> None:
+        """Replace the leaves by their children, each element in its own place: four
+        red children for three split edges, two green for one, itself for none."""
+        elements, is_green, parent, split_edge, split_mid, sibling = (
+            self._elements, self._is_green, self._green_parent, self._green_edge,
+            self._green_mid, self._green_sibling)
+        n = len(elements)
+        assert not np.any(count == 2)
+        v = elements
+        m = mids
+        red = count == 3
+        green = count == 1
+        keep = count == 0
 
-        for i in range(3):
-            edge = [tri.vertex_idxs[i], tri.vertex_idxs[(i + 1) % 3]]
-            shared_idx = self._find_shared_triangle(edge, exclude={tri_idx})
-            if shared_idx is None:
-                continue
-            shared = self._triangles[shared_idx]
-            if shared.status is _Status.RED_PARENT:
-                continue
-            elif shared_idx in self._pending:
-                continue
-            elif shared.status is _Status.RED_CHILD:
-                self._refine_green(shared_idx, edge, new_point_idxs[i])
-            elif shared.status is _Status.GREEN_PARENT:
-                parent_idx = self._rollback_green(shared_idx)
-                self._refine_red(parent_idx)
-            elif shared.status is _Status.GREEN_CHILD:
-                parent_idx = self._rollback_green(shared_idx)
-                child_idxs = self._refine_red(parent_idx)
-                for new_idx in child_idxs:
-                    child = self._triangles[new_idx]
-                    if edge[0] in child.vertex_idxs and edge[1] in child.vertex_idxs:
-                        self._refine_green(new_idx, edge, new_point_idxs[i])
-                        break
+        # Red: [v0, m01, m20], [v1, m12, m01], [v2, m20, m12], [m01, m12, m20], where mi is
+        # the midpoint of local edge i.
+        r = np.flatnonzero(red)
+        red_children = np.stack([
+            np.stack([v[r, 0], m[r, 0], m[r, 2]], axis=1),
+            np.stack([v[r, 1], m[r, 1], m[r, 0]], axis=1),
+            np.stack([v[r, 2], m[r, 2], m[r, 1]], axis=1),
+            np.stack([m[r, 0], m[r, 1], m[r, 2]], axis=1),
+        ], axis=1).reshape(-1, 3)                                        # (4 n_red, 3)
 
-        return new_tri_idxs
+        # Green: the split edge i joins corners i and i + 1; the children are
+        # [corner i, opposite, mid] and [corner i + 1, opposite, mid].
+        g = np.flatnonzero(green)
+        i = np.argmax(mids[g] >= 0, axis=1)
+        c0, c1, opp = i, (i + 1) % 3, (i + 2) % 3
+        e0, e1, o = v[g, c0], v[g, c1], v[g, opp]
+        gm = m[g, i]
+        green_children = np.stack([
+            np.stack([e0, o, gm], axis=1),
+            np.stack([e1, o, gm], axis=1),
+        ], axis=1).reshape(-1, 3)                                        # (2 n_green, 3)
+        green_parent = np.repeat(v[g], 2, axis=0)
+        green_edge = np.repeat(np.stack([e0, e1], axis=1), 2, axis=0)
+        green_mid = np.repeat(gm, 2)
 
-    def _rollback_green(self, tri_idx: int) -> int:
-        tri = self._triangles[tri_idx]
-        parent = tri if tri.children else tri.parent
-        assert parent is not None
+        # Every child lands where its parent was: a stable sort on the parent's position.
+        k = np.flatnonzero(keep)
+        source = np.concatenate([k, np.repeat(r, 4), np.repeat(g, 2)])
+        order = np.argsort(source, kind='stable')
+        new_elements = np.vstack([elements[k], red_children, green_children])[order]
+        n_keep, n_red = len(k), 4 * len(r)
+        new_is_green = np.concatenate([
+            is_green[k], np.zeros(n_red, dtype=bool), np.ones(2 * len(g), dtype=bool)])[order]
+        new_parent = np.vstack([parent[k], np.full((n_red, 3), -1, dtype=int), green_parent])[order]
+        new_edge = np.vstack([split_edge[k], np.full((n_red, 2), -1, dtype=int), green_edge])[order]
+        new_mid = np.concatenate([split_mid[k], np.full(n_red, -1, dtype=int), green_mid])[order]
 
-        parent.status = _Status.RED_PARENT
-        for child in parent.children:
-            self._mark_gone(child)
-        parent.children = []
-        return parent.idx
+        # Siblings: a surviving green leaf keeps its sibling, which also survived (a split
+        # edge on either would have rolled both back); a new green pair sits at
+        # consecutive slots, and both are read through the sort's slot -> position map.
+        position = np.empty(len(order), dtype=int)
+        position[order] = np.arange(len(order))
+        slot_of_working = np.full(n, -1, dtype=int)
+        slot_of_working[k] = np.arange(n_keep)
+        new_sibling = np.full(len(order), -1, dtype=int)
+        paired = k[sibling[k] >= 0]
+        new_sibling[position[slot_of_working[paired]]] = position[slot_of_working[sibling[paired]]]
+        first = n_keep + n_red + 2 * np.arange(len(g))
+        new_sibling[position[first]] = position[first + 1]
+        new_sibling[position[first + 1]] = position[first]
 
-    def _refine_green(
-        self,
-        tri_idx: int,
-        edge: list[int],
-        mid_idx: int,
-    ) -> None:
-        tri = self._triangles[tri_idx]
-        tri.status = _Status.GREEN_PARENT
-
-        opposite = [v for v in tri.vertex_idxs if v not in edge][0]
-        g1 = _Triangle(
-            [edge[0], opposite, mid_idx],
-            parent=tri,
-            status=_Status.GREEN_CHILD,
-        )
-        g2 = _Triangle(
-            [edge[1], opposite, mid_idx],
-            parent=tri,
-            status=_Status.GREEN_CHILD,
-        )
-        tri.children = [g1, g2]
-        self._append_triangle(g1)
-        self._append_triangle(g2)
-        self._update_boundary(edge, mid_idx)
-
-    # -- internal: O(1) lookups ---------------------------------------------
-
-    def _find_shared_triangle(
-        self,
-        edge: list[int],
-        exclude: set[int] | None = None,
-    ) -> int | None:
-        key = _edge_key(edge[0], edge[1])
-        for idx in self._edge_to_tris.get(key, ()):
-            if exclude is not None and idx in exclude:
-                continue
-            return idx
-        return None
-
-    def _vertex(self, idx: int) -> Vertices:
-        n_source = len(self._source_vertices)
-        return self._source_vertices[idx] if idx < n_source else self._new_vertices[idx - n_source]
-
-    def _get_or_create_midpoint(self, v0: int, v1: int) -> int:
-        key = _edge_key(v0, v1)
-        mid = self._edge_midpoints.get(key)
-        if mid is not None:
-            return mid
-        midpoint = (self._vertex(v0) + self._vertex(v1)) / 2
-        curve = self._edge_curve.get(key)
-        if curve is not None:
-            midpoint = np.asarray(curve.project(midpoint))
-        mid = len(self._source_vertices) + len(self._new_vertices)
-        self._new_vertices.append(midpoint)
-        self._edge_midpoints[key] = mid
-        return mid
-
-    # -- internal: boundary bookkeeping -------------------------------------
-
-    def _update_boundary(self, edge: list[int], mid_idx: int) -> None:
-        facet = self._boundary.pop(_edge_key(edge[0], edge[1]), None)
-        if facet is None:
-            return
-        a, b = facet
-        self._boundary[_edge_key(a, mid_idx)] = (a, mid_idx)
-        self._boundary[_edge_key(mid_idx, b)] = (mid_idx, b)
-        # The two halves lie on whatever curve and outline the split boundary edge did,
-        # so a facet keeps following them however many times it is bisected.
-        _carry_onto_halves(self._edge_curve, edge, mid_idx)
-        _carry_onto_halves(self._edge_tag, edge, mid_idx)
-
-    # -- internal: mesh emission --------------------------------------------
+        self._elements = new_elements
+        self._is_green = new_is_green
+        self._green_parent = new_parent
+        self._green_edge = new_edge
+        self._green_mid = new_mid
+        self._green_sibling = new_sibling
 
     def _emit_mesh(self) -> Mesh:
-        """Build a new mesh from the current leaf triangles.
-
-        Compaction (vertex renumbering) is applied only to the output mesh.
-        Internal arrays keep their original indices so that edge and midpoint
-        dicts stay valid across rounds.
-        """
-        self._tri_index_map = {}
-        elements: list[list[int]] = []
-        for tri_idx, tri in enumerate(self._triangles):
-            if tri.status not in (_Status.RED_CHILD, _Status.GREEN_CHILD):
-                continue
-            elements.append(tri.vertex_idxs)
-            self._tri_index_map[len(elements) - 1] = tri_idx
-        elements_arr = np.array(elements)
-
-        all_vertices = np.vstack([self._source_vertices, *self._new_vertices])
-        used_idxs = np.unique(elements_arr)
-        vertices = all_vertices[used_idxs]
-        # Compaction: each old vertex index maps to its position in the sorted
-        # used set, which searchsorted returns directly. Boundary facets are edges
-        # of the emitted elements, so every boundary index is in used_idxs.
-        remapped_elements = np.searchsorted(used_idxs, elements_arr)
-        facets = list(self._boundary.values())
-        remapped_boundary = np.searchsorted(used_idxs, np.array(facets))
-
-        # Curves keyed by the original (uncompacted) endpoints, in the same facet order
-        # as `_boundary`, so they align with the remapped boundary rows.
-        boundary_curves = None
-        if self._edge_curve:
-            boundary_curves = [self._edge_curve.get(key) for key in self._boundary]
-
-        boundary_tags = None
-        if self._source_mesh.boundary_tags is not None:
-            boundary_tags = np.array(
-                [self._edge_tag.get(key, -1) for key in self._boundary], dtype=int)
-
+        curves = None if self._curves is None else list(self._curves)
+        tags = None if self._tags is None else self._tags.copy()
         self._source_mesh = self._source_mesh.with_topology(
-            vertices, remapped_elements, remapped_boundary, boundary_curves, boundary_tags,
-        )
+            self._vertices.copy(), self._elements.copy(), self._boundary.copy(), curves, tags)
         return self._source_mesh
 
+    # -- boundary ------------------------------------------------------------
+
+    def _split_boundary(self, split_keys: IntArray, mid_of_key: IntArray, stride: int) -> None:
+        """Replace each boundary facet on a split edge by its halves, in place and in
+        the facet's own orientation; both halves keep the facet's curve and tag."""
+        if not len(self._boundary):
+            return
+        facet_keys = self._pair_keys(self._boundary, stride)
+        split = np.isin(facet_keys, split_keys)
+        if not split.any():
+            return
+        mids = mid_of_key[np.searchsorted(split_keys, facet_keys[split])]
+        a, b = self._boundary[split, 0], self._boundary[split, 1]
+        halves = np.stack([np.stack([a, mids], axis=1), np.stack([mids, b], axis=1)], axis=1)  # (s, 2, 2)
+        # Each facet becomes two rows where it stood.
+        repeat = np.where(split, 2, 1)
+        expanded = np.repeat(self._boundary, repeat, axis=0)
+        starts = np.cumsum(repeat) - repeat
+        expanded[starts[split]] = halves[:, 0]
+        expanded[starts[split] + 1] = halves[:, 1]
+        self._boundary = expanded
+        if self._curves is not None:
+            self._curves = [c for c, r in zip(self._curves, repeat) for _ in range(r)]
+        if self._tags is not None:
+            self._tags = np.repeat(self._tags, repeat)
