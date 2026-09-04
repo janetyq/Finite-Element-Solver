@@ -186,3 +186,46 @@ def test_p1_nodal_flux_is_unchanged(method):
     solution, _ = _quadratic_scalar_solution(LinearTriangleElement)
     np.testing.assert_allclose(solution.nodal_gradient(method=method),
                                recover_nodal(solution.space, solution.gradient, method=method))
+
+
+# -- P1: the stored tensor is the nodal reading -----------------------------------
+
+
+def _p1_sampled_average(solution):
+    """The `'average'` recovery by re-sampling the form at the nodes, the P2 path,
+    run on a P1 solution: what the P1 shortcut must reproduce."""
+    fields = solution.form.sample(solution.space.geometry_at_nodes, solution.element_values)
+    return average_to_nodal(solution.space, fields.stress)
+
+
+def test_p1_average_stress_recovery_reads_the_stored_tensor():
+    """On P1 the stress is constant within the element, so averaging the stored
+    per-element tensor is the same recovery as sampling the form at the nodes."""
+    from fem.boundary import Dirichlet, Neumann
+    from fem.conditions import Conditions
+    from fem.physics.equations import LinearElastic
+    from fem.regions import on_plane
+    mesh = box_mesh([[0.0, 0.0], [2.0, 1.0]], [9, 5])
+    bc = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]), Neumann(on_plane(0, 2.0), [0.0, -1.0]))
+    solution = LinearElastic(E=200.0, nu=0.3).problem(mesh, bc).solve()
+    assert solution.space.element_type is LinearTriangleElement
+    np.testing.assert_allclose(solution.nodal_stress('average'), _p1_sampled_average(solution),
+                               rtol=1e-12, atol=1e-12)
+
+
+def test_p1_average_stress_recovery_samples_under_a_varying_eigenstrain():
+    """With a temperature field the stress `D (eps - eps*)` varies within a P1 element
+    even though the strain does not, so the shortcut does not apply and the nodal
+    reading must come from sampling the form, as on P2."""
+    from fem.boundary import Dirichlet
+    from fem.conditions import Conditions
+    from fem.physics.equations import LinearElastic
+    from fem.physics.forms import ThermalStrain
+    from fem.regions import everywhere
+    mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [6, 6])
+    bc = Conditions(Dirichlet(everywhere(), [0.0, 0.0]))
+    thermal = ThermalStrain(1e-3, lambda p: 50.0 * p[:, 0])
+    solution = LinearElastic(E=200.0, nu=0.3, thermal=thermal).problem(mesh, bc).solve()
+    np.testing.assert_allclose(solution.nodal_stress('average'), _p1_sampled_average(solution),
+                               rtol=1e-12, atol=1e-12)
+    assert np.abs(solution.nodal_stress('average')).max() > 0.0

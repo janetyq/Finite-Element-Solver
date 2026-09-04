@@ -21,8 +21,10 @@ import pytest
 FEM = Path(__file__).resolve().parents[1] / 'fem'
 
 ORDER = [
-    # leaves
-    'typing', 'numerics', 'quadrature', 'regions',
+    # leaves; the matrix-level algebra (a backend, a factorization, a matrix with its
+    # Dirichlet partition) knows nothing about spaces or PDEs, so it sits here, where a
+    # space or a solution can hold a factorization of an operator it owns
+    'typing', 'numerics', 'quadrature', 'regions', 'algebra.backends', 'algebra.system',
     'physics.fields', 'physics.materials', 'post.invariants',
     # geometry; the mesher sits above the PSLG it consumes, as the refiner does the mesh
     'mesh.curves', 'mesh.mesh', 'mesh.refinement', 'mesh.delaunay', 'mesh.structured',
@@ -33,8 +35,8 @@ ORDER = [
     'post.recovery', 'post.solution', 'physics.derived',
     # physics, the space that assembles it, and the problem that composes it
     'physics.forms', 'space', 'loads', 'conditions', 'problem', 'physics.equations', 'physics',
-    # algebra
-    'algebra.backends', 'algebra.system', 'algebra.solve', 'algebra.integrators',
+    # algebra over a Problem: the strategies, the integrators, the stepper
+    'algebra.solve', 'algebra.integrators',
     'algebra.stepping', 'algebra',
     # analyses and drivers
     'analysis.estimators', 'analysis.sensitivity', 'analysis.design', 'analysis.buckling',

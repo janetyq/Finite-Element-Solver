@@ -20,6 +20,7 @@ from functools import cached_property
 
 import numpy as np
 
+from fem.algebra.backends import DirectBackend, Factorization
 from fem.elements import (
     Element,
     ElementGeometry,
@@ -479,6 +480,17 @@ class FunctionSpace:
         if self.n_components == 1:
             return self.mass_matrix
         return FunctionSpace(self.mesh, self.element_type, n_components=1).mass_matrix
+
+    @cached_property
+    def nodal_mass_solver(self) -> Factorization:
+        '''`nodal_mass_matrix` factored, once, for every L2 recovery on this space.
+
+        The same kind of cached object as the matrix: the mass matrix is an operator
+        resolved against the space, and this is a `Backend` resolved against that
+        operator. A direct factorization, so a projection is exact; the recoveries take
+        a `backend` for a call that wants another solver.
+        '''
+        return DirectBackend().prepare(self.nodal_mass_matrix)
 
     # -- operators ----------------------------------------------------------
 
