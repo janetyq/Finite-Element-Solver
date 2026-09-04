@@ -30,7 +30,7 @@ from fem.elements import (
     LinearTriangleElement,
 )
 from fem.field import NodalField
-from fem.physics.forms import EnergyForm, Form, MassForm
+from fem.physics.forms import Form, MassForm
 from fem.mesh.mesh import Mesh
 from fem.quadrature import QuadratureRule
 from fem.regions import evaluate_field
@@ -618,20 +618,16 @@ class FunctionSpace:
         return total
 
     def assemble_residual_and_tangent(self, form: Form, u: DofVector) -> tuple[DofVector, SparseMatrix]:
-        '''`(residual, tangent)` at `u` in one pass: an `EnergyForm` term evaluates its
-        density once per point for both, where `assemble_residual` then `assemble_tangent`
-        would evaluate it twice at the same state. Any other term is assembled the two
-        separate ways.'''
+        '''`(residual, tangent)` at `u` in one pass through each term's
+        `element_residuals_and_tangents`: a form whose two share their work (an
+        `EnergyForm` evaluates its density once per point for both) does it once, where
+        `assemble_residual` then `assemble_tangent` would do it twice at the same state.'''
         residual = np.zeros(self.n_dofs)
         tangent = None
         for term in form.terms:
             on_boundary = term.domain == 'boundary'
-            geometry, state = self._term_geometry(term, on_boundary), self._term_state(u, on_boundary)
-            if isinstance(term, EnergyForm):
-                residuals, tangents = term.element_residuals_and_tangents(geometry, state)
-            else:
-                residuals = term.element_residuals(geometry, state)
-                tangents = term.element_tangents(geometry, state)
+            residuals, tangents = term.element_residuals_and_tangents(
+                self._term_geometry(term, on_boundary), self._term_state(u, on_boundary))
             residual = residual + self._term_vector_scatter(on_boundary).scatter(residuals)
             matrix = self._term_matrix_scatter(on_boundary).scatter(tangents)
             tangent = matrix if tangent is None else tangent + matrix

@@ -251,6 +251,9 @@ class Form(ABC, Generic[S]):
       built with (the rigid-body modes of elasticity).
     - `element_loads`: a load from the form's own physics (the thermal load of a
       heated elastic body), which a `Problem` adds to the loads from its conditions.
+    - `element_residuals_and_tangents`: both blocks from one pass, for a form whose two
+      share their work (an `EnergyForm` evaluates its density once for both); the
+      default is the two separate calls.
 
     `domain` is where the form integrates: `'volume'` over the elements (the default) or
     `'boundary'` over the boundary facets. `terms` is the flat tuple of forms a sum is
@@ -300,6 +303,14 @@ class Form(ABC, Generic[S]):
     @abstractmethod
     def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements, k, k) tangent blocks at the state.'''
+
+    def element_residuals_and_tangents(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> tuple[FloatArray, FloatArray]:
+        '''`(residuals, tangents)` at the state in one pass: what a Newton iteration
+        reads at each iterate. The two separate calls by default; a form whose residual
+        and tangent share their work overrides it.'''
+        return self.element_residuals(geometry, u_elements), self.element_tangents(geometry, u_elements)
 
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         '''(n_elements,) stored energy per element at the state; defined when `has_energy`.'''
@@ -820,6 +831,12 @@ class ScaledForm(Form[S]):
     def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         return self.factor * self.form.element_tangents(geometry, u_elements)
 
+    def element_residuals_and_tangents(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> tuple[FloatArray, FloatArray]:
+        residuals, tangents = self.form.element_residuals_and_tangents(geometry, u_elements)
+        return self.factor * residuals, self.factor * tangents
+
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
         return self.factor * self.form.element_energies(geometry, u_elements)
 
@@ -900,6 +917,11 @@ class SumForm(Form[S]):
         raise TypeError(_NO_BLOCKS)
 
     def element_tangents(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
+        raise TypeError(_NO_BLOCKS)
+
+    def element_residuals_and_tangents(
+        self, geometry: ElementGeometry, u_elements: FloatArray,
+    ) -> tuple[FloatArray, FloatArray]:
         raise TypeError(_NO_BLOCKS)
 
     def element_energies(self, geometry: ElementGeometry, u_elements: FloatArray) -> FloatArray:
