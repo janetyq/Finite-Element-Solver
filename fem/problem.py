@@ -127,7 +127,8 @@ class Problem(Generic[S]):
     a meaning for (an `Equation`'s; every order for a problem composed by hand), which
     `solve` and the integrators check. `backend` is how every linear system of the
     problem is solved (`DirectBackend`, `IterativeBackend`, `MinresBackend`); None
-    resolves to `default_backend` on first use.
+    resolves to `default_backend` on first use: iterative for a large SPD operator,
+    direct otherwise.
 
     `S` is the typed `Solution` the operator packages (`Form[S]`), so `solve` and
     `solution` return it: `Problem[ElasticSolution]` for an elastic operator.
@@ -494,7 +495,9 @@ class Problem(Generic[S]):
         `strategy` is how the problem is iterated (`LinearSolve`, `NewtonSolve`); None is
         `default_strategy`, `LinearSolve` for a constant tangent and line-searched
         `NewtonSolve` otherwise. Each linear system on the way is solved with the
-        problem's `backend`. `initial` seeds an iterative strategy in place of the
+        problem's `backend`: the one given, else direct below `ITERATIVE_ABOVE` free
+        DOFs and AMG-CG above it for an SPD operator. `initial` seeds an iterative
+        strategy in place of the
         conditions' own `Initial`. A time-dependent problem is solved as its snapshot
         `at(t)`, so `t` is required for one; an integrator steps it instead.
         '''
