@@ -31,6 +31,7 @@ from fem.elements import (
 from fem.field import NodalField
 from fem.physics.forms import Form, MassForm
 from fem.mesh.mesh import Mesh
+from fem.quadrature import QuadratureRule
 from fem.regions import evaluate_field
 from fem.typing import (
     DofIndices,
@@ -62,6 +63,10 @@ def dof_indices(element: IntArray | Sequence[int], n_components: int) -> DofIndi
     interleaved = n_components * element[..., None] + np.arange(n_components)
     return interleaved.reshape(*element.shape[:-1], -1)
 
+
+# The three edge midpoints of the reference triangle, opposite corner 0, 1, 2: the points
+# `geometry_at_edge_midpoints` reads a field at.
+_REFERENCE_EDGE_MIDPOINTS = np.array([[0.5, 0.5], [0.0, 0.5], [0.5, 0.0]])
 
 _SIMPLEX_ELEMENTS: dict[int, type[LinearElement]] = {
     2: LinearLineElement,
@@ -381,6 +386,19 @@ class FunctionSpace:
                                           self.element_type.nodal_rule())
 
     @cached_property
+    def geometry_at_edge_midpoints(self) -> ElementGeometry:
+        '''Geometry whose "quadrature points" are each triangle's three edge midpoints,
+        ordered opposite corner 0, 1, 2 to match `element_nodes[:, 3:6]` on P2.
+
+        For reading a flux at the edges an element shares with its neighbours, which the
+        residual estimator jumps. Not for integrating, and triangles only.
+        '''
+        if self.element_type.reference_dim() != 2:
+            raise NotImplementedError('edge-midpoint geometry is defined for triangles')
+        rule = QuadratureRule(_REFERENCE_EDGE_MIDPOINTS, np.ones(3), degree=0)
+        return self.element_type.geometry(self.node_coords[self.element_nodes], rule)
+
+    @cached_property
     def boundary_geometry(self) -> ElementGeometry:
         '''The same, for the boundary facets: embedded elements, so a wider grad_phi.'''
         return self.boundary_type.geometry(self.node_coords[self.boundary_nodes])
@@ -433,14 +451,19 @@ class FunctionSpace:
         its physical Hessian picks up a first-derivative term this omits.
         '''
         d = self.spatial_dim
+        u_elements = np.asarray(u_elements, dtype=float)
+        if self.element_type.SHAPE_DEGREE == 1:
+            # A linear field has no curvature: the shape Hessians are identically zero,
+            # so the answer is known without mapping them through the Jacobians.
+            return np.zeros((len(u_elements), d, d, *u_elements.shape[2:]))
         corners = self.node_coords[self.element_nodes[:, :d + 1]]   # (n_el, d+1, d)
         # J[e, i, r] = d x_i / d xi_r: the columns are the edge vectors from corner 0.
         jacobian = np.swapaxes(corners[:, 1:] - corners[:, :1], 1, 2)
         jac_inv = np.linalg.inv(jacobian)                          # jac_inv[e, r, i] = d xi_r / d x_i
         h_ref = self.element_type.shape_hessians(np.zeros((1, d)))[0]   # (N, r, r), constant
         # H_phys[e, a, i, j] = J^-1[e, r, i] H_ref[a, r, s] J^-1[e, s, j]
-        h_phys = np.einsum('eri,ars,esj->eaij', jac_inv, h_ref, jac_inv)
-        return np.einsum('eaij,ea...->eij...', h_phys, np.asarray(u_elements, dtype=float))
+        h_phys = np.einsum('eri,ars,esj->eaij', jac_inv, h_ref, jac_inv, optimize=True)
+        return np.einsum('eaij,ea...->eij...', h_phys, u_elements, optimize=True)
 
     # -- the scalar mass matrix nodal recovery projects against ------------
 

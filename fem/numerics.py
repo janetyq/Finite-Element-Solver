@@ -1,9 +1,28 @@
-"""Numerical utilities: source/field functions and a finite-difference order check."""
+"""Numerical utilities: source/field functions, a finite-difference order check, and the
+indexed scatter-add the recoveries and estimators accumulate with."""
 from collections.abc import Callable
 
 import numpy as np
 
-from fem.typing import FloatArray
+from fem.typing import FloatArray, IntArray
+
+
+def scatter_add(indices: IntArray, values: FloatArray, n: int) -> FloatArray:
+    '''Sum `values` into `n` slots by `indices`: `out[indices[i]] += values[i]`.
+
+    `values` is `(n_entries, *trailing)` and the result `(n, *trailing)`, each trailing
+    component summed on its own. One weighted `bincount` per component, which is
+    several times faster than `np.add.at` on the element-to-node scatters here (the
+    same reason `FunctionSpace` scatters its residuals through a `bincount`).
+    '''
+    indices = np.asarray(indices).ravel()
+    values = np.asarray(values, dtype=float)
+    trailing = values.shape[1:]
+    flat = values.reshape(len(values), -1)
+    out = np.empty((n, flat.shape[1]))
+    for k in range(flat.shape[1]):
+        out[:, k] = np.bincount(indices, weights=flat[:, k], minlength=n)
+    return out.reshape(n, *trailing)
 
 
 def bump_function(

@@ -29,6 +29,7 @@ import numpy as np
 
 from fem.algebra.backends import Backend
 from fem.field import NodalField
+from fem.numerics import scatter_add
 from fem.physics.forms import LinearElasticForm
 from fem.physics.materials import LinearElasticMaterial
 from fem.post import invariants
@@ -248,9 +249,7 @@ class _VonMisesStress:
     def _scatter(self, per_element_load: FloatArray, n_dofs: int) -> DofVector:
         '''Scatter per-element DOF loads `(n_el, N*nc)` into a global `(n_dofs,)` vector.'''
         dofs = _element_dof_indices(self.space)
-        load = np.zeros(n_dofs)
-        np.add.at(load, dofs.ravel(), per_element_load.ravel())
-        return load
+        return scatter_add(dofs, np.asarray(per_element_load).ravel(), n_dofs)
 
 
 @dataclass(frozen=True)
