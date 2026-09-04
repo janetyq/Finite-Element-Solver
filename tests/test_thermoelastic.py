@@ -404,3 +404,29 @@ def test_the_adjoint_gradient_refuses_a_thermal_problem(make_unit_square):
     u = analysis.solve_forward()
     with pytest.raises(NotImplementedError, match='eigenstrain'):
         analysis.gradient(Compliance(), ModulusParameterization.create(space, LinearElasticMaterial(moduli, NU)), u)
+
+
+# -- the bimetallic strip ----------------------------------------------------------
+
+
+def test_bimetal_strip_tip_matches_timoshenko():
+    """An equal-layer two-metal strip under uniform dT, plane stress on P2: the clamped
+    strip's tip rises `kappa L^2 / 2` with Timoshenko's bimetal curvature
+    `kappa = 24 (alpha_1 - alpha_2) dT / (h (14 + n + 1/n))`, `n = E_1 / E_2` (1925).
+    The interior field is uniform curvature, which P2 represents exactly once the bond
+    sits on a mesh line; the band covers the clamped root's Saint-Venant disturbance."""
+    length, h, dT = 10.0, 1.0, 100.0
+    (E_lo, alpha_lo), (E_hi, alpha_hi) = (100e3, 19.0e-6), (140e3, 1.2e-6)
+    # 40 x 6 cells (box_mesh counts nodes), so the bond at h / 2 lies on a mesh line.
+    mesh = box_mesh(corners=[[0.0, 0.0], [length, h]], resolution=(41, 7))
+    lower = mesh.centroids[:, 1] < h / 2
+    equation = LinearElastic(np.where(lower, E_lo, E_hi), NU,
+                             thermal=ThermalStrain(np.where(lower, alpha_lo, alpha_hi), dT),
+                             reduction='plane_stress')
+    bc = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))
+    _, solution = solved(equation, mesh, bc, element_type=QuadraticTriangleElement)
+
+    n = E_lo / E_hi
+    kappa = 24 * (alpha_lo - alpha_hi) * dT / (h * (14 + n + 1 / n))
+    tip = int(np.argmin(np.linalg.norm(mesh.vertices - [length, 0.0], axis=1)))
+    close(solution.component(1)[tip], kappa * length**2 / 2, rtol=2e-3)
