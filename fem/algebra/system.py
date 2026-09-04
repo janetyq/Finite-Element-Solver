@@ -80,9 +80,6 @@ class DiscreteSystem:
         if A.shape[0] != partition.n_dofs:
             raise ValueError(f'a {A.shape[0]}-DOF operator against a partition of {partition.n_dofs}')
         self.partition = partition
-        self.n_dofs = partition.n_dofs
-        self.free = partition.free
-        self.fixed = partition.fixed
 
         # The free-free block is what actually gets solved; the free-fixed block
         # moves the known Dirichlet values to the right-hand side. The backend
@@ -95,11 +92,12 @@ class DiscreteSystem:
     def solve(self, b: DofVector, fixed_values: FloatArray) -> DofVector:
         '''Solve for x given a right-hand side b and the values prescribed at the fixed
         DOFs, reusing the factorization.'''
+        free, fixed = self.partition.free, self.partition.fixed
         values = np.asarray(fixed_values, dtype=float)
-        x = np.zeros(self.n_dofs)
-        x[self.fixed] = values
-        b_free = b[self.free] - self._free_fixed @ values
-        x[self.free] = self._factorization.solve(b_free)
+        x = np.zeros(self.partition.n_dofs)
+        x[fixed] = values
+        b_free = b[free] - self._free_fixed @ values
+        x[free] = self._factorization.solve(b_free)
         return x
 
     def solve_homogeneous(self, b: DofVector) -> DofVector:
@@ -110,6 +108,7 @@ class DiscreteSystem:
         supported DOFs, whatever displacement the forward problem prescribes there) and
         the one a Newton increment needs. It costs one back-substitution, not a refactor.
         '''
-        x = np.zeros(self.n_dofs)
-        x[self.free] = self._factorization.solve(b[self.free])
+        free = self.partition.free
+        x = np.zeros(self.partition.n_dofs)
+        x[free] = self._factorization.solve(b[free])
         return x
