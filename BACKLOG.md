@@ -322,6 +322,12 @@ the `Form.flux` -> typed `Solution` -> `fem.post.recovery.recover_nodal` seam.
   SPD iterative path already projects out. The first three (2D) eigenvalues come out as the
   zero-frequency rigid-body modes, the rest as the elastic ones, making the null space the solver
   handles visible.
+- 💡 **The column's hum as a buckling forecast.** `PrestressedModalAnalysis` has no demo. Extend the
+  `buckling` demo with the pinned column's fundamental frequency against load: ω² falls linearly and
+  hits zero at λ_cr, which is the vibration-correlation technique (load a structure a little, track
+  its hum, extrapolate ω² to zero to forecast the buckling load without reaching it). Reuses the
+  column, load, and λ_cr the demo already has; lands after the post-buckling figure, which touches
+  the same files.
 
 ## Suggested Priority Order
 

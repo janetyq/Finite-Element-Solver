@@ -171,53 +171,6 @@ def _ring_down_figure(s: ForkStudy) -> Figure:
         'ring-down')
 
 
-def _squeeze_figure(s: ForkStudy) -> Figure:
-    """The fork under load: every tone flattens as the tips are pressed, and the softest
-    mode's pitch reaches zero at the load that buckles the tines."""
-    x = s.squeeze_fractions
-    dense = np.linspace(min(x.min(), 0.0), 1.0, 200)
-    lowest = s.squeeze_freqs[:, 0]
-    unloaded = float(lowest[x == 0.0][0])
-
-    squeeze = Plotter(1, 2, title='The same fork, loaded: pitch against tip load')
-    curves = squeeze.chart_ax(idx=(0, 0), xlabel='tip load / buckling load',
-                              ylabel='frequency (Hz)')
-    for i in range(1, s.squeeze_freqs.shape[1]):
-        curves.plot(x, s.squeeze_freqs[:, i], 'o-', color='0.65', lw=1.0, ms=3,
-                    label='higher modes' if i == 1 else None)
-    curves.plot(x, lowest, 'o-', color='tab:blue', ms=4, label='lowest mode')
-    curves.plot(dense, unloaded * np.sqrt(np.maximum(1 - dense, 0.0)), '--', color='tab:red',
-                alpha=0.7, label='f(0) sqrt(1 - P/P_cr)')
-    curves.axvline(1.0, color='0.4', ls=':',
-                   label=f'buckling load ({s.buckling_load / 1e3:.0f} kN per m of depth)')
-    curves.axhline(0.0, color='0.8', lw=0.8)
-    curves.set_title('Pressed flat, pulled sharp')
-    curves.grid(True, alpha=0.3)
-    # The band between the lowest pair and the overtones is the only clear space here.
-    curves.legend(fontsize='small', loc='center left', bbox_to_anchor=(0.02, 0.72))
-
-    law = squeeze.chart_ax(idx=(0, 1), xlabel='tip load / buckling load',
-                           ylabel='omega^2 / omega^2 unloaded')
-    law.plot(dense, 1 - dense, '-', color='tab:red', alpha=0.6, label='1 - P/P_cr')
-    law.plot(x, s.squeeze_ratios, 'o', color='tab:blue', label='computed lowest mode')
-    law.axvline(1.0, color='0.4', ls=':')
-    law.set_title('The drop is linear in the load')
-    law.grid(True, alpha=0.3)
-    law.legend(fontsize='small')
-    return Figure(
-        squeeze,
-        'A load changes the pitch. Pressing down on the tips puts the tines in '
-        'compression, which softens them in bending: every tone flattens, and the '
-        'softest mode goes silent exactly at the load that buckles the tines, which '
-        "BucklingAnalysis computes from the same reference loading. Pulling the tips "
-        'sharpens the fork instead, the way tightening a string raises its note. Right: '
-        'the squared frequency falls linearly with the load, omega^2 = omega_0^2 '
-        '(1 - P/P_cr), because the vibration mode and the buckling mode are the same '
-        'shape. This is where the modal and buckling stories meet: one geometric '
-        'stiffness K_g(sigma_0), read as a frequency here and as a critical load there.',
-        'loaded')
-
-
 def _setup_figure(s: ForkStudy) -> Figure:
     built = Plotter(1, 2, figsize=(6.0, 7.0), title='From an outline to a meshed fork')
     built.plot(s.mesh, mode='mesh', idx=(0, 0), title=f'{len(s.mesh.elements)} triangles')
@@ -236,8 +189,6 @@ def _setup_figure(s: ForkStudy) -> Figure:
 def _summary(s: ForkStudy, n_shown) -> str:
     voice_hz = s.freqs[s.voice]
     period_ms = 1e3 / voice_hz
-    top = int(np.argmax(s.squeeze_fractions))        # the heaviest tip load swept
-    unloaded_low = float(s.squeeze_freqs[s.squeeze_fractions == 0.0, 0][0])
     return (
         f'A steel tuning fork (E={E:.0e} Pa, rho={RHO:.0f} kg/m^3), meshed from its outline.\n'
         f'tine length x thickness   {s.tine_length*1000:.0f} x {s.tine_thickness*1000:.1f} mm\n'
@@ -248,10 +199,6 @@ def _summary(s: ForkStudy, n_shown) -> str:
         f'first {n_shown} modes (Hz)             '
         + '  '.join(f'{f:.0f}' for f in s.freqs[:n_shown]) + '\n'
         f'tuning law   f ~ L^{s.tuning_slope:.2f}         (beam-theory exponent -2)\n'
-        f'tip load buckling the tines       {s.buckling_load / 1e3:.0f} kN per m of depth\n'
-        f'lowest mode at {100 * s.squeeze_fractions[top]:.0f}% of it        '
-        f'{s.squeeze_freqs[top, 0]:.0f} Hz   (unloaded {unloaded_low:.0f} Hz; '
-        f'1 - P/P_cr gives {unloaded_low * np.sqrt(1 - s.squeeze_fractions[top]):.0f} Hz)\n'
         f'struck: Rayleigh damping alpha = {s.damping.alpha:.0f} /s, '
         f'beta = {s.damping.beta:.2e} s; the voice at 1/e after '
         f'{s.ring_down_periods:.0f} periods ({s.ring_down_periods * period_ms:.0f} ms); '
@@ -269,7 +216,6 @@ def demo(n_shown=4, shown_periods=6, frames_per_period=8, **kwargs) -> DemoResul
         _struck_figure(s, shown_periods, frames_per_period),
         _ring_down_figure(s),
         _tuning_law_figure(s, n_shown),
-        _squeeze_figure(s),
         _setup_figure(s),
     ], text=_summary(s, n_shown))
 
@@ -278,5 +224,4 @@ DEMO = Demo('modal', demo, section='Solids & structures',
             show_source=physics,
             smoke_kwargs={'n_across_tine': 3, 'min_angle': 25, 'n_modes': 4, 'n_shown': 3,
                           'sweep_lengths': (0.088, 0.125), 'shown_periods': 2,
-                          'squeeze_fractions': (0.0, 0.9), 'squeeze_modes': 2,
                           'ring_periods': 3, 'steps_per_period': 12})

@@ -1,19 +1,17 @@
-"""A steel tuning fork meshed from its outline: its modes, its tuning law, its pitch
-under load, and its ring-down when struck.
+"""A steel tuning fork meshed from its outline: its modes, its tuning law, and its
+ring-down when struck.
 
-`fork_modes`, `voice_index`, `squeeze_sweep`, and `strike` each state and solve one
-problem; `run` calls them and returns a `ForkStudy` of plain results. Nothing here
-draws: `figures.py` does that from the `ForkStudy`, and this file is what the gallery
-shows.
+`fork_modes`, `voice_index`, and `strike` each state and solve one problem; `run` calls
+them and returns a `ForkStudy` of plain results. Nothing here draws: `figures.py` does
+that from the `ForkStudy`, and this file is what the gallery shows.
 """
 from dataclasses import dataclass
 
 import numpy as np
 
 from fem.algebra.integrators import NewmarkMethod
-from fem.analysis.buckling import BucklingAnalysis
-from fem.analysis.modal import ModalAnalysis, PrestressedModalAnalysis
-from fem.boundary import Dirichlet, Neumann
+from fem.analysis.modal import ModalAnalysis
+from fem.boundary import Dirichlet
 from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
 from fem.loads import PointLoad
@@ -118,32 +116,6 @@ def transverse_motion(fork: ModalSolution, i) -> np.ndarray:
     return fork.mode(i).component(0)[:len(fork.mesh.vertices)]
 
 
-def loaded_tips(mesh: Mesh) -> Conditions:
-    """The clamp, plus a unit traction pressing straight down on both tine tips.
-
-    The reference loading of the squeeze sweep: a load factor multiplies it, positive
-    pressing the tines toward the base and negative pulling them away.
-    """
-    return clamp + Neumann(on_plane(1, float(mesh.vertices[:, 1].max())), [0.0, -1.0])
-
-
-def squeeze_sweep(mesh: Mesh, fractions, n_modes) -> tuple[float, np.ndarray]:
-    """The fork's low frequencies at each `fraction` of the load that buckles its tines.
-
-    `BucklingAnalysis` gives the critical factor of the same reference loading, so the
-    sweep is stated in fractions of it and the two analyses share one yardstick.
-    `PrestressedModalAnalysis` then vibrates the loaded fork at each. Returns the
-    critical factor and the frequencies, shape `(len(fractions), n_modes)`.
-    """
-    problem = LinearElastic(E, NU, density=RHO).problem(
-        mesh, loaded_tips(mesh), element_type=QuadraticTriangleElement)
-    critical = float(BucklingAnalysis(n_modes=1).solve(problem).load_factors[0])
-    analysis = PrestressedModalAnalysis(n_modes=n_modes)
-    frequencies = [analysis.solve(problem.with_load_factor(f * critical)).frequencies[:n_modes]
-                   for f in fractions]
-    return critical, np.array(frequencies)
-
-
 def strike(fork: ModalSolution, voice, ring_periods, steps_per_period,
            ring_down_periods) -> tuple[TransientSolution, int, float, RayleighDamping]:
     """Pinch the tine tips together and release, then let the fork ring down.
@@ -190,9 +162,6 @@ class ForkStudy:
     voice: int                      # index of the acoustic mode
     sweep_lengths: np.ndarray       # tine lengths swept for the tuning law
     sweep_freqs: np.ndarray         # the voice frequency at each
-    squeeze_fractions: np.ndarray   # tip loads swept, as fractions of the buckling load
-    squeeze_freqs: np.ndarray       # (len(fractions), n_modes) frequencies under each
-    critical_factor: float          # the buckling factor of the same reference loading
     ringing: TransientSolution      # the struck fork
     tip: int                        # vertex index of the struck tip
     tap_length: float
@@ -217,24 +186,6 @@ class ForkStudy:
         """The fitted exponent of f ~ L^slope over the sweep (beam theory: -2)."""
         return float(np.polyfit(np.log(self.sweep_lengths), np.log(self.sweep_freqs), 1)[0])
 
-    @property
-    def buckling_load(self) -> float:
-        """The tip load that buckles the tines (N per metre of fork depth).
-
-        The reference traction is 1 Pa over the two tips, whose total width is twice the
-        tine thickness, so the critical factor times that width is the force.
-        """
-        return self.critical_factor * 2 * self.tine_thickness
-
-    @property
-    def squeeze_ratios(self) -> np.ndarray:
-        """The lowest mode's omega^2 over its unloaded value, one per swept load.
-
-        Beam theory's linear drop: 1 - lambda/lambda_cr, zero at the buckling load.
-        """
-        lowest = self.squeeze_freqs[:, 0]
-        return (lowest / lowest[self.squeeze_fractions == 0.0][0]) ** 2
-
     def decay_rate(self, i) -> float:
         """sigma_i: mode `i` rings down as exp(-sigma_i t) under the Rayleigh damping."""
         omega = 2 * np.pi * float(self.freqs[i])
@@ -247,11 +198,9 @@ class ForkStudy:
 
 
 def run(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_angle=27, n_modes=6,
-        sweep_lengths=(0.075, 0.088, 0.105, 0.125),
-        squeeze_fractions=(-0.6, -0.3, 0.0, 0.3, 0.6, 0.8, 0.9, 0.97),
-        squeeze_modes=4, ring_periods=40, steps_per_period=40,
+        sweep_lengths=(0.075, 0.088, 0.105, 0.125), ring_periods=40, steps_per_period=40,
         ring_down_periods=15.0) -> ForkStudy:
-    """Solve the fork's modes, sweep its tine length and its tip load, and strike it."""
+    """Solve the fork's modes, sweep its tine length, and strike it."""
     fork = fork_modes(tine_length, tine_thickness, n_modes, n_across_tine, min_angle)
     voice = voice_index(fork, tine_length)
 
@@ -263,12 +212,8 @@ def run(tine_length=0.088, tine_thickness=0.004, n_across_tine=5, min_angle=27, 
                            min_angle)
         sweep_freqs.append(swept.frequencies[voice_index(swept, length)])
 
-    # Pitch under load: the same fork with its tips pressed, from tension through to
-    # the edge of buckling.
-    critical, squeeze_freqs = squeeze_sweep(fork.mesh, squeeze_fractions, squeeze_modes)
-
     ringing, tip, tap_length, damping = strike(
         fork, voice, ring_periods, steps_per_period, ring_down_periods)
     return ForkStudy(tine_length, tine_thickness, fork, voice, np.array(sweep_lengths),
-                     np.array(sweep_freqs), np.array(squeeze_fractions), squeeze_freqs,
-                     critical, ringing, tip, tap_length, damping, ring_down_periods)
+                     np.array(sweep_freqs), ringing, tip, tap_length, damping,
+                     ring_down_periods)
