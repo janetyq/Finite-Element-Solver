@@ -144,12 +144,6 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   `attic/thermoelasticity-and-buckling-path-plans-2026-08-23.md` Plan 2.
 - 💡 **Harmonic response.** `(K − ω²M)u = f`, one indefinite solve `DirectBackend` handles; an
   analysis beside `ModalAnalysis`, the last cheap `EigenSolve` sibling.
-- 💡 **Prestressed vibration and stability.** `GeometricStiffnessForm` assembles `K_g(σ₀)` from a
-  reference stress state, and `BucklingAnalysis` already uses it. That same `K_g` with the mass
-  matrix gives prestressed modal analysis, `(K + K_g(σ₀) − ω²M)φ = 0`: how a loaded structure's
-  natural frequencies shift under load (a tensioned string rises in pitch, a compressed strut drops
-  toward its buckling frequency, hitting zero at the critical load). A sibling of `ModalAnalysis` and
-  `BucklingAnalysis` reusing both their pieces.
 - 💡 **Flow-theory J2 plasticity.** Return mapping per quadrature point, with a `PlasticState` /
   `at_state` / `commit` state-carrying interface. The eigenstrain seam already carries a plastic
   strain as its elastic-predictor half.
