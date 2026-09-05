@@ -4,21 +4,21 @@ The list of still-open work on the solver: correctness, performance, architectur
 ideas.
 
 Legend: 🔴 bug / correctness · 🟠 performance / scaling · 🟡 design / maintainability · 💡 idea.
-Effort: 🟢 low · 🟡 medium · 🔴 high.
+Effort: 🟢 low · 🔵 medium · 🟣 high.
 
 ## At a glance
 
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
-| Numerics | Nonlinear transient; flow-theory J2 plasticity; advection-diffusion | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Numerics | Finish P2: 3D element, curved-element adaptivity, 3D residual estimator | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Numerics | Mixed (u-p) formulation, then Stokes; hand-rolled two-grid preconditioner | 🔴 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Numerics | Globalize the Newton direction (Steihaug CG, the unbuilt route) | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Physics | Harmonic response; arc-length post-buckling; thermoelastic follow-ups | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| API | Reaction forces, region objects, driver histories, series conveniences | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Structure | Split `forms.py` with the stress-QoI dedup | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Tooling | Coverage/plot gaps, docstrings, ruff/pyright, CI matrix, API site, release | 🟢–🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Demos | Stress-driven design; goal-oriented, L-shape, benchmark, 3D structural | 🟡 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Nonlinear transient; flow-theory J2 plasticity; advection-diffusion | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Finish P2: 3D element, curved-element adaptivity, 3D residual estimator | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Mixed (u-p) formulation, then Stokes; hand-rolled two-grid preconditioner | 🟣 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Globalize the Newton direction (Steihaug CG, the unbuilt route) | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Physics | Harmonic response; prestressed vibration; arc-length post-buckling; thermoelastic follow-ups | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| API | Reaction forces, region objects, driver histories, series conveniences | 🟢–🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Structure | Split `forms.py` with the stress-QoI dedup | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Tooling | Coverage/plot gaps, docstrings, ruff/pyright, CI matrix, API site, release | 🟢–🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Demos | Stress-driven design; goal-oriented, L-shape, benchmark, 3D structural | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
 
@@ -159,6 +159,12 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   `attic/thermoelasticity-and-buckling-path-plans-2026-08-23.md` Plan 2.
 - 💡 **Harmonic response.** `(K − ω²M)u = f`, one indefinite solve `DirectBackend` handles; an
   analysis beside `ModalAnalysis`, the last cheap `EigenSolve` sibling.
+- 💡 **Prestressed vibration and stability.** `GeometricStiffnessForm` assembles `K_g(σ₀)` from a
+  reference stress state, and `BucklingAnalysis` already uses it. That same `K_g` with the mass
+  matrix gives prestressed modal analysis, `(K + K_g(σ₀) − ω²M)φ = 0`: how a loaded structure's
+  natural frequencies shift under load (a tensioned string rises in pitch, a compressed strut drops
+  toward its buckling frequency, hitting zero at the critical load). A sibling of `ModalAnalysis` and
+  `BucklingAnalysis` reusing both their pieces.
 - 💡 **Flow-theory J2 plasticity.** Return mapping per quadrature point, with a `PlasticState` /
   `at_state` / `commit` state-carrying interface. The eigenstrain seam already carries a plastic
   strain as its elastic-predictor half.
@@ -325,6 +331,11 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
 - 💡 **A 3D structural demo.** The only 3D solve in the gallery is `timing_benchmark`, which is about
   speed. A 3D bracket or a twisted bar with `PlotMode.SOLID`, von Mises, and a clamp would show the
   3D path exists (elasticity, AMG-CG, recovery all work there).
+- 💡 **A free-body (no boundary conditions) demo.** Extend `modal` to an unconstrained plate: with no
+  Dirichlet constraint the stiffness is singular and its null space is the rigid-body modes, which the
+  SPD iterative path already projects out. The first three (2D) eigenvalues come out as the
+  zero-frequency rigid-body modes, the rest as the elastic ones, making the null space the solver
+  handles visible.
 
 ## Suggested Priority Order
 
