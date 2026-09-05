@@ -28,7 +28,7 @@ Working guidelines for agents on this repo. `CLAUDE.md` imports this file. Do no
 
 ## Verification
 
-- Every PR runs `uv run pytest`, `uv run ruff check`, and `uv run pyright` in CI, and all must pass before merging; the whole-suite run is CI's job, not something to reproduce locally. Locally, run pytest and pyright scoped to the modules you touched (tests map 1:1 by basename): `uv run pytest tests/test_materials.py`, `uv run pyright fem/physics/materials.py` (~2s vs ~22s whole-tree). Whole-repo `uv run ruff check` is instant, so just run it. If CI has not run by merge time, ask.
+- Every PR runs `uv run pytest`, `uv run ruff check`, and `uv run pyright` in CI, and all must pass before merging; the whole-suite run is CI's job, not something to reproduce locally. Locally, run pytest scoped to the modules you touched (tests map 1:1 by basename): `uv run pytest tests/test_materials.py`. Whole-repo `uv run ruff check` is instant, so just run it. Leave pyright to CI: only run it locally when the change is likely to move types (changed signatures or annotations, or the pyright config), and then once, scoped, before committing (`uv run pyright fem/physics/materials.py`), not after every edit. If CI has not run by merge time, ask.
 - Use `uv`; don't invoke `pip` or bare `python`. The dev env is pinned to 3.11 (`.python-version`); the package itself supports 3.10+.
 - Add test coverage before refactoring untested code.
 - New physics or numerics ships with a test against an analytic or manufactured solution.
