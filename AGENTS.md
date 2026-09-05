@@ -38,5 +38,5 @@ Working guidelines for agents on this repo. `CLAUDE.md` imports this file. Do no
 
 ## BACKLOG.md and ARCHITECTURE.md
 
-- `BACKLOG.md` tracks only open work. Remove completed items as part of the effort that completes them.
+- `BACKLOG.md` tracks only open work. Remove completed items as part of the effort that completes them: delete them outright rather than noting they are done, so the backlog shrinks as items complete.
 - `ARCHITECTURE.md` describes the object model. Update it in the PR that changes it.
