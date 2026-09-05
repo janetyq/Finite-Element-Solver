@@ -1,4 +1,5 @@
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -9,16 +10,9 @@ from matplotlib.axes import Axes
 from mpl_toolkits.mplot3d import Axes3D
 
 from fem.field import NodalField
-from fem.typing import FloatArray
-
-if TYPE_CHECKING:
-    from fem.conditions import Conditions
-    from fem.mesh.mesh import Mesh
-    from fem.post.solution import Solution
-    from fem.space import FunctionSpace
-
 from fem.plot.bc import overlay_supports, plot_bc
 from fem.plot.helpers import (
+    ColorbarInfo,
     change_ax_to_ax3d,
     plot_arrows,
     plot_boundary,
@@ -29,7 +23,14 @@ from fem.plot.helpers import (
     plot_surface,
     setup_colorbar,
 )
-from fem.plot.tessellation import panel_view
+from fem.plot.tessellation import PanelView, panel_view
+from fem.typing import FloatArray
+
+if TYPE_CHECKING:
+    from fem.conditions import Conditions
+    from fem.mesh.mesh import Mesh
+    from fem.post.solution import Solution
+    from fem.space import FunctionSpace
 
 
 class PlotMode(Enum):
@@ -55,6 +56,202 @@ DEFAULT_DPI = 150
 FRAME_DPI = 100
 # GIFs carry every frame in one file, so they render lighter than the player frames.
 GIF_DPI = 80
+
+
+@dataclass(frozen=True)
+class Style:
+    """How a panel colours what it draws.
+
+    The colouring arguments of `Plotter.plot` collected into one value, so the panel,
+    the mode handlers, and an animation's frames all read the same thing instead of
+    each forwarding six keywords by hand.
+    """
+    cmap: str = 'viridis'
+    clim: tuple[float, float] | None = None
+    label: str | None = None
+    log_scale: bool = False
+    colorbar: bool = True
+    contour: int | None = None
+
+
+@dataclass(frozen=True)
+class Extras:
+    """The inputs only one mode reads.
+
+    `conditions` is the BC panel's subject. `values` is the caller's array as given,
+    for the two modes that read it rather than the view's field: refinement takes
+    red/green classifications, and arrows take the per-node vectors themselves.
+    """
+    conditions: 'Conditions | None' = None
+    values: Any = None
+
+
+class Panel:
+    """One cell of the figure's grid: its axes, and what has been drawn there.
+
+    The axes stay in the plotter's `axs` array, which callers index and which the swap
+    to 3D replaces, so a panel reads and writes through that array rather than holding
+    an axes of its own.
+    """
+
+    def __init__(self, plotter: 'Plotter', idx: tuple[int, int]) -> None:
+        self._plotter = plotter
+        self.idx = idx
+        self.cbar_info: ColorbarInfo | None = None
+        # Fixed on the first colour-bearing draw; see `fix_style`.
+        self.style: Style | None = None
+
+        # Set when the panel's axes are not the domain's, to the labels they carry
+        # instead; see `Plotter.chart_ax`.
+        self.chart_labels: tuple[str, str] | None = None
+
+        # A panel of boundary conditions. Its axes are the domain's, so it keeps equal
+        # aspect and its ticks, but not the x/y labels: `plot_bc` puts a legend under
+        # the panel, which is where those words sit.
+        self.is_bc = False
+
+        self.animation: FuncAnimation | None = None
+        # The frame-update callable behind the animation, kept because a FuncAnimation
+        # renders only through show()/save(); `save_frames` steps these directly.
+        self.update: Callable[[int], None] | None = None
+        self.n_frames = 0
+
+    @property
+    def ax(self) -> Any:
+        return self._plotter.axs[self.idx]
+
+    @ax.setter
+    def ax(self, ax: Any) -> None:
+        self._plotter.axs[self.idx] = ax
+
+    def to_3d(self) -> Any:
+        """Swap this panel's axes for 3D ones, in place in the plotter's array."""
+        self.ax = change_ax_to_ax3d(self.ax, self._plotter.fig,
+                                    self._plotter.axs.shape, self.idx)
+        return self.ax
+
+    def fix_style(self, style: Style) -> Style:
+        """The style to draw with, fixed on the call that first coloured this panel.
+
+        A colorbar is built once per panel, so the mapping (colormap, limits, label,
+        scale) is read off that first call and later calls redrawing the same axes keep
+        it. Isolines are drawn afresh each time, so `contour` follows the call.
+        """
+        if self.style is None:
+            self.style = style
+        return replace(self.style, contour=style.contour)
+
+    def format(self, axis_labels: bool) -> None:
+        ax = self.ax
+        if self.chart_labels is not None:
+            xlabel, ylabel = self.chart_labels
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+        else:
+            ax.ticklabel_format(useOffset=False)
+            if axis_labels and not self.is_bc:
+                ax.set_xlabel('x')
+                ax.set_ylabel('y')
+            if isinstance(ax, Axes3D):
+                if axis_labels:
+                    ax.set_zlabel('z')
+                ax.set_aspect('equalxy')  # pyright: ignore[reportArgumentType]
+            else:
+                ax.set_aspect('equal')
+
+        # Only where the caller has not placed one itself: `ax.legend()` would
+        # replace an existing legend with a default-positioned one.
+        if ax.get_legend() is None and any(ax.get_legend_handles_labels()[1]):
+            ax.legend()
+
+    def fit_colorbar(self) -> None:
+        """Resize this panel's colorbar to the drawn box of the panel it annotates."""
+        if self.cbar_info is None or self.cbar_info.bar is None:
+            return   # no bar: colour drawn without one (colorbar=False)
+        ax: Any = self.ax
+        box = ax.get_position()
+        bar = self.cbar_info.bar.ax.get_position()
+        self.cbar_info.bar.ax.set_position((bar.x0, box.y0, bar.width, box.height))
+
+
+# -- mode handlers -----------------------------------------------------------------
+#
+# One handler per `PlotMode`, each drawing into the panel it is given and returning the
+# artist an animation can update in place, or `None`. What a mode needs from the call,
+# and whether its axes are 3D or it carries a colour mapping, is declared beside it in
+# `ModeSpec` rather than read off the branch that draws it.
+
+
+def _draw_mesh(panel: Panel, view: PanelView, style: Style, extras: Extras) -> Any:
+    plot_mesh(panel.ax, view)
+
+
+def _draw_boundary(panel: Panel, view: PanelView, style: Style, extras: Extras) -> Any:
+    plot_boundary(panel.ax, view)
+
+
+def _draw_colored(panel: Panel, view: PanelView, style: Style, extras: Extras) -> Any:
+    if style.clim is not None and panel.cbar_info is None:
+        panel.cbar_info = setup_colorbar(panel.ax, style.clim, style.label, style.cmap,
+                                         style.log_scale, style.colorbar)
+    panel.cbar_info, artist = plot_colored(
+        panel.ax, view, cbar_info=panel.cbar_info, label=style.label, cmap_name=style.cmap,
+        log_scale=style.log_scale, colorbar=style.colorbar, contour=style.contour)
+    return artist
+
+
+def _draw_surface(panel: Panel, view: PanelView, style: Style, extras: Extras) -> Any:
+    plot_surface(panel.ax, view, clim=style.clim)
+
+
+def _draw_solid(panel: Panel, view: PanelView, style: Style, extras: Extras) -> Any:
+    # The colorbar spans the field as drawn, and is set up on the 3D axes: the swap has
+    # already happened, so a bar anchored here is not orphaned by it.
+    if view.values is not None and panel.cbar_info is None:
+        panel.cbar_info = setup_colorbar(
+            panel.ax, (float(np.min(view.values)), float(np.max(view.values))), style.label)
+    return plot_solid(panel.ax, view, panel.cbar_info)
+
+
+def _draw_refinement(panel: Panel, view: PanelView, style: Style, extras: Extras) -> Any:
+    plot_refinement(panel.ax, view.mesh, extras.values)
+
+
+def _draw_arrows(panel: Panel, view: PanelView, style: Style, extras: Extras) -> Any:
+    plot_arrows(panel.ax, view, extras.values)
+
+
+def _draw_bc(panel: Panel, view: PanelView, style: Style, extras: Extras) -> Any:
+    plot_bc(panel.ax, view.mesh, extras.conditions)
+    panel.is_bc = True
+
+
+@dataclass(frozen=True)
+class ModeSpec:
+    """What one mode draws, and what the call has to supply for it.
+
+    The declaration is checked before anything is drawn, so a mode asked for without
+    its field or its conditions is reported as that, rather than surfacing as a shape
+    error out of matplotlib several frames later.
+    """
+    draw: Callable[[Panel, PanelView, Style, Extras], Any]
+    needs_values: bool = False
+    needs_conditions: bool = False
+    axes_3d: bool = False       # the panel's axes are swapped to 3D before drawing
+    colored: bool = False       # carries a colour mapping, and so a colorbar
+
+
+_MODE_SPECS: dict[PlotMode, ModeSpec] = {
+    PlotMode.MESH: ModeSpec(_draw_mesh),
+    PlotMode.BOUNDARY: ModeSpec(_draw_boundary),
+    PlotMode.COLORED: ModeSpec(_draw_colored, needs_values=True, colored=True),
+    PlotMode.SURFACE: ModeSpec(_draw_surface, needs_values=True, axes_3d=True),
+    # A solid with no field draws its boundary surface plain, so values are optional.
+    PlotMode.SOLID: ModeSpec(_draw_solid, axes_3d=True, colored=True),
+    PlotMode.REFINEMENT: ModeSpec(_draw_refinement, needs_values=True),
+    PlotMode.ARROWS: ModeSpec(_draw_arrows, needs_values=True),
+    PlotMode.BC: ModeSpec(_draw_bc, needs_conditions=True),
+}
 
 
 class Plotter:
@@ -91,24 +288,22 @@ class Plotter:
         # something.
         self.axis_labels = axis_labels
 
-        # Panels whose axes are not the domain's, and the labels they carry instead;
-        # see `chart_ax`.
-        self._charts: dict[tuple[int, int], tuple[str, str]] = {}
+        self._panels = {idx: Panel(self, idx) for idx in np.ndindex(nrows, ncols)}
 
-        # Panels of boundary conditions. Their axes are the domain's, so they keep
-        # equal aspect and their ticks, but not the x/y labels: `plot_bc` puts a legend
-        # under the panel, which is where those words sit.
-        self._bc_panels: set[tuple[int, int]] = set()
-
-        self.anims = {}
-        # The frame-update callable behind each animation, kept because a FuncAnimation
-        # renders only through show()/save(); `save_frames` steps these directly.
-        self._anim_updates: dict[tuple[int, int], tuple[Callable[[int], None], int]] = {}
-        self.cbar_infos = {}
         # Whether the one-off layout pass in `_fit_colorbars` has run. Tracked here
         # rather than read back off the figure because freezing the layout leaves a
         # placeholder engine in place, not `None`, so the figure cannot report it.
         self._layout_frozen = False
+
+    @property
+    def anims(self) -> dict[tuple[int, int], FuncAnimation]:
+        """The animation on each animated panel, by index."""
+        return {idx: p.animation for idx, p in self._panels.items() if p.animation is not None}
+
+    @property
+    def cbar_infos(self) -> dict[tuple[int, int], ColorbarInfo]:
+        """The colour mapping each coloured panel drew with, by index."""
+        return {idx: p.cbar_info for idx, p in self._panels.items() if p.cbar_info is not None}
 
     def plot(
         self,
@@ -169,54 +364,55 @@ class Plotter:
         Returns the recolourable collection for the colored and solid modes (the
         artist an animation updates in place across frames), and `None` otherwise.
         """
-        mode = PlotMode(mode)  # accepts PlotMode or its value; unknown raises ValueError
+        style = Style(cmap=cmap if cmap is not None else 'viridis', clim=clim, label=label,
+                      log_scale=log_scale, colorbar=colorbar, contour=contour)
+        return self._draw(target, values, mode=PlotMode(mode), idx=idx, style=style,
+                          title=title, conditions=conditions, clear=clear, empty=empty,
+                          space=space, subdivisions=subdivisions, warp=warp)
+
+    def _draw(
+        self,
+        target: "Mesh | Solution | NodalField",
+        values: "FloatArray | Sequence[float] | Sequence[str] | NodalField | None",
+        *,
+        mode: PlotMode,
+        idx: tuple[int, int],
+        style: Style,
+        title: str | None = None,
+        conditions: 'Conditions | None' = None,
+        clear: bool = False,
+        empty: bool = False,
+        space: 'FunctionSpace | None' = None,
+        subdivisions: int = 3,
+        warp: 'FloatArray | bool | None' = None,
+    ) -> Any:
+        """Draw one panel with an already-resolved `Style`; `plot` is the public form."""
+        spec = _MODE_SPECS[mode]
+        if spec.needs_values and values is None:
+            raise ValueError(f"the {mode.value} mode draws a field: pass values=")
+        if spec.needs_conditions and conditions is None:
+            raise ValueError(f"the {mode.value} mode draws boundary conditions: "
+                             f"pass conditions=")
+
         # The refinement mode takes the red/green classifications, not a field.
         field = (None if values is None or mode is PlotMode.REFINEMENT
                  else values if isinstance(values, NodalField)
                  else np.asarray(values, dtype=float))
         view = panel_view(target, field, space=space, warp=warp, subdivisions=subdivisions)
-        mesh = view.mesh
-        ax = self.axs[idx]
+
+        panel = self._panels[idx]
         if clear:
-            ax.clear()
+            panel.ax.clear()
+        if spec.axes_3d:
+            panel.to_3d()
+        if spec.colored:
+            style = panel.fix_style(style)
 
-        artist = None
-        # TODO: check that values/conditions are provided for intended mode
-        if mode is PlotMode.MESH:
-            plot_mesh(ax, view)
-        elif mode is PlotMode.BOUNDARY:
-            plot_boundary(ax, view)
-        elif mode is PlotMode.COLORED:
-            cmap_name = cmap if cmap is not None else 'viridis'
-            if clim is not None and idx not in self.cbar_infos:
-                self.cbar_infos[idx] = setup_colorbar(ax, clim, label, cmap_name, log_scale, colorbar)
-            cbar_info, artist = plot_colored(ax, view, cbar_info=self.cbar_infos.get(idx, None),
-                                             label=label, cmap_name=cmap_name, log_scale=log_scale,
-                                             colorbar=colorbar, contour=contour)
-            self.cbar_infos[idx] = cbar_info
-        elif mode is PlotMode.SURFACE:
-            ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
-            self.axs[idx] = ax
-            plot_surface(ax, view, clim=clim)
-        elif mode is PlotMode.SOLID:
-            # The colorbar is set up on the 3D axes, after the swap.
-            ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
-            self.axs[idx] = ax
-            if view.values is not None and idx not in self.cbar_infos:
-                self.cbar_infos[idx] = setup_colorbar(
-                    ax, (float(np.min(view.values)), float(np.max(view.values))), label)
-            artist = plot_solid(ax, view, self.cbar_infos.get(idx))
-        elif mode is PlotMode.REFINEMENT:
-            plot_refinement(ax, mesh, values)
-        elif mode is PlotMode.ARROWS:
-            plot_arrows(ax, view, values)
-        elif mode is PlotMode.BC:
-            plot_bc(ax, mesh, conditions)
-            self._bc_panels.add(idx)
+        artist = spec.draw(panel, view, style, Extras(conditions=conditions, values=values))
 
-        ax.set_title(title) # overrides any existing title
+        panel.ax.set_title(title)  # overrides any existing title
         if empty:
-            ax.axis('off')
+            panel.ax.axis('off')
         return artist
 
     def overlay_supports(
@@ -245,6 +441,8 @@ class Plotter:
         label: str | None = None,
         meshes: "Sequence['Mesh'] | None" = None,
         cmap: str | None = None,
+        log_scale: bool = False,
+        contour: int | None = None,
         space: 'FunctionSpace | None' = None,
         subdivisions: int = 3,
     ) -> None:
@@ -252,7 +450,10 @@ class Plotter:
 
         `target`, `space`, and `subdivisions` are as in `plot`, so a P2 or curved field
         animates on the same tessellation it is drawn on. `clim` fixes the colour range
-        across the series (default: the extremes over every frame).
+        across the series (default: the extremes over every frame); `cmap`, `label`,
+        `log_scale`, and `contour` colour the panel as they do a still. On the
+        fixed-mesh path a frame only recolours the one collection drawn, so `contour`
+        isolines there are the first frame's and stay put.
 
         `meshes` supplies one mesh per frame when the geometry moves (a vibration
         mode flexing, say) rather than a field changing over fixed geometry. The
@@ -262,33 +463,37 @@ class Plotter:
         the fixed-mesh case, whose recolour path is left untouched.
         """
         mode = PlotMode(mode)
+        spec = _MODE_SPECS[mode]
         # Bound to local lists so the nested `update` closure keeps the non-optional
         # type; a narrowed parameter does not survive capture.
         frame_titles = list(titles) if titles is not None else [str(i) for i in range(len(values))]
         frame_meshes = list(meshes) if meshes is not None else None
-        cmap_name = cmap if cmap is not None else 'viridis'
+        style = Style(cmap=cmap if cmap is not None else 'viridis', clim=clim, label=label,
+                      log_scale=log_scale, contour=contour)
+        panel = self._panels[idx]
 
         # Colored and solid are the two modes that read a colorbar; surface draws one
-        # anyway onto the 2D axes that change_ax_to_ax3d then replaces, leaving a stray
+        # anyway onto the 2D axes that the swap to 3D then replaces, leaving a stray
         # legend beside a plot that never used it.
-        if mode in (PlotMode.COLORED, PlotMode.SOLID):
+        if spec.colored:
             # Fixed across frames so they stay comparable, spanning the whole series.
-            if clim is None:
-                clim = (min(np.min(v) for v in values), max(np.max(v) for v in values))
-            ax = self.axs[idx]
-            if mode is PlotMode.SOLID:
-                # Built up front, so the colorbar spans the whole series rather than
-                # just frame 0; `plot`'s own SOLID branch only sets one up when idx
-                # has none yet, which this pre-empts. The swap to 3D axes has to happen
-                # first: a colorbar anchored to the 2D axes orphans when `plot` swaps
-                # it out from under it.
-                ax = change_ax_to_ax3d(ax, self.fig, self.axs.shape, idx)
-                self.axs[idx] = ax
-            self.cbar_infos[idx] = setup_colorbar(ax, clim, label=label, cmap_name=cmap_name)
+            if style.clim is None:
+                style = replace(style, clim=(min(np.min(v) for v in values),
+                                             max(np.max(v) for v in values)))
+            if spec.axes_3d:
+                # The swap to 3D has to happen first: a colorbar anchored to the 2D
+                # axes orphans when the axes are swapped out from under it.
+                panel.to_3d()
+            # Built up front, so the colorbar spans the whole series rather than just
+            # frame 0, and fixes the style every frame then draws with.
+            panel.style = style
+            panel.cbar_info = setup_colorbar(panel.ax, style.clim, label=style.label,
+                                             cmap_name=style.cmap, log_scale=style.log_scale,
+                                             colorbar=style.colorbar)
 
         base = frame_meshes[0] if frame_meshes is not None else target
-        artist = self.plot(base, values[0], mode=mode, idx=idx, title=frame_titles[0],
-                           cmap=cmap, space=space, subdivisions=subdivisions)
+        artist = self._draw(base, values[0], mode=mode, idx=idx, style=style,
+                            title=frame_titles[0], space=space, subdivisions=subdivisions)
 
         if frame_meshes is not None:
             # Moving geometry: a fixed collection cannot be recoloured into a new shape,
@@ -302,8 +507,8 @@ class Plotter:
             ylim = (float(lo[1] - margin), float(hi[1] + margin))
 
             def update(frame: int) -> None:
-                self.plot(frame_meshes[frame], values[frame], mode=mode, idx=idx,
-                          title=frame_titles[frame], clear=True, cmap=cmap)
+                self._draw(frame_meshes[frame], values[frame], mode=mode, idx=idx,
+                           style=style, title=frame_titles[frame], clear=True)
                 ax = self.axs[idx]
                 ax.set_xlim(xlim)
                 ax.set_ylim(ylim)
@@ -313,7 +518,7 @@ class Plotter:
         # axes and rebuilding it, which re-lays out every tick and label each frame and
         # was the bulk of an animated demo's render cost. Surface lifts the field into
         # z, so its geometry changes frame to frame and it has to be redrawn.
-        elif mode in (PlotMode.COLORED, PlotMode.SOLID) and artist is not None:
+        elif spec.colored and artist is not None:
             ax = self.axs[idx]
             view = panel_view(target, values[0], space=space, subdivisions=subdivisions)
 
@@ -322,11 +527,14 @@ class Plotter:
                 ax.set_title(frame_titles[frame])
         else:
             def update(frame: int) -> None:
-                self.plot(target, values[frame], mode=mode, idx=idx, title=frame_titles[frame],
-                          clear=True, space=space, subdivisions=subdivisions)
+                self._draw(target, values[frame], mode=mode, idx=idx, style=style,
+                           title=frame_titles[frame], clear=True, space=space,
+                           subdivisions=subdivisions)
 
-        self.anims[idx] = FuncAnimation(self.fig, update, frames=range(len(values)), blit=False, repeat=True)
-        self._anim_updates[idx] = (update, len(values))
+        panel.animation = FuncAnimation(self.fig, update, frames=range(len(values)),
+                                        blit=False, repeat=True)
+        panel.update = update
+        panel.n_frames = len(values)
 
     def get_ax(self, idx: tuple[int, int] = (0, 0)) -> Axes:
         return self.axs[idx]
@@ -340,32 +548,12 @@ class Plotter:
         log-log plot, `ticklabel_format` raises on a log scale, and the quantities are
         named by `xlabel`/`ylabel` instead.
         """
-        self._charts[idx] = (xlabel, ylabel)
+        self._panels[idx].chart_labels = (xlabel, ylabel)
         return self.axs[idx]
 
     def format_axs(self) -> None:
-        for idx, ax in np.ndenumerate(self.axs):
-            if idx in self._charts:
-                xlabel, ylabel = self._charts[idx]
-                ax.set_xlabel(xlabel)
-                ax.set_ylabel(ylabel)
-            else:
-                ax.ticklabel_format(useOffset=False)
-                if self.axis_labels and idx not in self._bc_panels:
-                    ax.set_xlabel('x')
-                    ax.set_ylabel('y')
-                if isinstance(ax, Axes3D):
-                    if self.axis_labels:
-                        ax.set_zlabel('z')
-                    ax.set_aspect('equalxy')  # pyright: ignore[reportArgumentType]
-                else:
-                    ax.set_aspect('equal')
-
-            # Only where the caller has not placed one itself: `ax.legend()` would
-            # replace an existing legend with a default-positioned one.
-            if ax.get_legend() is None and any(ax.get_legend_handles_labels()[1]):
-                ax.legend()
-
+        for panel in self._panels.values():
+            panel.format(self.axis_labels)
         self._fit_colorbars()
 
     def _fit_colorbars(self) -> None:
@@ -391,13 +579,8 @@ class Plotter:
             self.fig.set_layout_engine('none')
             self._layout_frozen = True
 
-        for idx, info in self.cbar_infos.items():
-            if info.bar is None:   # colour drawn without a bar (colorbar=False)
-                continue
-            ax: Any = self.axs[idx]
-            panel = ax.get_position()
-            bar = info.bar.ax.get_position()
-            info.bar.ax.set_position([bar.x0, panel.y0, bar.width, panel.height])
+        for panel in self._panels.values():
+            panel.fit_colorbar()
 
     def show(self) -> None:
         self.format_axs()
@@ -458,7 +641,8 @@ class Plotter:
         number after each frame is drawn; sampled down to `max_frames` evenly, keeping
         both ends, so the last frame (a topology optimization's result) is never
         dropped.'''
-        if not self._anim_updates:
+        animated = [p for p in self._panels.values() if p.update is not None]
+        if not animated:
             raise ValueError('this figure has no animation to write frames for')
 
         frames = range(self.frame_count())
@@ -466,16 +650,17 @@ class Plotter:
             frames = np.unique(np.linspace(0, self.frame_count() - 1, max_frames).astype(int))
 
         for image, frame in enumerate(frames):
-            for update, _ in self._anim_updates.values():
-                update(int(frame))
+            for panel in animated:
+                assert panel.update is not None
+                panel.update(int(frame))
             self.format_axs()
             yield image
 
     def frame_count(self) -> int:
         '''Frames the animations on this figure share: the shortest, so every panel
         has something to draw at every step.'''
-        return min((n for _, n in self._anim_updates.values()), default=0)
+        return min((p.n_frames for p in self._panels.values() if p.update is not None),
+                   default=0)
 
     def close(self) -> None:
         plt.close(self.fig)
-        
