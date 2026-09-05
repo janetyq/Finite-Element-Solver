@@ -115,9 +115,9 @@ strategy the strategies row), and a new row means a new kind of object.
 | `Problem` / `LinearProblem` | | | ▒ | ▒ | █ | | | | ▒ |
 | `DiscreteSystem` | | | | | ▒ | █ | | | |
 | `Backend` (`Direct`, `Iterative`, `Minres`) | | | | | | █ | | | |
-| `LinearSolve` / `NewtonSolve` / `EigenSolve` / `QuasiStaticStepping` | | | | | | ▒ | | | |
+| `LinearSolve` / `NewtonSolve` / `EigenSolve` / `QuasiStaticStepping` / `ArcLengthStepping` | | | | | | ▒ | | | |
 | `ThetaMethod` / `NewmarkMethod` | | | | | | ▒ | █ | | |
-| `BucklingAnalysis`, `ModalAnalysis` | | | | | | ▒ | | | ▒ |
+| `BucklingAnalysis`, `PostBucklingAnalysis`, `ModalAnalysis`, `PrestressedModalAnalysis` | | | | | | ▒ | | | ▒ |
 | `AdaptiveRefinement`, `SIMPModel` / `DesignOptimizer` | | | | | | | | █ | ▒ |
 | Error estimators, `SensitivityAnalysis` | | | | | | | | ▒ | █ |
 | `Solution` (typed) | | | | | | | ▒ | | █ |
@@ -268,11 +268,16 @@ eliminates the Dirichlet DOFs and hands the free-free block to the backend, whic
 On top of the steady solves sit the two walks. The integrators (`fem/algebra/integrators.py`, one
 family per time order) form a constant effective operator from the problem's mass and stiffness,
 factor it once, and step the right-hand side, re-evaluating `TimeDependent` values per step
-through `problem.load_at(t)` / `fixed_values_at(t)`; a steady solve or an estimator works on the
+through `problem.load_at(t)` / `fixed_values_at(t)`, or, where the tangent depends on the state,
+solve one Newton iteration per step on the effective residual instead, seeded from the scheme's
+predictor; a steady solve or an estimator works on the
 snapshot `problem.at(t)`. `QuasiStaticStepping` (`fem/algebra/stepping.py`) walks the *load* path
 instead: steady equilibria from rest to full load, each Newton solve seeded with the last, a
-diverging step bisected; `t` is a dial on the loading, not physical time. Integrators and stepper
-alike return a `TransientSolution`, `history[i]` the typed steady solution at step `i`.
+diverging step bisected; `t` is a dial on the loading, not physical time, and its sibling
+`ArcLengthStepping` walks the same path by arc length, λ an unknown of the solve, so it passes the
+limit points load control stalls at. Integrators and stepper
+alike return a `TransientSolution`, `history[i]` the typed steady solution at step `i`; the
+arc-length path returns a `PathSolution`, that series plus the stability of each state on it.
 
 ### `Equation`
 

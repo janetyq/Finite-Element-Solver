@@ -45,7 +45,11 @@ from fem.algebra.stepping import (
     SteppingDivergence,
 )
 from fem.analysis.adaptivity import AdaptiveRefinement
-from fem.analysis.buckling import BucklingAnalysis
+from fem.analysis.buckling import (
+    BucklingAnalysis,
+    PostBucklingAnalysis,
+    PostBucklingResult,
+)
 from fem.analysis.design import (
     DesignHistory,
     DesignOptimizer,
@@ -266,6 +270,8 @@ __all__ = [
     "WaveSolution",
     "PathSolution",
     "BucklingAnalysis",
+    "PostBucklingAnalysis",
+    "PostBucklingResult",
     "ModalAnalysis",
     "SensitivityAnalysis",
     "QuantityOfInterest",

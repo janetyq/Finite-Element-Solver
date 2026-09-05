@@ -1,26 +1,33 @@
-"""Buckling loads and modes of a slender column, checked against Euler's column formula.
+"""Buckling loads and modes of a slender column, checked against Euler's column formula,
+and the load-deflection path it follows past them.
 
 Buckling is an eigenproblem: a reference load puts the column under a prestress,
 BucklingAnalysis assembles the geometric stiffness K_g from it and solves
 K phi = -lambda K_g phi, and lambda multiplies the reference load. P2 elements
 throughout: the constant-strain triangle locks in bending.
 
+What happens past the critical load is not an eigenproblem: PostBucklingAnalysis seeds
+a small geometric imperfection in the first mode, restates the column in finite strain,
+and walks its equilibrium path by arc length. The knee of that path is the critical
+load, and it flattens toward it as the imperfection shrinks.
+
 `solve_buckling` solves one column under one end condition; `run` calls it for the
 pinned column's modes, for each of the four classic end conditions, and over a sweep of
-lengths, and returns a `BucklingStudy` of plain results. Nothing here draws:
-`figures.py` does that from the study, and this file is what the gallery shows.
+lengths, traces the post-buckling paths, and returns a `BucklingStudy` of plain results.
+Nothing here draws: `figures.py` does that from the study, and this file is what the
+gallery shows.
 """
 from dataclasses import dataclass
 
 import numpy as np
 
-from fem.analysis.buckling import BucklingAnalysis
+from fem.analysis.buckling import BucklingAnalysis, PostBucklingAnalysis
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
-from fem.physics.equations import LinearElastic
+from fem.physics.equations import FiniteStrainElastic, LinearElastic
 from fem.post.solution import BucklingSolution
 from fem.regions import intersect, on_plane
 
@@ -117,6 +124,67 @@ def solve_buckling(mesh, bc, span, height, n_modes) -> tuple[BucklingSolution, n
 
 
 
+def knife_edge(span, height):
+    """Pinned-pinned again, but each end held at one point on the neutral axis.
+
+    The same critical load as `pinned` (holding an end edge across its width does not
+    resist rotation to first order) and a different structure past it: a whole edge held
+    at u_x = 0 cannot take the second-order sideways motion of a rotating section, so it
+    stiffens the post-buckling path. A knife edge holds the section's centre and lets it
+    rotate freely, which is the end condition the elastica describes.
+    """
+    return Conditions(
+        Dirichlet(intersect(on_plane(1, 0.0), on_plane(0, height / 2)), [0, 0]),
+        Dirichlet(intersect(on_plane(1, span), on_plane(0, height / 2)), [0, None]),
+        Neumann(on_plane(1, span), [0, -1.0]),
+    )
+
+
+@dataclass
+class PostBucklingPath:
+    """One traced equilibrium path: how much load the column carries as it bows."""
+    amplitude: float                # the imperfection seeded, as a fraction of the diagonal
+    load_ratios: np.ndarray         # lambda / lambda_cr at each step
+    deflections: np.ndarray         # peak transverse deflection at each step
+
+    @property
+    def label(self) -> str:
+        return f'imperfection {self.amplitude:.0e} of the diagonal'
+
+
+def elastica_load(deflection, span):
+    """The elastica's initial post-buckling rise, P/P_cr = 1 + Theta^2/8.
+
+    Theta is the end rotation of the buckled column. For the first mode the centreline
+    is a half sine of amplitude w, so its end slope is Theta = pi w / L and the series
+    reads P/P_cr = 1 + (pi w / L)^2 / 8: the column keeps carrying load past P_cr, and
+    a little more of it the further it bows.
+    """
+    return 1 + (np.pi * np.asarray(deflection) / span) ** 2 / 8
+
+
+def solve_post_buckling(mesh, bc, amplitudes, max_steps) -> tuple[list[PostBucklingPath], float]:
+    """The load-deflection path of the column at each imperfection amplitude.
+
+    The amplitudes are fractions of the mesh's bounding-box diagonal, which is what
+    `PostBucklingAnalysis` scales its own default by. The deflection reported is the
+    largest transverse displacement on the column, which for the first mode is its
+    mid-span bow.
+    """
+    diagonal = float(np.linalg.norm(mesh.vertices.max(axis=0) - mesh.vertices.min(axis=0)))
+    equation = FiniteStrainElastic(E, NU)
+    paths, critical = [], 0.0
+    for amplitude in amplitudes:
+        result = PostBucklingAnalysis(imperfection=amplitude * diagonal,
+                                      max_steps=max_steps).solve(
+            equation, mesh, bc, element_type=QuadraticTriangleElement)
+        critical = result.critical_load_factor
+        deflections = np.array([float(np.abs(step.nodal_values[:, 0]).max())
+                                for step in result.path])
+        paths.append(PostBucklingPath(amplitude, result.path.lambdas / critical, deflections))
+    return paths, critical
+
+
 @dataclass
 class EndCondition:
     """One way of holding the column's ends, solved for its first buckling mode."""
@@ -140,6 +208,10 @@ class BucklingStudy:
     ends: list[EndCondition]        # the same column held four ways
     sweep_lengths: np.ndarray       # pinned-column lengths swept for the slenderness law
     sweep_loads: np.ndarray         # the first critical load at each
+    path_mesh: Mesh                 # the column the post-buckling paths were traced on
+    path_bc: Conditions             # its knife-edge ends
+    paths: list[PostBucklingPath]   # one traced path per imperfection amplitude
+    path_critical: float            # the lambda_cr those paths are read against
 
     @property
     def n_modes(self) -> int:
@@ -158,8 +230,10 @@ class BucklingStudy:
 
 
 def run(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
-        sweep_lengths=(16.0, 20.0, 28.0, 40.0)) -> BucklingStudy:
-    """Solve the pinned column's modes, the four end conditions, and the length sweep."""
+        sweep_lengths=(16.0, 20.0, 28.0, 40.0), imperfections=(1e-3, 1e-4, 1e-5),
+        path_steps=40) -> BucklingStudy:
+    """Solve the pinned column's modes, the four end conditions, the length sweep, and
+    the post-buckling paths."""
     n_across += n_across % 2      # a vertex on the neutral axis, for the pinned anchor
     mesh = column(length, height, n_length, n_across)
 
@@ -179,5 +253,12 @@ def run(length=24.0, height=1.0, n_length=48, n_across=6, n_modes=3,
     # 3. Slenderness: the pinned column's critical load over a sweep of lengths.
     sweep_loads = [solve_buckling(column(L, height, max(32, int(2 * L)), n_across),
                                   pinned(L, height), L, height, 1)[1][0] for L in sweep_lengths]
+
+    # 4. Past the critical load: the equilibrium path of a slightly imperfect column, on
+    # a coarser mesh because each path is tens of finite-strain solves rather than one.
+    path_mesh = column(length, height, max(16, n_length // 2), max(3, n_across // 2))
+    path_bc = knife_edge(length, height)
+    paths, path_critical = solve_post_buckling(path_mesh, path_bc, imperfections, path_steps)
     return BucklingStudy(length, height, mesh, pinned_bc, pinned_solution, pinned_loads, ends,
-                         np.array(sweep_lengths), np.array(sweep_loads))
+                         np.array(sweep_lengths), np.array(sweep_loads),
+                         path_mesh, path_bc, paths, path_critical)
