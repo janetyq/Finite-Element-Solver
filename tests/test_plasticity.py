@@ -12,6 +12,8 @@ import numpy as np
 import pytest
 from scipy.optimize import brentq
 
+from fem.algebra.integrators import ThetaMethod
+from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.numerics import central_difference_order
@@ -20,8 +22,6 @@ from fem.physics.equations import DeformationPlasticity, LinearElastic
 from fem.physics.plasticity import RambergOsgood
 from fem.post.solution import ElasticSolution
 from fem.regions import everywhere, intersect, on_plane
-from fem.algebra.integrators import ThetaMethod
-from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
 
 E, NU = 200.0, 0.3
 SIGMA_Y = 0.5           # yield strain ~2.5e-3: well inside small strain
@@ -222,7 +222,7 @@ def test_plastic_front_tracks_hills_cylinder():
     s = run(n_pressures=4, max_area_fraction=0.004, resolution=0.04)
     wall = s.outer - s.inner
     assert s.pressures[0] < s.first_yield and s.fronts[0] == s.inner
-    assert all(a < b for a, b in zip(s.fronts, s.fronts[1:])), 'the front must advance'
+    assert all(a < b for a, b in zip(s.fronts, s.fronts[1:], strict=False)), 'the front must advance'
     np.testing.assert_allclose(s.fronts, s.hill_fronts, rtol=0, atol=0.06 * wall)
 
 

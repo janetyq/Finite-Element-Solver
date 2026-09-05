@@ -14,12 +14,12 @@ import numpy as np
 
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
-from fem.physics.equations import Poisson
+from fem.loads import Source
+from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.outline import Outline, douglas_peucker
+from fem.physics.equations import Poisson
 from fem.regions import everywhere
-from fem.mesh.curves import Circle
-from fem.loads import Source
 
 
 def star_outline(points: int = 5, outer_radius: float = 1.0, inner_radius: float = 0.42,

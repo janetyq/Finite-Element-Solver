@@ -12,15 +12,14 @@ fields.
 `save` and `load` import `fem.post.io` lazily: I/O reads the solution types, so the edge
 points up and stays function-local.
 """
-from dataclasses import dataclass, field
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 import numpy as np
 
 from fem.field import NodalField
-from fem.post import invariants
-from fem.post import recovery
+from fem.post import invariants, recovery
 from fem.post.recovery import RecoveryMethod
 from fem.typing import DofVector, ElementValues, FloatArray
 
@@ -30,8 +29,8 @@ T = TypeVar('T', bound='Solution')
 if TYPE_CHECKING:
     from fem.algebra.backends import Backend
     from fem.elements import Element
-    from fem.physics.forms import ElasticPointState, Form, RecoversElasticState
     from fem.mesh.mesh import Mesh
+    from fem.physics.forms import ElasticPointState, Form, RecoversElasticState
     from fem.space import FunctionSpace
 
 
@@ -94,7 +93,10 @@ class DiffusionSolution(FieldSolution):
     gives the continuous per-node field a P2 plot or a nodal consumer wants,
     re-evaluated at the nodes so a P2 gradient's variation within the element is kept.
     '''
-    gradient: ElementValues   # (n_elements, spatial_dim) per-element grad u
+    # (n_elements, spatial_dim) per-element grad u. Deliberately stored under the name
+    # `NodalField.gradient()` computes it under: a loaded solution carries the gradient
+    # rather than recomputing it, and the attribute is how every consumer reads it.
+    gradient: ElementValues  # pyright: ignore[reportIncompatibleMethodOverride]
 
     @classmethod
     def from_solve(cls, space: 'FunctionSpace', dofs: DofVector) -> 'DiffusionSolution':

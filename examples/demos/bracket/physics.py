@@ -12,17 +12,17 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from fem.analysis.estimators import RecoveryEstimator
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.physics.equations import LinearElastic
-from fem.analysis.estimators import RecoveryEstimator
-from fem.mesh.mesh import Mesh
-from fem.mesh.refinement import RedGreenRefiner
-from fem.regions import on_plane
-from fem.post.solution import ElasticSolution
 from fem.mesh.curves import Arc, Line
+from fem.mesh.mesh import Mesh
 from fem.mesh.outline import Outline
+from fem.mesh.refinement import RedGreenRefiner
+from fem.physics.equations import LinearElastic
+from fem.post.solution import ElasticSolution
+from fem.regions import on_plane
 
 
 def l_bracket_outline(arm: float = 4.0, width: float = 1.2,

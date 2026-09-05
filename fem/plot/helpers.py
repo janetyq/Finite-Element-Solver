@@ -9,10 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import numpy as np
 import matplotlib
-import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.colorbar import Colorbar
 from matplotlib.colors import Colormap, LogNorm, Normalize
 from matplotlib.tri import Triangulation

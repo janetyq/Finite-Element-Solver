@@ -8,7 +8,6 @@ the P2 L2 rate, and the curved mass matrix integrates the true area.
 """
 import numpy as np
 import pytest
-
 from mms import (
     ANNULUS_INNER,
     ANNULUS_OUTER,
@@ -16,6 +15,7 @@ from mms import (
     annulus_convergence,
     annulus_mesh,
 )
+
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.space import FunctionSpace
 
@@ -79,7 +79,7 @@ def test_isoparametric_solve_keeps_the_p2_rate():
     solve on the annulus still converges at the P2 rate in L2."""
     study = ConvergenceStudy.from_solves(
         annulus_convergence(RESOLUTIONS, IsoparametricTriangleElement))
-    for coarse, fine in zip(study.error[:-1], study.error[1:]):
+    for coarse, fine in zip(study.error[:-1], study.error[1:], strict=False):
         assert fine < coarse, f"error grew under refinement: {study.error}"
     assert study.fitted_order > 2.7, f"expected ~3rd order, got orders {study.orders}"
 
@@ -93,7 +93,7 @@ def test_isoparametric_solve_keeps_the_h1_rate():
     solves = annulus_convergence(RESOLUTIONS, IsoparametricTriangleElement)
     study = ConvergenceStudy(np.array([s.h for s in solves]),
                              np.array([s.h1_error for s in solves]))
-    for coarse, fine in zip(study.error[:-1], study.error[1:]):
+    for coarse, fine in zip(study.error[:-1], study.error[1:], strict=False):
         assert fine < coarse, f"gradient error grew under refinement: {study.error}"
     for p in study.orders:
         assert 1.6 < p < 2.2, f"expected ~O(h^2) H1 seminorm, got orders {study.orders}"

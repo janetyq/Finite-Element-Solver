@@ -20,9 +20,9 @@ from fem.typing import (
     FieldValue,
     FloatArray,
     IntArray,
+    NodalValues,
     Region,
     VertexIndices,
-    NodalValues,
     Vertices,
 )
 

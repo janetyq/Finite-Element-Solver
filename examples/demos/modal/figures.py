@@ -1,12 +1,11 @@
 """The figures and summary of the tuning fork demo, drawn from a `ForkStudy`."""
 import numpy as np
-
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos._charts import hide_x_ticks, share_panel_limits
 from demos.modal import physics
-from demos.modal.physics import E, RHO, ForkStudy, cantilever_hz, clamp, run, transverse_motion
+from demos.modal.physics import RHO, E, ForkStudy, cantilever_hz, clamp, run, transverse_motion
+from fem.plot.plotter import Plotter
 
 
 def _mode_shape(s: ForkStudy, i):

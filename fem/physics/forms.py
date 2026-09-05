@@ -31,19 +31,19 @@ from its terms. A form names its integration `domain` (the volume elements or th
 facets), so a sum may mix the two, as an operator with a Robin boundary term does, and the
 space assembles each term over its own domain.
 """
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from numbers import Real
-from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, Protocol, TypeVar, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Generic, Literal, Protocol, TypeVar, cast, runtime_checkable
 
 import numpy as np
 
 from fem.elements import ElementGeometry
 from fem.field import NodalField
+from fem.physics.derived import Flux, GradientFlux, ScaledFlux, StressFlux
 from fem.physics.energies import StrainEnergyDerivatives
 from fem.physics.materials import LinearElasticMaterial
-from fem.physics.derived import Flux, GradientFlux, ScaledFlux, StressFlux
-from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution, TransientSolution
+from fem.post.solution import DiffusionSolution, ElasticSolution, FieldSolution, TransientSolution
 from fem.regions import TimeDependent, evaluate_field
 from fem.typing import BoolArray, ElementValues, FieldValue, FloatArray, Vertices
 
@@ -234,6 +234,18 @@ def _element_mean(values: FloatArray, weight_detJ: FloatArray) -> FloatArray:
     return np.einsum('eq,eq...->e...', weights, values)
 
 
+def _fix_answers(form: 'Form[Any]', **answers: object) -> None:
+    '''Set a frozen form's answers from its own state, at construction.
+
+    For the forms whose `constant_tangent`, `has_energy`, `symmetric_positive_definite`
+    or `domain` follows from what they hold (a scaled or summed form's from its terms,
+    a diffusion's from its coefficient). Called from `__post_init__`, so the value is
+    computed once and read as a plain attribute like every other form's.
+    '''
+    for name, value in answers.items():
+        object.__setattr__(form, name, value)
+
+
 class Form(ABC, Generic[S]):
     '''Element residual and tangent at a nodal state: what a `Problem` assembles.
 
@@ -270,11 +282,16 @@ class Form(ABC, Generic[S]):
     `u_elements` is `(n_elements, N, n_components)`, each element's slice of the state.
     Batched over the mesh: a Python loop over elements spends nearly all its time in
     per-call numpy overhead, and one vectorized pass is roughly 30x faster.
+
+    Every answer above is a plain attribute with a class-level default, so a subclass
+    whose answer is fixed states it as one. A form whose answer depends on its own
+    state fixes it at construction with `_fix_answers` instead of overriding the
+    attribute with a property, which keeps one declaration shape through the hierarchy.
     '''
     constant_tangent: bool = False
     has_energy: bool = False
     symmetric_positive_definite: bool = False
-    domain: ClassVar[Literal['volume', 'boundary']] = 'volume'
+    domain: Literal['volume', 'boundary'] = 'volume'
 
     @property
     def terms(self) -> tuple['Form[Any]', ...]:
@@ -438,7 +455,7 @@ class BoundaryMassForm(BilinearForm[FieldSolution]):
     n_components: int
     symmetric_positive_definite = True
     mask: BoolArray  # one entry per facet
-    domain: ClassVar[Literal['volume', 'boundary']] = 'boundary'
+    domain = 'boundary'
 
     def element_matrices(self, geometry: ElementGeometry) -> FloatArray:
         base = MassForm(self.n_components).element_matrices(geometry)
@@ -472,17 +489,15 @@ class DiffusionForm(BilinearForm[DiffusionSolution]):
     coefficient: FieldValue = 1.0
     rule_degree: int = 2
 
+    def __post_init__(self) -> None:
+        # SPD for a positive constant κ; a callable κ is taken on trust, since a
+        # conductivity is positive by physics and sampling it here would not prove it.
+        spd = self.is_sampled or float(np.asarray(self.coefficient, dtype=float).reshape(-1)[0]) > 0.0
+        _fix_answers(self, symmetric_positive_definite=spd)
+
     @property
     def is_sampled(self) -> bool:
         return callable(self.coefficient)
-
-    @property
-    def symmetric_positive_definite(self) -> bool:
-        '''True for a positive constant κ; a callable κ is taken on trust, since a
-        conductivity is positive by physics and sampling it here would not prove it.'''
-        if self.is_sampled:
-            return True
-        return float(np.asarray(self.coefficient, dtype=float).reshape(-1)[0]) > 0.0
 
     def quadrature_degree(self, shape_degree: int) -> int:
         return self.rule_degree if self.is_sampled else 0
@@ -825,22 +840,14 @@ class ScaledForm(Form[S]):
     def __post_init__(self) -> None:
         if len(self.form.terms) > 1:
             raise TypeError('scale the terms of a sum, not the sum: write factor * form')
-
-    @property
-    def constant_tangent(self) -> bool:
-        return self.form.constant_tangent
-
-    @property
-    def has_energy(self) -> bool:
-        return self.form.has_energy
-
-    @property
-    def symmetric_positive_definite(self) -> bool:
-        return self.factor > 0 and self.form.symmetric_positive_definite
-
-    @property
-    def domain(self) -> Literal['volume', 'boundary']:
-        return self.form.domain
+        _fix_answers(
+            self,
+            constant_tangent=self.form.constant_tangent,
+            has_energy=self.form.has_energy,
+            # A negative factor flips the sign of the tangent, and so its definiteness.
+            symmetric_positive_definite=self.factor > 0 and self.form.symmetric_positive_definite,
+            domain=self.form.domain,
+        )
 
     def quadrature_degree(self, shape_degree: int) -> int:
         return self.form.quadrature_degree(shape_degree)
@@ -898,18 +905,12 @@ class SumForm(Form[S]):
             raise ValueError('a SumForm needs at least two terms')
         if any(len(form.terms) > 1 for form in self.forms):
             raise ValueError('a SumForm is flat; build it with a + b')
-
-    @property
-    def constant_tangent(self) -> bool:
-        return all(f.constant_tangent for f in self.forms)
-
-    @property
-    def has_energy(self) -> bool:
-        return all(f.has_energy for f in self.forms)
-
-    @property
-    def symmetric_positive_definite(self) -> bool:
-        return all(f.symmetric_positive_definite for f in self.forms)
+        _fix_answers(
+            self,
+            constant_tangent=all(f.constant_tangent for f in self.forms),
+            has_energy=all(f.has_energy for f in self.forms),
+            symmetric_positive_definite=all(f.symmetric_positive_definite for f in self.forms),
+        )
 
     @property
     def terms(self) -> tuple[Form[Any], ...]:

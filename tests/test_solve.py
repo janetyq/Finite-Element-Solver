@@ -8,6 +8,7 @@ and problem tests; this file pins the two error branches.
 """
 import numpy as np
 import pytest
+from helpers import pinned
 
 from fem.algebra.solve import (
     BacktrackingLineSearch,
@@ -17,7 +18,6 @@ from fem.algebra.solve import (
 )
 from fem.loads import Source
 from fem.physics.equations import Poisson
-from helpers import pinned
 
 
 class _AlwaysBreaks:

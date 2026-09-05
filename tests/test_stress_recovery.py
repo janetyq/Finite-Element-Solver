@@ -6,13 +6,13 @@ exactly, tying the recovered fields to the operator without a magic number.
 """
 import numpy as np
 import pytest
+from helpers import cantilever_bc
 
 from fem.elements import LinearTriangleElement
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.equations import LinearElastic
 from fem.physics.forms import EnergyForm, LinearElasticForm
 from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
-from helpers import cantilever_bc
 
 E, NU = 210.0, 0.3
 REFERENCE_TRIANGLE = np.array([[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]])
@@ -54,8 +54,8 @@ def test_compliance_is_positive_and_finite(make_unit_square):
 def test_solver_and_design_model_recover_the_same_fields(make_unit_square):
     """`Problem.solve` and `SIMPModel` recover the same fields: at a uniform unit density the
     diluted problem is the plain elastic solve."""
-    from fem.analysis.design import SIMPModel
     from fem.algebra.solve import LinearSolve
+    from fem.analysis.design import SIMPModel
 
     mesh = make_unit_square(6)
     _, solution = _solved(mesh)

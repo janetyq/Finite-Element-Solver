@@ -1,7 +1,7 @@
 """Matplotlib helpers shared by more than one demo's figures."""
-from fem.plot.plotter import Plotter
-
 from demo_registry import Figure
+
+from fem.plot.plotter import Plotter
 
 
 def conditions_figure(mesh, bc, caption, panel_aspect=1.0):

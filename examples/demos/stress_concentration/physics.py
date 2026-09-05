@@ -12,17 +12,17 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.analysis.adaptivity import AdaptiveRefinement
+from fem.analysis.estimators import RecoveryEstimator
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.elements import IsoparametricTriangleElement
-from fem.physics.equations import LinearElastic
-from fem.analysis.estimators import RecoveryEstimator
-from fem.mesh.mesh import Mesh
-from fem.mesh.pslg import PSLG
-from fem.regions import intersect, on_plane
-from fem.post.solution import ElasticSolution
 from fem.mesh.curves import Circle
+from fem.mesh.mesh import Mesh
 from fem.mesh.outline import Outline
+from fem.mesh.pslg import PSLG
+from fem.physics.equations import LinearElastic
+from fem.post.solution import ElasticSolution
+from fem.regions import intersect, on_plane
 
 
 def plate_with_hole_outline(length: float = 6.0, height: float = 3.0,

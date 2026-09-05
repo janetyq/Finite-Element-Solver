@@ -1,13 +1,13 @@
 """The figures and summary of the cantilever demo, drawn from a `CantileverStudy`."""
 from functools import partial
 
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos._charts import conditions_figure
 from demos.linear_elastic import physics
 from demos.linear_elastic.physics import CantileverStudy, run
 from fem.mesh.structured import box_mesh
+from fem.plot.plotter import Plotter
 
 
 def _fields_figure(s: CantileverStudy) -> Figure:

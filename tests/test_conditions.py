@@ -1,6 +1,7 @@
 """`Conditions`: one object for everything applied to a domain, and its resolution."""
 import numpy as np
 import pytest
+from helpers import pinned
 
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod
 from fem.boundary import Dirichlet, Neumann, Robin
@@ -10,7 +11,6 @@ from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
 from fem.physics.forms import ScaledForm
 from fem.regions import TimeDependent, at_indices, everywhere, on_plane
 from fem.space import FunctionSpace
-from helpers import pinned
 
 
 def _plate(make_unit_square):

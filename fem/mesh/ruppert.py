@@ -506,7 +506,7 @@ class RuppertsAlgorithm:
         is_used = np.zeros(len(self.vertices), dtype=bool)
         is_used[used] = True
         of_edge = {}
-        for (start, end), value in zip(self.segments, per_segment):
+        for (start, end), value in zip(self.segments, per_segment, strict=True):
             if is_used[start] and is_used[end]:
                 of_edge[tuple(sorted((int(renumbered[start]), int(renumbered[end]))))] = value
         return [of_edge.get(tuple(sorted(int(v) for v in facet)), missing) for facet in boundary]

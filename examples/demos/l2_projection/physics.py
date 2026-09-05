@@ -8,12 +8,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.elements import QuadraticTriangleElement
-from fem.physics.equations import Projection
-from fem.mesh.mesh import Mesh
-from fem.post.solution import FieldSolution
-from fem.loads import Source
 from fem.conditions import Conditions
+from fem.elements import QuadraticTriangleElement
+from fem.loads import Source
+from fem.mesh.mesh import Mesh
+from fem.physics.equations import Projection
+from fem.post.solution import FieldSolution
 
 
 def target(point):

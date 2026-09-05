@@ -15,19 +15,19 @@ import numpy as np
 import pytest
 
 from fem.algebra.backends import MinresBackend
+from fem.algebra.solve import BacktrackingLineSearch, NewtonDivergence, NewtonSolve, TangentRegularization
+from fem.algebra.system import DiscreteSystem
 from fem.boundary import Dirichlet, Robin
 from fem.conditions import Conditions, Initial
 from fem.field import NodalField
+from fem.numerics import central_difference_order
+from fem.physics.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
+from fem.physics.equations import FiniteStrainElastic, LinearElastic
+from fem.physics.forms import EnergyForm
 from fem.physics.materials import LinearElasticMaterial
+from fem.physics.plasticity import RambergOsgood
 from fem.problem import Problem
 from fem.regions import on_plane
-from fem.physics.equations import LinearElastic, FiniteStrainElastic
-from fem.algebra.solve import BacktrackingLineSearch, NewtonDivergence, NewtonSolve, TangentRegularization
-from fem.algebra.system import DiscreteSystem
-from fem.physics.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
-from fem.physics.plasticity import RambergOsgood
-from fem.physics.forms import EnergyForm
-from fem.numerics import central_difference_order
 
 
 def test_hooke_matrix_is_the_second_derivative_of_the_small_strain_energy():
@@ -158,7 +158,7 @@ def test_regularized_line_search_descends_where_the_full_step_overshoots(make_un
 
     iterates = _newton_iterates(problem, solve_for)
     energies = [energy_at_seed] + [problem.energy(u) for u in iterates]
-    for before, after in zip(energies, energies[1:]):
+    for before, after in zip(energies, energies[1:], strict=False):
         assert after <= before * (1 + 1e-12), 'the line search let the energy rise'
     assert energies[-1] < energy_at_seed
 
@@ -251,7 +251,7 @@ def test_models_agree_to_second_order_in_strain(make_unit_square):
         u_stvk = _minimise(_energy_problem(mesh, bc, FiniteStrainElastic))
         gaps.append(np.linalg.norm(u_small - u_stvk))
 
-    ratios = [a / b for a, b in zip(gaps[:-1], gaps[1:])]
+    ratios = [a / b for a, b in zip(gaps[:-1], gaps[1:], strict=False)]
     # Quadratic gap -> 4x per halving. Loose bounds: the far field is not purely
     # asymptotic and the mesh is coarse, but the trend must be unambiguously ~4.
     for r in ratios:
@@ -285,7 +285,7 @@ def test_green_lagrange_is_frame_indifferent(make_unit_square):
 
     # Spurious strain ~ theta^2, energy quadratic in strain -> ~theta^4, i.e.
     # ~16x per halving of theta.
-    ratios = [a / b for a, b in zip(small_energies[:-1], small_energies[1:])]
+    ratios = [a / b for a, b in zip(small_energies[:-1], small_energies[1:], strict=False)]
     for r in ratios:
         assert 13 < r < 19, f"spurious energy ratio {r:.1f} is not the ~16x of a theta^4 law"
 

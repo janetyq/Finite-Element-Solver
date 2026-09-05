@@ -15,10 +15,10 @@ from fem.algebra.solve import BacktrackingLineSearch, NewtonDivergence, NewtonSo
 from fem.algebra.stepping import QuasiStaticStepping, SteppingDivergence
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
+from fem.loads import Source
 from fem.physics.equations import FiniteStrainElastic, Heat, LinearElastic, Poisson
 from fem.post.solution import ElasticSolution
 from fem.regions import TimeDependent, on_plane
-from fem.loads import Source
 
 
 def _pulled_block(mesh, pull=0.3):
@@ -80,7 +80,7 @@ def test_linear_path_is_the_load_fraction_of_the_full_solution(make_unit_square)
 
     history = QuasiStaticStepping(steps=4).solve(problem)
     np.testing.assert_allclose(history.t, [0.0, 0.25, 0.5, 0.75, 1.0])
-    for t, step in zip(history.t, history):
+    for t, step in zip(history.t, history, strict=True):
         assert isinstance(step, ElasticSolution)
         np.testing.assert_allclose(step.dofs, t * full.dofs, atol=1e-9)
 
@@ -98,7 +98,7 @@ def test_nonlinear_walk_lands_on_the_direct_equilibrium(make_unit_square):
     np.testing.assert_allclose(history[-1].dofs, direct, atol=1e-5)
     # The path is monotone loading: the pulled edge moves further at every level.
     tips = [float(step.nodal_values[:, 0].max()) for step in history]
-    assert all(a < b + 1e-12 for a, b in zip(tips, tips[1:]))
+    assert all(a < b + 1e-12 for a, b in zip(tips, tips[1:], strict=False))
 
 
 def test_time_dependent_values_set_the_path(make_unit_square):

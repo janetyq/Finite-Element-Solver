@@ -10,12 +10,12 @@ import pytest
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
+from fem.mesh.structured import box_mesh
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
 from fem.physics.equations import FiniteStrainElastic
 from fem.physics.forms import EnergyForm
-from fem.mesh.structured import box_mesh
-from fem.regions import on_plane
 from fem.post.solution import ElasticSolution
+from fem.regions import on_plane
 from fem.space import FunctionSpace
 
 

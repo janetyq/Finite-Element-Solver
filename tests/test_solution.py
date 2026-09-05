@@ -4,21 +4,21 @@ hook that names them, and their round trip through `fem.post.io`.
 import numpy as np
 import pytest
 
-from fem.post import invariants
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
-from fem.physics.energies import StVenantKirchhoff
-from fem.physics.equations import LinearElastic, Poisson, Projection
-from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
-from fem.physics.materials import LinearElasticMaterial
+from fem.loads import Source
 from fem.mesh.structured import box_mesh
 from fem.physics.derived import GradientFlux, StressFlux
+from fem.physics.energies import StVenantKirchhoff
+from fem.physics.equations import LinearElastic, Poisson, Projection
+from fem.physics.forms import DiffusionForm, EnergyForm, LinearElasticForm, MassForm
+from fem.physics.materials import LinearElasticMaterial
+from fem.post import invariants
 from fem.post.recovery import nodal_gradient, recover_nodal
+from fem.post.solution import DiffusionSolution, ElasticSolution, FieldSolution
 from fem.regions import everywhere, on_plane
-from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
 from fem.space import FunctionSpace
-from fem.loads import Source
 
 
 @pytest.mark.parametrize('element_type', [LinearTriangleElement, QuadraticTriangleElement])

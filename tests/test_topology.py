@@ -2,9 +2,7 @@
 import numpy as np
 import pytest
 
-from fem.mesh.mesh import boundary_facets
-from fem.mesh.mesh import Mesh
-
+from fem.mesh.mesh import Mesh, boundary_facets
 
 # --- edges ---
 

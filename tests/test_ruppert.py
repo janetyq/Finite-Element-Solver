@@ -11,11 +11,9 @@ import pytest
 from scipy.spatial import Delaunay
 
 from fem.mesh.mesh import triangle_min_angle
-from fem.mesh.pslg import point_in_polygon, polygon_area
-from fem.mesh.ruppert import circumcenter
-from fem.mesh.ruppert import ENCROACHMENT_TOLERANCE, MAX_MIN_ANGLE, RuppertsAlgorithm
 from fem.mesh.outline import Outline
-from fem.mesh.pslg import PSLG
+from fem.mesh.pslg import PSLG, point_in_polygon, polygon_area
+from fem.mesh.ruppert import ENCROACHMENT_TOLERANCE, MAX_MIN_ANGLE, RuppertsAlgorithm, circumcenter
 
 L_SHAPE_OUTLINE = np.array([
     [0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [1.0, 1.0], [1.0, 2.0], [0.0, 2.0],
@@ -351,7 +349,7 @@ def test_boundary_vertices_lie_on_the_outline():
     vertices = np.asarray(mesh.vertices)
     for vertex in vertices[mesh.boundary_idxs]:
         on_outline = False
-        for start, end in zip(L_SHAPE_OUTLINE, np.roll(L_SHAPE_OUTLINE, -1, axis=0)):
+        for start, end in zip(L_SHAPE_OUTLINE, np.roll(L_SHAPE_OUTLINE, -1, axis=0), strict=True):
             edge, offset = end - start, vertex - start
             fraction = offset @ edge / (edge @ edge)
             if (abs(edge[0]*offset[1] - edge[1]*offset[0]) < 1e-9
@@ -452,7 +450,7 @@ def test_boundary_facets_name_the_loop_they_came_from():
         on_outline = min(
             abs((end - start)[0]*(midpoint - start)[1] - (end - start)[1]*(midpoint - start)[0])
             / np.linalg.norm(end - start)
-            for start, end in zip(L_SHAPE_OUTLINE, np.roll(L_SHAPE_OUTLINE, -1, axis=0))
+            for start, end in zip(L_SHAPE_OUTLINE, np.roll(L_SHAPE_OUTLINE, -1, axis=0), strict=True)
         )
         assert on_outline < 1e-9, f'facet attributed to the hole is not on it: {midpoint}'
 

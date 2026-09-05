@@ -153,8 +153,9 @@ def is_mesh_bound(region: Region) -> bool:
 def _propagate_mesh_bound(combined: Region, regions: tuple[Region, ...]) -> Region:
     if any(is_mesh_bound(r) for r in regions):
         # Mirrors the getattr in is_mesh_bound: the flag rides on the callable
-        # itself, so a bare lambda can carry it without a wrapper type.
-        setattr(combined, 'mesh_bound', True)
+        # itself, so a bare lambda can carry it without a wrapper type. Written
+        # through setattr because a plain function declares no such attribute.
+        setattr(combined, 'mesh_bound', True)  # noqa: B010
     return combined
 
 

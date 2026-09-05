@@ -8,7 +8,7 @@ from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.mesh.mesh import Mesh
 from fem.physics.equations import FiniteStrainElastic
-from fem.regions import everywhere, on_plane, at_indices
+from fem.regions import at_indices, everywhere, on_plane
 from fem.space import FunctionSpace
 
 
@@ -120,9 +120,9 @@ def test_finite_strain_rejects_a_per_element_modulus(make_unit_square):
 
 def test_a_shared_specification_is_unchanged_by_resolution(make_unit_square):
     """One spec resolved against two spaces, at two times, is the same spec after."""
+    from fem.elements import QuadraticTriangleElement
     from fem.regions import TimeDependent
     from fem.space import FunctionSpace
-    from fem.elements import QuadraticTriangleElement
     mesh = make_unit_square(5)
     bc = Conditions(Dirichlet(on_plane(0, 0.0), TimeDependent(lambda p, t: t)),
                             Neumann(on_plane(0, 1.0), 1.0))

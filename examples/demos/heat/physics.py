@@ -9,16 +9,16 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from fem.algebra.integrators import ThetaMethod
 from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial
-from fem.physics.equations import Heat, Poisson
-from fem.algebra.integrators import ThetaMethod
-from fem.mesh.mesh import Mesh
-from fem.mesh.structured import box_mesh
-from fem.regions import TimeDependent, in_box, on_plane, union
-from fem.post.solution import TransientSolution
-from fem.mesh.outline import Outline
 from fem.loads import Source
+from fem.mesh.mesh import Mesh
+from fem.mesh.outline import Outline
+from fem.mesh.structured import box_mesh
+from fem.physics.equations import Heat, Poisson
+from fem.post.solution import TransientSolution
+from fem.regions import TimeDependent, in_box, on_plane, union
 
 
 def heatsink_outline(width: float = 3.0, base_height: float = 0.5, fin_height: float = 1.4,

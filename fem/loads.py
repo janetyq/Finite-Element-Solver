@@ -24,7 +24,7 @@ import numpy as np
 from fem.elements import ElementGeometry
 from fem.physics.forms import BoundaryMassForm, sample_field
 from fem.regions import TimeDependent, evaluate_field, field_at
-from fem.typing import BoolArray, DofVector, FieldValue, FloatArray, IntArray, Operator, Region, NodalValues
+from fem.typing import BoolArray, DofVector, FieldValue, FloatArray, IntArray, NodalValues, Operator, Region
 
 if TYPE_CHECKING:
     from fem.space import FunctionSpace

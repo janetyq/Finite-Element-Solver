@@ -7,14 +7,18 @@ import pytest
 from fem.algebra.integrators import ThetaMethod
 from fem.conditions import Initial
 from fem.field import NodalField
-from fem.post.io import load_mesh, save_mesh
 from fem.mesh.mesh import Mesh
-from fem.space import FunctionSpace
 from fem.numerics import bump_function
 from fem.physics.equations import Heat
+from fem.post.io import load_mesh, save_mesh
 from fem.post.solution import (
-    BucklingSolution, ElasticSolution, FieldSolution, Solution, TransientSolution,
+    BucklingSolution,
+    ElasticSolution,
+    FieldSolution,
+    Solution,
+    TransientSolution,
 )
+from fem.space import FunctionSpace
 
 
 def test_mesh_json_round_trip(make_unit_square, tmp_path):

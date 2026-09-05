@@ -6,18 +6,17 @@ the time integral of the mean source: an exact reference for the integrators tha
 isolates how they treat a time-dependent load.
 """
 import numpy as np
-
-from fem.field import NodalField
 import pytest
 
+from fem.algebra.integrators import NewmarkMethod, ThetaMethod, wave_energy
 from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial
-from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
-from fem.algebra.integrators import NewmarkMethod, ThetaMethod, wave_energy
-from fem.regions import TimeDependent, everywhere, evaluate_field, field_at, on_plane
-from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution, TransientSolution, WaveSolution
-from fem.space import FunctionSpace
+from fem.field import NodalField
 from fem.loads import Source
+from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
+from fem.post.solution import DiffusionSolution, ElasticSolution, FieldSolution, TransientSolution, WaveSolution
+from fem.regions import TimeDependent, evaluate_field, everywhere, field_at, on_plane
+from fem.space import FunctionSpace
 
 
 def test_time_dependent_field_is_evaluated_at_a_time():

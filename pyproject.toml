@@ -36,20 +36,24 @@ dev = ["pytest", "ruff", "pyright", "pygments", "pytest-cov", "hypothesis", "pyt
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+# The package's floor, not the dev environment's 3.11: the pyupgrade rewrites must
+# stay runnable on every version `requires-python` admits.
+target-version = "py310"
 
 [tool.ruff.lint]
 # Pyflakes (F) catches real problems (unused imports, undefined names); the
 # E4/E7/E9 subset covers import/statement/runtime errors without line-length noise.
-select = ["E4", "E7", "E9", "F"]
+# I sorts imports, B (flake8-bugbear) catches the silent-mistake patterns (a zip
+# that drops a tail, a closure over a loop variable), UP keeps the syntax current.
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
 
 [tool.pyright]
 include = ["fem", "examples"]
 pythonVersion = "3.11"
-# "basic" infers types for the unannotated internals rather than demanding
-# annotations everywhere, so the checker is useful while only the public API is
-# typed. Tighten toward "standard" as coverage grows.
-typeCheckingMode = "basic"
+# "standard" still infers types for the unannotated internals rather than demanding
+# annotations everywhere, and adds the override checks: a subclass may not contradict
+# the attribute or method signature it inherits.
+typeCheckingMode = "standard"
 # svg.path and matplotlib ship partial or no stubs; missing-import noise from them
 # would drown out real findings.
 reportMissingTypeStubs = false

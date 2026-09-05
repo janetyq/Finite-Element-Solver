@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from fem.field import NodalField
-
 from fem.typing import FloatArray, IntArray
 
 if TYPE_CHECKING:

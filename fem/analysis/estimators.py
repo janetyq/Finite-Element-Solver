@@ -35,11 +35,11 @@ from fem.post.recovery import project_to_nodal
 from fem.regions import evaluate_field
 
 if TYPE_CHECKING:
+    from fem.analysis.sensitivity import QuantityOfInterest
     from fem.conditions import ResolvedConditions
     from fem.physics.derived import Flux
-    from fem.problem import Problem
-    from fem.analysis.sensitivity import QuantityOfInterest
     from fem.post.solution import FieldSolution
+    from fem.problem import Problem
     from fem.space import FunctionSpace
     from fem.typing import BoolArray, ElementValues, FieldValue, FloatArray, IntArray
 
@@ -312,7 +312,7 @@ class GoalOrientedEstimator:
     recovery estimator, so it is dimension-general; the dual solve reuses the
     factorization of the forward solve.
     '''
-    quantity_of_interest: 'QuantityOfInterest'
+    quantity_of_interest: QuantityOfInterest
 
     def estimate(self, problem: Problem, solution: FieldSolution) -> ElementValues:
         from fem.analysis.sensitivity import SensitivityAnalysis

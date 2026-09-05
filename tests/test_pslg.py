@@ -5,6 +5,7 @@ import pytest
 
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
+from fem.elements import QuadraticTriangleElement
 from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh
 from fem.mesh.outline import Outline
@@ -12,7 +13,6 @@ from fem.mesh.pslg import PSLG, _find_crossing_segments
 from fem.mesh.structured import box_mesh
 from fem.regions import on_tag
 from fem.space import FunctionSpace
-from fem.elements import QuadraticTriangleElement
 
 SQUARE = np.array([[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]])
 

@@ -13,14 +13,14 @@ locks in bending. Tolerances are headroom over the observed 1-2% error.
 import numpy as np
 import pytest
 
+from fem.analysis.buckling import BucklingAnalysis
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
-from fem.physics.equations import LinearElastic, FiniteStrainElastic
-from fem.mesh.structured import box_mesh
-from fem.regions import intersect, on_plane
-from fem.analysis.buckling import BucklingAnalysis
 from fem.loads import Source
+from fem.mesh.structured import box_mesh
+from fem.physics.equations import FiniteStrainElastic, LinearElastic
+from fem.regions import intersect, on_plane
 
 E, NU = 200.0, 0.3
 E_STAR = E / (1 - NU**2)   # plane-strain effective modulus for bending

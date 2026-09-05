@@ -16,11 +16,10 @@ single-point (`n_qp == 1`) special case.
 `spatial_dim` is the dimension it is embedded in. They differ for the boundary facets
 of a 3D mesh, so the Jacobian is not assumed square.
 """
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from math import factorial
 from typing import ClassVar
-
-from abc import ABC, abstractmethod
 
 import numpy as np
 

@@ -89,9 +89,9 @@ if TYPE_CHECKING:
 # undriven (zero in the integral); `evaluate_field` rejects it for every other use.
 FieldValue: TypeAlias = Union[
     float,
-    Sequence[Union[float, None]],
+    Sequence[float | None],
     FloatArray,
-    Callable[[Vertices], Union[float, Sequence[Union[float, None, FloatArray]], FloatArray]],
+    Callable[[Vertices], float | Sequence[float | None | FloatArray] | FloatArray],
     'TimeDependent',
     None,
 ]

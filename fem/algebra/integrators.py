@@ -18,10 +18,10 @@ from typing import TypeVar
 
 import numpy as np
 
-from fem.conditions import Initial
-from fem.problem import Problem
-from fem.post.solution import FieldSolution, TransientSolution, WaveSolution
 from fem.algebra.system import DiscreteSystem
+from fem.conditions import Initial
+from fem.post.solution import FieldSolution, TransientSolution, WaveSolution
+from fem.problem import Problem
 from fem.typing import DofVector
 
 S = TypeVar('S', bound=FieldSolution)

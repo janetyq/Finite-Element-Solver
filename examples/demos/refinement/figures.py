@@ -1,12 +1,12 @@
 """The figures of the adaptive refinement demo, drawn from a `RefinementStudy`."""
 from functools import partial
 
-from fem.mesh.structured import box_mesh
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos.refinement import physics
 from demos.refinement.physics import RefinementStudy, run
+from fem.mesh.structured import box_mesh
+from fem.plot.plotter import Plotter
 
 
 def _error_clim(s: RefinementStudy) -> tuple[float, float]:

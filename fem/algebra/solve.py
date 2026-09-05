@@ -22,9 +22,9 @@ from scipy.sparse import eye_array
 from scipy.sparse.linalg import ArpackNoConvergence, LinearOperator, eigsh
 
 from fem.algebra.backends import Backend, DirectBackend, IterativeBackend, MinresBackend
+from fem.algebra.system import DiscreteSystem, Partition
 from fem.conditions import Initial
 from fem.problem import Problem
-from fem.algebra.system import DiscreteSystem, Partition
 from fem.typing import DofIndices, DofVector, FloatArray, Operator
 
 

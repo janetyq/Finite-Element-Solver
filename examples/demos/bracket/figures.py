@@ -1,14 +1,11 @@
 """The figures and summary of the L-bracket demo, drawn from a `BracketStudy`."""
 import numpy as np
-
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos._charts import conditions_figure, tidy_log_axis
 from demos.bracket import physics
 from demos.bracket.physics import BracketStudy, run
-
-
+from fem.plot.plotter import Plotter
 
 
 def _fields_figure(s: BracketStudy) -> Figure:

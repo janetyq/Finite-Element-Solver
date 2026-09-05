@@ -1,18 +1,17 @@
 """Solve tests asserting on physical and mathematical invariants."""
 import numpy as np
-
-from fem.field import NodalField
 import pytest
+from helpers import pinned
 
-from fem.numerics import bump_function
-from fem.boundary import Dirichlet, Neumann
-from fem.conditions import Conditions, Initial
-from fem.regions import on_plane
-from fem.physics.equations import Heat, Projection, Poisson, LinearElastic, Wave
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod, wave_energy
 from fem.algebra.solve import EigenSolve, LinearSolve, NewtonSolve
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions, Initial
+from fem.field import NodalField
 from fem.loads import Source
-from helpers import pinned
+from fem.numerics import bump_function
+from fem.physics.equations import Heat, LinearElastic, Poisson, Projection, Wave
+from fem.regions import on_plane
 
 
 def _on(equation, mesh, bc=None):
@@ -100,7 +99,7 @@ def test_wave_conserves_energy(make_unit_square):
 
     energies = [
         wave_energy(problem, u, v)
-        for u, v in zip(solution.dofs, solution.dudt)
+        for u, v in zip(solution.dofs, solution.dudt, strict=True)
     ]
     drift = max(abs(e - energies[0]) for e in energies) / energies[0]
     assert drift < 1e-9, f"energy drifted by {drift:.2e}: {energies}"
@@ -168,7 +167,7 @@ def test_algorithm_objects_are_frozen_configuration():
                ThetaMethod(0.1, 3), NewmarkMethod(0.1, 3)]
     for obj in objects:
         with pytest.raises(FrozenInstanceError):
-            setattr(obj, 'tol', 1.0)
+            obj.tol = 1.0
         assert hash(obj) == hash(obj)
     assert NewtonSolve(tol=1e-8) == NewtonSolve(tol=1e-8)
     assert NewtonSolve(tol=1e-8) != NewtonSolve()

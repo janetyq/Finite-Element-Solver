@@ -369,13 +369,13 @@ class DensityParameterization(_ElementModulusParameterization):
     def create(
         cls, space: FunctionSpace, rho: ElementValues, solid: LinearElasticMaterial,
         penalty: float = 3.0,
-    ) -> 'DensityParameterization':
+    ) -> DensityParameterization:
         '''At density `rho` over the `solid` material the density scales.'''
         K0 = LinearElasticForm(solid).element_matrices(space.geometry)
         return cls(space=space, nu=solid.nu, _K0=K0, rho=np.asarray(rho, dtype=float),
                    penalty=penalty)
 
-    def with_density(self, rho: ElementValues) -> 'DensityParameterization':
+    def with_density(self, rho: ElementValues) -> DensityParameterization:
         '''The same parameterization at a new density, sharing the cached `K0`.'''
         return DensityParameterization(
             space=self.space, nu=self.nu, _K0=self._K0,
@@ -402,7 +402,7 @@ class ModulusParameterization(_ElementModulusParameterization):
     E: ElementValues = field(default_factory=lambda: np.zeros(0))
 
     @classmethod
-    def create(cls, space: FunctionSpace, material: LinearElasticMaterial) -> 'ModulusParameterization':
+    def create(cls, space: FunctionSpace, material: LinearElasticMaterial) -> ModulusParameterization:
         '''At the `material`'s per-element modulus.'''
         # Unit-modulus solid stiffness: K_e(E_e) = E_e * K0_e, so ∂K/∂E_e = K0_e.
         K0 = LinearElasticForm(replace(material, E=1.0)).element_matrices(space.geometry)

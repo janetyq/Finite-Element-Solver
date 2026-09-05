@@ -15,9 +15,9 @@ from fem.elements import (
     QuadraticLineElement,
     QuadraticTriangleElement,
 )
+from fem.mesh.structured import box_mesh
 from fem.physics.forms import LinearElasticForm
 from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
-from fem.mesh.structured import box_mesh
 from fem.post.recovery import average_to_nodal, recover_nodal
 from fem.post.solution import ElasticSolution
 from fem.space import FunctionSpace

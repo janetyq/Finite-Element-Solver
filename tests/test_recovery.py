@@ -1,16 +1,15 @@
 """Nodal recovery (`fem.post.recovery`): the volume-weighted average and the L2
 projection of a per-element field onto the nodes."""
 import numpy as np
-
-from fem.field import NodalField
 import pytest
+from helpers import two_triangle_square
 
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
+from fem.field import NodalField
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
 from fem.post.recovery import recover_nodal
 from fem.space import FunctionSpace
-from helpers import two_triangle_square
 
 
 def test_shared_vertex_combines_the_values_of_its_elements():

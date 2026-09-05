@@ -14,11 +14,16 @@ The same studies run as assertions in tests/test_convergence.py and tests/test_c
 from dataclasses import dataclass
 
 import numpy as np
-
 from mms import (
-    ConvergenceStudy, elastic_convergence, load_comparison_convergence, mixed_bc_convergence,
-    poisson_convergence, poisson_p2_convergence, theta_convergence,
+    ConvergenceStudy,
+    elastic_convergence,
+    load_comparison_convergence,
+    mixed_bc_convergence,
+    poisson_convergence,
+    poisson_p2_convergence,
+    theta_convergence,
 )
+
 from fem.elements import QuadraticTriangleElement
 from fem.space import FunctionSpace
 

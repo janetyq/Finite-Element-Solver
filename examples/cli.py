@@ -11,10 +11,10 @@ import inspect
 import logging
 from pathlib import Path
 
-from fem.mesh.mesh import Mesh
-
-from demo_registry import Demo, DemoResult
 import demos
+from demo_registry import Demo, DemoResult
+
+from fem.mesh.mesh import Mesh
 
 DEFAULT_GALLERY_DIR = '.gallery'
 

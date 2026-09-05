@@ -1,12 +1,11 @@
 """The figures and summary of the buckling demo, drawn from a `BucklingStudy`."""
 import numpy as np
-
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos._charts import hide_x_ticks, share_panel_limits
 from demos.buckling import physics
 from demos.buckling.physics import BucklingStudy, euler_load, run
+from fem.plot.plotter import Plotter
 
 
 def _buckled(s: BucklingStudy, solution, i):

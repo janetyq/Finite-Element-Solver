@@ -1,11 +1,10 @@
 """The figures of the harbor breakwater demo, drawn from a `HarborStudy`."""
 import numpy as np
-
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos.wave import physics
 from demos.wave.physics import HarborStudy, run
+from fem.plot.plotter import Plotter
 
 
 def _snapshot_steps(s: HarborStudy, n_shown) -> list[int]:

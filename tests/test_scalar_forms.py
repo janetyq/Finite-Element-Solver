@@ -3,12 +3,12 @@ coefficient takes the element's own rule and equals the sampled path, and a `Sou
 integrates a constant exactly and samples a callable.
 """
 import numpy as np
+from helpers import pinned
 
+from fem.loads import Source
 from fem.physics.equations import Poisson
 from fem.physics.forms import DiffusionForm
-from fem.loads import Source
 from fem.space import FunctionSpace
-from helpers import pinned
 
 
 def test_a_constant_coefficient_takes_the_elements_rule_and_scales_the_laplacian(make_unit_square):

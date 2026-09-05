@@ -5,21 +5,20 @@ nodal force, and Rayleigh damping decays a free vibration at the analytic rate.
 import numpy as np
 import pytest
 
+from fem.algebra.integrators import NewmarkMethod
+from fem.analysis.modal import ModalAnalysis
 from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial
 from fem.elements import QuadraticTriangleElement
+from fem.loads import BoundaryLoad, PointLoad, Source
+from fem.mesh.structured import box_mesh
 from fem.physics.energies import StVenantKirchhoff
 from fem.physics.equations import LinearElastic, Poisson
-from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, BoundaryMassForm, MassForm, SumForm
-from fem.algebra.integrators import NewmarkMethod
-from fem.loads import BoundaryLoad, PointLoad, Source
+from fem.physics.forms import BoundaryMassForm, DiffusionForm, EnergyForm, LinearElasticForm, MassForm, SumForm
 from fem.physics.materials import LinearElasticMaterial
-from fem.analysis.modal import ModalAnalysis
-from fem.mesh.structured import box_mesh
 from fem.problem import LinearProblem, RayleighDamping
 from fem.regions import TimeDependent, at_indices, everywhere, on_plane
 from fem.space import FunctionSpace
-
 
 # -- forms compose --------------------------------------------------------------
 

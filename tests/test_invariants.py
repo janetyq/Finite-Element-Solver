@@ -11,8 +11,8 @@ from fem.post.invariants import (
     deviatoric,
     frobenius,
     max_shear,
-    principal,
     pressure,
+    principal,
     trace,
     von_mises,
 )

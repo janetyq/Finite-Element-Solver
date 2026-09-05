@@ -51,7 +51,7 @@ def load_mesh(path='test_mesh.json'):
     '''Read a mesh from JSON.'''
     from fem.mesh.mesh import Mesh
 
-    with open(path, 'r') as f:
+    with open(path) as f:
         data = json.load(f)
     return Mesh(data['vertices'], data['elements'], data['boundary'])
 
