@@ -10,7 +10,7 @@ Effort: 🟢 low · 🔵 medium · 🟣 high.
 
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
-| Numerics | Nonlinear transient; flow-theory J2 plasticity; advection-diffusion | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Flow-theory J2 plasticity; advection-diffusion | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Mechanics | Cyclic plasticity, fatigue life, LEFM stress intensity | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Moonshot | General symbolic weak-form layer; phase-field fracture | 🟣 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Finish P2: curved-element adaptivity, 3D residual estimator, animated warp and 3D plotting | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -82,12 +82,6 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   contrasting the curved boundary against its chord polygon (the isoparametric payoff) is unbuilt.
   Quadratic Beziers (degree-elevate to cubic) and elliptical arcs (`EllipseArc`) are unbuilt but
   unused by the bundled assets.
-- 💡 **Nonlinear transient.** `ThetaMethod` and `NewmarkMethod` take `problem.tangent(None)` and
-  refuse an `EnergyForm`. The per-step problem is `M/(β dt²) + K_T(u)`, one Newton solve per step
-  seeded from the predictor; the mass shift keeps the tangent SPD for small `dt`. It is what the
-  post-buckling snap-through demo needs, and the home of any time-dependent operator (`κ(t)`,
-  `E(t)`). Under a hundred lines plus four tests (linear parity, small-load parity with small strain,
-  energy conservation, rigid rotation gives no stress).
 - 💡 **Mixed (u-p) formulation, to remove volumetric locking near nu -> 0.5.** The linear triangle
   has one constant strain per element, which cannot represent deviatoric and volumetric deformation
   independently. As `nu` approaches incompressibility the element gets artificially stiff, worst in
