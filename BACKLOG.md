@@ -19,7 +19,7 @@ Effort: 🟢 low · 🔵 medium · 🟣 high.
 | Physics | Harmonic response; prestressed vibration; arc-length post-buckling; thermoelastic follow-ups | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | API | Reaction forces, region objects, driver histories, series conveniences | 🟢–🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Structure | Split `forms.py` with the stress-QoI dedup | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Tooling | Coverage/plot gaps, docstrings, ruff/pyright, CI matrix, API site, release | 🟢–🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Tooling | Docstrings, CI matrix, pre-commit hooks, API site, release | 🟢–🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Demos | Stress-driven design; goal-oriented, L-shape, benchmark, 3D structural | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 
 ---
@@ -302,10 +302,6 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   variable `dt`** belongs here too, as a step-size policy over the same seam.
 
 **Engineering**
-- 💡 **Coverage gaps.** Coverage gates CI: a whole-suite `--cov-fail-under=90` floor plus a
-  `diff-cover --fail-under=85` patch gate on the changed lines, so new code is tested and the total
-  cannot decay. The remaining gap is the plot layer: it is exercised end-to-end by
-  `tests/test_demos.py` but has no assertions on what it draws.
 - 💡 **Missing convergence rates.** Newmark in `dt` (the only integrator without one; a
   `newmark_convergence` on one eigenmode as `theta_convergence` does); finite strain in `h` (three
   meshes against a fine reference); adaptive beats uniform on a localized problem (error against DOFs),
@@ -321,12 +317,6 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
 - 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI; the prose
   half is still open, but narrowly: `mesh/ruppert.py` and `plot/plotter.py` are the modules left
   with no module docstring. The rest of the core has one.
-- 💡 **Tighten pyright to `standard`.** It runs in `basic`, which infers types for the unannotated
-  internals rather than demanding annotations. Annotating the internals (`refinement`, `ruppert`,
-  `energies`, `plot`) would let the mode step up; `fem/plot` in particular has untyped helpers and an
-  oversized `Plotter.plot` and is the module that blocks the step.
-- 💡 **Widen the ruff rule set.** `select` is `E4, E7, E9, F` only; adding isort, bugbear, and
-  pyupgrade would catch more. Do it beside the pyright tightening.
 - 💡 **CI matrix.** CI runs 3.11 on Linux only while the package claims 3.10+ and dev is Windows.
   Add a 3.10 leg, ideally a Windows leg.
 - 💡 **`wave.gif` weight.** Mark `*.gif` as a binary attribute; `wave.gif` is 2.8 MB.

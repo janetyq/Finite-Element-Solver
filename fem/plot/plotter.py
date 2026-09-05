@@ -2,14 +2,13 @@ from collections.abc import Callable, Sequence
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
-from fem.field import NodalField
 import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
+import numpy as np
 from matplotlib.animation import FuncAnimation
+from matplotlib.axes import Axes
 from mpl_toolkits.mplot3d import Axes3D
 
+from fem.field import NodalField
 from fem.typing import FloatArray
 
 if TYPE_CHECKING:
@@ -18,18 +17,18 @@ if TYPE_CHECKING:
     from fem.post.solution import Solution
     from fem.space import FunctionSpace
 
+from fem.plot.bc import overlay_supports, plot_bc
 from fem.plot.helpers import (
-    plot_mesh,
-    plot_boundary,
-    plot_arrows,
-    setup_colorbar,
-    plot_colored,
     change_ax_to_ax3d,
-    plot_surface,
+    plot_arrows,
+    plot_boundary,
+    plot_colored,
+    plot_mesh,
     plot_refinement,
     plot_solid,
+    plot_surface,
+    setup_colorbar,
 )
-from fem.plot.bc import overlay_supports, plot_bc
 from fem.plot.tessellation import panel_view
 
 
@@ -442,6 +441,7 @@ class Plotter:
         its own palette, so a GIF of a colour map stays faithful frame to frame.
         '''
         import io
+
         from PIL import Image
 
         images = []

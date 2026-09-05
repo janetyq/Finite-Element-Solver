@@ -4,7 +4,6 @@ point back to its first on its own, so a ring plotted as given looks open there.
 """
 
 import numpy as np
-
 from demos.outline_to_mesh.physics import close_ring  # noqa: E402
 
 

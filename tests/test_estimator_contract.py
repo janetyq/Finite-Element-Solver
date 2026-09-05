@@ -8,17 +8,17 @@ over every estimator and element type at once.
 """
 import numpy as np
 import pytest
+from helpers import cantilever_bc, localised_source, near_far_counts, pinned, problem_for, solved
 
 from fem.analysis.adaptivity import AdaptiveRefinement
+from fem.analysis.estimators import GoalOrientedEstimator, RecoveryEstimator, ResidualEstimator
+from fem.analysis.sensitivity import PointValue
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
-from fem.physics.equations import LinearElastic, Poisson
-from fem.analysis.estimators import GoalOrientedEstimator, RecoveryEstimator, ResidualEstimator
-from fem.regions import everywhere
-from fem.analysis.sensitivity import PointValue
 from fem.loads import Source
-from helpers import cantilever_bc, localised_source, near_far_counts, pinned, problem_for, solved
+from fem.physics.equations import LinearElastic, Poisson
+from fem.regions import everywhere
 
 
 def _poisson(mesh, element_type):

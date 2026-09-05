@@ -1,9 +1,9 @@
 """The chart and table of the timing benchmark, drawn from a `BenchmarkStudy`."""
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos.timing_benchmark import physics
 from demos.timing_benchmark.physics import DEFAULT_SIZES, BenchmarkStudy, run
+from fem.plot.plotter import Plotter
 
 
 def _scaling_figure(s: BenchmarkStudy) -> Figure:

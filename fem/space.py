@@ -14,9 +14,9 @@ The cached operators are valid only while the mesh is not mutated underneath the
 Build a new space instead of editing one.
 """
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
 from dataclasses import dataclass
 from functools import cached_property
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -30,8 +30,8 @@ from fem.elements import (
     LinearTriangleElement,
 )
 from fem.field import NodalField
-from fem.physics.forms import Form, MassForm
 from fem.mesh.mesh import Mesh
+from fem.physics.forms import Form, MassForm
 from fem.quadrature import QuadratureRule
 from fem.regions import evaluate_field
 from fem.typing import (

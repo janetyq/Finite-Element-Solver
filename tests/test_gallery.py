@@ -11,14 +11,13 @@ from functools import partial
 from pathlib import Path
 
 import pytest
-
-from demos import l2_projection, timing_benchmark, topology_optimization  # noqa: E402
 from demo_registry import Demo, DemoResult, Figure  # noqa: E402
+from demos import l2_projection, timing_benchmark, topology_optimization  # noqa: E402
 from gallery import build_gallery  # noqa: E402
 
+from fem.loads import Source
 from fem.mesh.structured import box_mesh  # noqa: E402
 from fem.plot.plotter import Plotter  # noqa: E402
-from fem.loads import Source
 
 # The smallest valid GIF: a 1x1 pixel. Enough to stand in for a demo's rendered output.
 ONE_PIXEL_GIF = (b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04'
@@ -39,8 +38,8 @@ def _text_only():
 
 def _poisson(mesh):
     """A cheap Poisson solve with one figure, standing in for a real demo."""
-    from fem.conditions import Conditions
     from fem.boundary import Dirichlet
+    from fem.conditions import Conditions
     from fem.physics.equations import Poisson
     from fem.regions import everywhere
 

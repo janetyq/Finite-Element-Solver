@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING, Generic, TypeVar
 
 import numpy as np
 
+from fem.algebra.solve import SolveStrategy
+from fem.analysis.estimators import ErrorEstimator
 from fem.mesh.mesh import Mesh
 from fem.mesh.refinement import RedGreenRefiner
-from fem.analysis.estimators import ErrorEstimator
-from fem.algebra.solve import SolveStrategy
 from fem.post.solution import FieldSolution
 
 S = TypeVar('S', bound=FieldSolution)   # the solution each round packages

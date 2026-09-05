@@ -69,7 +69,7 @@ def central_difference_order(
     errors = []
     for step in eps:
         squared = 0.0
-        for d, exact_d in zip(directions, exact):
+        for d, exact_d in zip(directions, exact, strict=True):
             approx = (function(u + step * d) - function(u - step * d)) / (2 * step)
             squared += float(np.sum((np.asarray(approx, dtype=float) - exact_d) ** 2))
         errors.append(np.sqrt(squared))

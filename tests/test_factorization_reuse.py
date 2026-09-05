@@ -6,6 +6,7 @@ and back-substitutes is exact where wall-clock time is not.
 """
 import numpy as np
 import pytest
+from helpers import CountingBackend, pinned
 
 from fem.algebra.backends import DirectBackend
 from fem.algebra.solve import LinearSolve, NewtonSolve
@@ -17,7 +18,6 @@ from fem.loads import Source
 from fem.physics.equations import FiniteStrainElastic, LinearElastic, Poisson
 from fem.physics.forms import DiffusionForm
 from fem.regions import on_plane
-from helpers import CountingBackend, pinned
 
 
 def _poisson(mesh, backend):
@@ -49,7 +49,7 @@ def test_snapshots_in_time_share_one_assembly_and_one_factorization(make_unit_sq
     assert problem.at(2.0).tangent() is problem.tangent(), 'one matrix, shared'
 
     # A fresh problem per time, stated with the values fixed, gives the same answers.
-    for t, dofs in zip((0.5, 1.0, 1.5), solutions):
+    for t, dofs in zip((0.5, 1.0, 1.5), solutions, strict=True):
         fixed = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]),
                            Dirichlet(on_plane(0, 1.0), [0.01 * t, 0.0]))
         expected = LinearElastic(E=10.0, nu=0.3).problem(mesh, fixed).solve().dofs
@@ -114,4 +114,4 @@ def test_with_backend_shares_the_matrix_and_factors_its_own(make_unit_square):
 def test_a_state_dependent_problem_holds_no_system(make_unit_square):
     problem = FiniteStrainElastic(E=200, nu=0.4).problem(make_unit_square(4))
     with pytest.raises(ValueError, match='no one system'):
-        problem.system
+        _ = problem.system

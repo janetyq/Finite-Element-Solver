@@ -12,18 +12,18 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
+from fem.algebra.stepping import QuasiStaticStepping
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions, Initial
+from fem.mesh.mesh import Mesh
+from fem.mesh.structured import box_mesh
 from fem.physics.energies import NeohookeanEnergyDensity
 from fem.physics.equations import FiniteStrainElastic, LinearElastic
 from fem.physics.forms import EnergyForm
-from fem.mesh.mesh import Mesh
-from fem.mesh.structured import box_mesh
+from fem.post.solution import ElasticSolution
 from fem.problem import Problem
 from fem.regions import on_plane
-from fem.post.solution import ElasticSolution
-from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
-from fem.algebra.stepping import QuasiStaticStepping
 
 E, NU = 200.0, 0.4
 

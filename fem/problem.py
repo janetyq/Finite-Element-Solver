@@ -54,8 +54,8 @@ from fem.algebra.backends import Backend, IterativeBackend
 from fem.algebra.system import DiscreteSystem, Partition
 from fem.conditions import Conditions, Initial, ResolvedConditions
 from fem.field import NodalField
-from fem.physics.forms import Form
 from fem.loads import Load, Source
+from fem.physics.forms import Form
 from fem.post.solution import FieldSolution
 from fem.space import FunctionSpace
 from fem.typing import DofVector, FloatArray, Operator
@@ -65,8 +65,8 @@ S2 = TypeVar('S2', bound=FieldSolution)
 P = TypeVar('P', bound='Problem[Any]')      # the problem's own type, for copies
 
 if TYPE_CHECKING:
-    from fem.boundary import Robin
     from fem.algebra.solve import SolveStrategy
+    from fem.boundary import Robin
 
 __all__ = ['Problem', 'LinearProblem', 'RayleighDamping']
 

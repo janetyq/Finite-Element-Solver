@@ -21,54 +21,94 @@ __version__ = "0.1.0"
 import logging
 from typing import TYPE_CHECKING
 
-from fem.mesh.mesh import Mesh
-from fem.mesh.curves import Arc, Circle, CubicBezier, Curve, Line, Piece
-from fem.space import FunctionSpace
-from fem.field import NodalField
-from fem.mesh.structured import box_mesh
-from fem.mesh.ruppert import RuppertsAlgorithm
-from fem.mesh.refinement import RedGreenRefiner
-from fem.mesh.outline import Outline, douglas_peucker
-from fem.elements import (
-    LinearLineElement,
-    LinearTriangleElement,
-    LinearTetrahedralElement,
-    QuadraticLineElement,
-    QuadraticTriangleElement,
-    IsoparametricLineElement,
-    IsoparametricTriangleElement,
+from fem.algebra.backends import (
+    Backend,
+    DirectBackend,
+    Factorization,
+    IterativeBackend,
+    MinresBackend,
+)
+from fem.algebra.integrators import NewmarkMethod, ThetaMethod
+from fem.algebra.solve import (
+    BacktrackingLineSearch,
+    EigenSolve,
+    LinearSolve,
+    NewtonDivergence,
+    NewtonSolve,
+    SolveStrategy,
+    TangentRegularization,
+    default_strategy,
+)
+from fem.algebra.stepping import QuasiStaticStepping, SteppingDivergence
+from fem.analysis.adaptivity import AdaptiveRefinement
+from fem.analysis.buckling import BucklingAnalysis
+from fem.analysis.design import (
+    DesignHistory,
+    DesignOptimizer,
+    SIMPModel,
+    TargetCompliance,
+    calculate_smoothing_matrix,
+    filter_sensitivity,
+    optimality_criteria_update,
+)
+from fem.analysis.estimators import (
+    ErrorEstimator,
+    GoalOrientedEstimator,
+    RecoveryEstimator,
+    ResidualEstimator,
+)
+from fem.analysis.modal import ModalAnalysis
+from fem.analysis.sensitivity import (
+    Compliance,
+    DensityParameterization,
+    MeanStress,
+    ModulusParameterization,
+    Parameterization,
+    PointValue,
+    QuantityOfInterest,
+    SensitivityAnalysis,
+    SoftMaxStress,
 )
 from fem.boundary import Condition, Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial, ResolvedConditions
-from fem.regions import (
-    everywhere,
-    on_plane,
-    in_box,
-    on_tag,
-    intersect,
-    union,
-    at_indices,
-    TimeDependent,
+from fem.elements import (
+    IsoparametricLineElement,
+    IsoparametricTriangleElement,
+    LinearLineElement,
+    LinearTetrahedralElement,
+    LinearTriangleElement,
+    QuadraticLineElement,
+    QuadraticTriangleElement,
 )
+from fem.field import NodalField
+from fem.loads import Load, PointLoad, Source
+from fem.mesh.curves import Arc, Circle, CubicBezier, Curve, Line, Piece
+from fem.mesh.mesh import Mesh
+from fem.mesh.outline import Outline, douglas_peucker
+from fem.mesh.refinement import RedGreenRefiner
+from fem.mesh.ruppert import RuppertsAlgorithm
+from fem.mesh.structured import box_mesh
+from fem.physics.derived import Flux
+from fem.physics.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
 from fem.physics.equations import (
-    Equation,
-    Projection,
-    Poisson,
-    Heat,
-    Wave,
-    Elasticity,
-    LinearElastic,
-    FiniteStrainElastic,
     DeformationPlasticity,
+    Elasticity,
+    Equation,
+    FiniteStrainElastic,
+    Heat,
+    LinearElastic,
+    Poisson,
+    Projection,
+    Wave,
 )
 from fem.physics.forms import (
     BilinearForm,
+    BoundaryMassForm,
     DiffusionForm,
     Eigenstrain,
     EnergyDensity,
     EnergyForm,
     Form,
-    BoundaryMassForm,
     LinearElasticForm,
     MassForm,
     ScaledForm,
@@ -76,70 +116,30 @@ from fem.physics.forms import (
     ThermalStrain,
     rigid_body_modes,
 )
-from fem.loads import Load, PointLoad, Source
 from fem.physics.materials import LinearElasticMaterial
-from fem.physics.energies import NeohookeanEnergyDensity, SmallStrain, StVenantKirchhoff
 from fem.physics.plasticity import RambergOsgood
-from fem.physics.derived import Flux
-from fem.problem import LinearProblem, Problem, RayleighDamping
-from fem.algebra.solve import (
-    BacktrackingLineSearch,
-    LinearSolve,
-    NewtonDivergence,
-    NewtonSolve,
-    EigenSolve,
-    SolveStrategy,
-    TangentRegularization,
-    default_strategy,
-)
-from fem.algebra.backends import (
-    Backend,
-    DirectBackend,
-    IterativeBackend,
-    Factorization,
-    MinresBackend,
-)
-from fem.algebra.integrators import ThetaMethod, NewmarkMethod
-from fem.algebra.stepping import QuasiStaticStepping, SteppingDivergence
 from fem.post.solution import (
-    Solution,
-    FieldSolution,
+    BucklingSolution,
     DiffusionSolution,
     ElasticSolution,
-    BucklingSolution,
+    FieldSolution,
     ModalSolution,
+    Solution,
     TransientSolution,
     WaveSolution,
 )
-from fem.analysis.buckling import BucklingAnalysis
-from fem.analysis.modal import ModalAnalysis
-from fem.analysis.sensitivity import (
-    SensitivityAnalysis,
-    QuantityOfInterest,
-    Parameterization,
-    Compliance,
-    PointValue,
-    MeanStress,
-    SoftMaxStress,
-    DensityParameterization,
-    ModulusParameterization,
+from fem.problem import LinearProblem, Problem, RayleighDamping
+from fem.regions import (
+    TimeDependent,
+    at_indices,
+    everywhere,
+    in_box,
+    intersect,
+    on_plane,
+    on_tag,
+    union,
 )
-from fem.analysis.design import (
-    DesignOptimizer,
-    SIMPModel,
-    DesignHistory,
-    TargetCompliance,
-    calculate_smoothing_matrix,
-    filter_sensitivity,
-    optimality_criteria_update,
-)
-from fem.analysis.adaptivity import AdaptiveRefinement
-from fem.analysis.estimators import (
-    ErrorEstimator,
-    GoalOrientedEstimator,
-    RecoveryEstimator,
-    ResidualEstimator,
-)
+from fem.space import FunctionSpace
 
 # `Plotter` and `PlotMode` are served lazily so `import fem` does not import matplotlib:
 # the solve path never needs it, and a headless run should not pay for it.

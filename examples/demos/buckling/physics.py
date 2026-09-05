@@ -14,15 +14,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from fem.analysis.buckling import BucklingAnalysis
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
-from fem.analysis.buckling import BucklingAnalysis
 from fem.elements import QuadraticTriangleElement
-from fem.physics.equations import LinearElastic
 from fem.mesh.mesh import Mesh
-from fem.regions import intersect, on_plane
-from fem.post.solution import BucklingSolution
 from fem.mesh.structured import box_mesh
+from fem.physics.equations import LinearElastic
+from fem.post.solution import BucklingSolution
+from fem.regions import intersect, on_plane
 
 
 def column(length: float = 24.0, height: float = 1.0,

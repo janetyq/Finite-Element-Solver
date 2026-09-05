@@ -8,11 +8,11 @@ treat every demo the same way.
 import functools
 import importlib
 import inspect
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from fem.mesh.mesh import Mesh

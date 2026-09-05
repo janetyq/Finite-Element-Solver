@@ -313,6 +313,6 @@ class RedGreenRefiner:
         expanded[starts[split] + 1] = halves[:, 1]
         self._boundary = expanded
         if self._curves is not None:
-            self._curves = [c for c, r in zip(self._curves, repeat) for _ in range(r)]
+            self._curves = [c for c, r in zip(self._curves, repeat, strict=True) for _ in range(r)]
         if self._tags is not None:
             self._tags = np.repeat(self._tags, repeat)

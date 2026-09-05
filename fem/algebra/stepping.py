@@ -30,7 +30,10 @@ from typing import TypeVar
 import numpy as np
 
 from fem.algebra.solve import (
-    BacktrackingLineSearch, LineSearchFailure, NewtonDivergence, NewtonSolve,
+    BacktrackingLineSearch,
+    LineSearchFailure,
+    NewtonDivergence,
+    NewtonSolve,
 )
 from fem.conditions import Initial
 from fem.field import NodalField

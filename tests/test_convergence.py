@@ -8,19 +8,13 @@ held to, and where one is worth stating, an absolute error the finest mesh must 
 The three rate tests run over every row. Then the 3D elasticity sequence, the patch
 tests (exact where the space can be exact), and the load comparison.
 """
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
-from typing import Callable
 
 import numpy as np
 import pytest
-
-from fem.boundary import Dirichlet
-from fem.conditions import Conditions
-from fem.elements import QuadraticTriangleElement
-from fem.physics.equations import LinearElastic, Poisson
-from fem.physics.materials import Enu_to_Lame
-from fem.regions import everywhere
+from helpers import solved
 from mms import (
     ELASTIC_E,
     ELASTIC_NU,
@@ -35,8 +29,13 @@ from mms import (
     thermoelastic_convergence,
     variable_coefficient_convergence,
 )
-from helpers import solved
 
+from fem.boundary import Dirichlet
+from fem.conditions import Conditions
+from fem.elements import QuadraticTriangleElement
+from fem.physics.equations import LinearElastic, Poisson
+from fem.physics.materials import Enu_to_Lame
+from fem.regions import everywhere
 
 # -- the spatial studies ------------------------------------------------------
 
@@ -221,7 +220,7 @@ each_study = pytest.mark.parametrize('study', STUDIES, ids=lambda s: s.name)
 @each_study
 def test_error_decreases_monotonically(study):
     error = study.build().error
-    for coarse, fine in zip(error[:-1], error[1:]):
+    for coarse, fine in zip(error[:-1], error[1:], strict=False):
         assert fine < coarse, f'{study.name}: error grew under refinement: {error}'
 
 
@@ -273,7 +272,7 @@ def elastic_3d():
 def test_3d_elasticity_is_second_order(elastic_3d):
     """The error falls monotonically under refinement, inside a tight O(h^2) band the
     Kuhn mesh could not hold at these coarse sizes."""
-    for coarse, fine in zip(elastic_3d.error[:-1], elastic_3d.error[1:]):
+    for coarse, fine in zip(elastic_3d.error[:-1], elastic_3d.error[1:], strict=False):
         assert fine < coarse, f'error grew under refinement: {elastic_3d.error}'
     assert all(1.9 < p < 2.1 for p in elastic_3d.orders), f'expected ~2nd order, got {elastic_3d.orders}'
 

@@ -25,7 +25,6 @@ from matplotlib.tri import Triangulation
 
 from fem.plot.helpers import plot_boundary
 
-
 # One colour per condition type, held across the shapes a condition can take, so a
 # Neumann flux reads as the same thing whether it came out as arrows or as a run of
 # boundary. Grey is for the condition nobody wrote, and is meant to recede.

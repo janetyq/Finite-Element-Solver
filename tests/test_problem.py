@@ -4,22 +4,22 @@ reaches the LinearSolve answer in one step from any seed.
 """
 import numpy as np
 import pytest
+from helpers import pinned
+from mms import exact_solution, source_term
 
+from fem.algebra.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
 from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial
 from fem.field import NodalField
-from fem.physics.energies import StVenantKirchhoff
-from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, ScaledForm
-from fem.physics.materials import LinearElasticMaterial
+from fem.loads import Source
 from fem.numerics import central_difference_order
+from fem.physics.energies import StVenantKirchhoff
+from fem.physics.equations import FiniteStrainElastic, Heat, LinearElastic, Poisson, Projection
+from fem.physics.forms import DiffusionForm, EnergyForm, LinearElasticForm, ScaledForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.problem import LinearProblem, Problem
 from fem.regions import everywhere, on_plane
-from fem.algebra.solve import BacktrackingLineSearch, LinearSolve, NewtonSolve
-from fem.physics.equations import Heat, LinearElastic, Poisson, Projection, FiniteStrainElastic
 from fem.space import FunctionSpace
-from fem.loads import Source
-from helpers import pinned
-from mms import exact_solution, source_term
 
 
 def _problem(equation, mesh, bc=None):
@@ -105,7 +105,7 @@ def test_problem_packages_its_solution_by_physics(make_unit_square):
     """`Problem.solve` packages by physics: stress for an elastic operator, flux for
     a diffusion one, a bare field for a projection. The facade returns the same typed
     result."""
-    from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
+    from fem.post.solution import DiffusionSolution, ElasticSolution, FieldSolution
 
     mesh = make_unit_square(8)
     bc = Conditions(

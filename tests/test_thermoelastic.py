@@ -10,11 +10,16 @@ are asserted to round-off; the rate is in `test_convergence.py`.
 """
 import numpy as np
 import pytest
+from helpers import close, pinned, rollers, solved
 
 from fem.algebra.integrators import ThetaMethod
 from fem.analysis.design import SIMPModel
 from fem.analysis.sensitivity import (
-    Compliance, MeanStress, ModulusParameterization, SensitivityAnalysis, SoftMaxStress,
+    Compliance,
+    MeanStress,
+    ModulusParameterization,
+    SensitivityAnalysis,
+    SoftMaxStress,
 )
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
@@ -23,13 +28,15 @@ from fem.loads import Source
 from fem.mesh.structured import box_mesh
 from fem.physics.equations import FiniteStrainElastic, Heat, LinearElastic, Poisson
 from fem.physics.forms import (
-    LinearElasticForm, ThermalStrain, tensor_to_voigt, voigt_to_tensor,
+    LinearElasticForm,
+    ThermalStrain,
+    tensor_to_voigt,
+    voigt_to_tensor,
 )
 from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.problem import LinearProblem
 from fem.regions import TimeDependent, on_plane
 from fem.space import FunctionSpace
-from helpers import close, pinned, rollers, solved
 
 E, NU = 200.0, 0.3
 ALPHA, DT = 1e-3, 50.0

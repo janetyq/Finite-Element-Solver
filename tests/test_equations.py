@@ -3,13 +3,13 @@ where the physics does not apply.
 """
 import numpy as np
 import pytest
+from helpers import pinned
 
-from fem.physics.equations import Equation, LinearElastic, Poisson, Projection, FiniteStrainElastic
-from fem.physics.forms import EnergyForm, DiffusionForm, LinearElasticForm, MassForm
+from fem.loads import Source
+from fem.physics.equations import Equation, FiniteStrainElastic, LinearElastic, Poisson, Projection
+from fem.physics.forms import DiffusionForm, EnergyForm, LinearElasticForm, MassForm
 from fem.problem import LinearProblem, Problem
 from fem.space import FunctionSpace
-from fem.loads import Source
-from helpers import pinned
 
 
 def test_projection_assembles_a_mass_matrix(make_unit_square):
@@ -73,9 +73,9 @@ def test_wave_and_diffusion_name_their_operators(make_unit_square):
 def test_solves_refuse_a_time_order_the_equation_has_no_meaning_for(make_unit_square):
     """A steady solve needs order 0, `ThetaMethod` order 1, `NewmarkMethod` and
     `ModalAnalysis` order 2; each refusal names the equation to use."""
-    from fem.physics.equations import Heat, Wave
     from fem.algebra.integrators import NewmarkMethod, ThetaMethod
     from fem.analysis.modal import ModalAnalysis
+    from fem.physics.equations import Heat, Wave
 
     mesh = make_unit_square(4)
     bc = pinned()

@@ -8,7 +8,7 @@ stays bounded.
 """
 import numpy as np
 import pytest
-
+from helpers import global_estimate, pinned, solved
 from mms import (
     ELASTIC_E,
     ELASTIC_NU,
@@ -18,17 +18,17 @@ from mms import (
     quadrature_l2,
     source_term,
 )
+
+from fem.analysis.estimators import RecoveryEstimator
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
 from fem.elements import LinearTriangleElement, QuadraticTriangleElement
-from fem.physics.equations import LinearElastic, Poisson
-from fem.analysis.estimators import RecoveryEstimator
-from fem.physics.derived import GradientFlux, StressFlux
-from fem.physics.materials import Enu_to_Lame
-from fem.mesh.structured import box_mesh
-from fem.regions import everywhere
 from fem.loads import Source
-from helpers import global_estimate, pinned, solved
+from fem.mesh.structured import box_mesh
+from fem.physics.derived import GradientFlux, StressFlux
+from fem.physics.equations import LinearElastic, Poisson
+from fem.physics.materials import Enu_to_Lame
+from fem.regions import everywhere
 
 ELASTIC = LinearElastic(E=ELASTIC_E, nu=ELASTIC_NU)
 

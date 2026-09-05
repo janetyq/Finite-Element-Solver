@@ -12,15 +12,15 @@ that Euler-Bernoulli omits, so the frequencies sit a hair below the beam-theory 
 import numpy as np
 import pytest
 
+from fem.analysis.modal import ModalAnalysis
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
-from fem.physics.equations import LinearElastic, FiniteStrainElastic
 from fem.mesh.structured import box_mesh
-from fem.regions import on_plane
+from fem.physics.equations import FiniteStrainElastic, LinearElastic
 from fem.post.solution import ModalSolution, Solution
+from fem.regions import on_plane
 from fem.space import FunctionSpace
-from fem.analysis.modal import ModalAnalysis
 
 E, NU, DENSITY = 200.0, 0.3, 1.0
 E_STAR = E / (1 - NU**2)                                   # plane-strain modulus for bending

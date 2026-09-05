@@ -10,17 +10,17 @@ end-to-end solve through the existing Newton path.
 import numpy as np
 import pytest
 
+from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
+from fem.mesh.structured import box_mesh
+from fem.numerics import central_difference_order
 from fem.physics.energies import NeohookeanEnergyDensity
 from fem.physics.equations import FiniteStrainElastic, LinearElastic
 from fem.physics.forms import EnergyForm
-from fem.mesh.structured import box_mesh
-from fem.numerics import central_difference_order
-from fem.regions import on_plane
 from fem.post.solution import ElasticSolution
-from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
+from fem.regions import on_plane
 
 
 @pytest.mark.parametrize('d', [2, 3])
@@ -94,7 +94,7 @@ def test_neohookean_agrees_with_small_strain_to_second_order(make_unit_square):
                           law=NeohookeanEnergyDensity)
         gaps.append(np.linalg.norm(u_small.flatten() - u_nh.flatten()))
 
-    ratios = [a / b for a, b in zip(gaps[:-1], gaps[1:])]
+    ratios = [a / b for a, b in zip(gaps[:-1], gaps[1:], strict=False)]
     for r in ratios:
         assert 3.5 < r < 4.5, f"gap ratio {r:.2f} is not the ~4x of a quadratic difference"
 

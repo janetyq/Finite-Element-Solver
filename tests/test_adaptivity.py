@@ -4,19 +4,19 @@ cannot carry across a remesh fail loudly.
 """
 import numpy as np
 import pytest
+from helpers import pinned
 
 from fem.analysis.adaptivity import AdaptiveRefinement
+from fem.analysis.estimators import RecoveryEstimator
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
+from fem.loads import Source
 from fem.physics.energies import StVenantKirchhoff
-from fem.analysis.estimators import RecoveryEstimator
+from fem.physics.equations import FiniteStrainElastic, LinearElastic, Poisson, Projection
 from fem.physics.forms import EnergyForm
 from fem.problem import Problem
 from fem.regions import at_indices, on_plane
-from fem.physics.equations import LinearElastic, Projection, Poisson, FiniteStrainElastic
-from fem.loads import Source
 from fem.space import FunctionSpace
-from helpers import pinned
 
 
 def refine_near_centre(problem, solution):

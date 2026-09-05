@@ -20,14 +20,14 @@ import logging
 import time
 from dataclasses import dataclass
 
+from fem.algebra.backends import DirectBackend, IterativeBackend
+from fem.algebra.system import DiscreteSystem
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
-from fem.algebra.backends import DirectBackend, IterativeBackend
+from fem.loads import Source
 from fem.mesh.structured import box_mesh
 from fem.physics.equations import LinearElastic
 from fem.regions import everywhere
-from fem.algebra.system import DiscreteSystem
-from fem.loads import Source
 
 DEFAULT_SIZES = (5, 9, 13, 17, 21)
 

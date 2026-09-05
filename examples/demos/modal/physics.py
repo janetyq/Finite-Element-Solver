@@ -9,18 +9,18 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from fem.algebra.integrators import NewmarkMethod
+from fem.analysis.modal import ModalAnalysis
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
-from fem.physics.equations import LinearElastic
-from fem.algebra.integrators import NewmarkMethod
 from fem.loads import PointLoad
 from fem.mesh.mesh import Mesh
-from fem.analysis.modal import ModalAnalysis
+from fem.mesh.outline import Outline
+from fem.physics.equations import LinearElastic
+from fem.post.solution import ModalSolution, TransientSolution
 from fem.problem import RayleighDamping
 from fem.regions import TimeDependent, at_indices, on_plane
-from fem.post.solution import ModalSolution, TransientSolution
-from fem.mesh.outline import Outline
 
 
 def tuning_fork_outline(tine_length: float = 0.088, tine_thickness: float = 0.004,

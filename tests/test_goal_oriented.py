@@ -2,13 +2,13 @@
 concentrates near the quantity of interest, more strongly than the global estimator.
 """
 import numpy as np
+from helpers import near_far_counts, pinned, problem_for, solved
 
 from fem.analysis.adaptivity import AdaptiveRefinement
-from fem.physics.equations import Poisson
 from fem.analysis.estimators import GoalOrientedEstimator, RecoveryEstimator
 from fem.analysis.sensitivity import PointValue
 from fem.loads import Source
-from helpers import near_far_counts, pinned, problem_for, solved
+from fem.physics.equations import Poisson
 
 PROBLEM_FOR = problem_for(Poisson(), pinned() + Source(lambda p: 1.0))
 

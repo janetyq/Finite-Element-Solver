@@ -11,11 +11,11 @@ import numpy as np
 from fem.algebra.backends import IterativeBackend
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
-from fem.physics.equations import LinearElastic
 from fem.mesh.mesh import Mesh
 from fem.mesh.structured import box_mesh
-from fem.regions import in_box, intersect, on_plane
+from fem.physics.equations import LinearElastic
 from fem.post.solution import ElasticSolution
+from fem.regions import in_box, intersect, on_plane
 
 E, NU = 200.0, 0.4
 

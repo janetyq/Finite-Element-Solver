@@ -2,12 +2,12 @@
 import numpy as np
 import pytest
 
-from fem.physics.materials import Enu_to_Lame, Lame_to_Enu
 from fem.elements import LinearTetrahedralElement, LinearTriangleElement
-from fem.physics.forms import MassForm
+from fem.mesh.mesh import Mesh
 from fem.mesh.pslg import point_in_polygon, polygon_area
 from fem.mesh.ruppert import circumcenter
-from fem.mesh.mesh import Mesh
+from fem.physics.forms import MassForm
+from fem.physics.materials import Enu_to_Lame, Lame_to_Enu
 
 
 class TestLameConversion:

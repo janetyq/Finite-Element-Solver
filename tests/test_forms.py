@@ -13,12 +13,23 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
 )
-from fem.physics.energies import StVenantKirchhoff
-from fem.physics.forms import (
-    BoundaryMassForm, DiffusionForm, EnergyForm, GeometricStiffnessForm, LinearElasticForm, MassForm, PrecomputedForm, ScaledForm, SumForm, rigid_body_modes, strain_displacement, voigt_to_tensor,
-)
 from fem.loads import Source
 from fem.mesh.structured import box_mesh
+from fem.physics.energies import StVenantKirchhoff
+from fem.physics.forms import (
+    BoundaryMassForm,
+    DiffusionForm,
+    EnergyForm,
+    GeometricStiffnessForm,
+    LinearElasticForm,
+    MassForm,
+    PrecomputedForm,
+    ScaledForm,
+    SumForm,
+    rigid_body_modes,
+    strain_displacement,
+    voigt_to_tensor,
+)
 from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.space import FunctionSpace
 

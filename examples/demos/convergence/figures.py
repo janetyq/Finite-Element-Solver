@@ -1,10 +1,10 @@
 """The figure and table of the convergence demo, drawn from a `RatesStudy`."""
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos._charts import tidy_log_axis
 from demos.convergence import physics
 from demos.convergence.physics import RatesStudy, run
+from fem.plot.plotter import Plotter
 
 
 def _plot_study(ax, study, label, colour, reference_order, xlabel):

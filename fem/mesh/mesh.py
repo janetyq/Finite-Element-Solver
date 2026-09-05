@@ -56,7 +56,7 @@ def unique_rows(
         unique, first, inverse, counts = np.unique(rows, axis=0, return_index=True, return_inverse=True, return_counts=True)
     extras = [first, inverse.reshape(-1), counts]
     wanted = [return_index, return_inverse, return_counts]
-    result = [unique] + [extra for extra, want in zip(extras, wanted) if want]
+    result = [unique] + [extra for extra, want in zip(extras, wanted, strict=True) if want]
     return result[0] if len(result) == 1 else tuple(result)
 
 
@@ -492,7 +492,7 @@ class Mesh:
         edges, edge_elements = self._edge_table
         return {
             (int(v0), int(v1)): [int(e) for e in elems if e >= 0]
-            for (v0, v1), elems in zip(edges, edge_elements)
+            for (v0, v1), elems in zip(edges, edge_elements, strict=True)
         }
 
     @cached_property

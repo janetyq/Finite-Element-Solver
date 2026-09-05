@@ -5,12 +5,6 @@ self-adjoint and a non-self-adjoint quantity of interest.
 """
 import numpy as np
 
-from fem.boundary import Dirichlet, Neumann
-from fem.conditions import Conditions
-from fem.physics.forms import LinearElasticForm, PrecomputedForm
-from fem.physics.materials import LinearElasticMaterial
-from fem.problem import LinearProblem
-from fem.regions import on_plane
 from fem.analysis.sensitivity import (
     Compliance,
     DensityParameterization,
@@ -18,6 +12,12 @@ from fem.analysis.sensitivity import (
     PointValue,
     SensitivityAnalysis,
 )
+from fem.boundary import Dirichlet, Neumann
+from fem.conditions import Conditions
+from fem.physics.forms import LinearElasticForm, PrecomputedForm
+from fem.physics.materials import LinearElasticMaterial
+from fem.problem import LinearProblem
+from fem.regions import on_plane
 from fem.space import FunctionSpace
 
 

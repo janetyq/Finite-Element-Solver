@@ -12,25 +12,24 @@ solver over `scipy.optimize` is noted in `attic/fem-adjoint-sensitivity-design-2
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
-from typing import Callable
 
 import numpy as np
 from scipy.sparse import csr_array
 from scipy.spatial import KDTree
 
-from fem.physics.forms import LinearElasticForm, PrecomputedForm
-from fem.physics.materials import LinearElasticMaterial
-from fem.mesh.mesh import Mesh
-from fem.problem import LinearProblem, Problem
 from fem.analysis.sensitivity import (
     Compliance,
     DensityParameterization,
     QuantityOfInterest,
     SensitivityAnalysis,
 )
+from fem.mesh.mesh import Mesh
+from fem.physics.forms import LinearElasticForm, PrecomputedForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.post.solution import ElasticSolution, FieldSolution
+from fem.problem import LinearProblem, Problem
 from fem.space import FunctionSpace
 from fem.typing import DofVector, ElementValues, FloatArray, SparseMatrix
 

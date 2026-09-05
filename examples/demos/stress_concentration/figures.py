@@ -1,11 +1,10 @@
 """The figure and summary of the plate-with-a-hole demo, drawn from a `PlateStudy`."""
+from demo_registry import Demo, DemoResult, Figure
 from matplotlib.collections import LineCollection
 
-from fem.plot.plotter import Plotter
-
-from demo_registry import Demo, DemoResult, Figure
 from demos.stress_concentration import physics
 from demos.stress_concentration.physics import PlateStudy, run
+from fem.plot.plotter import Plotter
 
 
 def _pipeline_figure(s: PlateStudy) -> Figure:

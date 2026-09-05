@@ -1,9 +1,9 @@
 """Mesh geometry: topology queries over vertices, elements, and facets."""
 import numpy as np
 import pytest
+from helpers import two_triangle_square
 
 from fem.mesh.mesh import Mesh
-from helpers import two_triangle_square
 
 
 def test_edges_are_every_vertex_pair_of_each_simplex():
@@ -25,7 +25,7 @@ def test_edge_elements_pairs_each_edge_with_its_elements():
     """The batched form: each edge in `edges` gets both its elements, with -1 in
     the second slot of a boundary edge. Consistent with `edge_to_elements`."""
     mesh = two_triangle_square()
-    by_edge = {tuple(e): ee for e, ee in zip(mesh.edges, mesh.edge_elements)}
+    by_edge = {tuple(e): ee for e, ee in zip(mesh.edges, mesh.edge_elements, strict=True)}
 
     assert sorted(by_edge[(0, 2)]) == [0, 1]           # shared diagonal: two elements
     assert by_edge[(0, 1)][1] == -1                    # boundary side: one element
@@ -104,7 +104,7 @@ def test_measures_in_each_dimension():
     tet = Mesh([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], [[0, 1, 2, 3]])
     assert tet.measure == pytest.approx(1 / 6)
     with pytest.raises(ValueError):
-        tet.area
+        _ = tet.area
 
 
 def test_measure_of_a_triangle_embedded_in_3d():
@@ -193,5 +193,5 @@ def test_unique_rows_is_np_unique_over_rows(extras):
         expected = expected if isinstance(expected, tuple) else (expected,)
         actual = actual if isinstance(actual, tuple) else (actual,)
         assert len(expected) == len(actual)
-        for want, got in zip(expected, actual):
+        for want, got in zip(expected, actual, strict=True):
             np.testing.assert_array_equal(np.asarray(got).reshape(np.asarray(want).shape), want)

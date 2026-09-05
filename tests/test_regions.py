@@ -4,16 +4,15 @@ import pytest
 
 from fem.boundary import _evaluate_dirichlet_value
 from fem.regions import (
+    at_indices,
+    evaluate_field,
     everywhere,
-    on_plane,
     in_box,
     intersect,
-    union,
-    at_indices,
     is_mesh_bound,
-    evaluate_field,
+    on_plane,
+    union,
 )
-
 
 POINTS = np.array([
     [0.0, 0.0],

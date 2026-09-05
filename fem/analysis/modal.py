@@ -26,9 +26,9 @@ from typing import Any
 
 import numpy as np
 
-from fem.problem import LinearProblem
-from fem.post.solution import ModalSolution
 from fem.algebra.solve import EigenSolve
+from fem.post.solution import ModalSolution
+from fem.problem import LinearProblem
 from fem.typing import FloatArray
 
 logger = logging.getLogger(__name__)

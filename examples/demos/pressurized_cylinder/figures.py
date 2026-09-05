@@ -1,11 +1,10 @@
 """The figure and summary of the pressurized-cylinder demo, drawn from a `CylinderStudy`."""
 import numpy as np
-
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos.pressurized_cylinder import physics
 from demos.pressurized_cylinder.physics import CylinderStudy, hill_pressure, run
+from fem.plot.plotter import Plotter
 
 
 def _yield_figure(s: CylinderStudy) -> Figure:

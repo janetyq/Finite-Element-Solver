@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
-from fem.post.solution import ElasticSolution, DiffusionSolution
+from fem.post.solution import DiffusionSolution, ElasticSolution
 
 if TYPE_CHECKING:
     from fem.elements import ElementGeometry
@@ -193,7 +193,7 @@ class StressFlux:
     thermal strain), nonzero on P1 too.
     '''
 
-    def __init__(self, form: 'RecoversElasticState | None' = None) -> None:
+    def __init__(self, form: RecoversElasticState | None = None) -> None:
         self.form = form
 
     def evaluate(self, solution: FieldSolution) -> FloatArray:

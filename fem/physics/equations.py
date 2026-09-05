@@ -30,19 +30,24 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
 
+from fem.mesh.mesh import Mesh
 from fem.physics.energies import SmallStrain, StVenantKirchhoff
-from fem.physics.plasticity import RambergOsgood
 from fem.physics.fields import FieldShape, Scalar, Vector
 from fem.physics.forms import (
-    DiffusionForm, EnergyDensity, EnergyForm, Form, LinearElasticForm, MassForm, ThermalStrain,
+    DiffusionForm,
+    EnergyDensity,
+    EnergyForm,
+    Form,
+    LinearElasticForm,
+    MassForm,
+    ThermalStrain,
 )
 from fem.physics.materials import LinearElasticMaterial, Reduction
-from fem.post.solution import ElasticSolution, FieldSolution, DiffusionSolution
+from fem.physics.plasticity import RambergOsgood
+from fem.post.solution import DiffusionSolution, ElasticSolution, FieldSolution
 from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.space import FunctionSpace
 from fem.typing import ElementValues, FieldValue
-
-from fem.mesh.mesh import Mesh
 
 # The problem an equation builds, `LinearProblem[S]` for a constant tangent, else
 # `Problem[S]`, with `S` the solution its operator packages.

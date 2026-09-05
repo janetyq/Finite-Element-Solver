@@ -3,13 +3,13 @@ sides of the system, kappa*int u*v to the operator and int g*v to the load. Thes
 the sign and magnitude of both.
 """
 import numpy as np
+from helpers import pinned
 
 from fem.boundary import Robin
 from fem.conditions import Conditions
-from fem.regions import everywhere, on_plane
-from fem.physics.equations import Poisson
 from fem.loads import Source
-from helpers import pinned
+from fem.physics.equations import Poisson
+from fem.regions import everywhere, on_plane
 
 
 def test_constant_solution_is_reproduced_exactly(make_unit_square):

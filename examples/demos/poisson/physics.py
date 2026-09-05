@@ -11,12 +11,12 @@ import numpy as np
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
-from fem.physics.equations import Poisson
-from fem.mesh.mesh import Mesh
-from fem.regions import on_plane
-from fem.post.solution import DiffusionSolution
-from fem.mesh.outline import Outline
 from fem.loads import Source
+from fem.mesh.mesh import Mesh
+from fem.mesh.outline import Outline
+from fem.physics.equations import Poisson
+from fem.post.solution import DiffusionSolution
+from fem.regions import on_plane
 
 
 def _naca4_outline(camber: float, camber_pos: float, thickness: float, n: int,

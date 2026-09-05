@@ -136,7 +136,7 @@ def test_locate_batches_points_the_way_it_takes_them_one_at_a_time(square):
     point-by-point search gives, and the search structure is built once per mesh."""
     points = np.random.default_rng(0).random((200, 2))
     elements, reference = square.locate(points)
-    for p, e, r in zip(points, elements, reference):
+    for p, e, r in zip(points, elements, reference, strict=True):
         (e1,), (r1,) = square.locate([p])
         assert e1 == e
         np.testing.assert_allclose(r1, r)

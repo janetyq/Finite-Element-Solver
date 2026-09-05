@@ -30,6 +30,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions, Initial
 from fem.elements import IsoparametricTriangleElement
@@ -39,7 +40,6 @@ from fem.mesh.outline import Outline
 from fem.physics.equations import DeformationPlasticity
 from fem.post.solution import ElasticSolution
 from fem.regions import on_plane
-from fem.algebra.solve import BacktrackingLineSearch, NewtonSolve
 
 E, NU = 1000.0, 0.3
 
@@ -176,8 +176,10 @@ class CylinderStudy:
             if p <= self.first_yield:
                 fronts.append(self.inner)
                 continue
+            # `p` is bound as a default: brentq calls within the iteration, but the
+            # binding keeps the lambda correct if it ever outlives it.
             fronts.append(brentq(
-                lambda c: float(hill_pressure(c, self.inner, self.outer, self.k)) - p,
+                lambda c, p=p: float(hill_pressure(c, self.inner, self.outer, self.k)) - p,
                 self.inner, self.outer))
         return np.asarray(fronts)
 

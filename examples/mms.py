@@ -23,28 +23,28 @@ from dataclasses import dataclass
 import numpy as np
 
 from fem.algebra.backends import Backend
+from fem.algebra.integrators import ThetaMethod
+from fem.algebra.solve import LinearSolve
 from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial
-from fem.field import NodalField
 from fem.elements import (
     Element,
     ElementGeometry,
     IsoparametricTriangleElement,
     QuadraticTriangleElement,
 )
-from fem.physics.equations import Heat, LinearElastic, Poisson
-from fem.physics.forms import DiffusionForm, LinearElasticForm, ThermalStrain
-from fem.algebra.integrators import ThetaMethod
-from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial, Reduction
+from fem.field import NodalField
+from fem.loads import Source
 from fem.mesh.curves import Circle
 from fem.mesh.mesh import Mesh, boundary_facets
 from fem.mesh.structured import box_mesh
-from fem.loads import Source
+from fem.physics.equations import Heat, LinearElastic, Poisson
+from fem.physics.forms import DiffusionForm, LinearElasticForm, ThermalStrain
+from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial, Reduction
 from fem.problem import LinearProblem
 from fem.regions import everywhere, on_plane
-from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
-from fem.typing import FloatArray, Vertices, NodalValues
+from fem.typing import FloatArray, NodalValues, Vertices
 
 
 def exact_solution(vertices: Vertices) -> NodalValues:

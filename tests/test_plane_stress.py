@@ -9,6 +9,7 @@ because the z growth costs nothing. The rate is in `test_convergence.py`.
 """
 import numpy as np
 import pytest
+from helpers import close, rollers
 
 from fem.analysis.design import SIMPModel
 from fem.analysis.sensitivity import DensityParameterization, MeanStress
@@ -22,7 +23,6 @@ from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
 from fem.post.solution import ElasticSolution
 from fem.regions import everywhere, on_plane
 from fem.space import FunctionSpace
-from helpers import close, rollers
 
 E, NU = 200.0, 0.3
 MU, LAMB = Enu_to_Lame(E, NU)

@@ -4,7 +4,6 @@ the axes, checked by legend label rather than by pixels.
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-
 from matplotlib.colors import to_rgba
 from matplotlib.patches import Polygon
 from matplotlib.quiver import Quiver

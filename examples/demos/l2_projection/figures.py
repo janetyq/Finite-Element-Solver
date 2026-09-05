@@ -2,13 +2,12 @@
 from functools import partial
 
 import numpy as np
-
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos.l2_projection import physics
 from demos.l2_projection.physics import ProjectionStudy, run
 from fem.mesh.structured import box_mesh
+from fem.plot.plotter import Plotter
 
 
 def _projection_figure(s: ProjectionStudy, reference_resolution) -> Figure:

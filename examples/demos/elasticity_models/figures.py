@@ -2,14 +2,13 @@
 from functools import partial
 
 import numpy as np
-
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos._charts import conditions_figure
 from demos.elasticity_models import physics
 from demos.elasticity_models.physics import StretchStudy, run
 from fem.mesh.structured import box_mesh
+from fem.plot.plotter import Plotter
 
 
 def _stress_figure(s: StretchStudy) -> Figure:
@@ -28,7 +27,7 @@ def _stress_figure(s: StretchStudy) -> Figure:
     hi = float(np.percentile(pooled, 99))
 
     plotter = Plotter(1, 4, title=f'One {s.stretch:.0%} stretch, four ways to model it')
-    for i, ((name, solution), vm) in enumerate(zip(s.solutions, vms)):
+    for i, ((name, solution), vm) in enumerate(zip(s.solutions, vms, strict=True)):
         plotter.plot(solution.deformed_mesh(), vm, mode='colored', idx=(0, i),
                      label='von Mises stress (log)', clim=(lo, hi), log_scale=True,
                      colorbar=(i == len(s.solutions) - 1),

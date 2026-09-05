@@ -1,10 +1,10 @@
 """The figures of the airfoil potential-flow demo, drawn from a `FlowStudy`."""
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos._charts import conditions_figure
 from demos.poisson import physics
 from demos.poisson.physics import FlowStudy, run
+from fem.plot.plotter import Plotter
 
 
 def _flow_figure(s: FlowStudy) -> Figure:

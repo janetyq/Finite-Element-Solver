@@ -3,14 +3,13 @@
 from functools import partial
 
 import numpy as np
-
-from fem.plot.plotter import Plotter
-
 from demo_registry import Demo, DemoResult, Figure
+
 from demos._charts import conditions_figure
 from demos.topology_optimization import physics
 from demos.topology_optimization.physics import TopologyStudy, run
 from fem.mesh.structured import box_mesh
+from fem.plot.plotter import Plotter
 
 
 def _comparison_figure(s: TopologyStudy) -> Figure:

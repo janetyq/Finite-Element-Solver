@@ -5,8 +5,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from mms import ANNULUS_INNER, ANNULUS_OUTER, annulus_mesh
+
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
 from fem.mesh.structured import box_mesh
 from fem.plot.plotter import Plotter
@@ -215,8 +215,8 @@ def test_a_chart_panel_keeps_its_own_labels_and_scale(mesh):
 def test_a_conditions_panel_keeps_its_aspect_but_not_the_x_y_labels(mesh):
     """`plot_bc` puts a legend under the panel, which is where the words x and y sit.
     The panel is still a picture of the domain, so it keeps equal aspect."""
-    from fem.conditions import Conditions
     from fem.boundary import Dirichlet
+    from fem.conditions import Conditions
     from fem.regions import on_plane
 
     bc = Conditions(

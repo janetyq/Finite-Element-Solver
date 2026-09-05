@@ -9,13 +9,12 @@ cheapest arguments that still exercise the code.
 import logging
 import sys
 
+import cli  # noqa: E402
 import matplotlib.pyplot as plt
 import pytest
+from demo_registry import DemoResult  # noqa: E402
 
 from fem.plot.plotter import Plotter
-
-import cli  # noqa: E402
-from demo_registry import DemoResult  # noqa: E402
 
 DEMOS = list(cli.build_registry().values())
 

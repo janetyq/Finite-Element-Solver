@@ -105,7 +105,7 @@ def test_simplified_drops_vertices_on_straight_runs_but_keeps_curved_pieces():
     assert simplified.n_pieces == 4
     assert any(p is arc for p in simplified.loops[0]), 'the arc is kept as it was'
     assert all(np.allclose(p.end, q.start) for p, q in zip(simplified.loops[0],
-                                                            simplified.loops[0][1:]))
+                                                            simplified.loops[0][1:], strict=False))
 
 
 def test_simplifying_an_all_line_loop_matches_douglas_peucker():
@@ -126,8 +126,8 @@ def test_mesh_carries_loop_tags_and_the_hole_circle_onto_the_facets():
     assert mesh.boundary_curves is not None
     hole = outline.loops[1][0]
     rim = mesh.boundary_tags == 1
-    assert all(curve is hole for curve, on_rim in zip(mesh.boundary_curves, rim) if on_rim)
-    assert all(curve is None for curve, on_rim in zip(mesh.boundary_curves, rim) if not on_rim)
+    assert all(curve is hole for curve, on_rim in zip(mesh.boundary_curves, rim, strict=True) if on_rim)
+    assert all(curve is None for curve, on_rim in zip(mesh.boundary_curves, rim, strict=True) if not on_rim)
     radii = np.hypot(*(mesh.vertices[mesh.boundary[rim]].reshape(-1, 2) - [2.0, 2.0]).T)
     assert np.allclose(radii, 0.8), 'split points were projected onto the circle'
     assert mesh.min_angle >= 25 - 1e-9
@@ -137,7 +137,7 @@ def test_a_bezier_loop_meshes_onto_its_curve():
     top = CubicBezier([0, 0], [0, 4], [4, 4], [4, 0])
     outline = Outline([(top, Line([4, 0], [4, -3]), Line([4, -3], [0, -3]), Line([0, -3], [0, 0]))])
     mesh = outline.mesh(min_angle=25, max_area_fraction=0.05)
-    curved = [f for f, c in zip(mesh.boundary, mesh.boundary_curves) if c is top]
+    curved = [f for f, c in zip(mesh.boundary, mesh.boundary_curves, strict=True) if c is top]
     assert curved
     for facet in curved:
         ends = mesh.vertices[facet]

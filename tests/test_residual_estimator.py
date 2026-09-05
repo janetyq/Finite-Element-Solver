@@ -7,26 +7,25 @@ term matches a hand derivation on a two-triangle square.
 """
 import numpy as np
 import pytest
+from helpers import cantilever_bc, global_estimate, pinned, problem_for, solved, two_triangle_square
+from mms import exact_gradient, h1_seminorm_error, source_term
 
 from fem.analysis.adaptivity import AdaptiveRefinement
+from fem.analysis.estimators import ResidualEstimator
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
-from mms import exact_gradient, h1_seminorm_error, source_term
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.physics.energies import StVenantKirchhoff
-from fem.physics.equations import LinearElastic, Poisson
-from fem.analysis.estimators import ResidualEstimator
-from fem.physics.forms import DiffusionForm, EnergyForm, LinearElasticForm
-from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.loads import Source
 from fem.mesh.structured import box_mesh
 from fem.physics.derived import GradientFlux
+from fem.physics.energies import StVenantKirchhoff
+from fem.physics.equations import LinearElastic, Poisson
+from fem.physics.forms import DiffusionForm, EnergyForm, LinearElasticForm
+from fem.physics.materials import Enu_to_Lame, LinearElasticMaterial
+from fem.post.solution import DiffusionSolution, ElasticSolution
 from fem.problem import LinearProblem
 from fem.regions import everywhere, on_plane
-from fem.post.solution import DiffusionSolution, ElasticSolution
 from fem.space import FunctionSpace
-from fem.loads import Source
-from helpers import cantilever_bc, global_estimate, pinned, problem_for, solved, two_triangle_square
-
 
 # -- the diffusion coefficient in the flux ------------------------------------
 #

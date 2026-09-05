@@ -1,14 +1,17 @@
 """The figures and summary of the finned heatsink demo, drawn from a `HeatsinkStudy`."""
 import numpy as np
+from demo_registry import Demo, DemoResult, Figure
 from matplotlib.lines import Line2D
 
-from fem.plot.plotter import Plotter
-
-from demo_registry import Demo, DemoResult, Figure
 from demos.heat import physics
 from demos.heat.physics import (
-    FIN_LENGTH, FIN_THICKNESS, HeatsinkStudy, run, theory_efficiency,
+    FIN_LENGTH,
+    FIN_THICKNESS,
+    HeatsinkStudy,
+    run,
+    theory_efficiency,
 )
+from fem.plot.plotter import Plotter
 
 
 def _mark_base(ax, width, kind):
@@ -107,7 +110,7 @@ def _animation_figure(s: HeatsinkStudy) -> Figure:
     animation.plot_animation(
         s.mesh, s.flux_values, mode='colored', label='|grad u|', cmap='viridis', idx=(0, 1),
         titles=[f't = {t:.2f}   heat shed {shed:.1f}'
-                for t, shed in zip(s.t_values, s.shed_values)])
+                for t, shed in zip(s.t_values, s.shed_values, strict=True)])
     return Figure(
         animation,
         'The finned sink warming from a cold start, the transient heat equation '

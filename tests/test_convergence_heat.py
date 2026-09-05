@@ -7,7 +7,6 @@ draws what this asserts: theta = 1 (backward Euler) is first order; theta = 1/2
 (Crank-Nicolson) is second.
 """
 import pytest
-
 from mms import theta_convergence
 
 
@@ -19,7 +18,7 @@ from mms import theta_convergence
 ], ids=['backward_euler', 'crank_nicolson'])
 def test_theta_method_converges_at_its_order(theta, step_counts, order, band):
     study = theta_convergence(theta, step_counts)
-    for coarse, fine in zip(study.error[:-1], study.error[1:]):
+    for coarse, fine in zip(study.error[:-1], study.error[1:], strict=False):
         assert fine < coarse, f'error grew under dt refinement: {study.error}'
     low, high = band
     for p in study.orders:
@@ -32,7 +31,7 @@ def test_forward_euler_is_first_order_and_stable():
     stay inside the explicit stability limit at these steps) it is cleanly first order in
     dt, the same rate as backward Euler from the other end of the theta family."""
     study = theta_convergence(0.0, (8, 16, 32), n=5)
-    for coarse, fine in zip(study.error[:-1], study.error[1:]):
+    for coarse, fine in zip(study.error[:-1], study.error[1:], strict=False):
         assert fine < coarse, f'error grew under dt refinement (unstable?): {study.error}'
     for p in study.orders:
         assert 0.85 < p < 1.2, f'expected order ~1 in dt, got {study.orders}'

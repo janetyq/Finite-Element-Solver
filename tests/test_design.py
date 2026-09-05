@@ -2,20 +2,24 @@
 update, and the optimizer over them."""
 import numpy as np
 import pytest
+from helpers import cantilever_bc
 from scipy.sparse import csr_array
 
+from fem.algebra.solve import LinearSolve
 from fem.analysis.design import (
-    DesignOptimizer, SIMPModel, TargetCompliance, calculate_smoothing_matrix,
-    filter_sensitivity, optimality_criteria_update,
+    DesignOptimizer,
+    SIMPModel,
+    TargetCompliance,
+    calculate_smoothing_matrix,
+    filter_sensitivity,
+    optimality_criteria_update,
 )
+from fem.analysis.sensitivity import Compliance
 from fem.physics.equations import LinearElastic, Poisson
 from fem.physics.forms import LinearElasticForm, PrecomputedForm
 from fem.physics.materials import LinearElasticMaterial
 from fem.problem import LinearProblem
-from fem.analysis.sensitivity import Compliance
-from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
-from helpers import cantilever_bc
 
 
 def _model(mesh, penalty=3.0, radius=None):

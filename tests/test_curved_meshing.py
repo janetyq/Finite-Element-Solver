@@ -7,19 +7,19 @@ isoparametric solve reads a round boundary. The Kirsch test is the physical payo
 import numpy as np
 import pytest
 
+from fem.algebra.solve import LinearSolve
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
-from fem.physics.forms import LinearElasticForm
-from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.curves import Arc, Circle, Line
 from fem.mesh.outline import Outline
 from fem.mesh.refinement import RedGreenRefiner
 from fem.mesh.ruppert import RuppertsAlgorithm
+from fem.physics.forms import LinearElasticForm
+from fem.physics.materials import LinearElasticMaterial
+from fem.post.solution import ElasticSolution
 from fem.problem import LinearProblem
 from fem.regions import intersect, on_plane
-from fem.post.solution import ElasticSolution
-from fem.algebra.solve import LinearSolve
 from fem.space import FunctionSpace
 
 
@@ -85,7 +85,7 @@ def test_per_segment_curve_tags_only_the_arc_of_a_mixed_outline():
     assert sum(c is not None for c in pslg.segment_curves) == len(pslg.segments) - 4
 
     mesh = RuppertsAlgorithm(pslg, min_angle=30, max_area=0.02).refine()
-    curved = [facet for facet, curve in zip(mesh.boundary, mesh.boundary_curves)
+    curved = [facet for facet, curve in zip(mesh.boundary, mesh.boundary_curves, strict=True)
               if curve is not None]
     assert curved, "no boundary facet inherited the arc"
     for facet in curved:

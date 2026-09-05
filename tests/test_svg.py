@@ -78,7 +78,7 @@ def test_a_traced_cubic_outline_meshes_onto_its_true_curve():
     def max_midside_distance(element_type):
         space = FunctionSpace(mesh, element_type, n_components=1)
         worst = 0.0
-        for facet_nodes, curve in zip(space.boundary_nodes, mesh.boundary_curves):
+        for facet_nodes, curve in zip(space.boundary_nodes, mesh.boundary_curves, strict=True):
             if curve is None:
                 continue
             midside = space.node_coords[facet_nodes[2]]

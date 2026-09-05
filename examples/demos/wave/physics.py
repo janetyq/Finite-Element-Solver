@@ -8,13 +8,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from fem.algebra.integrators import NewmarkMethod
 from fem.conditions import Conditions, Initial
 from fem.field import NodalField
-from fem.physics.equations import Wave
-from fem.algebra.integrators import NewmarkMethod
 from fem.mesh.mesh import Mesh
-from fem.post.solution import TransientSolution
 from fem.mesh.outline import Outline
+from fem.physics.equations import Wave
+from fem.post.solution import TransientSolution
 
 
 def harbor_outline(length: float = 6.0, width: float = 4.0, wall_x: float = 2.5,

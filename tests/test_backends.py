@@ -6,21 +6,20 @@ full Poisson/elasticity solves, and through the MMS convergence net.
 """
 import numpy as np
 import pytest
+from helpers import cantilever_bc, pinned
+from mms import ConvergenceStudy, solve_poisson_mms
 
+from fem.algebra.backends import DirectBackend, IterativeBackend, MinresBackend
+from fem.algebra.system import DiscreteSystem, Partition
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions, Initial
 from fem.field import NodalField
-from fem.physics.forms import LinearElasticForm
-from fem.algebra.backends import DirectBackend, IterativeBackend, MinresBackend
-from fem.physics.forms import rigid_body_modes
-from fem.physics.materials import LinearElasticMaterial
 from fem.mesh.structured import box_mesh
-from fem.regions import on_plane
 from fem.physics.equations import Heat, LinearElastic, Poisson
+from fem.physics.forms import LinearElasticForm, rigid_body_modes
+from fem.physics.materials import LinearElasticMaterial
+from fem.regions import on_plane
 from fem.space import FunctionSpace
-from fem.algebra.system import DiscreteSystem, Partition
-from helpers import cantilever_bc, pinned
-from mms import ConvergenceStudy, solve_poisson_mms
 
 
 def _spd(n, seed=0):

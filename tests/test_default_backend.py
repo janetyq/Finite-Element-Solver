@@ -5,6 +5,7 @@ definite by construction, and the direct solve otherwise; `Form.symmetric_positi
 is that construction, answered per form and composed through scaling and sums.
 """
 import numpy as np
+from helpers import cantilever_bc, pinned
 
 from fem.algebra import solve as solve_module
 from fem.algebra.backends import DirectBackend, IterativeBackend
@@ -15,12 +16,16 @@ from fem.loads import Source
 from fem.physics.energies import StVenantKirchhoff
 from fem.physics.equations import FiniteStrainElastic, LinearElastic, Poisson
 from fem.physics.forms import (
-    BoundaryMassForm, DiffusionForm, EnergyForm, GeometricStiffnessForm, LinearElasticForm,
-    MassForm, PrecomputedForm,
+    BoundaryMassForm,
+    DiffusionForm,
+    EnergyForm,
+    GeometricStiffnessForm,
+    LinearElasticForm,
+    MassForm,
+    PrecomputedForm,
 )
 from fem.physics.materials import LinearElasticMaterial
 from fem.regions import everywhere
-from helpers import cantilever_bc, pinned
 
 
 def test_the_forms_that_are_spd_by_construction_say_so():

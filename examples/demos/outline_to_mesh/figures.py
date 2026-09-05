@@ -1,17 +1,23 @@
 """The figure and table of the outline-to-mesh demo, drawn from an `OutlineStudy`."""
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+from demo_registry import Demo, DemoResult, Figure
 from matplotlib.widgets import Button, Slider
 
-from fem.plot.plotter import Plotter
-from fem.plot.helpers import plot_mesh
-from fem.mesh.outline import douglas_peucker
-
-from demo_registry import Demo, DemoResult, Figure
 from demos.outline_to_mesh import physics
 from demos.outline_to_mesh.physics import (
-    DEFAULT_SIMPLIFICATION_TOLERANCE, DEFAULT_SVG_FILE, OutlineStudy, close_ring,
-    curve_extent, get_curve_from_svg, run, save_curve)
+    DEFAULT_SIMPLIFICATION_TOLERANCE,
+    DEFAULT_SVG_FILE,
+    OutlineStudy,
+    close_ring,
+    curve_extent,
+    get_curve_from_svg,
+    run,
+    save_curve,
+)
+from fem.mesh.outline import douglas_peucker
+from fem.plot.helpers import plot_mesh
+from fem.plot.plotter import Plotter
 
 
 def _explore_simplification(curve, save_file='douglas_peucker_output.json',

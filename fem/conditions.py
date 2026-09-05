@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from fem.algebra.system import Partition
 from fem.boundary import (
     Condition,
     Dirichlet,
@@ -40,9 +41,13 @@ from fem.field import NodalField
 from fem.loads import BoundaryLoad, Load, PointLoad, Source, _EvaluatedLoad, total_load
 from fem.physics.forms import BoundaryMassForm, Form
 from fem.regions import TimeDependent, evaluate_field
-from fem.algebra.system import Partition
 from fem.typing import (
-    DofIndices, DofVector, FieldValue, FloatArray, NodalValues, VertexIndices,
+    DofIndices,
+    DofVector,
+    FieldValue,
+    FloatArray,
+    NodalValues,
+    VertexIndices,
 )
 
 if TYPE_CHECKING:
