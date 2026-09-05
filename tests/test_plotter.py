@@ -199,6 +199,47 @@ def test_uncapped_frames_write_every_step(mesh, tmp_path):
     plotter.close()
 
 
+def test_an_animation_can_be_drawn_on_a_log_scale(mesh):
+    """`log_scale` reaches the frames: a field spanning decades is normalized
+    logarithmically, as it is on a still."""
+    from matplotlib.colors import LogNorm
+
+    values = [np.linspace(1e-3, 1.0, len(mesh.vertices)) * k for k in (1.0, 10.0)]
+
+    plotter = Plotter(1, 1)
+    plotter.plot_animation(mesh, values, mode='colored', log_scale=True)
+
+    assert isinstance(plotter.cbar_infos[(0, 0)].norm, LogNorm)
+    plotter.close()
+
+
+def test_an_animated_panel_can_carry_isolines(mesh):
+    """`contour` reaches the frames too, so an animated field shows its level sets
+    moving rather than only its colouring."""
+    values = [np.linspace(0.0, 1.0, len(mesh.vertices)) * k for k in (1.0, 2.0)]
+
+    plain = Plotter(1, 1)
+    plain.plot_animation(mesh, values, mode='colored')
+    with_lines = Plotter(1, 1)
+    with_lines.plot_animation(mesh, values, mode='colored', contour=6)
+
+    assert len(with_lines.axs[0, 0].collections) > len(plain.axs[0, 0].collections)
+    plain.close()
+    with_lines.close()
+
+
+def test_a_mode_that_draws_a_field_says_so_when_given_none(mesh):
+    """Each mode declares what the call has to supply, checked before anything is
+    drawn, so the complaint names the mode rather than surfacing as a shape error."""
+    with pytest.raises(ValueError, match='colored mode draws a field'):
+        Plotter(1, 1).plot(mesh, mode='colored')
+
+
+def test_a_conditions_panel_says_so_when_given_no_conditions(mesh):
+    with pytest.raises(ValueError, match='bc mode draws boundary conditions'):
+        Plotter(1, 1).plot(mesh, mode='bc')
+
+
 def test_a_chart_panel_keeps_its_own_labels_and_scale(mesh):
     """Domain formatting applied to a log-log plot squashes it to equal aspect, labels
     its axes x and y, and `ticklabel_format` raises outright on a log scale."""

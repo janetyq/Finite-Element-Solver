@@ -13,7 +13,7 @@ Effort: 🟢 low · 🔵 medium · 🟣 high.
 | Numerics | Nonlinear transient; flow-theory J2 plasticity; advection-diffusion | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Mechanics | Cyclic plasticity, fatigue life, LEFM stress intensity | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Moonshot | General symbolic weak-form layer; phase-field fracture | 🟣 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Numerics | Finish P2: curved-element adaptivity, 3D residual estimator, P2 warp and 3D plotting | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Numerics | Finish P2: curved-element adaptivity, 3D residual estimator, animated warp and 3D plotting | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Mixed (u-p) formulation, then Stokes; hand-rolled two-grid preconditioner | 🟣 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize the Newton direction (Steihaug CG, the unbuilt route) | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Physics | Harmonic response; prestressed vibration; arc-length post-buckling; thermoelastic follow-ups | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -58,11 +58,14 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
 ## 3. Open-Ended Suggestions & Future Ideas
 
 **Numerics**
-- 💡 **Finish P2: deformed geometry, adaptivity.** **`Mesh.displaced`** (behind
-  `NodalField.deformed_mesh`) reads the vertex DOFs and drops the edge-midpoint displacements, so a
-  P2 displacement warp draws as its P1 restriction. A **3D P2 field also draws as its P1
-  restriction**: `fem.plot.tessellation`'s sub-lattice is a triangle's, so a tet's surface facets
-  would have to be tessellated as quadratic triangles instead. **Adaptive refinement** drives a P2 solve
+- 💡 **Finish P2: deformed geometry, adaptivity.** **Animated deformed geometry**:
+  `plot_animation(meshes=...)` redraws a P1 mesh per frame, so a flexing P2 or curved mode animates
+  as its P1 restriction (a still warps faithfully through `panel_view(..., warp=...)`;
+  `Mesh.displaced` is P1 by design, a `Mesh` has no edge nodes). The fix is a `warps=` argument, one
+  nodal displacement per frame routed through the still path, with `meshes=` reimplemented over it
+  and then a deprecation candidate. A **3D P2 field also draws as its P1 restriction**:
+  `fem.plot.tessellation`'s sub-lattice is a triangle's, so a tet's surface facets would have to be
+  tessellated as quadratic triangles instead. **Adaptive refinement** drives a P2 solve
   through either estimator: the recovery one samples the flux per quadrature point and recovers by L2
   projection, and the residual one carries the interior `div(flux)` (from the P2 shape Hessians) and a
   per-side edge jump. Both are for straight P2; a *curved* (isoparametric) element's varying Jacobian
