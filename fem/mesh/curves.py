@@ -10,7 +10,7 @@ A `Piece` is a `Curve` with two ends and a sampler: one stretch of an outline, s
 (`Line`) or curved (`Arc`, `CubicBezier`), or a whole closed loop (`Circle`). An
 `Outline` joins pieces end to end and samples them into chords only when it is meshed.
 """
-from typing import Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
 
 import numpy as np
 from numpy.polynomial import polynomial as P
@@ -24,6 +24,11 @@ class Curve(Protocol):
 
     def project(self, points: FloatArray) -> FloatArray:
         '''Nearest point on the curve to each of `points`: `(..., 2) -> (..., 2)`.'''
+        ...
+
+    def to_dict(self) -> dict:
+        '''A JSON-ready description, inverted by `curve_from_dict`, so a boundary curve
+        survives `Mesh.save` / `Mesh.load`.'''
         ...
 
 
@@ -95,6 +100,13 @@ class Line:
         t = np.clip(t, 0.0, 1.0)[..., None]
         return self._start + t * d
 
+    def to_dict(self) -> dict:
+        return {'type': 'Line', 'start': self._start.tolist(), 'end': self._end.tolist()}
+
+    @classmethod
+    def _from_dict(cls, data: dict) -> 'Line':
+        return cls(data['start'], data['end'])
+
     def __repr__(self) -> str:
         return f'Line({self._start.tolist()}, {self._end.tolist()})'
 
@@ -134,6 +146,13 @@ class Circle:
         closing repeat: the chords an `Outline` meshes the circle by.'''
         angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
         return self.center + self.radius * np.column_stack([np.cos(angles), np.sin(angles)])
+
+    def to_dict(self) -> dict:
+        return {'type': 'Circle', 'center': self.center.tolist(), 'radius': self.radius}
+
+    @classmethod
+    def _from_dict(cls, data: dict) -> 'Circle':
+        return cls(data['center'], data['radius'])
 
     def __repr__(self) -> str:
         return f'Circle(center={self.center.tolist()}, radius={self.radius})'
@@ -206,6 +225,16 @@ class Arc:
         if self._reversed:
             angles = angles[::-1]
         return self.center + self.radius * np.column_stack([np.cos(angles), np.sin(angles)])
+
+    def to_dict(self) -> dict:
+        return {'type': 'Arc', 'center': self.center.tolist(), 'radius': self.radius,
+                'start_angle': self.start_angle, 'end_angle': self.end_angle,
+                'reversed': self._reversed}
+
+    @classmethod
+    def _from_dict(cls, data: dict) -> 'Arc':
+        arc = cls(data['center'], data['radius'], data['start_angle'], data['end_angle'])
+        return arc.reversed() if data['reversed'] else arc
 
     def __repr__(self) -> str:
         return (f'Arc(center={self.center.tolist()}, radius={self.radius}, '
@@ -290,5 +319,40 @@ class CubicBezier:
             out[i] = pts[np.argmin(np.sum((pts - q) ** 2, axis=1))]
         return out.reshape(p.shape)
 
+    def to_dict(self) -> dict:
+        return {'type': 'CubicBezier', 'controls': self.controls.tolist()}
+
+    @classmethod
+    def _from_dict(cls, data: dict) -> 'CubicBezier':
+        p0, p1, p2, p3 = data['controls']
+        return cls(p0, p1, p2, p3)
+
     def __repr__(self) -> str:
         return f'CubicBezier({self.controls.tolist()})'
+
+
+# The curve types that persist through `fem.post.io`. A saved mesh stores each boundary
+# curve as one of these tagged dicts; reconstruction dispatches on the name here rather
+# than resolving an arbitrary attribute, so a hand-edited file can name only a known type.
+_CURVE_BUILDERS: dict[str, Callable[[dict], Curve]] = {
+    'Line': Line._from_dict,
+    'Circle': Circle._from_dict,
+    'Arc': Arc._from_dict,
+    'CubicBezier': CubicBezier._from_dict,
+}
+
+
+def curve_to_dict(curve: Curve) -> dict:
+    '''A JSON-ready description of `curve`, inverted by `curve_from_dict`.'''
+    name = type(curve).__name__
+    if name not in _CURVE_BUILDERS:
+        raise ValueError(f'cannot serialize a boundary curve of type {name!r}')
+    return curve.to_dict()
+
+
+def curve_from_dict(data: dict) -> Curve:
+    '''Rebuild a curve from `curve_to_dict`'s output, dispatching on its `type`.'''
+    name = data.get('type')
+    if name not in _CURVE_BUILDERS:
+        raise ValueError(f'unknown boundary curve type {name!r}')
+    return _CURVE_BUILDERS[name](data)

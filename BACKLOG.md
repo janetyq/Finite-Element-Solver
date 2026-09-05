@@ -83,9 +83,8 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   read as `CubicBezier` pieces by `Outline.from_svg` (sampled only at mesh time; Douglas-Peucker
   touches only the straight runs), and validation (`tests/test_convergence_curved.py` area fidelity and the P2 rate;
   `tests/test_curved_meshing.py` the pipeline and the Kirsch stress concentration; `tests/test_svg.py`
-  the traced-outline round trip). Two follow-ups are left. **3D curved elements** and **`fem/post/io.py`
-  curve serialization** (a saved mesh currently drops its curves; the pieces need a `to_dict` /
-  `from_dict` pair) are the remaining gaps. `files/cloud.svg`
+  the traced-outline round trip; `tests/test_io.py` the save/load of boundary curves and tags).
+  **3D curved elements** are the one follow-up left. `files/cloud.svg`
   now meshes and solves in the `outline_to_mesh` demo, so its Bezier boundary carries through the pipeline
   there; a dedicated *close-up* contrasting the curved boundary against its chord polygon (the isoparametric
   payoff) is unbuilt. Quadratic Beziers (degree-elevate to cubic) and
