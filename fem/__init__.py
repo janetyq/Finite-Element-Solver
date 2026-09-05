@@ -78,6 +78,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
     QuadraticLineElement,
+    QuadraticTetrahedralElement,
     QuadraticTriangleElement,
 )
 from fem.field import NodalField
@@ -178,6 +179,7 @@ __all__ = [
     "LinearTriangleElement",
     "LinearTetrahedralElement",
     "QuadraticLineElement",
+    "QuadraticTetrahedralElement",
     "QuadraticTriangleElement",
     "IsoparametricLineElement",
     "IsoparametricTriangleElement",

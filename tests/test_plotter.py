@@ -7,10 +7,14 @@ import numpy as np
 import pytest
 from mms import ANNULUS_INNER, ANNULUS_OUTER, annulus_mesh
 
-from fem.elements import IsoparametricTriangleElement, QuadraticTriangleElement
+from fem.elements import (
+    IsoparametricTriangleElement,
+    QuadraticTetrahedralElement,
+    QuadraticTriangleElement,
+)
 from fem.mesh.structured import box_mesh
 from fem.plot.plotter import Plotter
-from fem.plot.tessellation import boundary_polylines, tessellate
+from fem.plot.tessellation import boundary_polylines, panel_view, tessellate
 from fem.space import FunctionSpace
 
 
@@ -381,6 +385,22 @@ def test_colored_with_a_space_draws_a_denser_tessellation():
     assert len(curved_artist.get_array()) == 9 * len(p1_artist.get_array())
     plain.close()
     tessellated.close()
+
+
+def test_a_3d_p2_field_draws_as_its_p1_restriction():
+    """The display tessellation is a triangle's sub-lattice, so a quadratic tet has none.
+    A per-node field on one falls back to the mesh's own surface triangles and the vertex
+    values, which are the leading rows of the node set, rather than failing on the length
+    mismatch."""
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(3, 3, 3))
+    space = FunctionSpace(mesh, QuadraticTetrahedralElement, n_components=1)
+    field = space.node_coords[:, 0] ** 2                       # length n_nodes
+
+    view = panel_view(mesh, field, space=space)
+
+    assert len(view.points) == mesh.n_vertices
+    assert view.values is not None and len(view.values) == mesh.n_vertices
+    np.testing.assert_allclose(view.values, mesh.vertices[:, 0] ** 2)
 
 
 def _p2_square(n=5):
