@@ -11,6 +11,8 @@ Effort: 🟢 low · 🔵 medium · 🟣 high.
 | Area | Item | Effort | Detail |
 |---|---|:---:|---|
 | Numerics | Nonlinear transient; flow-theory J2 plasticity; advection-diffusion | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Mechanics | Cyclic plasticity, fatigue life, LEFM stress intensity | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Moonshot | General symbolic weak-form layer; phase-field fracture | 🟣 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Finish P2: 3D element, curved-element adaptivity, 3D residual estimator | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Mixed (u-p) formulation, then Stokes; hand-rolled two-grid preconditioner | 🟣 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize the Newton direction (Steihaug CG, the unbuilt route) | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -168,11 +170,40 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
 - 💡 **Flow-theory J2 plasticity.** Return mapping per quadrature point, with a `PlasticState` /
   `at_state` / `commit` state-carrying interface. The eigenstrain seam already carries a plastic
   strain as its elastic-predictor half.
+- 💡 **Cyclic loading, fatigue, and fracture.** A family of mechanical-durability extensions, tiered
+  by the machinery each needs. Still a discussion area; the plausible pieces:
+  - **Cyclic plasticity** · 🔵 · after flow-theory J2, add a **kinematic-hardening** backstress so a
+    load / unload / reload traces a hysteresis loop with the Bauschinger effect, and isotropic
+    hardening for cyclic hardening / softening. This is what makes ratcheting and shakedown studies
+    possible. The `PlasticState` / `commit` history planned for J2 already carries what these need,
+    walked over reversals by `QuasiStaticStepping`. Demo: a notched bar through several reversals,
+    plotting the σ-ε loop.
+  - **Fatigue life** · 🟢–🔵 · mostly a post-processing layer, not new FEM: from the stress / strain
+    amplitude over one or more solved cycles, an empirical stress-life (Basquin / S-N) or strain-life
+    (Coffin-Manson) law with rainflow cycle counting gives a cycles-to-failure field. Demo: a plate
+    with a hole under cyclic remote stress, the fatigue hotspot at the rim where the Kirsch
+    concentration already sits.
+  - **Linear elastic fracture (stress intensity factors)** · 🔵 · put a crack (a slit with duplicated
+    nodes on its faces) in the mesh, solve elastically, and extract `K_I` / `K_II` by a domain /
+    interaction (J-) integral of the Eshelby energy-momentum tensor, a post-processing QoI over the
+    existing stress / strain fields. Validate against a handbook edge-crack `K_I`.
+  - **Phase-field fracture** · 🟣 · a damage field that degrades stiffness with its own evolution
+    equation and a staggered solve; a moonshot, and a natural first customer of the general-forms
+    layer below.
 - 💡 **Advection-diffusion, and a nonsymmetric backend.** `−div(κ∇u) + b·∇u = f` is a new
   non-symmetric `Form`; a direct backend serves it first, a `GmresBackend` (and SUPG stabilization
   for advection-dominated regimes) after. The README roadmap names it.
 - 💡 **1D solves.** `box_mesh` builds 1D meshes but `FunctionSpace` refuses them
   (`LinearLineElement.SUB_TYPE = None`, TODO at `fem/elements.py`). The cheapest convergence check.
+- 💡 **General (symbolic) weak-form layer — a moonshot.** 🟣 · Today each `Form` hand-codes its
+  element integrals (the B-matrix products, the flux, the tangent). A symbolic layer — a mini-UFL —
+  would let the weak form be written as an expression (`inner(grad(u), grad(v)) * dx`,
+  `inner(sigma(u), eps(v)) * dx`) and compiled to the element kernel, so a new PDE is a formula
+  rather than a new `Form` subclass with hand-derived derivatives. It subsumes advection-diffusion,
+  coupled multiphysics, and arbitrary constitutive laws behind one entry point, and pairs naturally
+  with autodiff for the tangent. A new subsystem (expression tree, differentiation, kernel
+  generation) and a rethink of the `Form` seam, so a genuine moonshot; the current explicit forms
+  stay the fast path.
 
 **Post-processing coverage**
 
