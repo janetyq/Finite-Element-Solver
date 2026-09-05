@@ -76,22 +76,12 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   **Superconvergent (ZZ) patch recovery** is a second recovery behind `recover_nodal`'s seam: a local
   least-squares fit per node patch at the superconvergent points, which is the standard recovery for
   the estimator and raises its effectivity, especially on P2.
-- 💡 **Curved (isoparametric) elements: follow-ups.** The core shipped:
-  `IsoparametricTriangleElement` (a geometry map differentiated over all nodes, per quadrature
-  point), `Circle` / `Arc` pieces of an `Outline` carried through its sampled `PSLG` ->
-  `RuppertsAlgorithm` -> `Mesh.boundary_curves`, boundary-node projection in `p2_connectivity`, curvature-aware Ruppert and
-  red-green refinement, a curved `MassForm`, P2-aware plotting (`fem.plot.tessellation` through
-  `Plotter.plot(solution, ...)`), SVG cubic Beziers
-  read as `CubicBezier` pieces by `Outline.from_svg` (sampled only at mesh time; Douglas-Peucker
-  touches only the straight runs), and validation (`tests/test_convergence_curved.py` area fidelity and the P2 rate;
-  `tests/test_curved_meshing.py` the pipeline and the Kirsch stress concentration; `tests/test_svg.py`
-  the traced-outline round trip). Two follow-ups are left. **3D curved elements** and **`fem/post/io.py`
+- 💡 **Curved (isoparametric) elements: follow-ups.** **3D curved elements** and **`fem/post/io.py`
   curve serialization** (a saved mesh currently drops its curves; the pieces need a `to_dict` /
-  `from_dict` pair) are the remaining gaps. `files/cloud.svg`
-  now meshes and solves in the `outline_to_mesh` demo, so its Bezier boundary carries through the pipeline
-  there; a dedicated *close-up* contrasting the curved boundary against its chord polygon (the isoparametric
-  payoff) is unbuilt. Quadratic Beziers (degree-elevate to cubic) and
-  elliptical arcs (`EllipseArc`) are unbuilt but unused by the bundled assets.
+  `from_dict` pair) are the remaining gaps. A dedicated *close-up* in the `outline_to_mesh` demo
+  contrasting the curved boundary against its chord polygon (the isoparametric payoff) is unbuilt.
+  Quadratic Beziers (degree-elevate to cubic) and elliptical arcs (`EllipseArc`) are unbuilt but
+  unused by the bundled assets.
 - 💡 **Nonlinear transient.** `ThetaMethod` and `NewmarkMethod` take `problem.tangent(None)` and
   refuse an `EnergyForm`. The per-step problem is `M/(β dt²) + K_T(u)`, one Newton solve per step
   seeded from the predictor; the mass shift keeps the tangent SPD for small `dt`. It is what the
@@ -135,13 +125,8 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   solves pay MINRES or the direct factorization's fill-in as a result, on the same curve where
   AMG-CG wins by ~10×.
 
-  Step *length* is globalized: `NewtonSolve` takes an optional `BacktrackingLineSearch` (Armijo on
-  Π, else ½‖r‖²), which `default_strategy` uses, so a full step does not diverge from a poor seed.
-  The step *direction* is half-done. **Regularized (modified) Newton** shipped
-  (`TangentRegularization`, applied by `NewtonSolve.regularization='auto'` under an iterative
-  backend): it solves `(H + τI) Δu = −r`, raising `τ` until the operator is positive definite,
-  giving a descent direction even at a saddle. The caveat is that a shift alone does not make the
-  SPD-only CG backend reliable on an indefinite tangent, because CG's failure is not always
+  A `TangentRegularization` shift alone does not make the SPD-only CG backend reliable on an
+  indefinite tangent, because CG's failure is not always
   signalled. The unbuilt route is **truncated / Steihaug CG**: run CG on the tangent and stop at the
   first direction of negative curvature (`pᵀAp ≤ 0`), using the iterate reached so far. CG
   deliberately repurposed for indefinite systems, normally inside a trust region; it is the only way
@@ -152,13 +137,9 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   (St-Venant-Kirchhoff) solve seeded with a small imperfection in the buckling mode, and it needs
   exactly the globalized Newton above *plus* arc-length (Riks) control, since the tangent goes
   indefinite and the load-displacement curve turns back on itself at the limit point, where
-  load-controlled and displacement-controlled Newton both stall. The pieces line up (a `Problem`
-  over the St-VK `EnergyForm`, whose `internal_residual` and `load` an arc-length strategy scales
-  against each other; the buckling mode for the imperfection shape; a globalized tangent for the
-  indefinite region), and the load-stepping half now exists (`QuasiStaticStepping`,
-  `fem/algebra/stepping.py`: the warm-started walk, the bisection retry, the history solution);
-  what remains is arc-length control of that loop, so it can turn past the limit point where
-  load control stalls. The design (bordered two-solve corrector, cylindrical Crisfield constraint,
+  load-controlled and displacement-controlled Newton both stall. What remains is arc-length control
+  of `QuasiStaticStepping`'s loop, so it can turn past the limit point where load control stalls.
+  The design (bordered two-solve corrector, cylindrical Crisfield constraint,
   imperfection from the buckling mode, adaptive step, a `PathSolution`) is
   `attic/thermoelasticity-and-buckling-path-plans-2026-08-23.md` Plan 2.
 - 💡 **Harmonic response.** `(K − ω²M)u = f`, one indefinite solve `DirectBackend` handles; an
@@ -209,12 +190,8 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
 
 **Post-processing coverage**
 
-The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3). Steady solves now recover
-their derived fields through one seam: `Form.flux` names the field (Poisson's gradient,
-elasticity's stress, `fem.physics.derived.Flux`), the typed `Solution` carries it per element
-(`DiffusionSolution.gradient`, `ElasticSolution.stress`), and `fem.post.recovery.recover_nodal` turns it into
-a continuous per-node field for smooth output, P2 plotting, and the recovery estimator; a
-`TransientSolution` packages any step the same way through `history[i]`.
+The layer has a rule and an owner per quantity (`ARCHITECTURE.md` §3): derived fields flow through
+the `Form.flux` -> typed `Solution` -> `fem.post.recovery.recover_nodal` seam.
 
 - 💡 **Reaction forces.** `(K u − f)[fixed]` as `Problem.reactions(u)` or `ElasticSolution.reactions`;
   the standard hand-calculation check, near-free over machinery already here.
@@ -254,14 +231,9 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   without `pyamg`. Worth doing only if a headless import becomes a goal.
 
 **Features**
-- 💡 **Adjoint sensitivity: follow-ups.** The core shipped (`fem/analysis/sensitivity.py`:
-  `SensitivityAnalysis`, `Compliance` / `PointValue` quantities of interest, `DensityParameterization` /
-  `ModulusParameterization`) and the `DesignOptimizer` over it (`fem/analysis/design.py`, SIMP density
-  design with the compliance sensitivity from the core). Design record in
+- 💡 **Adjoint sensitivity: follow-ups.** Design record in
   `attic/fem-adjoint-sensitivity-design-2026-08-18.md`; the follow-up plan
-  is `attic/fem-adjoint-followups-2026-08-19.md`. **Stress-based quantities of interest** shipped
-  (`MeanStress`, `SoftMaxStress` in `fem/analysis/sensitivity.py`): they supply the adjoint load `∂J/∂u` for a
-  fixed material, validated by finite differences. The remaining piece for stress-*constrained design*
+  is `attic/fem-adjoint-followups-2026-08-19.md`. The remaining piece for stress-*constrained design*
   is the explicit `∂J/∂p` term, since the stress `σ = D(E)Bu` depends on the design modulus directly,
   not only through `u`; the adjoint pass adds only `−λᵀ∂R/∂p`, so the driver needs an optional
   `∂J/∂p` from the quantity of interest (and the relaxed-stress `σ = ρ^η D0 Bu` definition topology
@@ -275,10 +247,8 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   has no demo, and a least-squares QoI recovering a planted modulus field is mostly a demo and a
   strong end-to-end adjoint test.
 - 💡 The README's roadmap (transport, fluid mechanics) fits the current
-  architecture well, on the same `EnergyForm` / `Energies` machinery that now carries both the
-  strain-measure densities and the invariant-based `NeohookeanEnergyDensity`.
-- 💡 **Thermoelasticity: follow-ups.** The core shipped (`Eigenstrain` on `LinearElasticForm`,
-  `ThermalStrain`, `LinearElastic(thermal=...)`, closed-form and MMS tests). Open, each additive:
+  architecture well, on the same `EnergyForm` / `Energies` machinery.
+- 💡 **Thermoelasticity: follow-ups.** Open, each additive:
   a **demo** extending `heat` with the warming heatsink's stress at the fin roots, with the
   thick-walled cylinder (logarithmic temperature, closed-form hoop stress) as its benchmark test
   and a critical temperature through `BucklingAnalysis` on a heated restrained bar;
@@ -288,7 +258,7 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   the stress quantities of interest because the thermal load scales with the modulus and the
   measured stress omits the eigenstress, so the adjoint needs a `d(load)/d(rho)` term and the
   stress measures a `D eps*` correction; and a plastic strain as the second `Eigenstrain`. Three
-  smaller additions sit behind the shipped seam: a **transient thermal-stress series** helper (one
+  smaller additions behind the same seam: a **transient thermal-stress series** helper (one
   factorization shared across a `TransientSolution` of `T`), a **`TemperatureParameterization`** for
   `SensitivityAnalysis` (`∂R/∂T_j` is a constant matrix, the first inverse problem needing no
   geometry derivatives), and **thermoelastic topology optimization** as a demo once the gradient
@@ -316,9 +286,8 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
   size monotonic in input size), so a sweep over `Outline.simplified(tolerance)` should report it,
   alongside the **minimum segment length** (the number that predicted the one measured
   non-termination).
-- 💡 **Docstrings on the public API.** Type hints and `pyright` are in place and gating CI; the prose
-  half is still open, but narrowly: `mesh/ruppert.py` and `plot/plotter.py` are the modules left
-  with no module docstring. The rest of the core has one.
+- 💡 **Docstrings on the public API.** `mesh/ruppert.py` and `plot/plotter.py` are the modules left
+  with no module docstring.
 - 💡 **CI matrix.** CI runs 3.11 on Linux only while the package claims 3.10+ and dev is Windows.
   Add a 3.10 leg, ideally a Windows leg.
 - 💡 **`wave.gif` weight.** Mark `*.gif` as a binary attribute; `wave.gif` is 2.8 MB.
@@ -362,7 +331,7 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
 
 ## Suggested Priority Order
 
-1. **Plot-coverage gap + small guards** (§1, §3): finish the safety net now that type hints gate CI.
+1. **Small guards** (§1): finish the safety net.
 2. **Finish the P2 story**: curved-element adaptivity and the 3D residual estimator, so the
    higher-order path is complete everywhere.
 3. **Nonlinear transient, then arc-length**, which together unlock the post-buckling snap-through
