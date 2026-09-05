@@ -4,7 +4,8 @@ A `FieldSolution` is a `NodalField` (the unknown on its space) with the provenan
 solve adds: `DiffusionSolution` its recovered gradient, `ElasticSolution` the stress
 state. The other shapes are collections of fields on one space and hand them out as
 such: `TransientSolution` is a time series indexed by step (`history[i]` is the typed
-steady solution, `WaveSolution` adds `velocity(i)`), `BucklingSolution` and
+steady solution, `WaveSolution` adds `velocity(i)` and `PathSolution` an equilibrium
+path's load factors and stability flags), `BucklingSolution` and
 `ModalSolution` hold eigenpairs (`mode(i)` is a `NodalField`). `save`/`load`
 round-trip any of them through `fem.post.io`, which reflects over the dataclass
 fields.
@@ -21,7 +22,7 @@ import numpy as np
 from fem.field import NodalField
 from fem.post import invariants, recovery
 from fem.post.recovery import RecoveryMethod
-from fem.typing import DofVector, ElementValues, FloatArray
+from fem.typing import DofVector, ElementValues, FloatArray, IntArray
 
 S = TypeVar('S', bound='FieldSolution')   # the steady solution a step packages
 T = TypeVar('T', bound='Solution')
@@ -359,3 +360,45 @@ class WaveSolution(TransientSolution[S]):
     def velocity(self, i: int) -> NodalField:
         '''The velocity at step `i` as a field on the space.'''
         return NodalField(self.space, self.dudt[i])
+
+
+@dataclass(frozen=True, eq=False)
+class PathSolution(TransientSolution[S]):
+    '''An equilibrium path: the series a continuation strategy traces, plus the
+    stability of each state on it.
+
+    `t` holds the load factor λ, not a time (`lambdas` is the alias path code reads it
+    under). Under arc-length control λ is an unknown of the solve rather than the
+    parameter of it, so it is not monotone: through a fold it rises, turns back, and
+    rises again, which is the whole point of tracing the path this way. The series is
+    indexed by step, and nothing here interpolates in `t`.
+
+    `stability (n_steps,)` is the sign of `det K_T` over the free DOFs at each
+    converged state: +1 or -1, and 0 where it is unknown (an iterative backend forms no
+    factorization to read it from). A flip between consecutive states brackets an odd
+    number of eigenvalue crossings, so `limit_points` marks the steps a limit or
+    bifurcation point was crossed after. An even number of crossings within one step
+    leaves the sign unchanged and is invisible; small steps make that unlikely, and it
+    is the standard blind spot of a determinant-sign indicator.
+    '''
+    stability: IntArray   # (n_steps,) +1 / -1 / 0
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        stability = np.asarray(self.stability, dtype=int)
+        if stability.shape != (len(self.t),):
+            raise ValueError(
+                f'stability {stability.shape} must be one flag per step, ({len(self.t)},)')
+        object.__setattr__(self, 'stability', stability)
+
+    @property
+    def lambdas(self) -> FloatArray:
+        '''The load factors along the path: `t` under the name path code reads it by.'''
+        return self.t
+
+    @property
+    def limit_points(self) -> IntArray:
+        '''The steps `i` whose bracket `[i, i+1]` crossed a limit or bifurcation point:
+        where `stability` flips between two known (nonzero) flags.'''
+        flags = self.stability
+        return np.flatnonzero(flags[:-1] * flags[1:] < 0)

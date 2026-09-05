@@ -9,6 +9,7 @@ of one problem, and of its snapshots, is solved the same way.
 What a caller touches, versus what is plumbing:
 
     Use:       DirectBackend() | IterativeBackend() | MinresBackend()  <- the public choice
+               det_sign(factorization)                 <- the sign of det A, from an LU
     Extend:    Backend, Factorization                  <- implement these to add one
     Internal:  _CGSolver, _MinresSolver, _pyamg_csr   <- never named outside here
 
@@ -39,12 +40,13 @@ from typing import Protocol
 import numpy as np
 import pyamg
 from scipy.sparse import csc_array, csr_array
-from scipy.sparse.linalg import cg, minres, splu
+from scipy.sparse.linalg import SuperLU, cg, minres, splu
 
 from fem.typing import DofVector, FloatArray, Operator
 
 __all__ = [
     'Backend', 'Factorization', 'DirectBackend', 'IterativeBackend', 'MinresBackend',
+    'det_sign',
 ]
 
 
@@ -142,6 +144,58 @@ class MinresBackend:
 
     def prepare(self, A: Operator) -> Factorization:
         return _MinresSolver(csr_array(A), self.preconditioner, self.rtol, self.maxiter)
+
+
+# -- what a factorization can be asked afterwards ------------------------------
+
+def det_sign(factorization: Factorization) -> int | None:
+    '''The sign of `det A` for a factorization that exposes it, else None.
+
+    +1 or -1 for a nonsingular `A`. None when the factorization is not a sparse LU,
+    which is every iterative backend: they never form one, so the question has no
+    answer there. 0 for a zero pivot, which `splu` refuses to produce (it raises on an
+    exactly singular matrix), so that answer is for a factorization that tolerates one.
+
+    From `DirectBackend`'s SuperLU, whose `P_r A P_c = L U` has a unit-diagonal `L`,
+    the sign is `parity(perm_r) * parity(perm_c) * prod(sign(diag(U)))`: exact, O(n)
+    reads, no extra solve. It is a determinant *sign*, not an inertia count. Partial
+    pivoting makes the count of negative `U` diagonal entries unreliable as a
+    negative-eigenvalue count, but their parity, corrected by the permutations, is the
+    determinant's sign exactly.
+
+    What a path-following strategy reads it for: `det K_T` changes sign across an odd
+    number of eigenvalue crossings, so a flip between consecutive equilibria brackets a
+    limit or bifurcation point. An even number of crossings inside one step is invisible
+    to it.
+    '''
+    if not isinstance(factorization, SuperLU):
+        return None
+    diagonal = np.asarray(factorization.U.diagonal())
+    if np.any(diagonal == 0.0):
+        return 0
+    negatives = int(np.count_nonzero(diagonal < 0.0))
+    sign = -1 if negatives % 2 else 1
+    return sign * _permutation_parity(factorization.perm_r) * _permutation_parity(
+        factorization.perm_c)
+
+
+def _permutation_parity(permutation: FloatArray) -> int:
+    '''The sign of a permutation (+1 even, -1 odd), by cycle decomposition: a cycle of
+    even length is an odd permutation, so each one flips the parity.'''
+    perm = np.asarray(permutation, dtype=int)
+    visited = np.zeros(len(perm), dtype=bool)
+    parity = 1
+    for start in range(len(perm)):
+        if visited[start]:
+            continue
+        length, i = 0, start
+        while not visited[i]:
+            visited[i] = True
+            i = int(perm[i])
+            length += 1
+        if length % 2 == 0:
+            parity = -parity
+    return parity
 
 
 # -- internal plumbing: not part of the public surface -------------------------

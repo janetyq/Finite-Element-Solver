@@ -16,7 +16,12 @@ from fem.physics.forms import DiffusionForm, EnergyForm, LinearElasticForm, Mass
 from fem.physics.materials import LinearElasticMaterial
 from fem.post import invariants
 from fem.post.recovery import nodal_gradient, recover_nodal
-from fem.post.solution import DiffusionSolution, ElasticSolution, FieldSolution
+from fem.post.solution import (
+    DiffusionSolution,
+    ElasticSolution,
+    FieldSolution,
+    PathSolution,
+)
 from fem.regions import everywhere, on_plane
 from fem.space import FunctionSpace
 
@@ -167,3 +172,58 @@ def test_element_type_round_trips_through_save_and_load(tmp_path):
     assert isinstance(loaded, DiffusionSolution)
     assert loaded.element_type is QuadraticTriangleElement
     assert np.allclose(loaded.nodal_gradient(), solution.nodal_gradient())
+
+
+# -- PathSolution: an equilibrium path and its stability -------------------------
+
+
+def _path(stability, lambdas=None):
+    """A three-DOF path on a trivial space, so the container is tested and not a solve."""
+    mesh = box_mesh([[0.0, 0.0], [1.0, 1.0]], [2, 2])
+    space = FunctionSpace(mesh, LinearTriangleElement, n_components=1)
+    n = len(stability)
+    lambdas = np.arange(n, dtype=float) if lambdas is None else np.asarray(lambdas, float)
+    dofs = np.outer(lambdas, np.ones(space.n_dofs))
+    return PathSolution(space, lambdas, dofs, np.asarray(stability))
+
+
+def test_path_lambdas_alias_the_series_parameter():
+    """`t` holds the load factor, and path code reads it under its own name."""
+    path = _path([1, 1, 1], lambdas=[0.0, 0.4, 0.9])
+    np.testing.assert_allclose(path.lambdas, [0.0, 0.4, 0.9])
+    assert path.lambdas is path.t
+    assert len(path) == 3
+    assert isinstance(path[1], FieldSolution)
+
+
+def test_path_limit_points_are_the_brackets_where_stability_flips():
+    """A sign change between consecutive states brackets an odd number of eigenvalue
+    crossings: the fold, or a bifurcation, was passed in that step."""
+    path = _path([1, 1, -1, -1, 1])
+    np.testing.assert_array_equal(path.limit_points, [1, 3])
+
+
+def test_path_without_stability_flags_reports_no_limit_points():
+    """An unknown flag (0) is not a crossing either way, so it brackets nothing."""
+    assert _path([0, 0, 0]).limit_points.size == 0
+
+
+def test_path_needs_one_stability_flag_per_step():
+    with pytest.raises(ValueError, match='one flag per step'):
+        _path([1, 1, 1, 1], lambdas=[0.0, 1.0, 2.0])
+
+
+def test_path_round_trips_through_save_and_load(tmp_path):
+    """The stability flags are a stored field like any other: `fem.post.io` reflects
+    over the dataclass, so the subclass needs no I/O of its own."""
+    path = _path([1, -1, -1, 1], lambdas=[0.0, 0.7, 0.6, 0.9])
+
+    file = str(tmp_path / 'path.npz')
+    path.save(file)
+    loaded = PathSolution.load(file)
+
+    assert isinstance(loaded, PathSolution)
+    np.testing.assert_allclose(loaded.lambdas, path.lambdas)
+    np.testing.assert_allclose(loaded.dofs, path.dofs)
+    np.testing.assert_array_equal(loaded.stability, path.stability)
+    np.testing.assert_array_equal(loaded.limit_points, [0, 2])

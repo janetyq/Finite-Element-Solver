@@ -131,17 +131,18 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   first direction of negative curvature (`pᵀAp ≤ 0`), using the iterate reached so far. CG
   deliberately repurposed for indefinite systems, normally inside a trust region; it is the only way
   to make the nonlinear path reach AMG-CG safely.
-- 💡 **Nonlinear post-buckling, the sequel to `BucklingAnalysis`.** Linearised buckling finds the
-  critical load and the mode shape (`fem/analysis/buckling.py`), but not what the structure *does* past the
-  bifurcation: the load-deflection path once it has bowed. That is a geometrically nonlinear
-  (St-Venant-Kirchhoff) solve seeded with a small imperfection in the buckling mode, and it needs
-  exactly the globalized Newton above *plus* arc-length (Riks) control, since the tangent goes
-  indefinite and the load-displacement curve turns back on itself at the limit point, where
-  load-controlled and displacement-controlled Newton both stall. What remains is arc-length control
-  of `QuasiStaticStepping`'s loop, so it can turn past the limit point where load control stalls.
-  The design (bordered two-solve corrector, cylindrical Crisfield constraint,
-  imperfection from the buckling mode, adaptive step, a `PathSolution`) is
-  `attic/thermoelasticity-and-buckling-path-plans-2026-08-23.md` Plan 2.
+- 💡 **`PostBucklingAnalysis`, the facade over `BucklingAnalysis` and `ArcLengthStepping`.**
+  Tracing a post-buckling path is now four hand-written steps: solve for `(λ_cr, φ)`, seed a
+  geometric imperfection by displacing the mesh in the mode, restate the problem in
+  St-Venant-Kirchhoff under the same reference load, and run `ArcLengthStepping`. A facade beside
+  `BucklingAnalysis` in the same module should own them, with the imperfection amplitude and the
+  λ target as its parameters, and hand back the `PathSolution` with the `BucklingSolution`
+  attached as the yardstick. The one real risk is rebinding: geometric region predicates
+  re-resolved on the perturbed mesh can miss nodes the mode moved, so the conditions are resolved
+  on the pristine mesh and restated with `at_indices`. Ships with the buckling demo's
+  load-deflection figure (λ against mid-span deflection for two or three imperfection amplitudes,
+  λ_cr as the line the knees flatten toward, the elastica series `P/P_cr ≈ 1 + Θ²/8` overlaid) and
+  the elastica validation. Design: `attic/buckling-completion-plan-2026-09-05.md` §4 and §7.
 - 💡 **Harmonic response.** `(K − ω²M)u = f`, one indefinite solve `DirectBackend` handles; an
   analysis beside `ModalAnalysis`, the last cheap `EigenSolve` sibling.
 - 💡 **Prestressed vibration and stability.** `GeometricStiffnessForm` assembles `K_g(σ₀)` from a
