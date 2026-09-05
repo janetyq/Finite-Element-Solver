@@ -4,17 +4,26 @@ The semi-discrete system `M u' + K u = b(t)` with natural boundaries conserves n
 but obeys `1ᵀ M u' = 1ᵀ b(t)` exactly (K annihilates constants), so the mean of `u` is
 the time integral of the mean source: an exact reference for the integrators that
 isolates how they treat a time-dependent load.
+
+The nonlinear path (a state-dependent tangent, solved by Newton per step) is checked
+against the linear one where the two must agree, and against the invariants only
+finite-strain kinematics has: bounded energy drift and a stress-free rigid rotation.
 """
 import numpy as np
 import pytest
 
 from fem.algebra.integrators import NewmarkMethod, ThetaMethod, wave_energy
+from fem.algebra.solve import NewtonDivergence
 from fem.boundary import Dirichlet, Neumann, Robin
 from fem.conditions import Conditions, Initial
 from fem.field import NodalField
 from fem.loads import Source
-from fem.physics.equations import Heat, LinearElastic, Poisson, Wave
+from fem.physics.energies import SmallStrain
+from fem.physics.equations import FiniteStrainElastic, Heat, LinearElastic, Poisson, Wave
+from fem.physics.forms import EnergyForm, LinearElasticForm
+from fem.physics.materials import LinearElasticMaterial
 from fem.post.solution import DiffusionSolution, ElasticSolution, FieldSolution, TransientSolution, WaveSolution
+from fem.problem import LinearProblem, Problem, RayleighDamping
 from fem.regions import TimeDependent, evaluate_field, everywhere, field_at, on_plane
 from fem.space import FunctionSpace
 
@@ -142,6 +151,133 @@ def test_newmark_refuses_time_dependent_dirichlet_data(make_unit_square):
     problem = Wave(stiffness=1.0).problem(mesh, bc)
     with pytest.raises(NotImplementedError, match='Dirichlet'):
         NewmarkMethod(dt=0.01, steps=1).solve(problem)
+
+
+E, NU = 200.0, 0.3
+CLAMPED = Conditions(Dirichlet(on_plane(0, 0.0), [0.0, 0.0]))
+
+
+def _rigid_rotation(mesh, angle):
+    """The displacement field of a rigid rotation by `angle` about the mesh centroid."""
+    center = mesh.vertices.mean(axis=0)
+    c, s = np.cos(angle), np.sin(angle)
+    rotation = np.array([[c, -s], [s, c]])
+    return ((mesh.vertices - center) @ rotation.T + center - mesh.vertices).ravel()
+
+
+def test_newmark_on_a_small_strain_energy_matches_the_linear_operator(make_unit_square):
+    """`SmallStrain` is the same physics `LinearElastic` assembles directly, stated as an
+    energy density: its tangent is state-dependent as far as the integrator is concerned,
+    so the step is solved by Newton, but the physics is exactly linear. The two runs must
+    therefore agree to round-off, displacement and velocity alike."""
+    mesh = make_unit_square(4)
+    conditions = CLAMPED + Source([0.0, -2.0])
+    linear = LinearElastic(E, NU).problem(mesh, conditions)
+    energy = FiniteStrainElastic(E, NU, law=SmallStrain).problem(mesh, conditions)
+    assert linear.is_linear and not energy.is_linear
+
+    run = NewmarkMethod(dt=0.01, steps=6)
+    reference, through_newton = run.solve(linear), run.solve(energy)
+    np.testing.assert_allclose(through_newton.dofs, reference.dofs, atol=1e-13)
+    np.testing.assert_allclose(through_newton.dudt, reference.dudt, atol=1e-12)
+
+
+def test_theta_method_on_a_small_strain_energy_matches_the_linear_operator(make_unit_square):
+    """The same parity for the first-order scheme, on the gradient flow
+    `M u' + r_int(u) = b`: an elastic operator under a first-order time derivative, which
+    is the shape `ThetaMethod` integrates, stated once each way."""
+    mesh = make_unit_square(4)
+    conditions = CLAMPED + Source([0.0, -2.0])
+    space = LinearElastic(E, NU).space(mesh)
+    first_order = frozenset({1})
+    linear = LinearProblem(space, LinearElasticForm(LinearElasticMaterial(E, NU)), conditions,
+                           time_orders=first_order)
+    energy = Problem(space, EnergyForm(SmallStrain(E, NU)), conditions, time_orders=first_order)
+
+    run = ThetaMethod(dt=0.02, steps=5)
+    np.testing.assert_allclose(run.solve(energy).dofs, run.solve(linear).dofs, atol=1e-13)
+
+
+def test_newmark_finite_strain_matches_linear_elasticity_under_a_small_load(make_unit_square):
+    """Green-Lagrange strain differs from the infinitesimal one at O(‖∇u‖²), so a load
+    small enough to keep the motion in the small-strain regime makes the finite-strain
+    and linear runs agree; here to 0.1% of the peak displacement over the whole series."""
+    mesh = make_unit_square(4)
+    conditions = CLAMPED + Source([0.0, -0.2])
+    run = NewmarkMethod(dt=0.01, steps=10)
+    linear = run.solve(LinearElastic(E, NU).problem(mesh, conditions))
+    finite = run.solve(FiniteStrainElastic(E, NU).problem(mesh, conditions))
+
+    peak = np.abs(linear.dofs).max()
+    assert np.abs(finite.dofs - linear.dofs).max() < 1e-3 * peak
+
+
+def test_newmark_conserves_the_energy_of_a_finite_strain_vibration(make_unit_square):
+    """Average acceleration is energy-conserving for a linear system and bounded-drift
+    for a nonlinear one: a St-Venant-Kirchhoff body released from a sheared state, with
+    no load and no damping, exchanges stored and kinetic energy while the total stays
+    within a fraction of a percent of its initial value."""
+    mesh = make_unit_square(4)
+    problem = FiniteStrainElastic(E, NU).problem(mesh, CLAMPED)
+    sheared = np.zeros((len(mesh.vertices), 2))
+    sheared[:, 1] = 0.02 * mesh.vertices[:, 0]
+    released = Initial(NodalField(problem.space, sheared.ravel()))
+
+    run = NewmarkMethod(dt=0.005, steps=60).solve(problem, initial=released)
+    energies = np.array([wave_energy(problem, run.dofs[i], run.dudt[i]) for i in range(len(run))])
+    assert energies.min() > 0.0
+    drift = (energies.max() - energies.min()) / energies[0]
+    assert drift < 1e-3, f'energy drifted by {drift:.2e} over the run: {energies}'
+
+
+def test_newmark_leaves_a_rigidly_rotated_finite_strain_body_at_rest(make_unit_square):
+    """A rigid rotation is strain-free in Green-Lagrange kinematics, so an unconstrained
+    body started in a rotated configuration has zero internal force and stays there: the
+    integrator's Newton solve returns the predictor at every step and the stress stays at
+    round-off. Infinitesimal strain reads the same rotation as a strain of O(θ²/2), so the
+    linear run develops stress and starts moving. Free-free: with no Dirichlet condition
+    the effective operator is still SPD, the mass term carrying it."""
+    mesh = make_unit_square(4)
+    rotated = _rigid_rotation(mesh, 0.3)
+    scale = np.abs(rotated).max()
+    run = NewmarkMethod(dt=0.01, steps=5)
+
+    problem = FiniteStrainElastic(E, NU).problem(mesh, Conditions())
+    assert problem.partition.fixed.size == 0
+    seed = Initial(NodalField(problem.space, rotated))
+    finite = run.solve(problem, initial=seed)
+    np.testing.assert_allclose(finite.dofs[-1], rotated, atol=1e-12)
+    assert np.abs(finite[-1].stress).max() < 1e-9 * E
+
+    linear = run.solve(LinearElastic(E, NU).problem(mesh, Conditions()), initial=seed)
+    assert np.abs(linear.dofs[-1] - rotated).max() > 0.1 * scale
+    assert np.abs(linear[-1].stress).max() > 0.1 * E
+
+
+def test_newmark_refuses_to_damp_a_state_dependent_tangent(make_unit_square):
+    """`RayleighDamping` is C = alpha M + beta K over one constant stiffness, which a
+    finite-strain operator has not got; the refusal is explicit rather than a damping
+    matrix built from an arbitrary tangent."""
+    mesh = make_unit_square(3)
+    problem = FiniteStrainElastic(E, NU, damping=RayleighDamping(alpha=0.1)).problem(mesh, CLAMPED)
+    with pytest.raises(TypeError, match='RayleighDamping'):
+        NewmarkMethod(dt=0.01, steps=1).solve(problem)
+
+
+def test_a_step_that_will_not_converge_reports_the_step_and_advises_a_smaller_dt(make_unit_square):
+    """One Newton iteration cannot resolve a loaded step, so the step raises rather than
+    recording an unconverged state; the exception carries the last iterate."""
+    mesh = make_unit_square(3)
+    problem = FiniteStrainElastic(E, NU).problem(mesh, CLAMPED + Source([0.0, -2.0]))
+    with pytest.raises(NewtonDivergence, match='Reduce dt') as raised:
+        NewmarkMethod(dt=0.05, steps=2, newton_max_iters=1).solve(problem)
+    assert raised.value.iterations == 1 and raised.value.u.shape == (problem.space.n_dofs,)
+
+    with pytest.raises(NewtonDivergence, match='Reduce dt'):
+        space = problem.space
+        first_order = Problem(space, EnergyForm(SmallStrain(E, NU)),
+                              CLAMPED + Source([0.0, -2.0]), time_orders=frozenset({1}))
+        ThetaMethod(dt=0.05, steps=2, newton_max_iters=1).solve(first_order)
 
 
 def test_transient_solution_packages_a_step_as_the_typed_steady_solution(make_unit_square, tmp_path):
