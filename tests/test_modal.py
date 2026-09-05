@@ -8,18 +8,31 @@ with β_n L = 1.875, 4.694, 7.855, … for a fixed-free beam, I = h³/12, A = h 
 depth), and E* = E/(1-ν²). P2 elements throughout, since the constant-strain triangle
 locks in bending. A 2D continuum carries a little shear flexibility and rotary inertia
 that Euler-Bernoulli omits, so the frequencies sit a hair below the beam-theory value.
+
+`PrestressedModalAnalysis` is checked against the other classic result of the same beam
+theory: a pinned-pinned column carrying an axial load P vibrates at
+
+    ω₁²(P) / ω₁²(0) = 1 - P / P_cr,
+
+since its fundamental vibration mode and its buckling mode are the same half-sine. The
+frequency falls to zero exactly at the Euler load, which is where the analysis hands the
+question to `BucklingAnalysis`.
 """
 import numpy as np
 import pytest
 
-from fem.analysis.modal import ModalAnalysis
-from fem.boundary import Dirichlet
+from fem.analysis.buckling import BucklingAnalysis
+from fem.analysis.modal import ModalAnalysis, PrestressedModalAnalysis
+from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions
 from fem.elements import QuadraticTriangleElement
+from fem.loads import Source
 from fem.mesh.structured import box_mesh
-from fem.physics.equations import FiniteStrainElastic, LinearElastic
+from fem.physics.equations import FiniteStrainElastic, LinearElastic, Poisson
+from fem.physics.forms import DiffusionForm
 from fem.post.solution import ModalSolution, Solution
-from fem.regions import on_plane
+from fem.problem import LinearProblem
+from fem.regions import intersect, on_plane
 from fem.space import FunctionSpace
 
 E, NU, DENSITY = 200.0, 0.3, 1.0
@@ -126,5 +139,101 @@ def test_degenerate_parameters_are_rejected():
     """n_modes and the equation's density must be physical, caught at construction."""
     with pytest.raises(ValueError, match='n_modes'):
         ModalAnalysis(n_modes=0)
+    with pytest.raises(ValueError, match='n_modes'):
+        PrestressedModalAnalysis(n_modes=0)
     with pytest.raises(ValueError, match='density'):
         LinearElastic(E, NU, density=0.0)
+
+
+# --- Prestressed vibration: the pinned-pinned column ------------------------------
+
+LENGTH = 24.0
+
+
+def compressed_column(length=LENGTH, height=1.0, n_length=36, n_across=5):
+    """A pinned-pinned column compressed by a unit end traction.
+
+    Both ends are held transversely with the axial DOF free, so each rotates; a single
+    node anchors the rigid axial slide. The reference load is the unit traction, so a
+    load factor multiplies it directly.
+    """
+    mesh = box_mesh(corners=[[0, 0], [length, height]], resolution=(n_length, n_across))
+    bc = Conditions(
+        Dirichlet(on_plane(0, 0.0), [None, 0]),
+        Dirichlet(intersect(on_plane(0, 0.0), on_plane(1, height / 2)), [0, 0]),
+        Dirichlet(on_plane(0, length), [None, 0]),
+        Neumann(on_plane(0, length), [-1.0, 0]),
+    )
+    return LinearElastic(E, NU, density=DENSITY).problem(
+        mesh, bc, element_type=QuadraticTriangleElement)
+
+
+def fundamental_squared(problem, factor):
+    """ω₁² of the column at load factor `factor` times its reference load."""
+    solution = PrestressedModalAnalysis(n_modes=2).solve(problem.with_load_factor(factor))
+    return float(solution.angular_frequencies[0]) ** 2
+
+
+def test_frequency_falls_linearly_to_zero_at_the_buckling_load():
+    """ω₁²(λ)/ω₁²(0) = 1 - λ/λ_cr: the classic drop, the vibration and buckling modes
+    being the same half-sine."""
+    problem = compressed_column()
+    critical = float(BucklingAnalysis(n_modes=1).solve(problem).load_factors[0])
+    unloaded = fundamental_squared(problem, 0.0)
+    for fraction in (0.3, 0.6):
+        loaded = fundamental_squared(problem, fraction * critical)
+        assert loaded / unloaded == pytest.approx(1.0 - fraction, rel=0.03)
+
+
+def test_tension_stiffens_and_compression_softens():
+    """A load factor's sign decides which way the pitch moves: pulling the column raises
+    its fundamental, pushing lowers it."""
+    problem = compressed_column(n_length=24)
+    half_critical = 0.5 * float(BucklingAnalysis(n_modes=1).solve(problem).load_factors[0])
+    unloaded = fundamental_squared(problem, 0.0)
+    compressed = fundamental_squared(problem, half_critical)
+    stretched = fundamental_squared(problem, -half_critical)
+    assert compressed < unloaded < stretched
+
+
+def test_unloaded_column_reproduces_modal_analysis():
+    """With no load the prestress vanishes, K_g with it, and the pencil is the free
+    vibration one: the baseline a load sweep starts from."""
+    problem = compressed_column(n_length=24).with_load_factor(0.0)
+    prestressed = PrestressedModalAnalysis(n_modes=3).solve(problem)
+    free = ModalAnalysis(n_modes=3).solve(problem)
+    np.testing.assert_allclose(prestressed.frequencies, free.frequencies, rtol=1e-8)
+
+
+def test_past_the_buckling_load_it_is_refused():
+    """Beyond λ_cr the lowest ω² is genuinely negative: the column gives way rather than
+    oscillating, and the analysis says which tool answers that."""
+    problem = compressed_column(n_length=24)
+    critical = float(BucklingAnalysis(n_modes=1).solve(problem).load_factors[0])
+    with pytest.raises(ValueError, match='BucklingAnalysis'):
+        PrestressedModalAnalysis(n_modes=2).solve(problem.with_load_factor(1.1 * critical))
+
+
+def test_green_lagrange_equation_is_rejected_when_prestressed():
+    """The prestressed pencil needs the same constant tangent the free one does."""
+    mesh = cantilever(12.0, n_length=12, n_across=3)
+    equation = FiniteStrainElastic(E, NU)
+    with pytest.raises(TypeError, match='constant tangent'):
+        PrestressedModalAnalysis(n_modes=2).solve(equation.problem(mesh))
+
+
+def test_first_order_problem_is_rejected():
+    """Vibration is a second-order system; a diffusion problem has no mass to multiply."""
+    mesh = cantilever(12.0, n_length=12, n_across=3)
+    problem = Poisson().problem(mesh, Conditions(Dirichlet(on_plane(0, 0.0), 0.0), Source(1.0)))
+    with pytest.raises(TypeError, match='second-order system'):
+        PrestressedModalAnalysis(n_modes=2).solve(problem)
+
+
+def test_scalar_problem_is_rejected():
+    """A prestress is a stress: a scalar problem has none to read."""
+    mesh = cantilever(12.0, n_length=12, n_across=3)
+    space = FunctionSpace(mesh, QuadraticTriangleElement)
+    bc = Conditions(Dirichlet(on_plane(0, 0.0), 0.0), Source(1.0))
+    with pytest.raises(TypeError, match='recovered stress'):
+        PrestressedModalAnalysis(n_modes=2).solve(LinearProblem(space, DiffusionForm(), bc))

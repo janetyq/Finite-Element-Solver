@@ -57,7 +57,7 @@ from fem.analysis.estimators import (
     RecoveryEstimator,
     ResidualEstimator,
 )
-from fem.analysis.modal import ModalAnalysis
+from fem.analysis.modal import ModalAnalysis, PrestressedModalAnalysis
 from fem.analysis.sensitivity import (
     Compliance,
     DensityParameterization,
@@ -260,6 +260,7 @@ __all__ = [
     "WaveSolution",
     "BucklingAnalysis",
     "ModalAnalysis",
+    "PrestressedModalAnalysis",
     "SensitivityAnalysis",
     "QuantityOfInterest",
     "Parameterization",

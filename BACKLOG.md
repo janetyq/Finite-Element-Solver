@@ -138,12 +138,6 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   `attic/thermoelasticity-and-buckling-path-plans-2026-08-23.md` Plan 2.
 - 💡 **Harmonic response.** `(K − ω²M)u = f`, one indefinite solve `DirectBackend` handles; an
   analysis beside `ModalAnalysis`, the last cheap `EigenSolve` sibling.
-- 💡 **Prestressed vibration and stability.** `GeometricStiffnessForm` assembles `K_g(σ₀)` from a
-  reference stress state, and `BucklingAnalysis` already uses it. That same `K_g` with the mass
-  matrix gives prestressed modal analysis, `(K + K_g(σ₀) − ω²M)φ = 0`: how a loaded structure's
-  natural frequencies shift under load (a tensioned string rises in pitch, a compressed strut drops
-  toward its buckling frequency, hitting zero at the critical load). A sibling of `ModalAnalysis` and
-  `BucklingAnalysis` reusing both their pieces.
 - 💡 **Flow-theory J2 plasticity.** Return mapping per quadrature point, with a `PlasticState` /
   `at_state` / `commit` state-carrying interface. The eigenstrain seam already carries a plastic
   strain as its elastic-predictor half.
@@ -322,6 +316,12 @@ the `Form.flux` -> typed `Solution` -> `fem.post.recovery.recover_nodal` seam.
   SPD iterative path already projects out. The first three (2D) eigenvalues come out as the
   zero-frequency rigid-body modes, the rest as the elastic ones, making the null space the solver
   handles visible.
+- 💡 **The column's hum as a buckling forecast.** `PrestressedModalAnalysis` has no demo. Extend the
+  `buckling` demo with the pinned column's fundamental frequency against load: ω² falls linearly and
+  hits zero at λ_cr, which is the vibration-correlation technique (load a structure a little, track
+  its hum, extrapolate ω² to zero to forecast the buckling load without reaching it). Reuses the
+  column, load, and λ_cr the demo already has; lands after the post-buckling figure, which touches
+  the same files.
 
 ## Suggested Priority Order
 
