@@ -16,7 +16,7 @@ Effort: 🟢 low · 🔵 medium · 🟣 high.
 | Numerics | Finish P2: curved-element adaptivity, 3D residual estimator, animated warp and 3D plotting | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Mixed (u-p) formulation, then Stokes; hand-rolled two-grid preconditioner | 🟣 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Numerics | Globalize the Newton direction (Steihaug CG, the unbuilt route) | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
-| Physics | Harmonic response; prestressed vibration; arc-length post-buckling; thermoelastic follow-ups | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
+| Physics | Harmonic response; thermoelastic follow-ups | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | API | Reaction forces, region objects, driver histories, series conveniences | 🟢–🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Structure | Split `forms.py` with the stress-QoI dedup | 🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
 | Tooling | Docstrings, CI matrix, pre-commit hooks, API site, release | 🟢–🔵 | [§3](#3-open-ended-suggestions--future-ideas) |
@@ -34,8 +34,7 @@ No open correctness bugs. A handful of small robustness guards remain, each 🟢
   subdivides" comment in Ruppert's `_bad_among` is false on curved input; shell split points beside a
   curved piece are projected onto the curve, which can break the power-of-two ladder where a Bezier
   meets a line at a sharp angle; the OC bisection bracket `[0, 1e15]` is unchecked; `Arc` accepts
-  spans over 2π; `_buckling_factors` can silently return fewer modes than asked; `_in_circle` in
-  `delaunay.py` has no Shewchuk-style error filter (`_orient` does).
+  spans over 2π; `_in_circle` in `delaunay.py` has no Shewchuk-style error filter (`_orient` does).
 
 ---
 
@@ -131,18 +130,6 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
   first direction of negative curvature (`pᵀAp ≤ 0`), using the iterate reached so far. CG
   deliberately repurposed for indefinite systems, normally inside a trust region; it is the only way
   to make the nonlinear path reach AMG-CG safely.
-- 💡 **`PostBucklingAnalysis`, the facade over `BucklingAnalysis` and `ArcLengthStepping`.**
-  Tracing a post-buckling path is now four hand-written steps: solve for `(λ_cr, φ)`, seed a
-  geometric imperfection by displacing the mesh in the mode, restate the problem in
-  St-Venant-Kirchhoff under the same reference load, and run `ArcLengthStepping`. A facade beside
-  `BucklingAnalysis` in the same module should own them, with the imperfection amplitude and the
-  λ target as its parameters, and hand back the `PathSolution` with the `BucklingSolution`
-  attached as the yardstick. The one real risk is rebinding: geometric region predicates
-  re-resolved on the perturbed mesh can miss nodes the mode moved, so the conditions are resolved
-  on the pristine mesh and restated with `at_indices`. Ships with the buckling demo's
-  load-deflection figure (λ against mid-span deflection for two or three imperfection amplitudes,
-  λ_cr as the line the knees flatten toward, the elastica series `P/P_cr ≈ 1 + Θ²/8` overlaid) and
-  the elastica validation. Design: `attic/buckling-completion-plan-2026-09-05.md` §4 and §7.
 - 💡 **Harmonic response.** `(K − ω²M)u = f`, one indefinite solve `DirectBackend` handles; an
   analysis beside `ModalAnalysis`, the last cheap `EigenSolve` sibling.
 - 💡 **Prestressed vibration and stability.** `GeometricStiffnessForm` assembles `K_g(σ₀)` from a
@@ -335,7 +322,5 @@ the `Form.flux` -> typed `Solution` -> `fem.post.recovery.recover_nodal` seam.
 1. **Small guards** (§1): finish the safety net.
 2. **Finish the P2 story**: curved-element adaptivity and the 3D residual estimator, so the
    higher-order path is complete everywhere.
-3. **Nonlinear transient, then arc-length**, which together unlock the post-buckling snap-through
-   story.
-4. **Then the harder numerics**: mixed u-p for incompressibility (P2 is now in place as its
+3. **Then the harder numerics**: mixed u-p for incompressibility (P2 is now in place as its
    displacement half), or the hand-rolled two-grid preconditioner.

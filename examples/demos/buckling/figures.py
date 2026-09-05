@@ -4,7 +4,7 @@ from demo_registry import Demo, DemoResult, Figure
 
 from demos._charts import hide_x_ticks, share_panel_limits
 from demos.buckling import physics
-from demos.buckling.physics import BucklingStudy, euler_load, run
+from demos.buckling.physics import BucklingStudy, elastica_load, euler_load, run
 from fem.plot.plotter import Plotter
 
 
@@ -46,6 +46,50 @@ def _modes_figure(s: BucklingStudy) -> Figure:
         'but not of mode 1, buys the jump to it. The shapes are the eigenvectors of '
         'K phi = -lambda K_g phi and the load factors its eigenvalues.',
         'modes', thumbnail=True)
+
+
+def _post_buckling_figure(s: BucklingStudy) -> Figure:
+    paths = Plotter(1, 2, figsize=(11.0, 4.6), title='Past the critical load: the equilibrium path')
+    colours = ['tab:blue', 'tab:orange', 'tab:green', 'tab:purple']
+    finest = s.paths[-1]
+
+    full = paths.chart_ax(idx=(0, 0), xlabel='mid-span deflection w / L',
+                          ylabel='load factor lambda / lambda_cr')
+    zoom = paths.chart_ax(idx=(0, 1), xlabel='mid-span deflection w / L',
+                          ylabel='load factor lambda / lambda_cr')
+    for ax in (full, zoom):
+        ax.axhline(1.0, color='tab:red', ls='--', alpha=0.7,
+                   label='lambda_cr (linearised buckling)')
+        for path, colour in zip(s.paths, colours, strict=False):
+            ax.plot(path.deflections / s.length, path.load_ratios, '-', color=colour,
+                    lw=1.6, label=path.label)
+        # The elastica series, drawn over the smallest imperfection's range: the load an
+        # ideal column carries once it has bowed by w.
+        w = np.linspace(0.0, finest.deflections.max(), 120)
+        ax.plot(w / s.length, elastica_load(w, s.length), ':', color='black', lw=1.4,
+                label='elastica  1 + (pi w / L)^2 / 8')
+        ax.grid(True, alpha=0.3)
+    # The knees are separated by a percent of lambda_cr and reached in the first percent
+    # of the span, so the left panel is that corner and the right one everything after.
+    full.set_title('The knee sits at the critical load')
+    full.set_xlim(0.0, 0.03)
+    full.set_ylim(0.0, 1.05)
+    zoom.set_title('Past it: the load a bowed column carries')
+    zoom.set_xlim(0.0, finest.deflections.max() / s.length)
+    zoom.set_ylim(0.9, 1.02)
+    return Figure(
+        paths,
+        'Linearised buckling gives the load; the path says what happens at it. A column '
+        'with a small imperfection in the shape of its first mode carries load stiffly, '
+        'knees over at lambda_cr, and then keeps bowing at almost constant load: the '
+        'critical load is a ceiling on the load, not on the deflection. Smaller '
+        'imperfections give sharper knees, flattening onto lambda_cr as the imperfection '
+        'goes to zero, which is the perfect column\'s bifurcation the path is rounding '
+        'off. The zoom shows what the eigenproblem cannot: past the knee the load rises '
+        'again, along the elastica\'s 1 + Theta^2 / 8, so a bowed column is stable and '
+        'still carrying. The ends are knife edges here, each held at one point, so the '
+        'sections rotate as freely as the elastica assumes.',
+        'post_buckling')
 
 
 def _end_conditions_figure(s: BucklingStudy) -> Figure:
@@ -124,7 +168,18 @@ def _summary(s: BucklingStudy) -> str:
             + '\n'.join(f'  {e.name:<14} {e.K_measured:.3f}  (Euler {e.K_ideal:g})'
                         for e in s.ends)
             + f'\nslenderness law    P_cr ~ L^{s.slope:.2f}   (Euler exponent -2)\n'
-            + f'buckling-load ratios (Euler 0.25 : 4 : 2.05):  {ratios}')
+            + f'buckling-load ratios (Euler 0.25 : 4 : 2.05):  {ratios}\n\n'
+            + 'post-buckling path, lambda/lambda_cr once the column has bowed by w:\n'
+            + '\n'.join(f'  {p.label:<34} {_at_deflection(p, s, 0.01):.3f} (w = 0.01 L)   '
+                        f'{_at_deflection(p, s, 0.05):.3f} (w = 0.05 L)'
+                        for p in s.paths)
+            + '\n  elastica at w = 0.05 L: '
+            + f'{float(elastica_load(0.05 * s.length, s.length)):.3f}')
+
+
+def _at_deflection(path, s: BucklingStudy, fraction: float) -> float:
+    """The load ratio the path carries at a deflection of `fraction` of the span."""
+    return float(np.interp(fraction * s.length, path.deflections, path.load_ratios))
 
 
 def demo(**kwargs) -> DemoResult:
@@ -133,6 +188,7 @@ def demo(**kwargs) -> DemoResult:
     s = run(**kwargs)
     return DemoResult([
         _modes_figure(s),
+        _post_buckling_figure(s),
         _end_conditions_figure(s),
         _laws_figure(s),
         _conditions_figure(s),
@@ -142,5 +198,6 @@ def demo(**kwargs) -> DemoResult:
 # Builds its own columns (several lengths, four end conditions), so it takes no domain.
 DEMO = Demo('buckling', demo, section='Solids & structures',
             smoke_kwargs={'n_length': 12, 'n_across': 4, 'n_modes': 2,
-                          'sweep_lengths': (12.0, 18.0)},
+                          'sweep_lengths': (12.0, 18.0),
+                          'imperfections': (1e-3, 1e-4), 'path_steps': 6},
             show_source=physics)
