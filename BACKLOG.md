@@ -58,13 +58,11 @@ Not open work; recorded so they are not proposed again. Refinement now inserts t
 ## 3. Open-Ended Suggestions & Future Ideas
 
 **Numerics**
-- 💡 **Finish P2: deformed geometry, adaptivity.** The 2D and 3D P2 paths shipped
-  (`QuadraticTriangleElement`, `QuadraticTetrahedralElement`); several pieces are
-  still open. **`Mesh.displaced`** (behind `NodalField.deformed_mesh`) reads the vertex DOFs and drops the
-  edge-midpoint displacements, so a P2 displacement warp draws as its P1 restriction. Field plotting
-  is P2-aware via `fem.plot.tessellation`, but only in 2D: its sub-lattice is a triangle's, so a **3D
-  P2 field also draws as its P1 restriction**; a tet's surface facets would have to be tessellated as
-  quadratic triangles instead. **Adaptive refinement** drives a P2 solve
+- 💡 **Finish P2: deformed geometry, adaptivity.** **`Mesh.displaced`** (behind
+  `NodalField.deformed_mesh`) reads the vertex DOFs and drops the edge-midpoint displacements, so a
+  P2 displacement warp draws as its P1 restriction. A **3D P2 field also draws as its P1
+  restriction**: `fem.plot.tessellation`'s sub-lattice is a triangle's, so a tet's surface facets
+  would have to be tessellated as quadratic triangles instead. **Adaptive refinement** drives a P2 solve
   through either estimator: the recovery one samples the flux per quadrature point and recovers by L2
   projection, and the residual one carries the interior `div(flux)` (from the P2 shape Hessians) and a
   per-side edge jump. Both are for straight P2; a *curved* (isoparametric) element's varying Jacobian
@@ -363,7 +361,7 @@ a continuous per-node field for smooth output, P2 plotting, and the recovery est
 
 1. **Plot-coverage gap + small guards** (§1, §3): finish the safety net now that type hints gate CI.
 2. **Finish the P2 story**: curved-element adaptivity and the 3D residual estimator, so the
-   higher-order path is complete rather than 2D-only. (3D P2 and 2D P2-aware plotting shipped.)
+   higher-order path is complete everywhere.
 3. **Nonlinear transient, then arc-length**, which together unlock the post-buckling snap-through
    story.
 4. **Then the harder numerics**: mixed u-p for incompressibility (P2 is now in place as its
