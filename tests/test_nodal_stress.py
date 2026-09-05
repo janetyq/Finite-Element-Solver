@@ -13,6 +13,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
     QuadraticLineElement,
+    QuadraticTetrahedralElement,
     QuadraticTriangleElement,
 )
 from fem.mesh.structured import box_mesh
@@ -83,6 +84,51 @@ def test_p2_nodal_stress_reaches_a_boundary_extreme_the_element_mean_misses():
     assert np.all(from_elements < exact - 1e-3)
 
 
+def _quadratic_displacement_solution_3d(E=200.0, nu=0.3):
+    """The 3D counterpart: `u = (a x^2 + b y z, 0, 0)` on quadratic tets, whose stress
+    is again linear in position and so carried exactly by the P2 space. The `b` term
+    makes two shear components nonzero, so the off-diagonal recovery is exercised."""
+    a, b = 0.01, 0.02
+    mesh = box_mesh([[0.0, 0.0, 0.0], [2.0, 1.0, 1.0]], [4, 3, 3])
+    space = FunctionSpace(mesh, QuadraticTetrahedralElement, n_components=3)
+    x, y, z = space.node_coords.T
+    u = np.column_stack([a * x**2 + b * y * z, np.zeros_like(x), np.zeros_like(x)]).ravel()
+    form = LinearElasticForm(LinearElasticMaterial(E, nu))
+    solution = ElasticSolution.from_solve(space, u, form)
+
+    mu, lamb = Enu_to_Lame(E, nu)
+
+    def exact_stress(points):
+        px, py, pz = np.asarray(points).T
+        trace = 2 * a * px                      # only e_xx is nonzero
+        stress = np.zeros((len(px), 3, 3))
+        stress[:, 0, 0] = 2 * mu * (2 * a * px) + lamb * trace
+        stress[:, 1, 1] = stress[:, 2, 2] = lamb * trace
+        stress[:, 0, 1] = stress[:, 1, 0] = mu * b * pz
+        stress[:, 0, 2] = stress[:, 2, 0] = mu * b * py
+        return stress
+
+    return solution, exact_stress
+
+
+@pytest.mark.parametrize('method', ['average', 'l2'])
+def test_p2_tet_nodal_stress_is_exact_for_a_linear_stress_field(method):
+    """The recovery path on 3D P2: reading a linear stress at the ten nodes reproduces
+    it at every node of the mesh, surface included."""
+    solution, exact_stress = _quadratic_displacement_solution_3d()
+    nodal = solution.nodal_stress(method=method)
+    np.testing.assert_allclose(nodal, exact_stress(solution.space.node_coords), atol=1e-9)
+
+
+def test_p2_tet_per_element_stress_is_the_centroid_value():
+    """`solution.stress` is the element mean, which for a stress linear within the
+    element is its value at the centroid, on tets as on triangles."""
+    solution, exact_stress = _quadratic_displacement_solution_3d()
+    mesh = solution.mesh
+    centroids = mesh.vertices[mesh.elements].mean(axis=1)
+    np.testing.assert_allclose(solution.stress, exact_stress(centroids), atol=1e-9)
+
+
 @pytest.mark.parametrize('method', ['average', 'l2'])
 def test_p1_nodal_stress_is_unchanged_by_the_form(method):
     """For P1 the stress is constant per element, so evaluating at the nodes and
@@ -112,7 +158,7 @@ def test_a_loaded_solution_recovers_from_its_per_element_tensors(tmp_path):
 
 @pytest.mark.parametrize('element_type', [
     LinearLineElement, LinearTriangleElement, LinearTetrahedralElement,
-    QuadraticLineElement, QuadraticTriangleElement,
+    QuadraticLineElement, QuadraticTriangleElement, QuadraticTetrahedralElement,
 ])
 def test_reference_nodes_are_where_the_basis_is_nodal(element_type):
     """Each shape function is 1 at its own reference node and 0 at the others."""

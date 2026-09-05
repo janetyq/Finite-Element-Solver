@@ -11,6 +11,7 @@ from fem.elements import (
     LinearTetrahedralElement,
     LinearTriangleElement,
     QuadraticLineElement,
+    QuadraticTetrahedralElement,
     QuadraticTriangleElement,
 )
 from fem.quadrature import _RULES, quadrature_rule
@@ -27,6 +28,13 @@ REFERENCE_NODES = {
     QuadraticTriangleElement: [
         [0.0, 0.0], [1.0, 0.0], [0.0, 1.0],   # corners
         [0.5, 0.5], [0.0, 0.5], [0.5, 0.0],   # m12, m02, m01
+    ],
+    # Spelled out rather than read off `EDGE_NODES`, so the ten-node ordering is stated
+    # independently of the element that claims it.
+    QuadraticTetrahedralElement: [
+        [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1],                 # corners
+        [0.5, 0.0, 0.0], [0.5, 0.5, 0.0], [0.0, 0.5, 0.0],          # m01, m12, m02
+        [0.0, 0.0, 0.5], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5],          # m03, m13, m23
     ],
 }
 

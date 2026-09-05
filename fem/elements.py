@@ -15,6 +15,15 @@ single-point (`n_qp == 1`) special case.
 `reference_dim` is the dimension of the element itself (2 for a triangle);
 `spatial_dim` is the dimension it is embedded in. They differ for the boundary facets
 of a 3D mesh, so the Jacobian is not assumed square.
+
+The types are the linear simplices (`LinearLineElement`, `LinearTriangleElement`,
+`LinearTetrahedralElement`), their quadratic counterparts (`QuadraticLineElement`,
+`QuadraticTriangleElement`, `QuadraticTetrahedralElement`), and the curved
+isoparametric pair (`IsoparametricLineElement`, `IsoparametricTriangleElement`), whose
+geometry map is quadratic too. A quadratic element's nodes are its corners followed by
+one per edge; `EDGE_NODES` names which corner pair each of those sits between, and is
+what `fem.space.p2_connectivity` reads to number them against a mesh, so a node ordering
+is stated once, on the element.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -45,6 +54,12 @@ class Element(ABC):
     # is a curved (isoparametric) element, whose Jacobian varies point to point. All the
     # simplices default to affine; a curved element type raises it.
     GEOMETRY_DEGREE: ClassVar[int] = 1
+    # The (corner_i, corner_j) pair each node past the corners sits on the midpoint of,
+    # in node order: `element_nodes[:, n_corners() + k]` is the node on `EDGE_NODES[k]`.
+    # Empty for a linear element, which has no node past its corners; it is what
+    # `fem.space.p2_connectivity` reads to number the edge nodes, so an element type's
+    # node ordering is stated once, here, rather than duplicated in the space.
+    EDGE_NODES: ClassVar[tuple[tuple[int, int], ...]] = ()
 
     @classmethod
     def reference_dim(cls) -> int:
@@ -347,6 +362,7 @@ class QuadraticLineElement(Element):
     N = 3
     SHAPE_DEGREE = 2
     SUB_TYPE = None
+    EDGE_NODES = ((0, 1),)
 
     @classmethod
     def reference_dim(cls) -> int:
@@ -387,6 +403,7 @@ class QuadraticTriangleElement(Element):
     N = 6
     SHAPE_DEGREE = 2
     SUB_TYPE = QuadraticLineElement
+    EDGE_NODES = ((1, 2), (0, 2), (0, 1))
 
     @classmethod
     def reference_dim(cls) -> int:
@@ -443,6 +460,100 @@ class QuadraticTriangleElement(Element):
     def shape_hessians(cls, points: FloatArray) -> FloatArray:
         n_points = len(np.atleast_2d(np.asarray(points, dtype=float)))
         return np.broadcast_to(cls._HESSIANS, (n_points, 6, 2, 2))
+
+
+class QuadraticTetrahedralElement(Element):
+    '''3D quadratic tetrahedron: four corner nodes and six edge-midpoint nodes.
+
+    Nodes are ordered corners-first, then the midpoint of each edge of `EDGE_NODES`:
+
+        0..3   corners
+        4      mid(0, 1)   5   mid(1, 2)   6   mid(0, 2)
+        7      mid(0, 3)   8   mid(1, 3)   9   mid(2, 3)
+
+    the standard ten-node ordering (VTK's `QUADRATIC_TETRA`, gmsh's element type 11), so
+    a mesh written or read in that convention needs no permutation. Corners first lets
+    the affine map read the first four nodes as the simplex corners, and the ordering
+    must match the (element -> global node) map `FunctionSpace` builds, which reads it
+    off `EDGE_NODES`.
+
+    The three edges of a boundary facet are among the six, so a facet's own nodes are the
+    `QuadraticTriangleElement` the space builds for it. The field is quadratic (O(h^3) in
+    L2) while the geometry stays straight-sided.
+    '''
+    N = 10
+    SHAPE_DEGREE = 2
+    SUB_TYPE = QuadraticTriangleElement
+    EDGE_NODES = ((0, 1), (1, 2), (0, 2), (0, 3), (1, 3), (2, 3))
+
+    # Gradient of each barycentric coordinate l_0..l_3 with respect to (xi, eta, zeta).
+    # l_0 = 1 - xi - eta - zeta and l_i = xi_i, so these are constant.
+    _GRAD_L = np.array([[-1.0, -1.0, -1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+
+    @classmethod
+    def reference_dim(cls) -> int:
+        return 3
+
+    @classmethod
+    def reference_nodes(cls) -> FloatArray:
+        corners = np.vstack([np.zeros((1, 3)), np.eye(3)])
+        midpoints = [0.5 * (corners[i] + corners[j]) for i, j in cls.EDGE_NODES]
+        return np.vstack([corners, np.array(midpoints)])
+
+    @classmethod
+    def _barycentric(cls, points: FloatArray) -> FloatArray:
+        '''(n_points, 4) barycentric coordinates of reference `points`.'''
+        P = np.atleast_2d(np.asarray(points, dtype=float))
+        return np.column_stack([1.0 - P.sum(axis=1), P])
+
+    @classmethod
+    def shape_values(cls, points: FloatArray) -> FloatArray:
+        '''(n_points, 10): corner hats `l_i (2 l_i - 1)`, edge hats `4 l_i l_j`.
+
+        The standard P2 Lagrange basis on a simplex, one dimension up from
+        `QuadraticTriangleElement`'s.
+        '''
+        L = cls._barycentric(points)
+        corners = L * (2.0 * L - 1.0)
+        edges = np.stack([4.0 * L[:, i] * L[:, j] for i, j in cls.EDGE_NODES], axis=1)
+        return np.concatenate([corners, edges], axis=1)
+
+    @classmethod
+    def shape_gradients(cls, points: FloatArray) -> FloatArray:
+        '''(n_points, 10, 3) reference-coordinate shape gradients.
+
+        Differentiating the hats through the constant `grad l`: the corner hat gives
+        `(4 l_i - 1) grad l_i` and the edge hat `4 (l_i grad l_j + l_j grad l_i)`.
+        '''
+        L = cls._barycentric(points)
+        grad_l = cls._GRAD_L
+        corners = (4.0 * L - 1.0)[:, :, None] * grad_l[None, :, :]
+        edges = np.stack([
+            4.0 * (L[:, i, None] * grad_l[j] + L[:, j, None] * grad_l[i])
+            for i, j in cls.EDGE_NODES
+        ], axis=1)
+        return np.concatenate([corners, edges], axis=1)
+
+    @classmethod
+    def _hessians(cls) -> FloatArray:
+        '''(10, 3, 3) the constant second derivatives of the quadratic hats.
+
+        `grad l` is constant, so differentiating `shape_gradients` once more leaves no
+        `l` behind: the corner hat's Hessian is `4 grad l_i (x) grad l_i` and the edge
+        hat's `4 (grad l_i (x) grad l_j + grad l_j (x) grad l_i)`, each symmetric.
+        '''
+        grad_l = cls._GRAD_L
+        corners = 4.0 * np.einsum('ia,ib->iab', grad_l, grad_l)
+        edges = np.stack([
+            4.0 * (np.outer(grad_l[i], grad_l[j]) + np.outer(grad_l[j], grad_l[i]))
+            for i, j in cls.EDGE_NODES
+        ])
+        return np.concatenate([corners, edges])
+
+    @classmethod
+    def shape_hessians(cls, points: FloatArray) -> FloatArray:
+        n_points = len(np.atleast_2d(np.asarray(points, dtype=float)))
+        return np.broadcast_to(cls._hessians(), (n_points, cls.N, 3, 3))
 
 
 class IsoparametricLineElement(QuadraticLineElement):

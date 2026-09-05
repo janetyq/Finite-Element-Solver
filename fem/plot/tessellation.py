@@ -262,12 +262,17 @@ def panel_view(
               and mesh.boundary_curves is not None)
     per_node = (space is not None and values is not None
                 and values.shape[0] == space.n_nodes)
-    tessellates = space is not None and space.element_type.SHAPE_DEGREE > 1 and per_node
+    # The sub-lattice is a triangle's, so only a 2D element tessellates. A 3D P2 field
+    # draws as its P1 restriction instead: the node set is vertices-first, so the
+    # leading rows of a per-node array are the vertex values.
+    tessellates = (space is not None and space.element_type.SHAPE_DEGREE > 1
+                   and space.element_type.reference_dim() == 2 and per_node)
 
     if space is not None and (tessellates or curved):
         nodes = space.node_coords if warp is None else space.node_coords + np.asarray(warp)
     else:
-        nodes = mesh.vertices if warp is None else mesh.vertices + np.asarray(warp)
+        nodes = (mesh.vertices if warp is None
+                 else mesh.vertices + np.asarray(warp)[:mesh.n_vertices])
 
     boundary = None
     if tessellates:
@@ -278,6 +283,8 @@ def panel_view(
     else:
         points = nodes
         triangles = np.asarray(mesh.boundary if mesh.spatial_dim == 3 else mesh.elements)
+        if per_node and values is not None and len(values) != len(points):
+            values = values[:len(points)]
     if mesh.spatial_dim == 2:
         if curved and space is not None:
             # Through the (possibly warped) element map, so the outline bends with it.

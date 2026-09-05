@@ -291,7 +291,7 @@ how they fit; this is the menu.
 | **Conditions** | where | a region of the domain: `everywhere`, `on_plane`, `in_box`, or `on_tag` for an outline loop, combined with `union` and `intersect`; `at_indices` names nodes directly and does not survive a remesh | `fem/regions.py` |
 | | what | boundary conditions `Dirichlet`, `Neumann`, `Robin` on a region, a volume `Source`, `PointLoad`s, and the `Initial(u0, v0=)` state a solve starts from, collected into one `Conditions(...)`; with no `Initial` the solve starts at rest | `fem/conditions.py`, `fem/boundary.py`, `fem/loads.py` |
 | | value | each takes a constant, a callable of position, or a `TimeDependent` callable of position and time | `fem/regions.py` |
-| **Element** | | the element type sets the shape functions (linear or quadratic), whether the geometry is straight-sided or curved, and the quadrature degree: `LinearTriangleElement`, `LinearTetrahedralElement`, `QuadraticTriangleElement`, or `IsoparametricTriangleElement`; the default is the linear element of the mesh's dimension | `fem/elements.py`, `fem/quadrature.py` |
+| **Element** | | the element type sets the shape functions (linear or quadratic), whether the geometry is straight-sided or curved, and the quadrature degree: `LinearTriangleElement`, `LinearTetrahedralElement`, `QuadraticTriangleElement`, `QuadraticTetrahedralElement`, or `IsoparametricTriangleElement`; the default is the linear element of the mesh's dimension | `fem/elements.py`, `fem/quadrature.py` |
 | **Problem** | | `equation.problem(mesh, conditions, element_type=)` discretizes the equation on the mesh and resolves the conditions against it | `fem/problem.py`, `fem/space.py` |
 | **Solve** | which solve | a steady solve is `problem.solve()`; a solve in time is `ThetaMethod(dt=, steps=)` or `NewmarkMethod(dt=, steps=)` (with `RayleighDamping`) `.solve(problem)`; an eigen-solve is `BucklingAnalysis` or `ModalAnalysis` `.solve(problem)`; any takes `initial=` to start from an `Initial` other than the conditions' own | `fem/algebra/integrators.py`, `fem/analysis/buckling.py`, `fem/analysis/modal.py` |
 | | strategy | how the problem is iterated, via `strategy=`: `LinearSolve`, or `NewtonSolve` with a `BacktrackingLineSearch` and `TangentRegularization`; by default, `LinearSolve` for a constant tangent and `NewtonSolve` otherwise | `fem/algebra/solve.py` |
@@ -360,8 +360,8 @@ uv run python examples/make_readme_figures.py   # rewrites the figures in images
 
 ## Methods
 
-- Galerkin finite element method: P1 (linear) basis on triangles and tetrahedra, P2
-  (quadratic) and curved isoparametric triangles, over a Gaussian quadrature layer
+- Galerkin finite element method: P1 (linear) and P2 (quadratic) bases on triangles and
+  tetrahedra, plus curved isoparametric triangles, over a Gaussian quadrature layer
 - Boundary conditions: Dirichlet, Neumann, Robin, and per-component (roller) constraints
 - PDEs: L2 projection, Poisson, variable-coefficient diffusion, heat, wave, and two
   elastic models: `LinearElastic` (infinitesimal strain, Navier-Cauchy) and
@@ -395,7 +395,7 @@ uv run python examples/make_readme_figures.py   # rewrites the figures in images
 - Standard formats: STL and OBJ meshes, Gmsh `.msh` import, VTK/ParaView `.vtu` export
 - Standard benchmark suite: NAFEMS, Cook's membrane, plate-with-hole, L-shaped
   singularity, Euler columns
-- Finish the core: 3D P2 with P2-aware plotting and adaptivity, mixed (u-p) for
+- Finish the core: P2-aware plotting in 3D and P2 adaptivity, mixed (u-p) for
   near-incompressibility, time-varying loads, two-grid preconditioner
 
 ## References

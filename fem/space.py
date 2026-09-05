@@ -199,18 +199,20 @@ class NodeSet:
 
 
 def p2_connectivity(
-    mesh: Mesh, project_boundary: bool = False,
+    mesh: Mesh, element_type: type[Element], project_boundary: bool = False,
 ) -> tuple[Elements, Vertices, Elements]:
     '''Build the P2 node set for `mesh`: (element_nodes, node_coords, boundary_nodes).
 
     Nodes are the mesh vertices (indices unchanged) followed by one node per edge,
-    placed at the edge midpoint: node `n_vertices + i` for `mesh.edges[i]`. An
-    element's six nodes are its three corners then its three edge nodes, ordered so
-    the edge opposite corner k comes k-th, matching `QuadraticTriangleElement`'s hats.
-    A boundary facet gains its own edge's node as a third entry.
+    placed at the edge midpoint: node `n_vertices + i` for `mesh.edges[i]`. An element's
+    nodes are its corners then one per edge, in the order `element_type.EDGE_NODES`
+    names them, so the node ordering is the element's statement and this only resolves
+    it against the mesh. The same rule builds each boundary facet's nodes from
+    `element_type.SUB_TYPE`, which is why one function serves a triangle (three edges,
+    facets of one) and a tet (six edges, facets of three) alike.
 
-    With `project_boundary` and a mesh carrying `boundary_curves`, a boundary edge's
-    midside node is projected onto its curve instead of the chord midpoint, so an
+    With `project_boundary` and a mesh carrying `boundary_curves`, a boundary facet's
+    midside nodes are projected onto its curve instead of the chord midpoint, so an
     isoparametric element's boundary edge bends to follow the true curve. Interior edge
     nodes stay at chord midpoints (curved boundary, straight interior). A straight P2
     element passes `project_boundary=False`, so its node placement is unchanged.
@@ -226,27 +228,32 @@ def p2_connectivity(
         pairs = np.sort(pairs, axis=1)
         return np.searchsorted(edge_keys, pairs[:, 0] * n_vertices + pairs[:, 1])
 
-    elements = np.asarray(mesh.elements)
-    element_nodes = np.empty((len(elements), 6), dtype=int)
-    element_nodes[:, :3] = elements
-    # The edge opposite corner k comes k-th: (1, 2), (0, 2), (0, 1).
-    for k, (i, j) in enumerate([(1, 2), (0, 2), (0, 1)]):
-        element_nodes[:, 3 + k] = n_vertices + edge_index(elements[:, [i, j]])
+    def nodes_of(cells: Elements, cell_type: type[Element]) -> tuple[Elements, IntArray]:
+        '''`cell_type`'s nodes for each row of `cells`, and the edge index of each
+        midside node: the corner columns unchanged, then one edge node per
+        `cell_type.EDGE_NODES` entry.'''
+        cells = np.asarray(cells)
+        n_corners = cell_type.n_corners()
+        nodes = np.empty((len(cells), cell_type.N), dtype=int)
+        nodes[:, :n_corners] = cells
+        cell_edges = np.stack(
+            [edge_index(cells[:, [i, j]]) for i, j in cell_type.EDGE_NODES], axis=1)
+        nodes[:, n_corners:] = n_vertices + cell_edges
+        return nodes, cell_edges
 
-    boundary = np.asarray(mesh.boundary)
-    boundary_edges = edge_index(boundary)
+    element_nodes, _ = nodes_of(mesh.elements, element_type)
+    boundary_type = element_type.SUB_TYPE
+    assert boundary_type is not None
+    boundary_nodes, boundary_edges = nodes_of(mesh.boundary, boundary_type)
+
     edge_midpoints = mesh.vertices[edges].mean(axis=1)
     if project_boundary and mesh.boundary_curves is not None:
-        # Each curve projects the midpoints of all its facets in one call.
+        # Each curve projects the midpoints of all its facets' edges in one call.
         curves = list(mesh.boundary_curves)
         for curve in {id(c): c for c in curves if c is not None}.values():
-            on_curve = boundary_edges[[c is curve for c in curves]]
+            on_curve = np.unique(boundary_edges[[c is curve for c in curves]])
             edge_midpoints[on_curve] = curve.project(edge_midpoints[on_curve])
     node_coords = np.vstack([mesh.vertices, edge_midpoints])
-
-    boundary_nodes = np.empty((len(boundary), 3), dtype=int)
-    boundary_nodes[:, :2] = boundary
-    boundary_nodes[:, 2] = n_vertices + boundary_edges
 
     return element_nodes, node_coords, boundary_nodes
 
@@ -310,7 +317,8 @@ class FunctionSpace:
         # P2 element keeps them at chord midpoints, so the two switches (node positions
         # and the Jacobian) always move together.
         return p2_connectivity(
-            self.mesh, project_boundary=self.element_type.GEOMETRY_DEGREE > 1)
+            self.mesh, self.element_type,
+            project_boundary=self.element_type.GEOMETRY_DEGREE > 1)
 
     @property
     def element_nodes(self) -> Elements:

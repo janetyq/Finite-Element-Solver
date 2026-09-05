@@ -32,7 +32,8 @@ from mms import (
 
 from fem.boundary import Dirichlet
 from fem.conditions import Conditions
-from fem.elements import QuadraticTriangleElement
+from fem.elements import QuadraticTetrahedralElement, QuadraticTriangleElement
+from fem.mesh.structured import box_mesh
 from fem.physics.equations import LinearElastic, Poisson
 from fem.physics.materials import Enu_to_Lame
 from fem.regions import everywhere
@@ -126,6 +127,38 @@ def elastic_p2_h1():
 
 
 @cache
+def _poisson_p2_3d_solves():
+    # h = 1/4, 1/6, 1/8 on the regular box mesh; 4401 DOFs at the finest, a fraction of
+    # a second per solve. Coarser still (n = 3) is pre-asymptotic and reads 2.6.
+    return poisson_p2_convergence((5, 7, 9), dim=3)
+
+
+@cache
+def poisson_p2_3d():
+    return ConvergenceStudy.from_solves(_poisson_p2_3d_solves())
+
+
+@cache
+def poisson_p2_3d_h1():
+    return _h1_study(_poisson_p2_3d_solves())
+
+
+@cache
+def _elastic_p2_3d_solves():
+    return elastic_p2_convergence((5, 6, 7), dim=3)
+
+
+@cache
+def elastic_p2_3d():
+    return ConvergenceStudy.from_solves(_elastic_p2_3d_solves())
+
+
+@cache
+def elastic_p2_3d_h1():
+    return _h1_study(_elastic_p2_3d_solves())
+
+
+@cache
 def thermoelastic_p1():
     return ConvergenceStudy.from_solves(thermoelastic_convergence((9, 17, 33)))
 
@@ -204,6 +237,21 @@ STUDIES = [
     # solve on tets, not only triangles. On the regular mesh it is in a tighter band
     # from a coarse sequence; observed orders 1.93, 1.98.
     Study('poisson_3d', poisson_3d, 2, (1.8, 2.2), floor=5e-3),
+    # The scalar P2 rate in 3D, on quadratic tets: the ten-node shape functions, the
+    # six-edge connectivity, and the degree-5 tet rule the P2 mass matrix needs. A wrong
+    # edge in `EDGE_NODES` or an unpinned boundary edge node does not reach the cubic
+    # rate. Observed 3.22, 3.13; the floor is well under what P1 reaches at h = 1/8
+    # (~5e-3 by the study above at h = 1/12).
+    Study('poisson_p2_3d', poisson_p2_3d, 3, (2.7, 3.3), floor=3e-4),
+    # Its gradient error, O(h^2), read off grad_phi rather than the assembled K, so a
+    # wrong 3D P2 shape gradient shows here while the L2 rate can still look right.
+    # Observed 1.94, 1.97.
+    Study('poisson_p2_3d_h1', poisson_p2_3d_h1, 2, (1.8, 2.2)),
+    # The vector P2 path in 3D: three DOFs on every one of the ten nodes and the coupled
+    # 3D elastic operator, at the same cubic rate. Observed 3.23, 3.15.
+    Study('elastic_p2_3d', elastic_p2_3d, 3, (2.7, 3.3)),
+    # Its strain error, O(h^2). Observed 1.93, 1.95.
+    Study('elastic_p2_3d_h1', elastic_p2_3d_h1, 2, (1.8, 2.2)),
     # All-natural boundary: nonzero Neumann flux on three edges and a Robin condition on
     # the fourth, so the boundary-load quadrature and the Robin boundary-mass term enter
     # a rate for the first time. A boundary integral wrong by a factor breaks the O(h^2).
@@ -336,6 +384,33 @@ def test_p2_reproduces_a_linear_displacement_and_its_constant_stress(make_unit_s
     mu, lamb = Enu_to_Lame(E, nu)
     expected_stress = np.diag([(2 * mu + lamb) * a, lamb * a, lamb * a])   # plane strain
     np.testing.assert_allclose(solution.stress, np.broadcast_to(expected_stress, solution.stress.shape), atol=1e-8)
+
+
+def test_p2_tets_reproduce_a_linear_displacement_and_its_constant_stress():
+    """The constant-stress patch test on 3D P2: a linear displacement imposed on the
+    surface of an unloaded block is reproduced through the interior, edge nodes
+    included, and the recovered stress is the single constant value that strain implies.
+    The ten-node connectivity has to be consistent across shared faces for this to hold,
+    since a mismatched edge node splits the field at an element boundary."""
+    E, nu, a = 200.0, 0.3, 0.01
+    mesh = box_mesh(corners=[[0, 0, 0], [1, 1, 1]], resolution=(4, 4, 4))
+    bc = Conditions(Dirichlet(everywhere(), lambda p: [a * p[:, 0], 0.0, 0.0]))
+    problem, solution = solved(LinearElastic(E=E, nu=nu), mesh, bc,
+                               element_type=QuadraticTetrahedralElement)
+
+    expected_u = np.zeros((problem.space.n_nodes, 3))
+    expected_u[:, 0] = a * problem.space.node_coords[:, 0]
+    np.testing.assert_allclose(solution.nodal_values, expected_u, atol=1e-10)
+
+    mu, lamb = Enu_to_Lame(E, nu)
+    expected_stress = np.diag([(2 * mu + lamb) * a, lamb * a, lamb * a])
+    np.testing.assert_allclose(solution.stress,
+                               np.broadcast_to(expected_stress, solution.stress.shape), atol=1e-8)
+    # The nodal recovery of a constant stress is that constant at every node, boundary
+    # included: the P2 recovery path works on tets too.
+    np.testing.assert_allclose(solution.nodal_stress(),
+                               np.broadcast_to(expected_stress, (problem.space.n_nodes, 3, 3)),
+                               atol=1e-8)
 
 
 # -- the load: sampled at the quadrature points, or read at the nodes ---------
