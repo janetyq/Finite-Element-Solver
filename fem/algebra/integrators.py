@@ -128,10 +128,19 @@ def _seeded_at(problem: Problem, predictor: DofVector, t: float) -> DofVector:
 class ThetaMethod:
     '''First-order integrator for M u' + r_int(u) = b.
 
-    θ = ½ is Crank–Nicolson (second-order accurate, the default); θ = 1 is backward
-    Euler. The step is
-    M (u_{n+1} − u_n)/dt + θ r_int(u_{n+1}) + (1−θ) r_int(u_n) = (1−θ) b_n + θ b_{n+1}.
-    With a constant tangent that is (M + θ dt K) u_{n+1} = (M − (1−θ) dt K) u_n +
+    θ is how much the step trusts the state at its end over the one at its start: the
+    physics (and load) are evaluated θ at the new state and 1−θ at the old,
+
+        M (u_{n+1} − u_n)/dt + θ r_int(u_{n+1}) + (1−θ) r_int(u_n) = (1−θ) b_n + θ b_{n+1}.
+
+    θ = ½ (the default) is Crank–Nicolson: average the two ends, second-order accurate
+    (error O(dt²)). θ = 1 is backward Euler: enforce the physics entirely at the new
+    state, only first-order (O(dt)) but strongly damping whatever the step cannot
+    resolve, the robust choice for rough data. Both are stable at any dt; below ½
+    stability depends on dt (θ = 0 is forward Euler), so ½ and 1 are the values worth
+    using.
+
+    With a constant tangent the step is (M + θ dt K) u_{n+1} = (M − (1−θ) dt K) u_n +
     dt ((1−θ) b_n + θ b_{n+1}), whose LHS is factored once and reused; with a
     state-dependent tangent it is solved for u_{n+1} by Newton, tangent M/dt + θ K_T(u),
     seeded from the previous step. A time-dependent Dirichlet value is prescribed at
@@ -185,7 +194,8 @@ class ThetaMethod:
         dt, theta = self.dt, self.theta
 
         def step(u: DofVector, b: DofVector, b_next: DofVector, t_next: float) -> DofVector:
-            # Everything the old state contributes, evaluated once for the whole step.
+            # The old state's 1−θ share of the physics and load: known before the
+            # iteration starts, so it is evaluated once for the whole step.
             known = (M @ u / dt - (1 - theta) * problem.internal_residual(u)
                      + (1 - theta) * b + theta * b_next)
 
