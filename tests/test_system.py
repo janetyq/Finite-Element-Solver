@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 import scipy.sparse as sp
 
+from fem.algebra.backends import det_sign
 from fem.algebra.system import DiscreteSystem, Partition
 
 
@@ -56,6 +57,17 @@ def test_factorization_is_reused_across_right_hand_sides():
         b_free = b[free] - A[np.ix_(free, fixed)] @ fixed_values
         expected_free = np.linalg.solve(A[np.ix_(free, free)], b_free)
         np.testing.assert_allclose(x[free], expected_free)
+
+
+def test_factorization_is_readable_without_a_solve():
+    """The free-free factorization is exposed, so what can be read off one directly (the
+    determinant's sign, which a path-following strategy watches) costs no solve."""
+    A = _spd(8, seed=5)
+    free = np.arange(2, 8)
+    fixed = np.array([0, 1])
+    system = DiscreteSystem(A, Partition(free, fixed, len(A)))
+
+    assert det_sign(system.factorization) == int(np.sign(np.linalg.det(A[np.ix_(free, free)])))
 
 
 def test_elimination_preserves_symmetry():

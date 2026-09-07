@@ -39,7 +39,11 @@ from fem.algebra.solve import (
     TangentRegularization,
     default_strategy,
 )
-from fem.algebra.stepping import QuasiStaticStepping, SteppingDivergence
+from fem.algebra.stepping import (
+    ArcLengthStepping,
+    QuasiStaticStepping,
+    SteppingDivergence,
+)
 from fem.analysis.adaptivity import AdaptiveRefinement
 from fem.analysis.buckling import BucklingAnalysis
 from fem.analysis.design import (
@@ -125,6 +129,7 @@ from fem.post.solution import (
     ElasticSolution,
     FieldSolution,
     ModalSolution,
+    PathSolution,
     Solution,
     TransientSolution,
     WaveSolution,
@@ -248,6 +253,7 @@ __all__ = [
     "ThetaMethod",
     "NewmarkMethod",
     "QuasiStaticStepping",
+    "ArcLengthStepping",
     "SteppingDivergence",
     "NodalField",
     "Solution",
@@ -258,6 +264,7 @@ __all__ = [
     "ModalSolution",
     "TransientSolution",
     "WaveSolution",
+    "PathSolution",
     "BucklingAnalysis",
     "ModalAnalysis",
     "PrestressedModalAnalysis",

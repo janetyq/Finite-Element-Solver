@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from fem.algebra.backends import Backend, DirectBackend
+from fem.algebra.backends import Backend, DirectBackend, Factorization
 from fem.typing import DofIndices, DofVector, FloatArray, Operator
 
 
@@ -88,6 +88,12 @@ class DiscreteSystem:
         backend = backend if backend is not None else DirectBackend()
         free_free, self._free_fixed = partition.eliminate(A)
         self._factorization = backend.prepare(free_free)
+
+    @property
+    def factorization(self) -> Factorization:
+        '''The backend's factorization of the free-free block, for what can be read off
+        one without a solve (`det_sign`).'''
+        return self._factorization
 
     def solve(self, b: DofVector, fixed_values: FloatArray) -> DofVector:
         '''Solve for x given a right-hand side b and the values prescribed at the fixed

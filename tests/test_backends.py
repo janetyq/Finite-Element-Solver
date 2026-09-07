@@ -9,7 +9,7 @@ import pytest
 from helpers import cantilever_bc, pinned
 from mms import ConvergenceStudy, solve_poisson_mms
 
-from fem.algebra.backends import DirectBackend, IterativeBackend, MinresBackend
+from fem.algebra.backends import DirectBackend, IterativeBackend, MinresBackend, det_sign
 from fem.algebra.system import DiscreteSystem, Partition
 from fem.boundary import Dirichlet, Neumann
 from fem.conditions import Conditions, Initial
@@ -236,3 +236,45 @@ def test_minres_non_convergence_raises():
     system = DiscreteSystem(A, Partition(free, np.array([], dtype=int), A.shape[0]), backend)
     with pytest.raises(RuntimeError, match="MINRES failed"):
         system.solve_homogeneous(np.ones(40))
+
+
+# -- det_sign: the determinant's sign, read off a sparse LU ----------------------
+
+
+def _sign_of(A, backend=None):
+    """`det_sign` of the whole of `A`, factored through `backend` (direct by default)."""
+    free = np.arange(A.shape[0])
+    system = DiscreteSystem(A, Partition(free, np.array([], dtype=int), A.shape[0]),
+                            backend if backend is not None else DirectBackend())
+    return det_sign(system.factorization)
+
+
+def test_det_sign_is_positive_for_a_positive_definite_matrix():
+    """Every eigenvalue positive, so the determinant is: the stable branch of a path."""
+    assert _sign_of(_spd(15, seed=11)) == 1
+
+
+@pytest.mark.parametrize('n_negative', [1, 2, 3])
+def test_det_sign_follows_the_parity_of_the_negative_eigenvalues(n_negative):
+    """The sign is (-1)^(number of negative eigenvalues), which is what makes a flip
+    between two states a bracket around an odd number of crossings."""
+    rng = np.random.default_rng(4)
+    Q, _ = np.linalg.qr(rng.normal(size=(12, 12)))
+    eigenvalues = np.linspace(1.0, 4.0, 12)
+    eigenvalues[:n_negative] *= -1.0
+    A = (Q * eigenvalues) @ Q.T
+    assert _sign_of(A) == (-1) ** n_negative
+    assert _sign_of(A) == int(np.sign(np.linalg.det(A)))
+
+
+def test_a_singular_block_never_reaches_det_sign():
+    """Singularity surfaces at factorization time: `splu` refuses the matrix, so the
+    determinant is never reported as a sign it does not have."""
+    with pytest.raises(RuntimeError, match='singular'):
+        _sign_of(np.diag([1.0, 2.0, 0.0, 3.0]))
+
+
+def test_det_sign_is_unknown_for_an_iterative_factorization():
+    """AMG-CG forms no LU, so there is no determinant to read: None, not a guess."""
+    A = _spd(20, seed=12)
+    assert _sign_of(A, IterativeBackend()) is None
